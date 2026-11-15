@@ -18,12 +18,15 @@ jobs:
           distribution: temurin
           java-version: '17'
       - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
       - run: sdkmanager "platforms;android-${ANDROID_COMPILE_SDK}" "build-tools;${ANDROID_BUILD_TOOLS}"
       - uses: gradle/actions/setup-gradle@v4
         with:
           gradle-version: '8.9'
       - name: Assemble original HTML and build APK
         run: |
+          mkdir -p android/app/src/main/assets
           cat site-source/part-{01..13}.txt > android/app/src/main/assets/index.html
           gradle -p android assembleDebug
       - uses: actions/upload-artifact@v4
