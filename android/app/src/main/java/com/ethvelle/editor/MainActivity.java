@@ -35,7 +35,9 @@ public class MainActivity extends Activity {
             try { startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
             catch (Exception e) { Toast.makeText(this, "Download link could not be opened", Toast.LENGTH_SHORT).show(); }
         });
-        web.loadUrl("https://uttamdas5830-creator.github.io/ethvelle-editor/");
+
+        // Load the complete editor bundled into this APK, so the editor shell works offline.
+        web.loadUrl("file:///android_asset/index.html");
     }
     @Override protected void onActivityResult(int request, int result, Intent data) {
         super.onActivityResult(request, result, data);
