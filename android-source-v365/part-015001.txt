@@ -1,0 +1,1000 @@
+    // bug. FIX: there is no flat window anymore. Influence now falls off continuously (a
+    // smooth cosine ease) from full strength at the single instant dist===0 down to zero at
+    // the window edge, so the keyframe's pose is only ever fully hit for an instant, not held
+    // — the rig keeps moving through it instead of pausing on it.
+    const WINDOW = 0.36; // seconds of influence on each side of a keyframe (same reach as before)
+
+    // Returns null when tSecAbsolute is further than WINDOW from kf.t (this keyframe has no
+    // influence here) — otherwise blends basePose toward kf.pose, strongest exactly at kf.t.
+    function holdAndBlend(kf, basePose){
+      const dist = Math.abs(tSecAbsolute - kf.t);
+      if(dist >= WINDOW) return null; // far enough away — this keyframe has no say here
+      const t = dist / WINDOW; // 0 at the key, 1 at the edge of influence
+      const weight = 0.5 * (1 + Math.cos(Math.PI * t)); // eases 1 -> 0, zero slope at both ends
+      const blended = {};
+      const keys = new Set([...Object.keys(kf.pose), ...Object.keys(basePose)]);
+      keys.forEach(k=>{
+        const base = basePose[k] ?? 0;
+        blended[k] = lerp(base, kf.pose[k] ?? base, weight);
+      });
+      return { ...basePose, ...blended };
+    }
+
+    if(tSecAbsolute <= kfs[0].t){
+      pose = holdAndBlend(kfs[0], pose) || pose;
+    } else if(tSecAbsolute >= kfs[kfs.length-1].t){
+      pose = holdAndBlend(kfs[kfs.length-1], pose) || pose;
+    } else {
+      let i=0;
+      while(i < kfs.length-1 && tSecAbsolute > kfs[i+1].t) i++;
+      const a = kfs[i], b = kfs[i+1];
+      // Let whichever keyframe is CLOSER to this instant hold/blend first (so right at the
+      // midpoint between two evenly-spaced keyframes, influence hands off cleanly from one
+      // to the other rather than favoring whichever happens to come first in time). If the
+      // closer one has no influence here (this instant is further than 2*HOLD from both),
+      // fall through to the farther one — covers the case where the keyframes are close
+      // enough together that only one of the two hold windows actually reaches this instant.
+      const distA = Math.abs(tSecAbsolute - a.t), distB = Math.abs(tSecAbsolute - b.t);
+      const near = distA <= distB ? a : b, far = distA <= distB ? b : a;
+      pose = holdAndBlend(near, pose) || holdAndBlend(far, pose) || pose;
+    }
+  }
+  pose = completeNaturalJointPose(pose, loopT, clip.animKey);
+  return pose;
+}
+
+// Evaluates the model Transform (size / horizontal & vertical position / rotation) at an
+// absolute timeline time, by interpolating between whichever of the covering clip's
+// keyframes carry a `transform` snapshot (every keyframe made via toggleKeyframeAtPlayhead
+// captures one automatically alongside its bone pose). This is what makes moving/resizing/
+// rotating the character between two keyframes actually animate — e.g. a keyframe at 1s
+// with horizontal position 10 and another at 3s with horizontal position 40 makes the
+// character glide from 10 to 40 across that span, exactly like the bone-pose keyframes
+// already did above. Unlike bone pose, Transform has no underlying preset animation to
+// blend back into when you move away from a single keyframe, so this simply holds at
+// whichever keyframe is nearest outside the keyframed range (before the first / after the
+// last / with only one keyframe total) and linearly interpolates in between. Returns null
+// when the covering clip has no transform-keyframes at all, so projects/clips that only use
+// bone-pose keyframes keep the model's Transform completely untouched, exactly as before.
+// Same optional (clip, segments) override as poseAtClipTime — defaults to the active
+// character when omitted.
+function transformAtClipTime(tSecAbsolute, clipOverride, segmentsOverride){
+  const useClip = clipOverride !== undefined ? clipOverride : activeClip;
+  const useSegments = segmentsOverride !== undefined ? segmentsOverride : splitStickmanSegments;
+  if(!useClip) return null;
+  const hit = stickmanClipAt(tSecAbsolute, useClip, useSegments);
+  if(!hit) return null;
+  const clip = hit.clip;
+  const kfs = clip.keyframes.filter(kf=>kf.transform).sort((a,b)=>a.t-b.t);
+  if(!kfs.length) return null;
+  if(kfs.length === 1) return { ...kfs[0].transform };
+  if(tSecAbsolute <= kfs[0].t) return { ...kfs[0].transform };
+  if(tSecAbsolute >= kfs[kfs.length-1].t) return { ...kfs[kfs.length-1].transform };
+  let i=0;
+  while(i < kfs.length-1 && tSecAbsolute > kfs[i+1].t) i++;
+  const a = kfs[i], b = kfs[i+1];
+  const span = (b.t - a.t) || 1;
+  const localT = (tSecAbsolute - a.t)/span;
+  const keys = new Set([...Object.keys(a.transform), ...Object.keys(b.transform)]);
+  const blended = {};
+  keys.forEach(k=>{
+    const av = a.transform[k], bv = b.transform[k];
+    if(typeof av==='number' && typeof bv==='number'){
+      // rotation needs shortest-path angular interpolation (350deg -> 10deg should travel
+      // 20deg through 360/0, not 340deg the long way around); every other numeric transform
+      // field (scale/offsetX/offsetY) is a plain linear lerp.
+      blended[k] = (k==='rotation') ? lerpAngleDegrees(av, bv, localT) : lerp(av, bv, localT);
+    } else {
+      blended[k] = bv;
+    }
+  });
+  return blended;
+}
+// Applies an (interpolated) transform snapshot onto a live, mutable modelTransform object —
+// the same way applyPoseToBones overwrites bones[k].angle every frame from baseAngles+pose.
+// Defaults to the shared modelTransform (the active character) when called with no second
+// argument, exactly as before — pass an explicit target to update a DIFFERENT character's
+// own modelTransform instead (see animateAllCharacters).
+// v339: universal clip tracking. When an animation clip follows another clip, the tracking
+// pass (ethvelleApplyCharacterTracking) adds a delta on top of the authored transform and
+// records it on the character. Anything that SAVES the live transform back into rest pose or
+// a keyframe must save the authored value, not the tracked one, or the delta would be baked
+// in and then applied a second time on the next frame.
+function ethvelleUntrackedModelTransform(ch){
+  const mt = (ch && ch.modelTransform) || modelTransform;
+  const out = { ...mt };
+  const d = ch && ch.__evTrackDelta;
+  if(d){
+    out.scale = (Number(mt.scale)||1) / Math.max(.0001, Number(d.ds)||1);
+    out.offsetX = (Number(mt.offsetX)||0) - (Number(d.dx)||0);
+    out.offsetY = (Number(mt.offsetY)||0) - (Number(d.dy)||0);
+    out.rotation = (Number(mt.rotation)||0) - (Number(d.dr)||0);
+  }
+  return out;
+}
+function applyTransformToModel(transform, target){
+  if(!transform) return;
+  const mt = target !== undefined ? target : modelTransform;
+  if(transform.scale !== undefined) mt.scale = transform.scale;
+  if(transform.offsetX !== undefined) mt.offsetX = transform.offsetX;
+  if(transform.offsetY !== undefined) mt.offsetY = transform.offsetY;
+  if(transform.rotation !== undefined) mt.rotation = transform.rotation;
+}
+
+// ---------------- Overlay media compositing (video/image clips actually showing on stage) ----------------
+// BUGFIX (added clips didn't show on the background): video/image overlay clips previously
+// only ever rendered into the timeline's own thumbnail strip — nothing composited their
+// actual picture onto the live canvas stage, and nothing composited them into the exported
+// video either, so a clip could be added, trimmed, and reordered on the timeline while the
+// stage behind the stickman never showed anything for it. This keeps a real DOM <video>/<img>
+// element per overlay clip that's active "right now" (tSecAbsolute falls inside its
+// [trimStart, trimEnd) span) inside #overlayMediaLayer, sitting between the Background image
+// and the stickman canvas exactly like the timeline's own row order describes. Elements are
+// created once per overlay id and reused across frames (never recreated every tick) so video
+// playback stays smooth instead of restarting from frame 0 on every render.
+const overlayMediaEls = {}; // ov.id -> <video>|<img>|<div> stage element
+const overlayChromaCanvases = {}; // keyed video overlays -> pixel-processed transparent canvas
+// The compositor's z-order only changes when the active overlay set/order changes.
+// Avoid appendChild() on already-positioned nodes on every frame: that creates childList
+// mutations, wakes several MutationObservers, and caused visible horizontal timeline lag.
+let overlayMediaOrderKey = '';
+/* FIX (2nd clip / 2nd half of a split stutters): upcoming video clips are pre-loaded up to
+   twenty timeline seconds ahead in hidden, attached, paused elements at their exact source
+   starts. At a boundary the pending decoder is adopted instead of discarded; a short clock
+   gate prevents the playhead from running ahead while its first frame is being decoded. */
+const overlayWarmEls = {}; // String(ov.id) -> hidden, attached and paused <video> pre-loaded for an upcoming clip
+const EV_WARM_AHEAD_SEC = 20, EV_WARM_MAX = (window.__evDecoderBudget&&window.__evDecoderBudget.warm)||2;
+let evWarmLastCheckMs = 0;
+
+// Every overlay-video play request passes through this gate. A video may start only
+// after its exact source position has decoded and the timeline is no longer gated at
+// that clip's boundary. Active overlapping videos may decode for compositing, but only
+// the topmost one remains eligible for audio; every start is muted until `playing`
+// confirms the same <=40ms alignment and its gain can be ramped in.
+function evOverlayVideoExpectedLocalTime(ov,timeSec,el){
+  if(!ov)return 0;
+  const speed=Math.max(0.05,Number(ov.speed)||1);
+  const start=Number(ov.trimStart)||0;
+  const sourceOffset=Math.max(0,Number(ov.sourceOffset)||0);
+  const elapsed=Math.max(0,(Number(timeSec)-start)*speed);
+  const span=Math.max(0,(Number(ov.trimEnd)-start)*speed);
+  const raw=ov.reversePlayback?sourceOffset+span-elapsed:sourceOffset+elapsed;
+  const knownLength=Number(ov.sourceDuration)||Number(el&&el.duration)||Math.max(sourceOffset+span,0.05);
+  const maxT=Math.max(0.05,knownLength-0.02);
+  return Math.max(0,Math.min(maxT,raw));
+}
+function evOverlayVideoFrameIsPresentable(ov,el,timeSec){
+  if(!ov||!el||el.tagName!=='VIDEO'||el.readyState<2||el.seeking)return false;
+  const t=Number.isFinite(Number(timeSec))?Number(timeSec):Number(currentAbsoluteTimeSec)||0;
+  const expected=evOverlayVideoExpectedLocalTime(ov,t,el);
+  return Math.abs((Number(el.currentTime)||0)-expected)<=evVideoAlignTolerance(el);
+}
+// Once a video has displayed one real timeline frame, transient decoder seeks/stalls must
+// never hide it. The compositor may cover it with a retained canvas, but it cannot blank it.
+function evOverlayVideoHasDecodedTimelineFrame(el){
+  return !!(el&&el.tagName==='VIDEO'&&el.dataset&&el.dataset.evHasDecodedTimelineFrame==='1'&&Number(el.videoWidth)>0);
+}
+function evOverlayVideoIsActiveAt(ov,timeSec){
+  if(!ov)return false;
+  const t=Number(timeSec);
+  return Number.isFinite(t)&&t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0);
+}
+function evStopOverlayVideo(el,pauseIt=true){
+  if(!el||el.tagName!=='VIDEO')return;
+  try{el.muted=true;}catch(_e){}
+  try{el.defaultMuted=true;}catch(_e){}
+  if(el.__evGainRampRaf){try{cancelAnimationFrame(el.__evGainRampRaf);}catch(_e){}el.__evGainRampRaf=0;}
+  delete el.dataset.evGainRampActive;
+  delete el.dataset.evGainRampDone;
+  delete el.dataset.evStablePlayingSince;
+  delete el.dataset.evPlayingEventSeen;
+  if(pauseIt&&!el.paused){try{el.pause();}catch(_e){}}
+}
+function evMuteOtherOverlayVideos(keepEl){
+  // v279: overlapping video layers (e.g. a split clip extended under its twin) must ALL be heard,
+  // so one layer no longer silences the others.
+  return;
+  if(typeof overlayMediaEls==='undefined')return;
+  Object.keys(overlayMediaEls).forEach(id=>{
+    const other=overlayMediaEls[id];
+    if(!other||other===keepEl||other.tagName!=='VIDEO')return;
+    // Keep lower overlapping videos decoding for correct visual compositing, but never
+    // let them contribute audio while the topmost active video owns the preview mix.
+    if(other.__evGainRampRaf){try{cancelAnimationFrame(other.__evGainRampRaf);}catch(_e){}other.__evGainRampRaf=0;}
+    delete other.dataset.evGainRampActive;
+    try{other.muted=true;other.defaultMuted=true;other.volume=0;other.setAttribute('muted','');}catch(_e){}
+  });
+}
+function evPreferredAudibleOverlayVideo(timeSec){
+  if(!Array.isArray(overlays))return null;
+  const t=Number.isFinite(Number(timeSec))?Number(timeSec):Number(currentAbsoluteTimeSec)||0;
+  // The topmost visible overlay video owns preview audio; lower video layers remain
+  // visual-only so two overlapping layers can never play sound simultaneously.
+  for(let i=overlays.length-1;i>=0;i--){
+    const ov=overlays[i];
+    if(ov&&ov.type==='video'&&!ov.reversePlayback&&evOverlayVideoIsActiveAt(ov,t))return ov;
+  }
+  return null;
+}
+// v279: every active, forward-playing video layer contributes its own sound. Previously only the
+// topmost layer was audible and every lower overlapping layer was force-muted, so overlapping copies
+// of the same clip never sounded doubled and one of them was silenced.
+function evOverlayVideoIsAudibleAt(ov,timeSec){
+  if(!ov||ov.type!=='video'||ov.reversePlayback)return false;
+  const t=Number.isFinite(Number(timeSec))?Number(timeSec):Number(currentAbsoluteTimeSec)||0;
+  return t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0);
+}
+function evCanOverlayVideoBeAudible(el,ov,timeSec){
+  if(!el||!ov||!isPlaying||ov.reversePlayback||!el.isConnected||el.readyState<2||el.seeking||el.dataset.evPlayingEventSeen!=='1')return false;
+  if(evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov.id))return false;
+  const t=Number.isFinite(Number(timeSec))?Number(timeSec):Number(currentAbsoluteTimeSec)||0;
+  if(!evOverlayVideoIsAudibleAt(ov,t)||!evOverlayVideoIsActiveAt(ov,t))return false;
+  return Math.abs((Number(el.currentTime)||0)-evOverlayVideoExpectedLocalTime(ov,t,el))<=evVideoAlignTolerance(el);
+}
+function evRampOverlayVideoAudible(el,ov){
+  const t=Number(currentAbsoluteTimeSec)||0;
+  const aligned=!!el&&!!ov&&isPlaying&&!ov.reversePlayback&&el.isConnected&&el.readyState>=2&&!el.seeking&&
+    el.dataset.evPlayingEventSeen==='1'&&! (evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov.id))&&
+    evOverlayVideoIsActiveAt(ov,t)&&
+    Math.abs((Number(el.currentTime)||0)-evOverlayVideoExpectedLocalTime(ov,t,el))<=evVideoAlignTolerance(el);
+  if(!aligned){evStopOverlayVideo(el,true);return false;}
+  if(!evOverlayVideoIsAudibleAt(ov,t)){
+    // Not an active forward-playing video layer at this moment: keep it silent.
+    if(el.__evGainRampRaf){try{cancelAnimationFrame(el.__evGainRampRaf);}catch(_e){}el.__evGainRampRaf=0;}
+    delete el.dataset.evGainRampActive;
+    try{el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');}catch(_e){}
+    return false;
+  }
+  if(el.__evGainRampRaf)return true;
+  // BUGFIX: once the 110ms fade-in has finished this function used to start it AGAIN on the next
+  // frame (the guard above only sees a ramp that is still running), forcing volume=0 and ramping
+  // 0->1 over and over (~8 pulses/second). A completed ramp for this playback run is final.
+  if(el.dataset.evGainRampDone==='1'&&!el.muted){
+    const doneTarget=Math.max(0,Math.min(1,Number(el.dataset.evTargetVolume==null?(ov.volume==null?1:ov.volume):el.dataset.evTargetVolume)||0));
+    if(!el.dataset.evGainRampActive&&el.volume!==doneTarget){try{el.volume=doneTarget;}catch(_e){}}
+    return true;
+  }
+  const target=Math.max(0,Math.min(1,Number(el.dataset.evTargetVolume==null?(ov.volume==null?1:ov.volume):el.dataset.evTargetVolume)||0));
+  const started=performance.now();
+  el.volume=0;
+  try{el.muted=false;el.removeAttribute('muted');}catch(_e){el.muted=false;}
+  el.dataset.evGainRampActive='1';
+  const step=()=>{
+    el.__evGainRampRaf=0;
+    const now=Number(currentAbsoluteTimeSec)||0;
+    if(!evCanOverlayVideoBeAudible(el,ov,now)){evStopOverlayVideo(el,true);return;}
+    const amount=Math.min(1,Math.max(0,(performance.now()-started)/110));
+    try{el.volume=target*amount;}catch(_e){}
+    if(amount<1){el.__evGainRampRaf=requestAnimationFrame(step);}
+    else{delete el.dataset.evGainRampActive;el.dataset.evGainRampDone='1';try{el.volume=target;}catch(_e){}}
+  };
+  el.__evGainRampRaf=requestAnimationFrame(step);
+  return true;
+}
+function evSafePlayVideo(el,ov){
+  if(!el||el.tagName!=='VIDEO')return Promise.resolve(false);
+  if(!ov&&Array.isArray(overlays))ov=overlays.find(item=>item&&String(item.id)===String(el.dataset.evV72OverlayId||''));
+  if(!ov)return Promise.resolve(false);
+  const now=Number(currentAbsoluteTimeSec)||0;
+  if(ov.reversePlayback||!evOverlayVideoIsActiveAt(ov,now)||
+     (evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov.id))){
+    evStopOverlayVideo(el,true);return Promise.resolve(false);
+  }
+  const expected=evOverlayVideoExpectedLocalTime(ov,now,el);
+  const drift=Math.abs((Number(el.currentTime)||0)-expected);
+  // Once a decoder is already running, transient readyState drops / in-flight frame
+  // refreshes must not pause it. Pausing here reset the audio clock and produced audible
+  // clicks/stutters on Android when the browser briefly reported < HAVE_FUTURE_DATA.
+  if(el.seeking){
+    return Promise.resolve(!el.paused);
+  }
+  if(el.readyState<3){
+    return Promise.resolve(!el.paused);
+  }
+  // A playing element (or one that just finished our exact seek) is allowed the playing tolerance;
+  // only a paused, not-just-seeked element must be exact. This is what stops the pause/seek loop.
+  const evSeekDoneAt=Number(el.dataset.evPlaySeekAt)||0;
+  const evJustSeeked=evSeekDoneAt>0&&performance.now()-evSeekDoneAt<1500;
+  const syncTol=(!el.paused||evJustSeeked)?EV_VIDEO_ALIGN_TOL_PLAYING:EV_VIDEO_ALIGN_TOL_START;
+  if(drift>syncTol){
+    // A changed trim/sourceOffset or a stale element is corrected with one exact seek,
+    // never a playbackRate nudge. This path deliberately bypasses the old 1000ms limit.
+    evStopOverlayVideo(el,true);
+    if(!el.seeking&&el.readyState>=1){
+      const lastTarget=Number(el.dataset.evPreciseSyncTarget);
+      if(!Number.isFinite(lastTarget)||Math.abs(lastTarget-expected)>0.005||drift>syncTol){
+        // Aim slightly ahead by the measured seek latency so the clip lands in sync instead of
+        // landing behind the clock and triggering another seek.
+        const evLatencyMs=Math.max(0,Math.min(1200,Number(el.dataset.evSeekLatencyMs)||0));
+        const evSpeed=Math.max(0.05,Number(ov.speed)||1);
+        const evMaxT=Math.max(0.05,(Number(ov.sourceDuration)||Number(el.duration)||expected+0.05)-0.02);
+        const evTarget=Math.max(0,Math.min(evMaxT,expected+(evLatencyMs/1000)*evSpeed));
+        el.dataset.evPreciseSyncTarget=String(evTarget);
+        el.dataset.evSeekRequestAt=String(performance.now());
+        try{el.currentTime=evTarget;}catch(_e){delete el.dataset.evPreciseSyncTarget;}
+      }
+    }
+    return Promise.resolve(false);
+  }
+  delete el.dataset.evPreciseSyncTarget;
+  if(!el.paused){
+    if(isPlaying&&el.dataset.evPlayingEventSeen==='1')evRampOverlayVideoAudible(el,ov);
+    return Promise.resolve(true);
+  }
+  // A new attempt always starts muted. The playing listener performs the alignment
+  // check and the gain ramp, so a browser autoplay fallback can never leak early audio.
+  try{el.muted=true;el.defaultMuted=true;el.setAttribute('muted','');}catch(_e){}
+  if(el.__evSafePlayAttempt)return el.__evSafePlayAttempt;
+  let nativePromise;
+  try{nativePromise=el.play();}catch(err){nativePromise=Promise.reject(err);}
+  const attempt=Promise.resolve(nativePromise).then(()=>true).catch(()=>false).finally(()=>{
+    if(el.__evSafePlayAttempt===attempt)delete el.__evSafePlayAttempt;
+  });
+  el.__evSafePlayAttempt=attempt;
+  return attempt;
+}
+window.evSafePlayOverlayVideo=evSafePlayVideo;
+function evHardStopOverlayVideosAtCut(fromSec,toSec){
+  if(!Array.isArray(overlays)||!isPlaying)return;
+  const from=Number(fromSec),to=Number(toSec);
+  if(!Number.isFinite(from)||!Number.isFinite(to)||to<from)return;
+  const lookAhead=1/Math.max(1,Number(FPS)||30);
+  overlays.forEach(ov=>{
+    if(!ov||ov.type!=='video')return;
+    const end=Number(ov.trimEnd)||0;
+    if(end>from+EV_VIDEO_CLOCK_EPS&&end<=to+lookAhead+EV_VIDEO_CLOCK_EPS){
+      const el=typeof overlayMediaEls!=='undefined'?overlayMediaEls[String(ov.id)]:null;
+      if(el&&el.tagName==='VIDEO'){
+        evStopOverlayVideo(el,true);
+        el.dataset.evCutStoppedAt=String(end);
+      }
+    }
+  });
+}
+const evOverlayVideoPool=window.__ethvelleOverlayVideoPool||(window.__ethvelleOverlayVideoPool=[]);
+const EV_OVERLAY_VIDEO_POOL_MAX=(window.__evDecoderBudget&&window.__evDecoderBudget.pool)||3;
+function evRegisterOverlayVideoForPool(el){
+  if(el&&el.tagName==='VIDEO'&&!evOverlayVideoPool.includes(el)&&evOverlayVideoPool.length<EV_OVERLAY_VIDEO_POOL_MAX)evOverlayVideoPool.push(el);
+  return el;
+}
+function evAcquireOverlayVideoEl(ov,layer,role,target){
+  let el=evOverlayVideoPool.find(node=>node&&node.dataset.evPoolFree==='1');
+  if(!el&&evOverlayVideoPool.length<EV_OVERLAY_VIDEO_POOL_MAX){el=document.createElement('video');evRegisterOverlayVideoForPool(el);}
+  if(!el)return null;
+  delete el.dataset.evPoolFree;
+  if(role==='warm'){
+    el.dataset.evWarmElement='1';el.dataset.evWarmRole='next';el.dataset.evWarmTarget=String(target==null?(Number(ov.sourceOffset)||0):target);
+    el.style.visibility='hidden';el.style.opacity='0';el.style.pointerEvents='none';
+  }else{
+    delete el.dataset.evWarmElement;delete el.dataset.evWarmRole;delete el.dataset.evWarmTarget;
+    el.style.opacity='';el.style.visibility='hidden';el.style.pointerEvents='none';
+  }
+  setupOverlayVideoEl(el,ov);
+  if(layer&&el.parentNode!==layer)layer.appendChild(el);
+  return el;
+}
+function releaseOverlayVideoEl(el){
+  if(!el||el.tagName!=='VIDEO')return;
+  evRegisterOverlayVideoForPool(el);
+  try{el.pause();}catch(_e){}
+  try{el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');}catch(_e){}
+  try{el.remove();}catch(_e){}
+  el.style.visibility='hidden';el.style.opacity='0';el.style.pointerEvents='none';
+  delete el.dataset.evV72OverlayId;delete el.dataset.evWarmElement;delete el.dataset.evWarmRole;
+  delete el.dataset.evWarmTarget;delete el.dataset.evWarmReady;delete el.dataset.evWarmSeekDone;
+  delete el.dataset.evIncomingFrameWatch;delete el.dataset.evIncomingHidden;
+  delete el.dataset.evHasDecodedTimelineFrame;
+  if(el.__evCutHoldCanvas){try{if(el.__evCutHoldCanvas.parentNode)el.__evCutHoldCanvas.remove();}catch(_e){}delete el.__evCutHoldCanvas;}
+  delete el.dataset.evGainRampActive;delete el.dataset.evGainRampDone;
+  delete el.dataset.evStablePlayingSince;delete el.dataset.evPlayingEventSeen;
+  el.dataset.evPoolFree='1';
+}
+// Cache one last-good source frame shortly BEFORE each clip boundary. The canvas keeps
+// the source aspect ratio and is capped at a 1280px long edge, so cuts never allocate a
+// stage-size x devicePixelRatio bitmap on the frame where the decoder is already changing.
+function evCapturePreCutOverlayVideoFrame(ov,el,timeSec){
+  if(!ov||!el||el.tagName!=='VIDEO'||!el.isConnected||el.readyState<2||el.seeking||!el.videoWidth||!el.videoHeight)return null;
+  if(ov.chromaKey&&ov.chromaKey.enabled)return null; // the keyed canvas is already the correct transparent stand-in
+  if(!evOverlayVideoFrameIsPresentable(ov,el,timeSec))return null;
+  const remaining=Number(ov.trimEnd)-Number(timeSec);
+  if(remaining<0.15||remaining>0.25)return null;
+  const snapshotKey=[String(ov.id),String(ov.src||''),Number(ov.trimStart)||0,Number(ov.trimEnd)||0,Number(ov.sourceOffset)||0,Math.max(0.05,Number(ov.speed)||1)].join('|');
+  let canvas=el.__evCutHoldCanvas;
+  if(canvas&&canvas.dataset.evCutSnapshotKey===snapshotKey&&canvas.dataset.evCutSnapshotReady==='1')return canvas;
+  if(!canvas){
+    canvas=document.createElement('canvas');
+    canvas.className='overlay-media-freeze-frame';
+    canvas.setAttribute('aria-hidden','true');
+    el.__evCutHoldCanvas=canvas;
+  }
+  const sourceW=Number(el.videoWidth)||0,sourceH=Number(el.videoHeight)||0;
+  const scale=Math.min(1,1280/Math.max(sourceW,sourceH));
+  const width=Math.max(1,Math.round(sourceW*scale)),height=Math.max(1,Math.round(sourceH*scale));
+  if(canvas.width!==width||canvas.height!==height){canvas.width=width;canvas.height=height;}
+  const ctx=canvas.getContext('2d');
+  if(!ctx)return null;
+  try{ctx.clearRect(0,0,width,height);ctx.drawImage(el,0,0,width,height);}catch(_e){return null;}
+  const cs=getComputedStyle(el);
+  canvas.style.position='absolute';canvas.style.inset='0';
+  canvas.style.width='100%';canvas.style.height='100%';
+  canvas.style.objectFit=cs.objectFit||'contain';
+  canvas.style.objectPosition=cs.objectPosition||'center';
+  canvas.style.pointerEvents='none';canvas.style.display='block';
+  canvas.style.transform=el.style.transform||cs.transform||'';
+  canvas.style.transformOrigin=el.style.transformOrigin||cs.transformOrigin||'center center';
+  canvas.style.opacity=cs.opacity||'1';
+  canvas.style.filter=el.style.filter||cs.filter||'none';
+  canvas.style.clipPath=el.style.clipPath||cs.clipPath||'none';
+  canvas.style.borderRadius=el.style.borderRadius||cs.borderRadius||'0';
+  if(cs.zIndex&&cs.zIndex!=='auto')canvas.style.zIndex=cs.zIndex;else canvas.style.removeProperty('z-index');
+  canvas.dataset.evCutSnapshotKey=snapshotKey;
+  canvas.dataset.evCutSnapshotReady='1';
+  canvas.dataset.evMaskOwnerId=String(ov.id);
+  canvas.dataset.evMaskOwnerTime=String(Number(timeSec)||0);
+  return canvas;
+}
+function freezeOutgoingOverlayVideoFrame(id,video,layer,frameTimeSec){
+  const owner=Array.isArray(overlays)?overlays.find(item=>item&&String(item.id)===String(id)):null;
+  const ownerTime=Number.isFinite(Number(frameTimeSec))?Number(frameTimeSec):(Number(currentAbsoluteTimeSec)||0);
+  // Chroma-key videos already have a transparent, processed stage canvas. Keep that
+  // canvas rather than holding the source <video> decoder through the buffer stall.
+  const chroma=overlayChromaCanvases[id];
+  if(chroma&&chroma.isConnected){
+    chroma.dataset.evMaskOwnerId=String(id);
+    chroma.dataset.evMaskOwnerTime=String(ownerTime);
+    if(owner&&typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(chroma,owner,ownerTime,video||chroma,false);
+    return chroma;
+  }
+
+  // Prefer the cached pre-cut picture. A scrub hold is also a valid last-good canvas;
+  // never manufacture a fresh stage-sized bitmap at the cut itself.
+  const expectedSnapshotKey=owner?[String(owner.id),String(owner.src||''),Number(owner.trimStart)||0,Number(owner.trimEnd)||0,Number(owner.sourceOffset)||0,Math.max(0.05,Number(owner.speed)||1)].join('|'):'';
+  const cutHeld=video&&video.__evCutHoldCanvas&&video.__evCutHoldCanvas.dataset.evCutSnapshotReady==='1'&&
+    video.__evCutHoldCanvas.dataset.evCutSnapshotKey===expectedSnapshotKey?video.__evCutHoldCanvas:null;
+  const scrubHeld=video&&video.__evScrubHoldCanvas&&video.__evScrubHoldCanvas.isConnected?video.__evScrubHoldCanvas:null;
+  const canvas=cutHeld||scrubHeld;
+  if(!canvas||!layer)return null;
+  // The canvas now belongs to the hold entry, not the pooled video element. Detaching this
+  // reference prevents a later clip reusing that decoder from painting over the frozen frame.
+  if(cutHeld&&video.__evCutHoldCanvas===cutHeld)delete video.__evCutHoldCanvas;
+  if(scrubHeld&&video.__evScrubHoldCanvas===scrubHeld)delete video.__evScrubHoldCanvas;
+  const cs=video?getComputedStyle(video):null;
+  canvas.classList.add('overlay-media-freeze-frame');
+  canvas.style.position='absolute';canvas.style.inset='0';
+  canvas.style.width='100%';canvas.style.height='100%';
+  canvas.style.objectFit=(cs&&cs.objectFit)||canvas.style.objectFit||'contain';
+  canvas.style.objectPosition=(cs&&cs.objectPosition)||canvas.style.objectPosition||'center';
+  canvas.style.pointerEvents='none';canvas.style.display='block';
+  if(video){
+    canvas.style.transform=video.style.transform||((cs&&cs.transform)||'');
+    canvas.style.transformOrigin=video.style.transformOrigin||((cs&&cs.transformOrigin)||'center center');
+    canvas.style.opacity=(cs&&cs.opacity)||video.style.opacity||'1';
+    canvas.style.filter=video.style.filter||((cs&&cs.filter)||'none');
+    canvas.style.clipPath=video.style.clipPath||((cs&&cs.clipPath)||'none');
+    canvas.style.borderRadius=video.style.borderRadius||((cs&&cs.borderRadius)||'0');
+  }
+  canvas.dataset.evMaskOwnerId=String(id);
+  canvas.dataset.evMaskOwnerTime=String(ownerTime);
+  if(canvas.parentNode!==layer||(video&&video.parentNode===layer&&canvas.nextSibling!==video))layer.insertBefore(canvas,video&&video.parentNode===layer?video:null);
+  if(owner&&typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(canvas,owner,ownerTime,video||canvas,false);
+  return canvas;
+}
+function evRemoveHeldOutgoingEntry(id,entry){
+  if(!entry)return;
+  if(window.__evVideoDebug)try{console.log('[evVideo] HOLD released',id,'->',entry.incomingId,'duration-ms',(performance.now()-(entry.startedAtMs||performance.now())).toFixed(0));}catch(_e){}
+  if(entry.timer)clearTimeout(entry.timer);
+  if(entry.canvas){try{entry.canvas.remove();}catch(_e){}if(overlayChromaCanvases[id]===entry.canvas)delete overlayChromaCanvases[id];}
+  if(entry.fallbackVideo){try{releaseOverlayVideoEl(entry.fallbackVideo);}catch(_e){}}
+}
+function evReleaseHeldOutgoingForIncoming(incomingId,incomingEl){
+  const held=typeof renderOverlayMedia==='function'&&renderOverlayMedia.__evHeldOutgoing;
+  if(!held)return false;
+  const ov=Array.isArray(overlays)?overlays.find(item=>item&&String(item.id)===String(incomingId)):null;
+  if(!ov||!evOverlayVideoFrameIsPresentable(ov,incomingEl,Number(currentAbsoluteTimeSec)||0))return false;
+  let changed=false;
+  Object.keys(held).forEach(id=>{
+    const entry=held[id];
+    if(entry&&String(entry.incomingId)===String(incomingId)){evRemoveHeldOutgoingEntry(id,entry);delete held[id];changed=true;}
+  });
+  if(changed){
+    if(incomingEl.style.visibility==='hidden')incomingEl.style.visibility='';
+    delete incomingEl.dataset.evIncomingHidden;
+    if(typeof renderFrame==='function')requestAnimationFrame(()=>{try{renderFrame();}catch(_e){}});
+  }
+  return changed;
+}
+function evWatchIncomingOverlayVideo(ov,el){
+  if(!ov||!el||el.tagName!=='VIDEO')return;
+  const clipId=String(ov.id);
+  if(el.dataset.evIncomingFrameWatch==='1'&&el.dataset.evIncomingWatchId===clipId)return;
+  el.dataset.evIncomingFrameWatch='1';el.dataset.evIncomingWatchId=clipId;
+  const check=()=>{
+    if(!el.isConnected)return;
+    const liveId=String(el.dataset.evV72OverlayId||'');
+    const live=Array.isArray(overlays)?overlays.find(item=>item&&item.type==='video'&&String(item.id)===liveId)||null:null;
+    if(!live)return;
+    evReleaseHeldOutgoingForIncoming(live.id,el);
+    if(evOverlayVideoFrameIsPresentable(live,el,Number(currentAbsoluteTimeSec)||0)){
+      if(el.videoWidth>0&&el.videoHeight>0)el.dataset.evHasDecodedTimelineFrame='1';
+      if(el.style.visibility==='hidden'){el.style.visibility='';delete el.dataset.evIncomingHidden;}
+    }
+    if(isPlaying&&!el.paused&&!el.seeking)evSafePlayVideo(el,live);
+  };
+  ['loadeddata','seeked','canplay','playing'].forEach(name=>el.addEventListener(name,check));
+  if(typeof el.requestVideoFrameCallback==='function'){
+    try{el.requestVideoFrameCallback(()=>check());}catch(_e){}
+  }
+}
+function evClearHeldOutgoingOverlayFrames(){
+  const held=typeof renderOverlayMedia==='function'&&renderOverlayMedia.__evHeldOutgoing;
+  if(!held)return;
+  Object.keys(held).forEach(id=>evRemoveHeldOutgoingEntry(id,held[id]));
+  renderOverlayMedia.__evHeldOutgoing={};
+}
+function setupOverlayVideoEl(el, ov){
+  if(!el||!ov)return el;
+  el.muted=true;el.defaultMuted=true;el.setAttribute('muted','');el.playsInline=true;el.loop=false;el.preload='auto';
+  el.setAttribute('playsinline','');el.setAttribute('webkit-playsinline','');
+  el.dataset.evV72OverlayId=String(ov.id);
+  const requestedSource=window.evEffectiveVideoSrc(ov);
+  const sourceChanged=String(el.dataset.evWarmSrc||'')!==requestedSource;
+  if(sourceChanged)delete el.dataset.evHasDecodedTimelineFrame;
+  el.dataset.evWarmSrc=requestedSource;
+
+  const currentOwner=()=>{
+    const id=String(el.dataset.evV72OverlayId||'');
+    return Array.isArray(overlays)?overlays.find(item=>item&&item.type==='video'&&String(item.id)===id)||null:null;
+  };
+  const updateWarmReady=()=>{
+    if(el.dataset.evWarmElement!=='1'||el.dataset.evWarmSeekDone!=='1'||el.readyState<3||el.seeking)return;
+    const target=Number(el.dataset.evWarmTarget);
+    if(Number.isFinite(target)&&Math.abs(el.currentTime-target)<=0.08)el.dataset.evWarmReady='1';
+  };
+  if(el.dataset.evOverlayHandlersBound!=='1'){
+    el.dataset.evOverlayHandlersBound='1';
+    el.addEventListener('seeked',()=>{
+      const live=currentOwner();
+      const requestedAt=Number(el.dataset.evSeekRequestAt)||0;
+      if(requestedAt>0){
+        const completedAt=performance.now();
+        el.dataset.evSeekLatencyMs=String(Math.max(0,completedAt-requestedAt));
+        el.dataset.evPlaySeekAt=String(completedAt);
+        delete el.dataset.evSeekRequestAt;
+      }
+      if(el.dataset.evWarmElement==='1'){
+        const target=Number(el.dataset.evWarmTarget);
+        if(!el.seeking&&Number.isFinite(target)&&Math.abs(el.currentTime-target)<=0.08)el.dataset.evWarmSeekDone='1';
+      }
+      updateWarmReady();
+      if(el.dataset.evWarmElement!=='1'&&live&&el.isConnected&&isPlaying)evSafePlayVideo(el,live);
+      if(el.dataset.evWarmElement!=='1'&&live)evReleaseHeldOutgoingForIncoming(live.id,el);
+    });
+    el.addEventListener('loadedmetadata',()=>{
+      const live=currentOwner();if(!live)return;
+      const enhancedSrc=String(live.__evltRuntimeEnhancedSrc||'');
+      if(enhancedSrc&&el.src===enhancedSrc&&el.dataset.evEnhPrimed!==enhancedSrc){
+        if(typeof window.evPrimeEnhancedVideo==='function')window.evPrimeEnhancedVideo(el,enhancedSrc);
+        return;
+      }
+      try{
+        const speedNow=Math.max(0.05,Number(live.speed)||1);
+        const maxNow=Math.max(0.05,(Number(live.sourceDuration)||el.duration||(live.trimEnd-live.trimStart))-.02);
+        const elapsed=Math.max(0,(Number(currentAbsoluteTimeSec)-Number(live.trimStart))*speedNow);
+        const span=Math.max(0,(Number(live.trimEnd)-Number(live.trimStart))*speedNow);
+        const raw=live.reversePlayback?(Number(live.sourceOffset)||0)+span-elapsed:(Number(live.sourceOffset)||0)+elapsed;
+        const warmStart=el.dataset.evWarmElement==='1'&&!live.reversePlayback;
+        const requestedWarmTarget=Number(el.dataset.evWarmTarget);
+        const desired=warmStart&&Number.isFinite(requestedWarmTarget)?requestedWarmTarget:(warmStart?(Number(live.sourceOffset)||0):raw);
+        const localNow=Math.max(0,Math.min(maxNow,desired));
+        if(Number.isFinite(localNow)){
+          el.dataset.evWarmTarget=String(localNow);
+          if(el.seeking||Math.abs(el.currentTime-localNow)>0.015){
+            const requestedAt=performance.now();el.dataset.evSeekRequestAt=String(requestedAt);
+            if(warmStart)delete el.dataset.evWarmSeekDone;else el.dataset.evPlaySeekAt=String(requestedAt);
+            el.currentTime=localNow;
+          }else if(warmStart)el.dataset.evWarmSeekDone='1';
+        }
+        if(warmStart){try{el.pause();}catch(_e){}updateWarmReady();}
+        else if(el.isConnected&&isPlaying&&typeof evSafePlayOverlayVideo==='function')evSafePlayOverlayVideo(el,live);
+      }catch(_e){}
+    });
+    el.addEventListener('canplay',()=>{const live=currentOwner();updateWarmReady();if(el.dataset.evWarmElement!=='1'&&live&&el.isConnected&&isPlaying)evSafePlayVideo(el,live);});
+    el.addEventListener('loadeddata',()=>{const live=currentOwner();if(el.dataset.evWarmElement!=='1'&&live&&el.isConnected&&isPlaying)evSafePlayVideo(el,live);});
+    el.addEventListener('playing',()=>{
+      el.dataset.evPlayingEventSeen='1';
+      if(!el.dataset.evStablePlayingSince)el.dataset.evStablePlayingSince=String(performance.now());
+      const live=currentOwner();
+      if(isPlaying&&live)evRampOverlayVideoAudible(el,live);
+      else{try{el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');}catch(_e){}}
+    });
+    el.addEventListener('pause',()=>{delete el.dataset.evStablePlayingSince;});
+  }
+  if(sourceChanged){
+    try{el.pause();}catch(_e){}
+    try{
+      // Remote videos must be CORS-enabled BEFORE the source is set, otherwise the browser
+      // taints the canvas and chroma key / the canvas color picker cannot read pixels.
+      // If the host refuses CORS, retry once without it so playback still works.
+      if(/^https?:/i.test(requestedSource)&&el.dataset.evNoCors!=='1'){
+        el.crossOrigin='anonymous';
+        if(!el.__evCorsRetryBound){
+          el.__evCorsRetryBound=true;
+          el.addEventListener('error',()=>{
+            if(el.crossOrigin&&el.dataset.evNoCors!=='1'&&/^https?:/i.test(String(el.dataset.evWarmSrc||''))){
+              el.dataset.evNoCors='1';el.removeAttribute('crossorigin');
+              try{el.src=String(el.dataset.evWarmSrc);el.load();}catch(_e){}
+            }
+          });
+        }
+      }else if(!/^https?:/i.test(requestedSource)){el.removeAttribute('crossorigin');delete el.dataset.evNoCors;}
+      el.src=requestedSource;el.load();if(ov.__evltRuntimeEnhancedSrc===requestedSource&&typeof window.evPrimeEnhancedVideo==='function')window.evPrimeEnhancedVideo(el,requestedSource);
+    }catch(_e){}
+  }
+  return el;
+}
+function takeWarmOverlayVideo(ov){
+  const key=String(ov.id),el=overlayWarmEls[key];
+  if(!el)return null;
+
+  if(el.dataset.evWarmSrc!==window.evEffectiveVideoSrc(ov)){
+    delete overlayWarmEls[key];
+    releaseOverlayVideoEl(el);
+    return null;
+  }
+
+  // Adopt even when the decoder is still seeking/buffering. Releasing this element here
+  // would throw away its network and decode progress and force a brand-new cold load.
+  delete overlayWarmEls[key];
+  delete el.dataset.evWarmElement;
+  delete el.dataset.evWarmReady;
+  delete el.dataset.evWarmSeekDone;
+  delete el.dataset.evWarmBoundaryWaitAt;
+
+  el.style.opacity='';
+  el.style.visibility=(evOverlayVideoFrameIsPresentable(ov,el,Number(currentAbsoluteTimeSec)||0)||evOverlayVideoHasDecodedTimelineFrame(el))?'':'hidden';
+  el.style.pointerEvents='none';
+  if(el.readyState>=2&&!el.seeking)delete el.dataset.evWarmAdoptedPending;
+  else el.dataset.evWarmAdoptedPending='1';
+  delete el.dataset.evWarmRole;
+  return el;
+}
+function warmUpcomingOverlayVideos(tSec){
+  const nowMs=performance.now();
+  if(nowMs-evWarmLastCheckMs<100)return;
+  evWarmLastCheckMs=nowMs;
+  const layer=document.getElementById('overlayMediaLayer');
+  if(!layer||!Array.isArray(overlays))return;
+  // Register active/held decoders; the pool includes warm, live and retained fallback nodes.
+  Object.keys(overlayMediaEls).forEach(id=>evRegisterOverlayVideoForPool(overlayMediaEls[id]));
+  const held=window.renderOverlayMedia&&window.renderOverlayMedia.__evHeldOutgoing;
+  if(held)Object.keys(held).forEach(id=>{const el=held[id]&&held[id].fallbackVideo;if(el)evRegisterOverlayVideoForPool(el);});
+  const activeCount=Object.keys(overlayMediaEls).reduce((n,id)=>n+(overlayMediaEls[id]&&overlayMediaEls[id].tagName==='VIDEO'?1:0),0);
+  const occupied=evOverlayVideoPool.filter(el=>el&&el.dataset.evPoolFree!=='1').length;
+  const slots=Math.max(0,Math.min(EV_WARM_MAX,EV_OVERLAY_VIDEO_POOL_MAX-occupied));
+  const candidates=overlays.filter(ov=>ov&&ov.type==='video'&&window.evEffectiveVideoSrc(ov)&&!ov.reversePlayback&&
+    Number(ov.trimEnd)>Number(ov.trimStart)&&Number(ov.trimStart)>Number(tSec)+EV_VIDEO_CLOCK_EPS&&
+    Number(ov.trimStart)-Number(tSec)<=EV_WARM_AHEAD_SEC&&
+    !overlayMediaEls[String(ov.id)])
+    .sort((a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0));
+  const selected=candidates.slice(0,slots);
+  const wanted=new Set(selected.map(ov=>String(ov.id)));
+  Object.keys(overlayWarmEls).forEach(id=>{
+    const el=overlayWarmEls[id],ov=overlays.find(item=>item&&String(item.id)===id);
+    if(!wanted.has(id)||!ov||window.evEffectiveVideoSrc(ov)!==String(el.dataset.evWarmSrc||'')){
+      delete overlayWarmEls[id];releaseOverlayVideoEl(el);
+    }
+  });
+  selected.forEach(ov=>{
+    const key=String(ov.id),target=Math.max(0,Number(ov.sourceOffset)||0);
+    let el=overlayWarmEls[key];
+    if(el&&String(el.dataset.evWarmSrc||'')!==window.evEffectiveVideoSrc(ov)){
+      delete overlayWarmEls[key];releaseOverlayVideoEl(el);el=null;
+    }
+    if(!el){
+      el=evAcquireOverlayVideoEl(ov,layer,'warm',target);
+      if(!el)return;
+      overlayWarmEls[key]=el;
+    }else if(Math.abs((Number(el.dataset.evWarmTarget)||0)-target)>.04){
+      el.dataset.evWarmTarget=String(target);delete el.dataset.evWarmReady;delete el.dataset.evWarmSeekDone;
+      if(el.readyState>=1&&!el.seeking){
+        try{el.dataset.evSeekRequestAt=String(performance.now());el.currentTime=target;}catch(_e){}
+      }
+    }
+  });
+}
+function textNodeFontMissingOrChanged(el,font){
+  return !el||el.dataset.evLoadedTextFont!==String(font||'Inter');
+}
+function renderOverlayMedia(tSecAbsolute){
+  const layer = document.getElementById('overlayMediaLayer');
+  if(!layer) return;
+  // Most new projects have no overlay yet; avoid repeated filters/Set allocation for every
+  // pointer-driven preview frame when there is nothing to composite.
+  if(!overlays.length && !Object.keys(overlayMediaEls).length && !layer.firstChild) return;
+  const active=[];
+  const activeIds=new Set();
+  for(let i=0;i<overlays.length;i++){
+    const o=overlays[i];
+    if((o.type==='video'||o.type==='image'||o.type==='text') && tSecAbsolute>=o.trimStart && tSecAbsolute<o.trimEnd){
+      active.push(o);activeIds.add(o.id);
+    }
+  }
+
+  const evNowMs=performance.now();
+  const evHeldOutgoing=renderOverlayMedia.__evHeldOutgoing||(renderOverlayMedia.__evHeldOutgoing={});
+  const evWaitingIncoming=active.find(o=>o.type==='video'&&!o.reversePlayback&&
+    !evOverlayVideoFrameIsPresentable(o,evGetOverlayVideoElement(o),tSecAbsolute))||null;
+
+  Object.keys(evHeldOutgoing).forEach(id=>{
+    const hold=evHeldOutgoing[id];
+    if(!hold)return;
+    const activeAgainOv=active.find(o=>o.type==='video'&&String(o.id)===id)||null;
+    const activeAgainEl=activeAgainOv?evGetOverlayVideoElement(activeAgainOv):null;
+    // IMPORTANT for reverse/fast scrubbing: a clip can become active again while its
+    // decoder is still seeking to the earlier timestamp. Its cached outgoing canvas must
+    // remain visible until that exact re-entered frame is presentable; active range alone
+    // is not proof that the video element has painted a usable frame.
+    const activeAgainReady=!!activeAgainOv&&!!activeAgainEl&&
+      evOverlayVideoFrameIsPresentable(activeAgainOv,activeAgainEl,tSecAbsolute);
+    const incomingStillActive=active.some(o=>o.type==='video'&&String(o.id)===String(hold.incomingId));
+    const incomingOv=Array.isArray(overlays)?overlays.find(x=>x&&x.type==='video'&&String(x.id)===String(hold.incomingId)):null;
+    const incomingEl=incomingOv?evGetOverlayVideoElement(incomingOv):null;
+    const incomingReady=incomingStillActive&&!!incomingOv&&!!incomingEl&&evOverlayVideoFrameIsPresentable(incomingOv,incomingEl,tSecAbsolute);
+    if(activeAgainReady||incomingReady){
+      evRemoveHeldOutgoingEntry(id,hold);
+      delete evHeldOutgoing[id];
+      return;
+    }
+    // A short incoming clip can end before its slow decoder presents a single frame.
+    // Retarget the SAME frozen canvas to the next waiting clip instead of deleting it.
+    if(!incomingStillActive){
+      const nextWaiting=evWaitingIncoming&&String(evWaitingIncoming.id)!==String(hold.incomingId)?evWaitingIncoming:null;
+      const nextReady=active.find(o=>o.type==='video'&&!o.reversePlayback&&
+        evOverlayVideoFrameIsPresentable(o,evGetOverlayVideoElement(o),tSecAbsolute))||null;
+      const nextUpcoming=(!nextWaiting&&!nextReady&&Array.isArray(overlays))
+        ?overlays.filter(o=>o&&o.type==='video'&&!o.reversePlayback&&String(o.id)!==String(hold.incomingId)&&
+          Number(o.trimStart)>=Number(tSecAbsolute)-0.0005&&Number(o.trimStart)<=Number(tSecAbsolute)+0.25)
+          .sort((a,b)=>Number(a.trimStart)-Number(b.trimStart))[0]||null
+        :null;
+      if(nextWaiting||nextUpcoming){
+        const next=nextWaiting||nextUpcoming;
+        hold.incomingId=String(next.id);
+        hold.startedAtMs=evNowMs;
+        if(window.__evVideoDebug)try{console.log('[evVideo] HOLD transferred',id,'->',hold.incomingId);}catch(_e){}
+      }else if(nextReady){
+        evRemoveHeldOutgoingEntry(id,hold);
+        delete evHeldOutgoing[id];
+      }
+      // With no next decoded video yet, retain the last-good canvas (including after the
+      // final short clip) rather than letting a slow decoder leave the stage empty.
+    }
+  });
+
+  // If a cut or scrub makes a new video active before it has a decoded frame, snapshot
+  // the outgoing frame and hold it independently of the playback clock gate. This works
+  // while paused and during pointer scrubbing as well as normal playback.
+  Object.keys(overlayMediaEls).forEach(id=>{
+    if(!activeIds.has(id)){
+      const goneEl=overlayMediaEls[id];
+      let keepOutgoing=false;
+      if(evWaitingIncoming&&goneEl&&goneEl.tagName==='VIDEO'){
+        const incomingId=String(evWaitingIncoming.id);
+        let hold=evHeldOutgoing[id];
+        if(!hold||String(hold.incomingId)!==incomingId){
+          // If an older outgoing canvas is already waiting for this incoming clip, keep it.
+          // The just-ended intermediate clip may never have decoded a frame of its own.
+          const inheritedHold=Object.keys(evHeldOutgoing).some(heldId=>{
+            if(String(heldId)===String(id))return false;
+            const entry=evHeldOutgoing[heldId];
+            return !!(entry&&String(entry.incomingId)===incomingId&&
+              (entry.canvas||(entry.fallbackVideo&&evOverlayVideoHasDecodedTimelineFrame(entry.fallbackVideo))));
+          });
+          if(inheritedHold){
+            if(window.__evVideoDebug)try{console.log('[evVideo] HOLD retained for chained cut',id,'->',incomingId);}catch(_e){}
+          }else{
+            const frozenCanvas=freezeOutgoingOverlayVideoFrame(id,goneEl,layer,tSecAbsolute);
+            const decodedFallback=!frozenCanvas&&evOverlayVideoHasDecodedTimelineFrame(goneEl)?goneEl:null;
+            if(frozenCanvas||decodedFallback){
+              evStopOverlayVideo(goneEl,true);
+              hold=evHeldOutgoing[id]={incomingId,canvas:frozenCanvas||null,fallbackVideo:decodedFallback,startedAtMs:evNowMs,timer:0};
+              if(frozenCanvas){frozenCanvas.dataset.evMaskOwnerId=String(id);frozenCanvas.dataset.evMaskOwnerTime=String(tSecAbsolute);}
+              if(hold.fallbackVideo){
+                hold.fallbackVideo.dataset.evMaskOwnerId=String(id);
+                hold.fallbackVideo.dataset.evMaskOwnerTime=String(tSecAbsolute);
+                const outgoingClip=Array.isArray(overlays)?overlays.find(item=>item&&String(item.id)===String(id)):null;
+                if(outgoingClip&&typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(hold.fallbackVideo,outgoingClip,tSecAbsolute,hold.fallbackVideo,false);
+              }
+              if(window.__evVideoDebug)try{console.log('[evVideo] HOLD (outgoing frozen)',id,'->',incomingId,frozenCanvas?'canvas':'decoded-fallback-video');}catch(_e){}
+              if(frozenCanvas&&overlayChromaCanvases[id]!==frozenCanvas&&overlayChromaCanvases[id]){
+                overlayChromaCanvases[id].remove();delete overlayChromaCanvases[id];
+              }
+              delete overlayMediaEls[id];
+              if(frozenCanvas)releaseOverlayVideoEl(goneEl);
+              else{goneEl.style.pointerEvents='none';goneEl.style.visibility='';}
+              keepOutgoing=true;
+            }
+          }
+        }else{
+          // The clip already owns a hold. Preserve its current canvas and only retarget it.
+          hold.incomingId=incomingId;
+          keepOutgoing=!!(hold.canvas||(hold.fallbackVideo&&evOverlayVideoHasDecodedTimelineFrame(hold.fallbackVideo)));
+        }
+        // No timer expires a transferred hold: the next clip may decode after several
+        // 0.2-second cuts. It is released by a presentable incoming frame or a real seek away.
+      }else if(evHeldOutgoing[id]){
+        evRemoveHeldOutgoingEntry(id,evHeldOutgoing[id]);delete evHeldOutgoing[id];
+      }
+      if(keepOutgoing)return;
+      if(overlayMediaEls[id]===goneEl){
+        if(goneEl.tagName==='VIDEO'){evStopOverlayVideo(goneEl,true);releaseOverlayVideoEl(goneEl);}
+        else goneEl.remove();
+        delete overlayMediaEls[id];
+      }
+      if(overlayChromaCanvases[id]&&!evHeldOutgoing[id]){overlayChromaCanvases[id].remove();delete overlayChromaCanvases[id];}
+    }
+  });
+
+  // Maintain overlays[] stacking order, but only reorder when the actual active sequence
+  // changes. Re-appending the same nodes on every scrub frame triggered MutationObservers
+  // and repeated text-effect/layout work, which was a core source of timeline stutter.
+  const activeOrderKey = active.map(o => String(o.id) + (o.type === 'video' && o.chromaKey && o.chromaKey.enabled ? ':chroma' : '')).join('|');
+  const needsReorder = active.length > 1 && (activeOrderKey !== overlayMediaOrderKey || active.some(o => !overlayMediaEls[o.id] || overlayMediaEls[o.id].parentNode !== layer));
+  active.forEach(ov=>{
+    let el = overlayMediaEls[ov.id];
+    if(!el){
+      // A pending warm element is adopted as-is, even when it is still loading. The clock
+      // gate waits on this same decoder; it is never discarded and replaced by a cold one.
+      const warmEl=ov.type==='video'?takeWarmOverlayVideo(ov):null;
+      el=warmEl||document.createElement(ov.type==='video'?'video':ov.type==='image'?'img':'div');
+      if(ov.type==='video'){
+        if(!warmEl)setupOverlayVideoEl(el,ov);
+        // A warmed clip is already parked at sourceOffset. Do not impose the old adoption
+        // cooldown: the clock gate guarantees the first live frame begins at zero drift.
+        if(warmEl){
+          delete el.dataset.evPlayAdoptedAt;
+          delete el.dataset.evPlaySeekAt;
+          el.dataset.evDriftNudge='1';
+          el.style.opacity='';
+          el.style.visibility=((el.readyState>=2&&!el.seeking)||evOverlayVideoHasDecodedTimelineFrame(el))?'':'hidden';
+          el.style.pointerEvents='none';
+        }else{
+          delete el.dataset.evPlayAdoptedAt;
+          delete el.dataset.evPlaySeekAt;
+          el.dataset.evDriftNudge='1';
+        }
+      }else if(ov.type==='image'){el.src=ov.src;}
+      else{el.className='overlay-text-render';}
+      overlayMediaEls[ov.id]=el;
+      layer.appendChild(el);
+    }else if(needsReorder){
+      layer.appendChild(el);
+    }
+    // A clip sent Backward past the lowest overlapping overlay is placed behind the
+    // dedicated Background image layer. Clearing this inline z-index restores normal
+    // overlay stacking when the user brings the clip Forward again.
+    const behindBackground=!!ov.__ethvelleBehindBackground;
+    const overlayZ=behindBackground?'-1':'';
+    if(el.style.zIndex!==overlayZ)el.style.zIndex=overlayZ;
+    if(ov.type==='video')evWatchIncomingOverlayVideo(ov,el);
+    if(ov.type==='text'){
+      const requestedFont=String(ov.fontFamily||'Inter');
+      if(textNodeFontMissingOrChanged(el,requestedFont)){
+        ensureAdminFontLoaded(requestedFont);
+        el.dataset.evLoadedTextFont=requestedFont;
+      }
+      el.classList.add('overlay-text-render');
+      // Keep a content-sized child inside the full-stage compositor. This makes the actual
+      // text clickable/selectable without turning the entire preview into a click target.
+      let textNode=el.querySelector('.ethvelle-overlay-text-content');
+      if(!textNode){
+        el.textContent='';
+        textNode=document.createElement('span');
+        textNode.className='ethvelle-overlay-text-content';
+        el.appendChild(textNode);
+        textNode.addEventListener('pointerdown',function(ev){ev.stopPropagation();});
+        textNode.addEventListener('click',function(ev){
+          ev.preventDefault(); ev.stopPropagation();
+          if(typeof selectClipForChrome==='function') selectClipForChrome(ov.id);
+          if(typeof renderFrame==='function') renderFrame();
+        });
+        textNode.addEventListener('dblclick',function(ev){
+          ev.preventDefault(); ev.stopPropagation();
+          if(typeof openEthvelleTextComposer==='function') openEthvelleTextComposer(ov.id);
+        });
+      }
+      const rawOverlayText=String(ov.textContent||'');
+      if(textNode.dataset.evpaSourceText!==rawOverlayText){
+        // Replace text only when the source string actually changes. Rebuilding plain text
+        // on every frame woke the many Text/Canvas MutationObservers and caused severe lag.
+        const glyph=textNode.querySelector(':scope > .evpa-text-effect-layer');
+        if(glyph)glyph.textContent=rawOverlayText;else textNode.textContent=rawOverlayText;
+        textNode.dataset.evpaSourceText=rawOverlayText;
+        delete textNode.dataset.evpaAppliedEffectSig;
+      }
+      const fontFamily='"'+String(ov.fontFamily||'Inter')+'", sans-serif';
+      const fontSize=Math.max(8,Number(ov.fontSize)||44)+'px';
+      const fontWeight=String(ov.fontWeight||800);
+      const fontStyle=ov.fontStyle==='italic'?'italic':'normal';
+      const textAlign=ov.textAlign||'center';
+      const textColor=ethvelleHexToRgba(ov.textColor||'#ffffff',Math.max(0,Math.min(100,Number(ov.textOpacity==null?100:ov.textOpacity)))/100);
+      const sw=Math.max(0,Number(ov.strokeWidth)||0);
+      const strokeValue=sw>0?(sw+'px '+ethvelleHexToRgba(ov.strokeColor||'#17172B',Math.max(0,Math.min(100,Number(ov.strokeOpacity==null?100:ov.strokeOpacity)))/100)):'0 transparent';
+      const shadowValue=ov.shadowEnabled ? `${Number(ov.shadowX)||0}px ${Math.max(4,Number(ov.shadowY)||6)}px ${Math.max(0,Number(ov.shadowBlur)||0)}px ${ethvelleHexToRgba(ov.shadowColor||'#000000',Math.max(0,Math.min(100,Number(ov.shadowOpacity==null?100:ov.shadowOpacity)))/100)}` : 'none';
+      const backplateValue=ov.textBackgroundEnabled ? ethvelleHexToRgba(ov.textBackgroundColor||'#182A66',Math.max(0,Math.min(100,Number(ov.textBackgroundOpacity==null?78:ov.textBackgroundOpacity)))/100) : 'transparent';
+      const paddingValue=ov.textBackgroundEnabled ? `${Math.max(0,Number(ov.textBackgroundPadding==null?7:ov.textBackgroundPadding))}px` : '0';
+      const radiusValue=Math.max(0,Number(ov.textBackgroundRadius==null?8:ov.textBackgroundRadius))+'px';
+      // These values do not change just because the playhead moved. Writing them on every
+      // preview frame invalidated text paint repeatedly on mobile WebView. Update only when
+      // the actual text/effect settings change; renderOverlayMedia still updates time/transform.
+      const styleSignature=JSON.stringify([rawOverlayText,fontFamily,fontSize,fontWeight,fontStyle,textAlign,textColor,strokeValue,shadowValue,backplateValue,paddingValue,radiusValue,!!ov.textBackgroundEnabled,!!ov.textHighlightEnabled]);
+      if(textNode.dataset.evTextStyleSignature!==styleSignature){
+        textNode.style.fontFamily=fontFamily;
+        textNode.style.fontSize=fontSize;
+        textNode.style.fontWeight=fontWeight;
+        textNode.style.fontStyle=fontStyle;
+        textNode.style.textAlign=textAlign;
+        textNode.style.color=textColor;
+        textNode.style.webkitTextStroke=strokeValue;
+        textNode.style.paintOrder='stroke fill';
+        textNode.style.textShadow=shadowValue;
+        textNode.style.backgroundColor=backplateValue;
+        textNode.style.padding=paddingValue;
+        textNode.style.borderRadius=radiusValue;
+        textNode.dataset.evTextStyleSignature=styleSignature;
+      }
+      const wantsSelected=String(selectedClip)===String(ov.id);
+      if(textNode.classList.contains('ev-text-selected')!==wantsSelected)textNode.classList.toggle('ev-text-selected',wantsSelected);
+      /* This is the outer text-clip compositor: fading it applies equally to fill, stroke,
+         shadow and the independent text-background/highlight plate. */
+      const overallOpacity=Math.max(0,Math.min(100,Number(ov.textOverallOpacity==null?100:ov.textOverallOpacity)))/100;
+      if(el.style.opacity!==String(overallOpacity))el.style.opacity=String(overallOpacity);
+    }
+    // The shared helper is the sole owner of transform/mirror/animation/mask styling.
+    // The fallback keeps the base renderer safe if called before the visual-toolkit script loads.
+    if(typeof window.ethvelleApplyOverlayVisualStyle==='function'){
+      window.ethvelleApplyOverlayVisualStyle(el,ov,tSecAbsolute,el,false);
+    }else{
+      const trackedTransform = window.ethvelleGetTrackedOverlayTransform ? window.ethvelleGetTrackedOverlayTransform(ov) : ov.transform;
+      const t = ethvelleObjectKeyframeProperty(ov)==='transform' ? (ethvelleGetObjectKeyframeValue(ov,'transform',tSecAbsolute)||trackedTransform) : trackedTransform;
+      const elementTransform = t ? `translate(${t.offsetX||0}px, ${t.offsetY||0}px) rotate(${t.rotation||0}deg) scale(${t.scale||1})` : '';
+      if(el.style.transform!==elementTransform)el.style.transform = elementTransform;
+    }
+    if(ov.type==='video'){
+      const sameVideoStall=!!evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov.id);
+      const framePresentable=evOverlayVideoFrameIsPresentable(ov,el,tSecAbsolute);
+      if(framePresentable&&el.videoWidth>0&&el.videoHeight>0){
+        el.dataset.evHasDecodedTimelineFrame='1';
+        // Capture the clip's last-good picture 150-250ms BEFORE its trim end, while the
+        // decoder is still presentable. freezeOutgoingOverlayVideoFrame reuses this canvas.
+        try{evCapturePreCutOverlayVideoFrame(ov,el,tSecAbsolute);}catch(_e){}
+      }
+      // During playback as well as scrubbing, a decoder hiccup must not hide a video that
+      // has already displayed a real frame. The scrub wrapper may place its retained canvas
+      // above the element; otherwise leave the last decoded video surface visible.
+      const keepLastDecodedFrame=evOverlayVideoHasDecodedTimelineFrame(el);
+      const keepLastScrubFrame=!!window.__ethvelleTimelineScrubbing&&keepLastDecodedFrame;
+      const hideIncoming=!framePresentable&&!keepLastScrubFrame&&!keepLastDecodedFrame;
+      const visibilityState=hideIncoming?'hidden':'';
+      if(el.dataset.evIncomingHidden!==(hideIncoming?'1':'0')){
+        if(window.__evVideoDebug)try{console.log('[evVideo]',hideIncoming?'HOLD (incoming hidden)':'LIVE (incoming shown)',ov.id,'scrubbing',!!window.__ethvelleTimelineScrubbing);}catch(_e){}
+        el.style.visibility=visibilityState;
+        el.dataset.evIncomingHidden=hideIncoming?'1':'0';
+      }
+
+      const speed = Math.max(0.05,Number(ov.speed)||1);
+      const enhancedPrimeUrl=String(ov.__evltRuntimeEnhancedSrc||'');
+      const enhancedPrimeActive=!!(enhancedPrimeUrl&&el.__evEnhPrimeInProgress===enhancedPrimeUrl);
+      const maxT = Math.max(0.05, (ov.sourceDuration || el.duration || (ov.trimEnd-ov.trimStart)) - 0.02);
+      // localT is measured in the SOURCE video's own time, so it advances `speed`x faster
+      // than timeline time elapses — at 2x, 1 second of timeline time covers 2 seconds of
+      // the actual source footage; at 0.5x, half a second of it. Combined with the clip's
+      // own trimEnd already being rescaled by speedPanelSetSpeed (shorter timeline
+      // footprint at higher speed), this keeps the WHOLE source clip playing out exactly
+      // once across the clip's new, shorter (or longer) span on the timeline.
+      const elapsed=Math.max(0,(tSecAbsolute-Number(ov.trimStart))*speed);
+      const span=Math.max(0,(Number(ov.trimEnd)-Number(ov.trimStart))*speed);
+      const rawLocal=ov.reversePlayback?(Number(ov.sourceOffset)||0)+span-elapsed:(Number(ov.sourceOffset)||0)+elapsed;
+      const localT=Math.max(0,Math.min(maxT,rawLocal));
+      if(ov.reversePlayback){
+        // Reverse preview is driven by timeline seeks because HTMLVideoElement does not
+        // support dependable negative playbackRate on Android WebView. Keep seeks bounded

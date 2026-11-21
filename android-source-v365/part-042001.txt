@@ -1,0 +1,1000 @@
+        try{const target=window.ethvellePicsartGetTarget?.();if(target){target.textColor=c;target.textGradient='';target.textTexture='';if(Number(target.textOpacity)===0)target.textOpacity=100;}}catch(_e){}
+        const input=$('evtcStageText');if(input){input.style.setProperty('color',c,'important');input.style.setProperty('-webkit-text-fill-color',c,'important');input.style.setProperty('background-image','none','important');input.style.setProperty('background-clip','border-box','important');input.style.setProperty('-webkit-background-clip','border-box','important');}
+        setVisibleColorRings(c);
+      }
+      return result;
+    };
+    wrapped.__evV47ApplyColor=true;window.setEthvelleComposerColor=wrapped;
+  }
+
+  /* Make existing-text swatches immediately update the model, canvas renderer, and persistent save.
+     In composer mode explicitly update the actual draft too; this is the path that legacy dock
+     handlers could miss when a color was chosen from the Font section. */
+  const priorDockSet=window.ethvellePicsartSetColor;
+  if(typeof priorDockSet==='function'&&!priorDockSet.__evV47ApplyColor){
+    const wrapped=function(key,color){
+      const c=normColor(color);const composing=activeComposer();
+      const result=priorDockSet.apply(this,arguments);
+      if(key==='textColor'&&c){
+        if(composing&&typeof window.setEthvelleComposerColor==='function'){
+          try{window.setEthvelleComposerColor(c);}catch(_e){}
+        }else{
+          try{
+            const target=window.ethvellePicsartGetTarget?.();
+            if(target&&target.type==='text'){
+              target.textColor=c;target.textGradient='';target.textTexture='';
+              if(Number(target.textOpacity)===0)target.textOpacity=100;
+            }
+            if(typeof window.renderFrame==='function')window.renderFrame();
+            if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});
+          }catch(err){console.warn('Ethvelle text color apply:',err);}
+        }
+        setVisibleColorRings(c);
+      }
+      return result;
+    };
+    wrapped.__evV47ApplyColor=true;window.ethvellePicsartSetColor=wrapped;
+  }
+
+  /* Re-sync the selected swatch on composer open/rebuild, using the real style target as source. */
+  const priorComposerOpen=window.openEthvelleTextComposer;
+  if(typeof priorComposerOpen==='function'&&!priorComposerOpen.__evV47SyncRings){
+    const wrapped=function(){
+      const result=priorComposerOpen.apply(this,arguments);
+      requestAnimationFrame(()=>{
+        try{
+          const target=window.ethvellePicsartGetTarget?.();
+          const c=normColor(target?.textColor||'#FFFFFF')||'#FFFFFF';
+          /* Only restore the selected swatch marker here. Calling the colour setter on open
+             clears textGradient/textTexture, destroying the selected layer's saved fill effect. */
+          setVisibleColorRings(c);
+          if(typeof window.__ethvelleSyncTextSwatches==='function')window.__ethvelleSyncTextSwatches('textColor',c);
+        }catch(_e){}
+      });
+      return result;
+    };
+    wrapped.__evV47SyncRings=true;window.openEthvelleTextComposer=wrapped;
+  }
+
+  // Successful video enhancement now starts the main timeline player once. The short-lived
+  // pause guard remains for unsuccessful runs and Apply's media-rebinding refreshes.
+  function freezeEnhanceTargetVideo(forceClockPause){
+    if(forceClockPause){
+      try{
+        if(typeof window.pausePlaybackAtCurrentTime==='function')window.pausePlaybackAtCurrentTime();
+        else if(typeof window.pausePlayback==='function')window.pausePlayback();
+      }catch(_e){}
+    }
+    try{
+      const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+      const raw=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[id]:null;
+      const video=raw&&raw.tagName==='VIDEO'?raw:(raw&&raw.querySelector?raw.querySelector('video'):null);
+      if(!video)return;
+      video.autoplay=false;video.removeAttribute('autoplay');
+      const pausedPlayGuard=()=>{
+        if(!(typeof isPlaying!=='undefined'&&isPlaying)){
+          try{video.pause();}catch(_e){}
+        }
+      };
+      try{video.pause();}catch(_e){}
+      if(!video.__evV47EnhancePauseGuard){
+        video.__evV47EnhancePauseGuard=pausedPlayGuard;
+        video.addEventListener('play',pausedPlayGuard);
+        setTimeout(()=>{
+          try{video.removeEventListener('play',pausedPlayGuard);delete video.__evV47EnhancePauseGuard;}catch(_e){}
+        },2200);
+      }
+    }catch(_e){}
+  }
+  let enhanceAutoPlayToken=0,enhanceSweepRaf=0;
+  let enhanceAutoPreviewPending=false,enhanceAutoPreviewRunning=false,enhanceAutoPreviewRaf=0,enhanceAutoPreviewStartTimer=0,enhanceAutoPreviewClipId=null;
+  window.__evEnhancePreviewMute=false;
+  function enhanceSelectedClip(){
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    return typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===id):null;
+  }
+  function cancelEnhanceAutoPreview(reason,pauseIfRunning,renderAfter){
+    const active=enhanceAutoPreviewPending||enhanceAutoPreviewRunning||window.__evEnhancePreviewMute===true;
+    if(!active)return false;
+    const wasRunning=enhanceAutoPreviewRunning;
+    enhanceAutoPlayToken++;
+    enhanceAutoPreviewPending=false;enhanceAutoPreviewRunning=false;enhanceAutoPreviewClipId=null;
+    if(enhanceAutoPreviewStartTimer){clearTimeout(enhanceAutoPreviewStartTimer);enhanceAutoPreviewStartTimer=0;}
+    if(enhanceAutoPreviewRaf){cancelAnimationFrame(enhanceAutoPreviewRaf);enhanceAutoPreviewRaf=0;}
+    window.__evEnhancePreviewMute=false;
+    if(wasRunning&&pauseIfRunning&&typeof window.pausePlaybackAtCurrentTime==='function'&&typeof isPlaying!=='undefined'&&isPlaying){try{window.pausePlaybackAtCurrentTime();}catch(_e){}}
+    else if(renderAfter!==false&&wasRunning){try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(_e){}}
+    return true;
+  }
+  window.__evCancelEnhanceAutoPreview=cancelEnhanceAutoPreview;
+  /* Every timeline scrub entry point writes this flag, including the compact zoom-HUD scrubber. */
+  try{
+    const oldScrubDescriptor=Object.getOwnPropertyDescriptor(window,'__ethvelleTimelineScrubbing');
+    if(!oldScrubDescriptor||oldScrubDescriptor.configurable){
+      let scrubState=!!window.__ethvelleTimelineScrubbing;
+      Object.defineProperty(window,'__ethvelleTimelineScrubbing',{configurable:true,enumerable:true,get(){return scrubState;},set(value){const next=!!value;if(next&&!scrubState)cancelEnhanceAutoPreview('scrub',false,true);scrubState=next;}});
+    }
+  }catch(_e){}
+  window.addEventListener('pagehide',()=>cancelEnhanceAutoPreview('pagehide',true,false),{once:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelEnhanceAutoPreview('visibility-hidden',true,false);});
+  function cancelEnhanceSweep(){if(enhanceSweepRaf){cancelAnimationFrame(enhanceSweepRaf);enhanceSweepRaf=0;}}
+  window.__evSweepCancel=cancelEnhanceSweep;
+  /* After Enhance finishes the BEFORE/AFTER divider glides 50% -> 0% -> 100% -> 50% so the whole
+     enhanced frame is seen on both sides. Touching the divider cancels it at once. */
+  function sweepEnhanceCompare(totalSec){
+    cancelEnhanceSweep();
+    const set=window.ethvelleSetCompareSplit;if(typeof set!=='function')return;
+    const period=Math.min(6,Math.max(3,totalSec)),total=Math.max(period,totalSec),t0=performance.now();
+    const step=now=>{
+      if(!document.getElementById('ethvelleCanvasCompareRoot')){enhanceSweepRaf=0;return;}
+      const t=(now-t0)/1000;
+      if(t>=total){set(50);enhanceSweepRaf=0;return;}
+      // phase 0..1 inside the current period; sine keeps motion smooth at both ends.
+      const phase=(t%period)/period;
+      set(50-50*Math.sin(phase*2*Math.PI));
+      enhanceSweepRaf=requestAnimationFrame(step);
+    };
+    enhanceSweepRaf=requestAnimationFrame(step);
+  }
+  function playEnhancedVideoOnce(lockedId){
+    // The clip that was enhanced is locked in when Enhance starts, so a neighbouring clip that happens to sit
+    // under the playhead can never become the selected / previewed one.
+    const clip=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(lockedId)):null;
+    if(!clip||clip.type!=='video'){window.__evEnhancePreviewMute=false;return;}
+    const token=++enhanceAutoPlayToken,keepId=clip.id;
+    enhanceAutoPreviewPending=true;enhanceAutoPreviewRunning=false;enhanceAutoPreviewClipId=keepId;
+    // startPlayback()/pause deselect or re-select by playhead position. Put the enhanced clip back directly
+    // (same pattern as the audio preview) so playback keeps running and the Enhance panel keeps its target.
+    const keepSelected=()=>{
+      try{
+        if(String(selectedClip)===String(keepId))return;
+        selectedClip=keepId;selectedKfIdx=null;
+        document.querySelectorAll('#timelineInner .overlay-clip.selected,#timelineInner .track-clip.selected').forEach(el=>el.classList.remove('selected'));
+        const el=[...document.querySelectorAll('#timelineInner .overlay-clip[data-overlay-id]')].find(n=>String(n.getAttribute('data-overlay-id'))===String(keepId));if(el)el.classList.add('selected');
+      }catch(_e){}
+    };
+    const start=Number(clip.trimStart)||0,end=Number(clip.trimEnd)||start;
+    if(!(end>start)){enhanceAutoPreviewPending=false;enhanceAutoPreviewClipId=null;window.__evEnhancePreviewMute=false;return;}
+    const stopAt=start+0.9*(end-start);
+    enhanceAutoPreviewStartTimer=setTimeout(()=>{
+      enhanceAutoPreviewStartTimer=0;
+      if(token!==enhanceAutoPlayToken)return;
+      enhanceAutoPreviewPending=false;
+      try{
+        if(String(selectedClip)!==String(keepId))keepSelected();
+        if(typeof window.pausePlaybackAtCurrentTime==='function'&&typeof isPlaying!=='undefined'&&isPlaying)window.pausePlaybackAtCurrentTime();
+        if(typeof window.seekAbsoluteTimelineSeconds==='function')window.seekAbsoluteTimelineSeconds(start);
+        if(typeof window.startPlayback!=='function'){window.__evEnhancePreviewMute=false;enhanceAutoPreviewClipId=null;return;}
+        window.__evEnhancePreviewMute=true;
+        enhanceAutoPreviewRunning=true;
+        window.startPlayback();
+        keepSelected();
+        // startPlayback() can be gated ("Preparing playback…") and start a moment later, so wait for it before treating "not playing" as stopped.
+        const startWaitFrom=performance.now();let sawPlaying=!!(typeof isPlaying!=='undefined'&&isPlaying);
+        // Preview once, stopping at 90% of the clip without moving the playhead afterward.
+        const finish=()=>{
+          if(token!==enhanceAutoPlayToken)return;
+          enhanceAutoPreviewRunning=false;
+          try{window.pausePlaybackAtCurrentTime();}catch(_e){}
+          window.__evEnhancePreviewMute=false;
+          try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(_e){}
+          keepSelected();[60,250,700].forEach(ms=>setTimeout(()=>{if(token===enhanceAutoPlayToken)keepSelected();},ms));
+        };
+        const watch=()=>{
+          enhanceAutoPreviewRaf=0;
+          if(token!==enhanceAutoPlayToken)return;
+          if(typeof isPlaying!=='undefined'&&isPlaying)sawPlaying=true;
+          if(typeof isPlaying==='undefined'||!isPlaying){
+            if(!sawPlaying&&performance.now()-startWaitFrom<12000){enhanceAutoPreviewRaf=requestAnimationFrame(watch);return;}
+            cancelEnhanceAutoPreview('playback-stopped',false,true);return;
+          }
+          keepSelected();
+          const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+          if(now>=stopAt-0.04){finish();return;}
+          enhanceAutoPreviewRaf=requestAnimationFrame(watch);
+        };
+        enhanceAutoPreviewRaf=requestAnimationFrame(watch);
+      }catch(err){
+        console.warn('Ethvelle: automatic one-time Enhance preview playback failed',err);
+        cancelEnhanceAutoPreview('preview-error',true,true);
+        window.__evEnhancePreviewMute=false;
+      }
+    },150);
+  }
+  const priorStartEnhance=window.ethvelleStartVideoEnhance;
+  if(typeof priorStartEnhance==='function'&&!priorStartEnhance.__evV47PauseAfterRun){
+    const wrappedStart=async function(){
+      cancelEnhanceAutoPreview('new-enhance',true,true);
+      let readyForPlayback=false;
+      const lockedId=typeof selectedClip!=='undefined'?selectedClip:null;
+      try{
+        const result=await priorStartEnhance.apply(this,arguments);
+        const clip=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(lockedId)):null;
+        const status=$('evltEnhanceStatus');
+        readyForPlayback=!!(clip&&clip.type==='video'&&status&&/Ready to apply/i.test(status.textContent||''));
+        return result;
+      }finally{
+        if(readyForPlayback)playEnhancedVideoOnce(lockedId);
+        else freezeEnhanceTargetVideo(true);
+      }
+    };
+    wrappedStart.__evV47PauseAfterRun=true;window.ethvelleStartVideoEnhance=wrappedStart;
+  }
+  const priorEnhanceTogglePlayback=window.togglePlayback;
+  if(typeof priorEnhanceTogglePlayback==='function'&&!priorEnhanceTogglePlayback.__evEnhancePreviewCancel){
+    const wrappedToggle=function(){cancelEnhanceAutoPreview('transport-toggle',false,false);return priorEnhanceTogglePlayback.apply(this,arguments);};
+    wrappedToggle.__evEnhancePreviewCancel=true;window.togglePlayback=wrappedToggle;
+  }
+  const priorEnhanceTogglePlay=window.togglePlay;
+  if(typeof priorEnhanceTogglePlay==='function'&&!priorEnhanceTogglePlay.__evEnhancePreviewCancel){
+    const wrappedTogglePlay=function(){cancelEnhanceAutoPreview('transport-toggle',false,false);return priorEnhanceTogglePlay.apply(this,arguments);};
+    wrappedTogglePlay.__evEnhancePreviewCancel=true;window.togglePlay=wrappedTogglePlay;
+  }
+  const priorEnhanceSelectClip=window.selectClipForChrome;
+  if(typeof priorEnhanceSelectClip==='function'&&!priorEnhanceSelectClip.__evEnhancePreviewCancel){
+    const wrappedSelectClip=function(which){if((enhanceAutoPreviewPending||enhanceAutoPreviewRunning)&&String(which)!==String(enhanceAutoPreviewClipId))cancelEnhanceAutoPreview('clip-selection',false,false);return priorEnhanceSelectClip.apply(this,arguments);};
+    wrappedSelectClip.__evEnhancePreviewCancel=true;window.selectClipForChrome=wrappedSelectClip;
+  }
+
+  /* Successful Apply closes only after the runtime enhanced source has actually been installed.
+     Errors keep the panel open so the user can read the failure and retry. */
+  const priorApply=window.ethvelleApplyVideoEnhance;
+  if(typeof priorApply==='function'&&!priorApply.__evV47CloseOnSuccess){
+    const wrapped=async function(){
+      const result=await priorApply.apply(this,arguments);
+      const status=$('evltEnhanceStatus');
+      if(status&&/\bApplied\b/.test(status.textContent||'')){
+        document.body.classList.remove('evlt-enhance-preview-active');
+        cancelEnhanceAutoPreview('apply-close',true,true);
+        if(typeof window.closePanel==='function')window.closePanel();
+        return result;
+      }
+      freezeEnhanceTargetVideo(true);
+      return result;
+    };
+    wrapped.__evV47CloseOnSuccess=true;window.ethvelleApplyVideoEnhance=wrapped;
+  }
+
+  /* Update the in-memory saved playhead as it moves, so pagehide/device-save catches the latest
+     position even when no other edit happened just before refresh. */
+  const priorMovePlayhead=window.movePlayhead;
+  if(typeof priorMovePlayhead==='function'&&!priorMovePlayhead.__evV47SavePlayhead){
+    const wrapped=function(){
+      const result=priorMovePlayhead.apply(this,arguments);
+      try{if(typeof currentProject!=='undefined'&&currentProject&&currentProject.savedState){
+        const t=Number(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:window.currentAbsoluteTimeSec)||0;
+        currentProject.savedState.playheadTimeSec=Math.max(0,t);
+      }}catch(_e){}
+      return result;
+    };
+    wrapped.__evV47SavePlayhead=true;window.movePlayhead=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setVisibleColorRings('#FFFFFF'),{once:true});
+})();
+</script>
+
+<style id="ethvelle-v48-requested-ui-polish-css">
+  /* Enhanced-quality label: move it past the clip's leading blue selection edge/line. */
+  #timelineInner .evlt-quality-row-badge {
+    left:18px!important;
+    max-width:calc(100% - 22px)!important;
+    padding-left:2px!important;
+    padding-right:2px!important;
+  }
+
+  /* The Text edit pencil should be the same clean white as the other toolbar glyphs. */
+  #bottomToolsClip #clipTextEditTool svg,
+  #bottomToolsClip .ev-text-tool svg {
+    color:#A7A9B4!important;
+    stroke:#A7A9B4!important;
+    fill:none!important;
+    filter:none!important;
+  }
+
+  /* Font palette: keep the two colour rows in one horizontal scroller, with enough vertical
+     breathing room that the selected swatch's wider double ring cannot be clipped. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette,
+  #ethvellePicsartTextDock.evpa-v25-font-mode .evpa-palette {
+    flex:0 0 101px!important;
+    height:101px!important;
+    min-height:101px!important;
+    max-height:101px!important;
+    overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    flex:0 0 92px!important;
+    height:92px!important;
+    min-height:92px!important;
+    max-height:92px!important;
+    padding:1px 0 2px!important;
+    gap:5px!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    touch-action:pan-x!important;
+    -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row {
+    flex:0 0 42px!important;
+    height:42px!important;
+    min-height:42px!important;
+    max-height:42px!important;
+    width:max-content!important;
+    min-width:100%!important;
+    max-width:none!important;
+    padding:5px 8px!important;
+    gap:7px!important;
+    overflow:visible!important;
+    touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>button {
+    flex:0 0 32px!important;
+    width:32px!important;
+    min-width:32px!important;
+    max-width:32px!important;
+    height:32px!important;
+    min-height:32px!important;
+    max-height:32px!important;
+    border-radius:50%!important;
+    overflow:visible!important;
+    touch-action:pan-x!important;
+  }
+  /* Double blue selection ring: an inner blue edge plus a separated, wider outer blue ring. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-transparent.active {
+    border:2px solid #2F5CE8!important;
+    outline:0!important;
+    outline-offset:0!important;
+    box-shadow:0 0 0 1px #15161E,0 0 0 3px #2F5CE8!important;
+    border-radius:50%!important;
+    filter:none!important;
+    transform:none!important;
+    z-index:40!important;
+  }
+
+  /* Remove only the thin rotating accent ring; keep the percentage-driven progress circle. */
+  .evlt-import-spinner::after {
+    content:none!important;
+    display:none!important;
+    animation:none!important;
+    border:0!important;
+  }
+</style>
+<!-- Ethvelle v49: full-frame video thumbnails, usable two-row font swatch scrolling, muted pencil glyph. -->
+<style id="ethvelle-v49-timeline-palette-final-css">
+  /* Legacy grid/sheet/live-video filmstrip styling removed. */
+
+  /* A single horizontal scrollport owns both font-colour rows. Block + max-content child rows
+     avoids flex sizing collapsing the overflow width in Android WebView. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    display:block!important;position:relative!important;width:100%!important;min-width:0!important;max-width:100%!important;
+    height:82px!important;min-height:82px!important;max-height:82px!important;padding:1px 2px 2px!important;margin:0!important;
+    overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain!important;overscroll-behavior-y:none!important;
+    -webkit-overflow-scrolling:touch!important;touch-action:pan-x!important;scrollbar-width:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built::-webkit-scrollbar,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built::-webkit-scrollbar {display:none!important;width:0!important;height:0!important;}
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row {
+    display:flex!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;gap:6px!important;
+    width:max-content!important;min-width:max-content!important;max-width:none!important;height:38px!important;min-height:38px!important;max-height:38px!important;
+    padding:2px 7px!important;margin:0!important;overflow:visible!important;white-space:nowrap!important;touch-action:pan-x!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row>button,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row>.evpa-swatch {
+    flex:0 0 30px!important;width:30px!important;min-width:30px!important;max-width:30px!important;
+    height:30px!important;min-height:30px!important;max-height:30px!important;margin:0!important;padding:0!important;border-radius:50%!important;
+    touch-action:pan-x!important;box-sizing:border-box!important;
+  }
+  /* Double blue ring retained, with a narrow outer edge instead of the oversized 5px ring. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row>.evpa-transparent.active {
+    border:1.5px solid #2F5CE8!important;outline:0!important;outline-offset:0!important;
+    box-shadow:0 0 0 1px #15161E,0 0 0 3px #2F5CE8!important;border-radius:50%!important;filter:none!important;transform:none!important;z-index:40!important;
+  }
+  /* Text edit matches the muted white-gray used by neighbouring toolbar icons. */
+  #bottomToolsClip #clipTextEditTool,#bottomToolsClip .ev-text-tool {color:#A7A9B4!important;}
+  #bottomToolsClip #clipTextEditTool svg,#bottomToolsClip .ev-text-tool svg {
+    color:#A7A9B4!important;stroke:#A7A9B4!important;fill:none!important;filter:none!important;
+  }
+</style>
+<script id="ethvelle-v49-font-palette-touch-fix-js">
+(function(){
+  'use strict';
+  const selector='#ethvellePicsartTextDock #evpaPalette .evpa-swatches.evpa-v25-font-built';
+  let drag=null,suppressUntil=0,suppressPaletteClick=false;
+  function getScroller(target){
+    if(!target||!target.closest)return null;
+    const scroller=target.closest(selector),dock=document.getElementById('ethvellePicsartTextDock');
+    return scroller&&dock&&(dock.classList.contains('evpa-v25-font-mode')||dock.classList.contains('evpa-font-palette-mode'))?scroller:null;
+  }
+  document.addEventListener('touchstart',function(e){
+    if(!e.touches||e.touches.length!==1)return;
+    const scroller=getScroller(e.target);if(!scroller)return;const t=e.touches[0];
+    drag={scroller,x:t.clientX,y:t.clientY,scroll:scroller.scrollLeft,moved:false,button:e.target.closest?.('button')||null};
+  },{capture:true,passive:true});
+  document.addEventListener('touchmove',function(e){
+    if(!drag||!e.touches||e.touches.length!==1)return;
+    const t=e.touches[0],dx=t.clientX-drag.x,dy=t.clientY-drag.y;
+    if(!drag.moved&&Math.abs(dx)>5&&Math.abs(dx)>Math.abs(dy)*1.12)drag.moved=true;
+    if(!drag.moved)return;
+    const max=Math.max(0,drag.scroller.scrollWidth-drag.scroller.clientWidth);
+    drag.scroller.scrollLeft=Math.max(0,Math.min(max,drag.scroll-dx));
+    suppressUntil=Date.now()+500;suppressPaletteClick=true;if(e.cancelable)e.preventDefault();
+  },{capture:true,passive:false});
+  function finish(){if(drag&&drag.moved){suppressUntil=Date.now()+420;suppressPaletteClick=true;}drag=null;}
+  document.addEventListener('touchend',finish,{capture:true,passive:true});
+  document.addEventListener('touchcancel',finish,{capture:true,passive:true});
+  window.addEventListener('click',function(e){
+    if(Date.now()>suppressUntil||!suppressPaletteClick)return;
+    if(e.target?.closest?.(selector)){e.preventDefault();e.stopImmediatePropagation();suppressPaletteClick=false;}
+  },true);
+  function apply(){
+    const dock=document.getElementById('ethvellePicsartTextDock');
+    if(!dock||!(dock.classList.contains('evpa-v25-font-mode')||dock.classList.contains('evpa-font-palette-mode')))return;
+    const scroller=dock.querySelector('#evpaPalette .evpa-swatches.evpa-v25-font-built');if(!scroller)return;
+    [['display','block'],['overflow-x','auto'],['overflow-y','hidden'],['touch-action','pan-x'],['-webkit-overflow-scrolling','touch']].forEach(([k,v])=>scroller.style.setProperty(k,v,'important'));
+    scroller.querySelectorAll(':scope > .evpa-font-color-tools,:scope > .evpa-font-color-row').forEach(row=>{
+      [['width','max-content'],['min-width','max-content'],['max-width','none'],['touch-action','pan-x']].forEach(([k,v])=>row.style.setProperty(k,v,'important'));
+    });
+  }
+  let queued=false;function queue(){if(queued)return;queued=true;(window.requestAnimationFrame||function(fn){setTimeout(fn,16)})(function(){queued=false;try{apply();}catch(_e){}});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',queue,{once:true});else queue();
+  document.addEventListener('click',function(e){if(e.target?.closest?.('#evpaTabs .evpa-tab'))queue();},true);
+  if(typeof MutationObserver==='function'&&document.body)new MutationObserver(queue).observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+})();
+</script>
+
+
+
+<!-- Ethvelle v50: preserve font-gallery scroll, dense gapless video filmstrips, and CapCut-style export settings. -->
+<style id="ethvelle-v50-export-and-font-polish-css">
+  /* The export sheet has no blue site-name kicker; content begins with the video details card. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head .evlt-export-brand{display:none!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head{padding-top:0!important;padding-bottom:16px!important;margin-bottom:15px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head h1{margin:0!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head p{margin-top:5px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-body>.field-label,
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid,
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityHint,
+  #exportModalBackdrop.evlt-export-fullscreen #exportCreditEstimate{display:none!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #evltExportAdvancedSettings{display:flex!important;flex-direction:column!important;gap:18px!important;margin:0!important;padding:0 0 20px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-card.evlt-v50-video-details{margin:0!important;padding:15px!important;border-radius:17px!important;background:linear-gradient(145deg,#1B1D28,#13141B)!important;border:1px solid rgba(112,137,210,.24)!important;box-shadow:0 8px 24px rgba(0,0,0,.18)!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-details-title{display:flex;align-items:center;gap:9px;margin:0 0 13px;color:#F5F6FF;font-size:14px;font-weight:800;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-details-title svg{width:18px;height:18px;stroke:#8FAAFF;fill:none;stroke-width:1.8;flex:0 0 auto;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-grid{grid-template-columns:1fr 1fr!important;gap:14px 12px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-item span{font-size:10.5px!important;color:#9299AE!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-item strong{font-size:13px!important;color:#F3F5FF!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-output-settings{margin:0!important;padding:0!important;background:transparent!important;border:0!important;border-radius:0!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-output-title{font-size:14px;font-weight:800;color:#F5F6FF;margin:0 0 4px;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-output-subtitle{font-size:11px;line-height:1.45;color:#858A9D;margin:0 0 8px;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row{padding:15px 0 14px;border-bottom:1px solid rgba(255,255,255,.075);}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row:last-child{border-bottom:0;padding-bottom:2px;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head label{font-size:12.5px;font-weight:700;color:#DDE1F0;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head output{font-size:12.5px;font-weight:800;color:#AFC3FF;background:rgba(47,92,232,.13);border:1px solid rgba(104,139,255,.22);padding:5px 9px;border-radius:8px;min-width:65px;text-align:center;font-variant-numeric:tabular-nums;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range{display:block!important;appearance:none!important;-webkit-appearance:none!important;width:100%!important;height:20px!important;min-height:20px!important;margin:0!important;padding:0!important;border:0!important;outline:0!important;background:transparent!important;cursor:pointer!important;touch-action:none!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range::-webkit-slider-runnable-track{height:4px;border-radius:99px;background:linear-gradient(to right,#2F5CE8 0%,#7395FF var(--evlt-v50-progress,0%),#2A2C38 var(--evlt-v50-progress,0%),#2A2C38 100%);}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range::-moz-range-track{height:4px;border-radius:99px;background:#2A2C38;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range::-moz-range-progress{height:4px;border-radius:99px;background:#4775F5;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:17px;height:17px;margin-top:-6.5px;border-radius:50%;background:#F7F8FF;border:4px solid #4775F5;box-shadow:0 1px 5px rgba(0,0,0,.35);}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range::-moz-range-thumb{width:10px;height:10px;border-radius:50%;background:#F7F8FF;border:4px solid #4775F5;box-shadow:0 1px 5px rgba(0,0,0,.35);}
+  #exportModalBackdrop.evlt-export-fullscreen .ev-range-drag-only-wrap{width:100%!important;min-width:0!important;max-width:none!important;height:20px!important;min-height:20px!important;max-height:20px!important;display:flex!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-marks{display:flex;justify-content:space-between;gap:5px;margin-top:6px;color:#777E93;font-size:9.5px;line-height:1.2;font-weight:700;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-marks span{white-space:nowrap;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-marks span.locked{opacity:.3;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn.evlt-v50-export-btn{display:grid!important;grid-template-columns:1fr auto!important;align-items:center!important;gap:8px!important;text-align:center!important;min-height:56px!important;padding:0 15px!important;border-radius:15px!important;background:linear-gradient(110deg,#4776FF,#2F5CE8 60%,#2446B6)!important;color:#fff!important;font-size:15px!important;font-weight:800!important;letter-spacing:.01em!important;box-shadow:0 8px 20px rgba(47,92,232,.23)!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-cost{font-size:12px;font-weight:900;color:#fff;font-variant-numeric:tabular-nums;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-export-label{justify-self:start;font-size:15px;font-weight:900;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-balance{justify-self:end;display:flex;align-items:center;gap:6px;font-size:12px;font-weight:900;color:#F4F6FF;font-variant-numeric:tabular-nums;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-slash{opacity:.78;font-size:13px;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn:disabled{opacity:.58!important;filter:saturate(.55)!important;box-shadow:none!important;}
+  /* Add-character placeholder uses the same full-width flex-track sizing as the Text lane. */
+  #timelineInner .layer-row.char-add-row{width:100%!important;min-width:100%!important;}
+  #timelineInner .layer-row.char-add-row .char-add-track{flex:1 0 auto!important;min-width:0!important;width:auto!important;max-width:none!important;}
+  /* The contact sheet now has aspect-matched cells and is scaled to the clip's exact width once,
+     with no repeat-generated gray gaps. Keep letterboxing near-black in the live-frame fallback. */
+  @media(max-width:360px){
+    #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-card.evlt-v50-video-details{padding:12px!important;}
+    #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row{padding:13px 0 12px;}
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn.evlt-v50-export-btn{padding:0 11px!important;gap:5px!important;}
+  }
+</style>
+<script id="ethvelle-v50-export-and-font-scroll-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const qualities=[480,720,1080,1440,2160];
+  const fpsValues=[24,30,60];
+  const baseMbps=q=>q>=2160?16:q>=1440?12:q>=1080?8:q>=720?5:2.5;
+  const maxMbps=q=>q>=2160?50:q>=1440?30:q>=1080?20:q>=720?12:8;
+  let initialized=false,bitrateTouched=false,lastQuality=0;
+  let savedFontScroll=0,fontRestoreUntil=0,fontRestoreTimer=0;
+
+  function currentQuality(){try{return Number(typeof exportQuality!=='undefined'?exportQuality:720)||720;}catch(_e){return 720;}}
+  function currentDuration(){try{return Math.max(0.1,Number(typeof getExportContentDurationSec==='function'?getExportContentDurationSec():0.1)||0.1);}catch(_e){return 0.1;}}
+  function currentPlanMax(){try{const p=typeof getMyPlanData==='function'?getMyPlanData():null;return Math.max(480,Number(p&&p.maxQuality)||720);}catch(_e){return 720;}}
+  function highestAllowedIndex(){const max=currentPlanMax();let idx=0;qualities.forEach((q,i)=>{if(q<=max)idx=i;});return idx;}
+  function outputSize(q){try{if(typeof qualityToHeight==='function')return qualityToHeight(q);}catch(_e){}return {w:q,h:Math.round(q*16/9)};}
+  function fmtTime(n){n=Math.max(0,Math.round(Number(n)||0));return Math.floor(n/60)+':'+String(n%60).padStart(2,'0');}
+  function estimatedCost(){try{return Math.max(0,Number(typeof calculateExportCreditCost==='function'?calculateExportCreditCost(currentQuality(),currentDuration()):0)||0);}catch(_e){return 0;}}
+  function creditEnabled(){try{return typeof getCreditSettings==='function'?!!getCreditSettings().enabled:true;}catch(_e){return true;}}
+  function balanceText(){try{return typeof currentUser!=='undefined'&&currentUser?Number(typeof myCreditsBalance!=='undefined'?myCreditsBalance:0).toLocaleString():'—';}catch(_e){return '—';}}
+  function setText(id,value){const el=$(id);if(el)el.textContent=String(value);}
+  function setRangeProgress(el){if(!el)return;const min=Number(el.min)||0,max=Number(el.max)||1,val=Number(el.value)||0;const pct=max<=min?0:Math.max(0,Math.min(100,(val-min)/(max-min)*100));el.style.setProperty('--evlt-v50-progress',pct+'%');}
+  function refreshButton(){
+    const btn=$('exportConfirmBtn');if(!btn)return;
+    if(!btn.classList.contains('evlt-v50-export-btn')){
+      btn.classList.add('evlt-v50-export-btn');
+      btn.innerHTML='<span class="evlt-v50-export-label">Export</span><span class="evlt-v50-balance" title="Export credits required / credits available"><span class="evlt-v50-cost" id="evltExportButtonCost">—</span><span class="evlt-v50-slash">/</span><span id="evltExportButtonBalance">—</span><span class="evlt-v50-credits-unit">credits</span></span>'; 
+      btn.setAttribute('aria-label','Export video. Credit cost and available credit balance are shown on the right.');
+    }
+    setText('evltExportButtonCost',creditEnabled()?estimatedCost().toLocaleString():'0');
+    setText('evltExportButtonBalance',balanceText());
+  }
+  function updateDetails(){
+    const q=currentQuality(),fps=Math.max(24,Math.min(60,Number(window.exportFrameRate)||30));
+    const dims=outputSize(q),duration=currentDuration();
+    let bitrate=Number(window.exportBitrateMbps);
+    if(!(bitrate>0)){const base=q>=2160?16000000:q>=1440?12000000:q>=1080?8000000:q>=720?5000000:2500000;bitrate=base*(window.exportBitrateMode==='high'?1.4:1)*(fps/30)/1000000;}
+    const mb=bitrate*1000000*duration/8/1024/1024;
+    setText('evltExportResolution',dims.w+' × '+dims.h);setText('evltExportDuration',fmtTime(duration));setText('evltExportFrameRateReadout',fps+' fps');
+    setText('evltExportSize',mb>=1024?(mb/1024).toFixed(2)+' GB':Math.max(.1,mb).toFixed(1)+' MB');
+    const available=typeof currentUser!=='undefined'&&currentUser?Number(typeof myCreditsBalance!=='undefined'?myCreditsBalance:0).toLocaleString()+' credits':'Sign in required';
+    setText('evltExportAvailableCredits',available);
+    setText('evltExportCreditsRequired',creditEnabled()?estimatedCost().toLocaleString()+' credits':'Credits disabled');
+    refreshButton();
+  }
+  function syncSliderUi(){
+    const q=currentQuality(),qualityRange=$('evltV50Quality'),fpsRange=$('evltV50Fps'),bitrateRange=$('evltV50Bitrate');
+    const maxIndex=highestAllowedIndex();
+    if(qualityRange){
+      qualityRange.max='4';
+      let idx=qualities.indexOf(q);if(idx<0)idx=qualities.indexOf(720);idx=Math.max(0,Math.min(maxIndex,idx));qualityRange.value=String(idx);setRangeProgress(qualityRange);
+      setText('evltV50QualityOutput',qualities[idx]+'p');
+      const marks=$('evltV50QualityMarks');if(marks)[...marks.children].forEach((mark,i)=>mark.classList.toggle('locked',i>maxIndex));
+    }
+    const fpsValue=Math.max(24,Math.min(60,Number(window.exportFrameRate)||30));
+    if(fpsRange){let idx=fpsValues.indexOf(fpsValue);if(idx<0)idx=1;fpsRange.value=String(idx);setRangeProgress(fpsRange);setText('evltV50FpsOutput',fpsValues[idx]+' fps');}
+    if(bitrateRange){
+      const max=maxMbps(q);bitrateRange.min='1';bitrateRange.max=String(max);bitrateRange.step='1';
+      let val=Number(window.exportBitrateMbps);if(!(val>0))val=baseMbps(q);val=Math.round(Math.max(1,Math.min(max,val)));window.exportBitrateMbps=val;bitrateRange.value=String(val);setRangeProgress(bitrateRange);
+      setText('evltV50BitrateOutput',String(val)+' Mbps');
+      const tickValues=[1,1+(max-1)/3,1+2*(max-1)/3,max].map(n=>Math.round(n));
+      ['evltV50BitrateMin','evltV50BitrateQ1','evltV50BitrateQ3','evltV50BitrateMax'].forEach((id,i)=>{
+        const tick=tickValues[i];setText(id,String(tick)+' Mbps');
+      });
+    }
+    updateDetails();
+  }
+  function chooseQuality(index){
+    const idx=Math.max(0,Math.min(highestAllowedIndex(),Math.round(Number(index)||0))),q=qualities[idx];
+    const old=lastQuality||currentQuality();
+    const option=document.querySelector('#exportQualityGrid .ratio-opt[data-quality="'+q+'"]');
+    if(option&&typeof window.selectExportQuality==='function')window.selectExportQuality(option);
+    else {try{exportQuality=q;}catch(_e){}}
+    if(!bitrateTouched&&old!==q)window.exportBitrateMbps=baseMbps(q);
+    lastQuality=q;syncSliderUi();
+  }
+  function buildSettings(){
+    const settings=$('evltExportAdvancedSettings');if(!settings||settings.dataset.evltV50Built==='1')return;
+    settings.dataset.evltV50Built='1';
+    settings.innerHTML='<div class="evlt-export-info-card evlt-v50-video-details"><h3 class="evlt-v50-details-title">Video details</h3><div class="evlt-export-info-grid"><div class="evlt-export-info-item"><span>Duration</span><strong id="evltExportDuration">0:00</strong></div><div class="evlt-export-info-item"><span>Estimated file size</span><strong id="evltExportSize">—</strong></div><div class="evlt-export-info-item"><span>Available credits</span><strong id="evltExportAvailableCredits">—</strong></div><div class="evlt-export-info-item"><span>Export cost</span><strong class="evlt-info-accent" id="evltExportCreditsRequired">—</strong></div></div></div>'+ 
+      '<section class="evlt-v50-output-settings" aria-label="Output settings"><h3 class="evlt-v50-output-title">Output settings</h3>'+ 
+      '<div class="evlt-v50-slider-row"><div class="evlt-v50-slider-head"><label for="evltV50Quality">Quality</label><output id="evltV50QualityOutput">720p</output></div><input class="evlt-v50-range" id="evltV50Quality" type="range" min="0" max="4" step="1" value="1" aria-label="Export quality"><div class="evlt-v50-slider-marks" id="evltV50QualityMarks"><span>480p</span><span>720p</span><span>1080p</span><span>1440p</span><span>4K</span></div></div>'+ 
+      '<div class="evlt-v50-slider-row"><div class="evlt-v50-slider-head"><label for="evltV50Fps">Frame rate</label><output id="evltV50FpsOutput">30 fps</output></div><input class="evlt-v50-range" id="evltV50Fps" type="range" min="0" max="2" step="1" value="1" aria-label="Frame rate"><div class="evlt-v50-slider-marks"><span>24 fps</span><span>30 fps</span><span>60 fps</span></div></div>'+ 
+      '<div class="evlt-v50-slider-row"><div class="evlt-v50-slider-head"><label for="evltV50Bitrate">Bit rate</label><output id="evltV50BitrateOutput">5 Mbps</output></div><input class="evlt-v50-range" id="evltV50Bitrate" type="range" min="1" max="12" step="1" value="5" aria-label="Video bit rate"><div class="evlt-v50-slider-marks evlt-v50-bitrate-marks"><span id="evltV50BitrateMin">1 Mbps</span><span id="evltV50BitrateQ1">4 Mbps</span><span id="evltV50BitrateQ3">8 Mbps</span><span id="evltV50BitrateMax">12 Mbps</span></div></div></section>';
+    const body=settings.closest('.evlt-export-body');
+    const first=body&&body.querySelector('.field-label');
+    if(body&&first)body.insertBefore(settings,first);else if(body)body.insertBefore(settings,body.firstChild);
+    const qRange=$('evltV50Quality');qRange?.addEventListener('input',()=>chooseQuality(qRange.value));
+    const fpsRange=$('evltV50Fps');fpsRange?.addEventListener('input',()=>{const idx=Math.max(0,Math.min(2,Math.round(Number(fpsRange.value)||0)));window.exportFrameRate=fpsValues[idx];syncSliderUi();});
+    const bitrateRange=$('evltV50Bitrate');bitrateRange?.addEventListener('input',()=>{bitrateTouched=true;const max=Math.max(1,Number(bitrateRange.max)||maxMbps(currentQuality()));const value=Math.round(Math.max(1,Math.min(max,Number(bitrateRange.value)||baseMbps(currentQuality()))));window.exportBitrateMbps=value;bitrateRange.value=String(value);setRangeProgress(bitrateRange);setText('evltV50BitrateOutput',String(value)+' Mbps');updateDetails();});
+    if(!initialized){if(!(Number(window.exportBitrateMbps)>0))window.exportBitrateMbps=baseMbps(currentQuality());initialized=true;}
+    lastQuality=currentQuality();syncSliderUi();
+  }
+
+  // Preserve horizontal position when the font-controls render pipeline replaces its gallery.
+  function getFontGallery(){return document.querySelector('#ethvellePicsartTextDock .evpa-font-gallery');}
+  function activeFontTab(){return !!document.querySelector('#ethvellePicsartTextDock #evpaTabs .evpa-tab.active[data-tab="font"]');}
+  document.addEventListener('click',e=>{if(e.target?.closest?.('#evpaTabs .evpa-tab[data-tab="font"]')){savedFontScroll=0;setTimeout(()=>{const g=getFontGallery();if(g)g.scrollLeft=0;},0);}},true);
+
+  // Rebuild the export controls after the original page has injected its account/quality markup.
+  function boot(){
+    buildSettings();refreshButton();
+    const backdrop=$('exportModalBackdrop');
+    if(backdrop&&typeof MutationObserver==='function')new MutationObserver(()=>{if(backdrop.classList.contains('active')){buildSettings();syncSliderUi();}}).observe(backdrop,{attributes:true,attributeFilter:['class']});
+    const grid=$('exportQualityGrid');if(grid&&typeof MutationObserver==='function')new MutationObserver(()=>{if($('exportModalBackdrop')?.classList.contains('active'))syncSliderUi();}).observe(grid,{attributes:true,subtree:true,attributeFilter:['class']});
+    const oldEstimate=window.renderExportCreditEstimate;
+    if(typeof oldEstimate==='function'&&!oldEstimate.__evltV50Wrapped){const wrapped=function(){const out=oldEstimate.apply(this,arguments);syncSliderUi();return out;};wrapped.__evltV50Wrapped=true;window.renderExportCreditEstimate=wrapped;}
+    const oldOpen=window.openExportSheet;
+    if(typeof oldOpen==='function'&&!oldOpen.__evltV50Wrapped){const wrapped=function(){const out=oldOpen.apply(this,arguments);setTimeout(()=>{buildSettings();syncSliderUi();},0);return out;};wrapped.__evltV50Wrapped=true;window.openExportSheet=wrapped;}
+    document.addEventListener('click',e=>{if(e.target?.closest?.('#exportQualityGrid'))setTimeout(syncSliderUi,0);},true);
+    document.addEventListener('input',e=>{if(e.target?.matches?.('#evltV50Quality,#evltV50Fps,#evltV50Bitrate'))setTimeout(syncSliderUi,0);},true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+<style id="ethvelle-v50-single-font-swatch-ring-css">
+  /* Final font-palette selection treatment: one blue outline only, with no extra outer ring. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools > .evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row > .evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools > .evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row > .evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools > .evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row > .evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools > .evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row > .evpa-transparent.active {
+    border:2px solid #2F5CE8!important; outline:0!important; outline-offset:0!important;
+    box-shadow:none!important; filter:none!important; transform:none!important; z-index:40!important;
+  }
+</style>
+
+
+<style id="ethvelle-v51-export-credit-and-palette-fixes">
+  /* Export: native thumbs remain interactive on Android and desktop. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range {
+    pointer-events:auto!important;
+    touch-action:pan-y!important;
+    -webkit-tap-highlight-color:transparent!important;
+    cursor:grab!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-row input.evlt-v50-range:active {cursor:grabbing!important;}
+
+  /* Remove the old document-icon styling; make the detail captions and values clear blue. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-details-title {
+    color:#F5F7FF!important;font-size:15px!important;font-weight:850!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-item span {
+    color:#8FAFFF!important;font-size:11.5px!important;font-weight:800!important;letter-spacing:.01em!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-item strong {
+    color:#AFC5FF!important;font-size:18px!important;line-height:1.2!important;font-weight:900!important;
+    font-variant-numeric:tabular-nums;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-info-item strong.evlt-info-accent {color:#7FA5FF!important;}
+
+  /* Blue label chips with white text for Quality, Frame rate and Bit rate. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head label {
+    display:inline-flex!important;align-items:center!important;min-height:29px!important;
+    padding:6px 10px!important;border-radius:8px!important;
+    background:linear-gradient(145deg,#3D6EF0,#2449BE)!important;
+    color:#FFFFFF!important;font-size:12.5px!important;font-weight:850!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head output {
+    color:#FFFFFF!important;background:#2F5CE8!important;border:1px solid #5E83FF!important;
+    font-size:12.5px!important;font-weight:900!important;
+  }
+
+  /* Centre the Export label while keeping credit numbers vertically centred at the right. */
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn.evlt-v50-export-btn {
+    display:grid!important;
+    grid-template-columns:minmax(0,1fr) auto minmax(0,1fr)!important;
+    align-items:center!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-export-label {
+    grid-column:2!important;justify-self:center!important;align-self:center!important;
+    text-align:center!important;white-space:nowrap!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-balance {
+    grid-column:3!important;justify-self:end!important;align-self:center!important;
+    display:flex!important;align-items:center!important;gap:4px!important;
+    min-width:0!important;white-space:nowrap!important;font-size:10.5px!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-cost,
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn #evltExportButtonBalance,
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-credits-unit {
+    color:#FFFFFF!important;font-size:10.5px!important;font-weight:900!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-slash {font-size:11px!important;}
+
+  /* Match Add character's dashed track height to the Clips / Text / Audio track blocks. */
+  #timelineInner .layer-row.char-add-row {
+    height:40px!important;min-height:40px!important;max-height:40px!important;
+    display:flex!important;align-items:center!important;
+  }
+  #timelineInner .char-add-row .layer-badge {
+    width:26px!important;height:26px!important;min-width:26px!important;max-width:26px!important;
+    flex:0 0 26px!important;margin:0!important;
+  }
+  #timelineInner .char-add-row .char-add-track {
+    flex:1 1 auto!important;min-width:0!important;height:34px!important;min-height:34px!important;
+    max-height:34px!important;margin:0!important;box-sizing:border-box!important;
+  }
+
+  /* Font tab: begin at the true left edge with an inset safety gutter so the first swatch
+     is never sliced by the screen/panel boundary. Keep the established two-row horizontal
+     swipe behaviour intact. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    padding-left:10px!important;padding-right:10px!important;
+    scroll-padding-left:10px!important;scroll-padding-right:10px!important;
+    overflow-x:auto!important;overflow-y:hidden!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row {
+    margin-left:0!important;transform:none!important;box-sizing:border-box!important;
+    padding-left:8px!important;padding-right:8px!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row>.evpa-swatch {
+    flex-shrink:0!important;overflow:visible!important;
+  }
+
+  /* Color tab: let the palette grid occupy the available panel height and scroll inside
+     its own viewport. This removes the fixed 176px ceiling that cut off the bottom row. */
+  #ethvellePicsartTextDock.evpa-v25-color-mode:not(.evpa-in-composer) #evpaPalette,
+  #ethvellePicsartTextDock.evpa-v25-color-mode:not(.evpa-in-composer) .evpa-palette {
+    min-height:0!important;overflow:hidden!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches.evpa-v25-color-built {
+    display:flex!important;flex:1 1 auto!important;flex-direction:column!important;
+    height:100%!important;min-height:0!important;max-height:none!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid.evpa-v25-color-grid {
+    flex:1 1 auto!important;flex-grow:1!important;flex-shrink:1!important;flex-basis:0!important;
+    width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;
+    overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;
+    padding:7px 8px 18px!important;scroll-padding-top:7px!important;scroll-padding-bottom:18px!important;
+    align-content:start!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid.evpa-v25-color-grid::-webkit-scrollbar {
+    display:none!important;width:0!important;height:0!important;
+  }
+  @media(max-width:360px){
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-balance,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-cost,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn #evltExportButtonBalance,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-credits-unit {font-size:9.5px!important;}
+    #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {padding-left:12px!important;padding-right:8px!important;}
+  }
+</style>
+<script id="ethvelle-v51-font-swatch-left-reset">
+(function(){
+  'use strict';
+  let trackedDock=null,wasFont=false;
+  function getDock(){return document.getElementById('ethvellePicsartTextDock');}
+  function resetFirstSwatch(){
+    const dock=getDock();if(!dock||!dock.classList.contains('evpa-v25-font-mode'))return;
+    const scroller=dock.querySelector('#evpaPalette .evpa-swatches.evpa-v25-font-built');
+    if(scroller)scroller.scrollLeft=0;
+  }
+  function watchDock(){
+    const dock=getDock();if(!dock||dock===trackedDock)return;
+    trackedDock=dock;wasFont=dock.classList.contains('evpa-v25-font-mode');
+    if(typeof MutationObserver==='function')new MutationObserver(()=>{
+      const isFont=dock.classList.contains('evpa-v25-font-mode');
+      if(isFont&&!wasFont)requestAnimationFrame(()=>{resetFirstSwatch();requestAnimationFrame(resetFirstSwatch);});
+      wasFont=isFont;
+    }).observe(dock,{attributes:true,attributeFilter:['class']});
+  }
+  // The text dock is created lazily when the text editor first opens, so delegate tab taps
+  // and watch the document for the dock instead of requiring it to exist at page load.
+  document.addEventListener('click',e=>{
+    if(e.target&&e.target.closest&&e.target.closest('#ethvellePicsartTextDock #evpaTabs .evpa-tab[data-tab="font"]')){
+      requestAnimationFrame(()=>{resetFirstSwatch();requestAnimationFrame(resetFirstSwatch);});
+    }
+  },true);
+  if(typeof MutationObserver==='function')new MutationObserver(watchDock).observe(document.documentElement,{childList:true,subtree:true});
+  watchDock();
+})();
+</script>
+
+
+
+<!-- Ethvelle v52: export text cleanup, clear credit hierarchy, full-width palette start,
+     keyboard-safe custom color picker, gradient Apply spacing, and texture preset labels. -->
+<style id="ethvelle-v52-export-and-text-polish-css">
+  /* Export: keep the three setting names and sliders, but remove the right-side value chips. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head output {
+    display:none!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-slider-head {
+    justify-content:flex-start!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head p,
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-output-subtitle {
+    display:none!important;
+  }
+
+  /* Video-details numbers are white; their descriptive labels remain blue. */
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-video-details .evlt-export-info-item span {
+    color:#8FAFFF!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-video-details .evlt-export-info-item strong,
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-v50-video-details .evlt-export-info-item strong.evlt-info-accent {
+    color:#FFFFFF!important;
+  }
+
+  /* Enlarge the export-button credit figures while keeping the Export word centered. */
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-balance {
+    max-width:100%!important;min-width:0!important;flex-wrap:wrap!important;
+    justify-content:flex-end!important;gap:3px!important;
+    font-size:clamp(11.5px,3.3vw,13px)!important;line-height:1.15!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-cost,
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn #evltExportButtonBalance,
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-credits-unit {
+    color:#FFFFFF!important;font-size:clamp(11.5px,3.3vw,13px)!important;
+    font-weight:900!important;line-height:1.15!important;
+  }
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-slash {
+    color:rgba(255,255,255,.9)!important;font-size:12.5px!important;
+  }
+
+  /* Font palette: reserve a visible left gutter around the first swatch and its selection ring.
+     Keep both rows in the same horizontal scrollport. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette {
+    width:100%!important;min-width:0!important;max-width:100%!important;
+    box-sizing:border-box!important;padding-left:8px!important;padding-right:8px!important;
+    overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    width:100%!important;min-width:0!important;max-width:100%!important;
+    margin:0!important;padding:2px 10px 4px 16px!important;
+    overflow-x:auto!important;overflow-y:hidden!important;
+    scroll-padding-left:16px!important;scroll-padding-right:10px!important;
+    scroll-behavior:auto!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row {
+    margin-left:0!important;padding-left:8px!important;padding-right:8px!important;
+    transform:none!important;box-sizing:border-box!important;
+  }
+
+  /* Gradient/texture preset add tiles use the same landscape proportions as preset blocks. */
+  #ethvellePicsartTextDock .evpa-effect-add {
+    flex:0 0 58px!important;width:58px!important;min-width:58px!important;
+    max-width:58px!important;height:35px!important;min-height:35px!important;
+    max-height:35px!important;aspect-ratio:auto!important;border-radius:8px!important;
+    box-sizing:border-box!important;
+  }
+
+  /* Give the gradient preview breathing room and make Apply prominent and centered. */
+  #evpaCustomEffectEditor .evce-preview {
+    margin-top:14px!important;margin-bottom:24px!important;
+  }
+  #evpaCustomEffectEditor .evce-actions {
+    margin-top:22px!important;padding-top:2px!important;
+  }
+  #evpaCustomEffectEditor .evce-actions>[data-evce-action="apply"] {
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    width:100%!important;min-height:52px!important;padding:13px 16px!important;
+    text-align:center!important;font-size:16px!important;font-weight:900!important;
+    line-height:1.2!important;letter-spacing:.01em!important;
+  }
+  @media(max-width:360px){
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-balance,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-cost,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn #evltExportButtonBalance,
+    #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn .evlt-v50-credits-unit {
+      font-size:11px!important;
+    }
+    #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built,
+    #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+      padding-left:17px!important;padding-right:8px!important;
+    }
+  }
+</style>
+<script id="ethvelle-v52-color-picker-keyboard-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  let keyboardReturnState=null;
+  let closeWasUserRequested=false;
+
+  function composerInput(){
+    const root=$('ethvelleTextComposer'),input=$('evtcStageText');
+    return root&&root.classList.contains('active')&&input?input:null;
+  }
+  function rememberComposerFocus(input){
+    if(!input||keyboardReturnState)return;
+    let start=null,end=null,direction='none';
+    try{start=input.selectionStart;end=input.selectionEnd;direction=input.selectionDirection||'none';}catch(_e){}
+    keyboardReturnState={input,wasReadOnly:!!input.readOnly,start,end,direction};
+  }
+
+  /* Pointerdown runs before Android moves focus from the text field to the custom swatch. */
+  document.addEventListener('pointerdown',e=>{
+    const trigger=e.target&&e.target.closest&&e.target.closest(
+      '#ethvelleTextComposer .evtc-wheel-swatch,'+
+      '#ethvellePicsartTextDock #evpaPalette .evpa-color-wheel,'+
+      '#ethvelleTextStylePanel .evts-wheel-btn'
+    );
+    if(!trigger)return;
+    const input=composerInput();
+    if(input&&document.activeElement===input)rememberComposerFocus(input);
+  },true);
+
+  const originalOpen=window.openEthvelleColorPicker;
+  if(typeof originalOpen==='function'&&!originalOpen.__evV52KeyboardLock){
+    const wrappedOpen=function(){
+      const input=composerInput();
+      if(!keyboardReturnState&&input&&document.activeElement===input)rememberComposerFocus(input);
+      const state=keyboardReturnState;
+      if(state&&state.input&&state.input.isConnected){
+        try{state.input.readOnly=true;state.input.blur();}catch(_e){}
+        document.body.classList.add('evpa-picker-keyboard-locked');
+      }
+      const result=originalOpen.apply(this,arguments);
+      const picker=$('ethvelleColorPicker');
+      if(state&&picker&&picker.classList.contains('active')){
+        /* Reassert blur after the picker is mounted; readonly prevents Android IME reopening. */
+        [0,80,220].forEach(delay=>setTimeout(()=>{
+          if(picker.classList.contains('active')&&state.input&&document.activeElement===state.input){
+            try{state.input.blur();}catch(_e){}
+          }
+        },delay));
+      }else if(state){
+        if(state.input&&state.input.isConnected)state.input.readOnly=state.wasReadOnly;
+        keyboardReturnState=null;document.body.classList.remove('evpa-picker-keyboard-locked');
+      }
+      return result;
+    };
+    wrappedOpen.__evV52KeyboardLock=true;
+    window.openEthvelleColorPicker=wrappedOpen;
+  }
+
+  /* Mark explicit close actions before their inline onclick handlers call closeEthvelleColorPicker. */
+  document.addEventListener('click',e=>{
+    const picker=$('ethvelleColorPicker');
+    if(!picker||!picker.classList.contains('active'))return;
+    const close=e.target&&e.target.closest&&e.target.closest(
+      '#ethvelleColorPicker .evpa-picker-close,'+
+      '#ethvelleColorPicker .evpa-picker-apply'
+    );
+    if(close||e.target===picker)closeWasUserRequested=true;
+  },true);
+  document.addEventListener('keydown',e=>{
+    const picker=$('ethvelleColorPicker');
+    if(e.key==='Escape'&&picker&&picker.classList.contains('active'))closeWasUserRequested=true;
+  },true);
+
+  const originalClose=window.closeEthvelleColorPicker;
+  if(typeof originalClose==='function'&&!originalClose.__evV52KeyboardRestore){
+    const wrappedClose=function(){
+      const state=keyboardReturnState;
+      const shouldRestore=!!(state&&closeWasUserRequested&&!state.wasReadOnly);
+      closeWasUserRequested=false;
+      const result=originalClose.apply(this,arguments);
+      if(state&&state.input&&state.input.isConnected){
+        state.input.readOnly=state.wasReadOnly;
+        document.body.classList.remove('evpa-picker-keyboard-locked');
+        keyboardReturnState=null;
+        if(shouldRestore&&composerInput()){
+          try{
+            state.input.focus({preventScroll:true});
+            if(state.start!=null&&state.end!=null)state.input.setSelectionRange(state.start,state.end,state.direction);
+          }catch(_e){}
+        }
+      }else{
+        keyboardReturnState=null;

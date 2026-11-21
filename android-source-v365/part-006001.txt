@@ -1,0 +1,1000 @@
+  if(typeof firebase !== 'undefined' && FIREBASE_CONFIG.apiKey && FIREBASE_CONFIG.apiKey.indexOf('YOUR_') !== 0){
+    fbApp = firebase.initializeApp(FIREBASE_CONFIG);
+    fbDb = firebase.firestore();
+    fbAuth = firebase.auth();
+    firebaseReady = true;
+  } else {
+    console.warn('Ethvelle: Firebase config not set yet — running on localStorage only.');
+  }
+}catch(err){
+  console.warn('Ethvelle: Firebase init failed, falling back to localStorage only', err);
+}
+
+/* ================= USER AUTH =================
+   End-user sign in for this app (separate from the admin panel's own login, which lives in
+   riggy-admin-panel.html). Firebase Authentication handles both Email/Password and Google
+   sign-in; currentUser mirrors firebase.auth().currentUser so the rest of the app can check
+   login state synchronously without awaiting a promise everywhere.
+
+   Users may browse Home/Projects/Editor freely as a guest. Signing in is only required to
+   Export (see openExportSheet() / requireLoginThen()). After a successful login, whatever
+   action was waiting (currently just "export") automatically resumes. */
+let currentUser = null;      // { uid, email, displayName, photoURL } | null
+let loginMode = 'signin';    // 'signin' | 'signup'
+let pendingAfterLogin = null; // function to call once login succeeds, or null
+let pendingBeforeLoginScreen = null; // screen name active right before openLoginScreen() was called
+
+/* ================= MY ACTIVE PLAN (reflects admin-approved orders) =================
+   The checkout flow (further below) only ever writes an order document with status
+   'pending' — it never marks the user's own plan as active. Previously nothing in this
+   file ever read that status back, so approving an order in the admin panel had no visible
+   effect for the customer: their Profile and Payment screens kept showing "Free" forever.
+   This listener watches the signed-in user's own orders in Firestore and, whenever the
+   newest APPROVED one changes, updates myActivePlanId/myActivePlanName so the rest of the
+   UI (updateProfileUI, renderPaymentPlans) can show the real current plan. Cached per-uid
+   in localStorage so the plan still shows correctly for a moment before Firestore responds
+   on a fresh page load. */
+let myActivePlanId = 'free';
+let myActivePlanName = 'Free';
+let myOrdersUnsub = null;
+let myLatestOrderInfo = null;
+let myPlanOrderStates = Object.create(null); // newest order status per plan id
+function myPlanCacheKey(uid){ return 'riggy.myplan.' + uid; }
+function loadCachedMyPlan(uid){
+  try{
+    const raw = localStorage.getItem(myPlanCacheKey(uid));
+    if(!raw) return;
+    const cached = JSON.parse(raw);
+    if(cached && cached.id){ myActivePlanId = cached.id; myActivePlanName = cached.name || cached.id; }
+  }catch(e){}
+}
+function saveCachedMyPlan(uid){
+  try{ localStorage.setItem(myPlanCacheKey(uid), JSON.stringify({ id:myActivePlanId, name:myActivePlanName })); }catch(e){}
+}
+function getMyActivePlanName(){ return currentUser ? myActivePlanName : 'Free'; }
+// Looks up the actual plan record (with its real, enforced limits — maxQuality,
+// maxProjects, maxExports) for whatever plan the signed-in user is on. Falls back to the
+// Free plan's record (or a hard-coded floor if even that's missing) so every caller always
+// gets a usable object, signed in or not.
+function getMyPlanData(){
+  const id = currentUser ? myActivePlanId : 'free';
+  const plans = getPlans();
+  return plans.find(p=>String(p.id)===String(id)) || plans.find(p=>Number(p.price)===0) || { id:'free', name:'Free', maxQuality:720, unlimitedProjects:false, maxProjects:3, unlimitedExports:false, maxExports:null };
+}
+// Tracks how many exports the signed-in user has completed in the current calendar month,
+// so a plan's "Max exports per month" limit is actually enforced rather than just a line of
+// feature text. Stored per-uid, keyed by year-month, in localStorage — resets itself
+// naturally each month since a new key is used once the month changes.
+function exportsUsedKey(uid){
+  const now = new Date();
+  return 'riggy.exportsused.' + uid + '.' + now.getFullYear() + '-' + (now.getMonth()+1);
+}
+function getExportsUsedThisMonth(){
+  if(!currentUser) return 0;
+  try{ return Number(localStorage.getItem(exportsUsedKey(currentUser.uid))) || 0; }catch(e){ return 0; }
+}
+function recordExportUsed(){
+  if(!currentUser) return;
+  try{
+    const key = exportsUsedKey(currentUser.uid);
+    const used = (Number(localStorage.getItem(key)) || 0) + 1;
+    localStorage.setItem(key, String(used));
+  }catch(e){}
+}
+let myCreditsBalance = 0;
+let myCreditTransactions = [];
+let myHiddenCreditTransactionIds = [];
+let myCreditsUserUnsub = null;
+let myCreditTransactionsUnsub = null;
+function hiddenCreditIdsStorageKey(uid){return 'ethvelle.hiddenCreditTransactions.'+String(uid||'');}
+function readLocalHiddenCreditIds(uid){
+  try{const raw=localStorage.getItem(hiddenCreditIdsStorageKey(uid));const parsed=raw?JSON.parse(raw):[];return Array.isArray(parsed)?parsed.map(String):[];}catch(_e){return [];}
+}
+function writeLocalHiddenCreditIds(uid,ids){
+  try{localStorage.setItem(hiddenCreditIdsStorageKey(uid),JSON.stringify([...new Set((Array.isArray(ids)?ids:[]).map(String))]));return true;}catch(_e){return false;}
+}
+function mergeHiddenCreditIds(uid,serverIds){
+  myHiddenCreditTransactionIds=[...new Set([...(Array.isArray(serverIds)?serverIds:[]).map(String),...readLocalHiddenCreditIds(uid)])];
+}
+function stopMyCreditsSync(){
+  if(myCreditsUserUnsub){try{myCreditsUserUnsub();}catch(e){}myCreditsUserUnsub=null;}
+  if(myCreditTransactionsUnsub){try{myCreditTransactionsUnsub();}catch(e){}myCreditTransactionsUnsub=null;}
+  myCreditsBalance=0;myCreditTransactions=[];myHiddenCreditTransactionIds=[];if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+}
+function creditTimestampMs(value){
+  if(value && typeof value.toMillis==='function') return value.toMillis();
+  if(typeof value==='number') return value;
+  const parsed=new Date(value||0).getTime();return Number.isFinite(parsed)?parsed:0;
+}
+function ethvelleIsCurrentMonth(value){
+  const ms=creditTimestampMs(value);
+  if(!ms)return false;
+  const date=new Date(ms),now=new Date();
+  return date.getFullYear()===now.getFullYear()&&date.getMonth()===now.getMonth();
+}
+function getProjectsCreatedThisMonth(){
+  return (Array.isArray(projects)?projects:[]).filter(project=>ethvelleIsCurrentMonth(project&&(project.created||project.createdAt||project.createdOn||project.timestamp))).length;
+}
+function getCreditsExpendedThisMonth(){
+  if(!currentUser)return 0;
+  return (Array.isArray(myCreditTransactions)?myCreditTransactions:[]).reduce((total,transaction)=>{
+    const amount=Number(transaction&&transaction.amount)||0;
+    return transaction&&String(transaction.type||'').toLowerCase()==='usage'&&amount<0&&ethvelleIsCurrentMonth(transaction.createdAt)
+      ?total+Math.abs(amount):total;
+  },0);
+}
+function formatCreditDate(value){
+  const ms=creditTimestampMs(value);if(!ms)return 'Date unavailable';
+  try{return new Date(ms).toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'})+' · '+new Date(ms).toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});}catch(e){return '';}
+}
+function ethvelleIsAdminBanActive(profile){
+  if(!profile||profile.adminBanned!==true)return false;
+  if(String(profile.adminBanType||'')==='permanent')return true;
+  const raw=profile.adminBanUntil;
+  let until=0;
+  try{until=raw&&typeof raw.toMillis==='function'?raw.toMillis():Number(raw)||new Date(raw).getTime();}catch(e){}
+  return !until||!Number.isFinite(until)?true:until>Date.now();
+}
+let ethvelleBanSignoutUid='';
+function startMyCreditsSync(uid){
+  stopMyCreditsSync();
+  if(!(firebaseReady&&fbDb)||!uid)return;
+  try{
+    myCreditsUserUnsub=fbDb.collection('users').doc(uid).onSnapshot(doc=>{
+      const profile=doc.exists?(doc.data()||{}):{};
+      if(ethvelleIsAdminBanActive(profile)&&ethvelleBanSignoutUid!==String(uid)){
+        ethvelleBanSignoutUid=String(uid);
+        showToast(profile.adminBanReason?'Account access restricted: '+String(profile.adminBanReason).slice(0,100):'This account has been suspended',{icon:toastIcons.info,duration:3000});
+        if(fbAuth&&fbAuth.currentUser&&fbAuth.currentUser.uid===uid)fbAuth.signOut().catch(()=>{});
+        return;
+      }
+      if(!ethvelleIsAdminBanActive(profile)&&ethvelleBanSignoutUid===String(uid))ethvelleBanSignoutUid='';
+      myCreditsBalance=doc.exists?Math.max(0,Number(profile.creditsBalance)||0):0;
+      mergeHiddenCreditIds(uid,profile.hiddenCreditTransactionIds);
+      if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+      if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+      if(typeof renderExportCreditEstimate==='function')renderExportCreditEstimate();
+    },err=>console.warn('Ethvelle: credit balance sync failed',err));
+    myCreditTransactionsUnsub=fbDb.collection('creditTransactions').where('uid','==',uid).limit(100).onSnapshot(snap=>{
+      myCreditTransactions=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>creditTimestampMs(b.createdAt)-creditTimestampMs(a.createdAt));
+      if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+      if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+    },err=>console.warn('Ethvelle: credit history sync failed',err));
+  }catch(err){console.warn('Ethvelle: could not start credit sync',err);}
+}
+async function changeMyCreditBalance(delta, entry){
+  if(!(currentUser&&firebaseReady&&fbDb)) throw new Error('CREDITS_UNAVAILABLE');
+  entry=entry&&typeof entry==='object'?entry:{};
+  const amount=Math.trunc(Number(delta)||0);
+  if(!amount) return {balance:myCreditsBalance,id:''};
+  const uid=currentUser.uid;
+  const userRef=fbDb.collection('users').doc(uid);
+  const kind=String(entry.type||'usage');
+  if(kind!=='usage'&&kind!=='refund')throw new Error('INVALID_CREDIT_TRANSACTION');
+  if((kind==='usage'&&amount>=0)||(kind==='refund'&&amount<=0))throw new Error('INVALID_CREDIT_AMOUNT');
+  const refundId=kind==='refund'&&entry.referenceId?'refund_'+String(entry.referenceId):'';
+  if(kind==='refund'&&!refundId)throw new Error('REFUND_REFERENCE_REQUIRED');
+  const ledgerRef=refundId?fbDb.collection('creditTransactions').doc(refundId):fbDb.collection('creditTransactions').doc();
+  const createdAt=Date.now();
+  let newBalance=0,alreadyApplied=false;
+  await fbDb.runTransaction(async tx=>{
+    // All reads precede writes so the wallet and its ledger are one atomic operation.
+    const userSnap=await tx.get(userRef);
+    const existingLedger=kind==='refund'?await tx.get(ledgerRef):null;
+    if(existingLedger&&existingLedger.exists){
+      alreadyApplied=true;
+      const prior=existingLedger.data()||{};newBalance=Math.max(0,Number(prior.balanceAfter)||Number((userSnap.data()||{}).creditsBalance)||0);
+      return;
+    }
+    if(kind==='refund'){
+      const originalRef=fbDb.collection('creditTransactions').doc(String(entry.referenceId));
+      const original=await tx.get(originalRef);
+      if(!original.exists||String((original.data()||{}).uid)!==String(uid)||String((original.data()||{}).type)!=='usage')throw new Error('INVALID_REFUND_REFERENCE');
+    }
+    const data=userSnap.exists?(userSnap.data()||{}):{};
+    const balance=Math.max(0,Number(data.creditsBalance)||0);
+    if(amount<0&&balance<Math.abs(amount)){const err=new Error('INSUFFICIENT_CREDITS');err.code='ethvelle/insufficient-credits';throw err;}
+    newBalance=balance+amount;
+    tx.set(userRef,{uid,email:currentUser.email||null,displayName:currentUser.displayName||null,creditsBalance:newBalance,creditsUpdatedAt:createdAt,lastCreditTransactionId:ledgerRef.id},{merge:true});
+    tx.set(ledgerRef,{uid,email:currentUser.email||null,displayName:currentUser.displayName||null,sessionId:(typeof getTrackingIdentity==='function'?(getTrackingIdentity()||{}).sessionId:null),amount,balanceAfter:newBalance,type:kind,feature:entry.feature||'export',description:entry.description||(kind==='refund'?'Export refund':'Video export'),quality:entry.quality||null,durationSeconds:entry.durationSeconds||null,referenceId:kind==='refund'?String(entry.referenceId):(entry.referenceId||null),createdAt,source:'main-site'});
+  });
+  myCreditsBalance=newBalance;
+  return {balance:newBalance,id:ledgerRef.id,alreadyApplied};
+}
+async function grantPlanCreditsForApprovedOrder(){
+  // Plan credits are issued by the authenticated admin when an order is approved.
+  // The public client never awards plan credits to itself.
+  return false;
+}
+// Whether the signed-in user has EVER placed a paid-plan order (any status — pending,
+// approved, even rejected all count, since the point is "have they already gone through
+// checkout before", not "do they currently have a paid plan"). Drives the "First-purchase
+// offer" discount in getActivePlanDiscount() below: once this flips true it stays true for
+// that account, so the offer only ever shows to a genuinely first-time buyer. Defaults to
+// true (nothing to offer) until the listener actually reports in, so the UI never briefly
+// flashes a discount it has to take away a moment later.
+let myHasEverOrdered = true;
+function applyApprovedOrders(list){
+  // Keep the newest order status for EACH plan, not just the globally latest order, so a
+  // pending badge stays attached to the correct plan card even after another plan is ordered.
+  const previousPlanOrdersKey = JSON.stringify(Object.keys(myPlanOrderStates).sort().map(k=>[k,myPlanOrderStates[k].id,myPlanOrderStates[k].status]));
+  const nextPlanOrders = Object.create(null);
+  list.forEach(o=>{
+    const key = String(o && o.planId || '');
+    if(!key || nextPlanOrders[key]) return; // list is newest-first
+    nextPlanOrders[key] = {
+      id:o.id || '', planId:key, planName:o.planName || key,
+      price:Number(o.price)||0, method:o.method||'',
+      status:String(o.status||'pending').toLowerCase(), createdAt:o.createdAt||null, approvedAt:o.approvedAt||null, expiresAt:o.expiresAt||null, creditsGrantAmount:Number(o.creditsGrantAmount)||0, creditsGrantedAt:o.creditsGrantedAt||null
+    };
+  });
+  myPlanOrderStates = nextPlanOrders;
+  const currentPlanOrdersKey = JSON.stringify(Object.keys(myPlanOrderStates).sort().map(k=>[k,myPlanOrderStates[k].id,myPlanOrderStates[k].status]));
+  const planOrdersChanged = previousPlanOrdersKey !== currentPlanOrdersKey;
+  // The latest order is shown separately from the active plan: pending/rejected orders must
+  // not silently activate a plan, while an older approved plan remains active until replaced.
+  const previousOrderKey = myLatestOrderInfo ? [myLatestOrderInfo.id,myLatestOrderInfo.planId,myLatestOrderInfo.status].join('|') : '';
+  const latestPaid = list.find(o=>Number(o.price) > 0);
+  const latest = latestPaid || list[0] || null;
+  myLatestOrderInfo = latest ? {
+    id: latest.id || '', planId: latest.planId || '', planName: latest.planName || latest.planId || 'Plan',
+    price: Number(latest.price) || 0, method: latest.method || '',
+    status: String(latest.status || 'pending').toLowerCase(), createdAt: latest.createdAt || null
+  } : null;
+  const newOrderKey = myLatestOrderInfo ? [myLatestOrderInfo.id,myLatestOrderInfo.planId,myLatestOrderInfo.status].join('|') : '';
+  const orderInfoChanged = previousOrderKey !== newOrderKey;
+
+  // Only an approved order changes the plan currently enforced by the app.
+  const approved = list.find(o=>String(o.status||'').toLowerCase()==='approved');
+  const newId = approved ? approved.planId : 'free';
+  const newName = approved ? (approved.planName || approved.planId) : 'Free';
+  const hasOrdered = list.some(o=>Number(o.price) > 0);
+  const orderedChanged = hasOrdered !== myHasEverOrdered;
+  myHasEverOrdered = hasOrdered;
+  if(newId !== myActivePlanId || newName !== myActivePlanName || orderedChanged || orderInfoChanged || planOrdersChanged){
+    myActivePlanId = newId;
+    myActivePlanName = newName;
+    if(currentUser) saveCachedMyPlan(currentUser.uid);
+    updateProfileUI(); // also refreshes plan-dependent profile features
+    _plansSig = null; // force badges/plan cards to refresh when an order changes status
+    renderPaymentPlans();
+    resyncUserPlanToProfileDoc();
+    if(typeof wirePromoPopups==='function') wirePromoPopups(true, activeScreenId());
+  }
+  if(typeof renderMyPlanScreen==='function') renderMyPlanScreen();
+}
+function startMyOrdersSync(uid){
+  stopMyOrdersSync();
+  if(!(firebaseReady && fbDb) || !uid) return;
+  try{
+    // Deliberately just `where('uid','==',uid)` with no `.orderBy(...)` chained after it —
+    // combining an equality filter with an orderBy on a different field needs a Firestore
+    // composite index that doesn't exist by default, and would otherwise fail silently in
+    // the console until someone manually creates it. Sorting the (small, per-user) result
+    // client-side instead means this works with zero Firestore console setup.
+    myOrdersUnsub = fbDb.collection('orders').where('uid','==',uid).limit(100)
+      .onSnapshot(snap=>{
+        const list = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+        list.sort((a,b)=>{
+          const ta = (a.createdAt && a.createdAt.toMillis) ? a.createdAt.toMillis() : (a.createdAt ? new Date(a.createdAt).getTime() : 0);
+          const tb = (b.createdAt && b.createdAt.toMillis) ? b.createdAt.toMillis() : (b.createdAt ? new Date(b.createdAt).getTime() : 0);
+          return tb - ta;
+        });
+        applyApprovedOrders(list);
+      }, err=>{
+        console.warn('Ethvelle: could not read this user\u2019s orders from Firestore', err);
+      });
+  }catch(err){ console.warn('Ethvelle: my-orders sync failed to start', err); }
+}
+function stopMyOrdersSync(){
+  if(myOrdersUnsub){ try{ myOrdersUnsub(); }catch(e){} myOrdersUnsub = null; }
+  // Never carry an order badge across a sign-out or account switch.
+  myLatestOrderInfo = null;
+  myPlanOrderStates = Object.create(null);
+}
+
+/* ================= MY NOTIFICATIONS (admin-sent inbox, in-app only) =================
+   Reads the shared `notifications` collection the admin panel writes to. Each doc targets
+   either everyone (target:'all') or one specific uid (target:'<uid>'). Filtered client-side
+   so a single listener covers both. Two per-device lists are kept in localStorage:
+     - read ids    -> which messages have been seen (drives the red dot)
+     - deleted ids -> messages this person removed from their own inbox
+   The admin's messages are shared broadcasts, so deleting only hides them on this device. */
+let myNotifsUnsub = null;
+let myNotifications = [];
+let notifHighlightIds = [];
+function notifReadKey(uid){ return 'riggy.notifsRead.' + uid; }
+function notifDeletedKey(uid){ return 'riggy.notifsDeleted.' + uid; }
+function readIdList(key){
+  try{ return JSON.parse(localStorage.getItem(key) || '[]'); }catch(e){ return []; }
+}
+function writeIdList(key, ids){
+  try{ localStorage.setItem(key, JSON.stringify(ids)); }catch(e){}
+}
+function getReadNotifIds(){ return currentUser ? readIdList(notifReadKey(currentUser.uid)) : []; }
+function getDeletedNotifIds(){ return currentUser ? readIdList(notifDeletedKey(currentUser.uid)) : []; }
+// What the person actually sees: admin messages minus anything they deleted on this device.
+function visibleNotifications(){
+  if(!currentUser) return [];
+  const deleted = getDeletedNotifIds();
+  return myNotifications.filter(n => !deleted.includes(n.id));
+}
+function markAllNotifsSeen(){
+  if(!currentUser) return;
+  const ids = getReadNotifIds();
+  visibleNotifications().forEach(n => { if(!ids.includes(n.id)) ids.push(n.id); });
+  writeIdList(notifReadKey(currentUser.uid), ids);
+}
+function isNotifScreenOpen(){
+  const s = document.getElementById('screen-notifications');
+  return !!(s && s.classList.contains('active'));
+}
+function deleteNotif(id){
+  if(!currentUser) return;
+  const ids = getDeletedNotifIds();
+  if(!ids.includes(id)) ids.push(id);
+  writeIdList(notifDeletedKey(currentUser.uid), ids);
+  renderNotifInbox();
+}
+// Runs every time the Notifications screen opens (home bell or Profile menu). It works out which
+// messages are new first, then marks everything seen, so the red dot clears on open while the new
+// cards keep their blue highlight for this visit.
+function openNotificationsScreen(){
+  const readNow = getReadNotifIds();
+  notifHighlightIds = visibleNotifications().map(n => n.id).filter(id => !readNow.includes(id));
+  markAllNotifsSeen();
+  renderNotifInbox();
+}
+function startMyNotificationsSync(uid){
+  stopMyNotificationsSync();
+  if(!(firebaseReady && fbDb) || !uid) return;
+  try{
+    myNotifsUnsub = fbDb.collection('notifications').orderBy('createdAt','desc').limit(100)
+      .onSnapshot(snap=>{
+        const all = snap.docs.map(d=>({ id:d.id, ...d.data() }));
+        myNotifications = all.filter(n => n.target === 'all' || n.target === uid);
+        // A message that arrives while this screen is open counts as seen straight away.
+        if(isNotifScreenOpen()) markAllNotifsSeen();
+        renderNotifInbox();
+        setTimeout(()=>maybeShowLocationNotification(activeScreenId()),60);
+        setTimeout(()=>{if(activeScreenId()==='home') maybeShowLocationNotification('home');},420);
+      }, err=>{
+        console.warn('Ethvelle: could not read notifications from Firestore', err);
+      });
+  }catch(err){ console.warn('Ethvelle: notifications sync failed to start', err); }
+}
+function stopMyNotificationsSync(){
+  if(myNotifsUnsub){ try{ myNotifsUnsub(); }catch(e){} myNotifsUnsub = null; }
+  myNotifications = [];
+  notifHighlightIds = [];
+  renderNotifInbox();
+}
+function fmtNotifTime(ts){
+  try{
+    const d = ts && ts.toDate ? ts.toDate() : (ts ? new Date(ts) : null);
+    if(!d || isNaN(d.getTime())) return '';
+    return d.toLocaleDateString(undefined,{month:'short',day:'numeric'}) + ' \u00B7 ' + d.toLocaleTimeString(undefined,{hour:'numeric',minute:'2-digit'});
+  }catch(e){ return ''; }
+}
+// Renders the Notifications screen (message cards only) and the red dots on the home bell and
+// the Profile menu. A dot shows while any visible message is still unseen.
+const PROFILE_NOTIFICATION_DEFAULTS = Object.freeze({badges:true, featureUpdates:true, creatorTips:true});
+function profileNotificationPrefsKey(uid){ return 'ethvelle.notificationPrefs.v1.' + String(uid || 'guest'); }
+function readProfileNotificationPrefs(user){
+  const u = user || currentUser;
+  try{
+    const saved = JSON.parse(localStorage.getItem(profileNotificationPrefsKey(u && u.uid)) || 'null');
+    return saved && typeof saved === 'object' ? {...PROFILE_NOTIFICATION_DEFAULTS, ...saved} : {...PROFILE_NOTIFICATION_DEFAULTS};
+  }catch(err){ return {...PROFILE_NOTIFICATION_DEFAULTS}; }
+}
+function prefillProfileNotificationPrefs(){
+  const prefs = readProfileNotificationPrefs();
+  const mapping = {settingsNotifBadges:'badges',settingsNotifFeatures:'featureUpdates',settingsNotifTips:'creatorTips'};
+  Object.entries(mapping).forEach(([id,key])=>{ const input=document.getElementById(id); if(input) input.checked = prefs[key] !== false; });
+}
+function saveProfileNotificationPref(key, value){
+  if(!Object.prototype.hasOwnProperty.call(PROFILE_NOTIFICATION_DEFAULTS,key)) return;
+  const prefs = readProfileNotificationPrefs(); prefs[key] = !!value;
+  try{
+    localStorage.setItem(profileNotificationPrefsKey(currentUser && currentUser.uid), JSON.stringify(prefs));
+    if(key === 'badges') renderNotifInbox();
+  }catch(err){
+    showToast('Could not save this preference. Check available device storage.', {icon:toastIcons.info, duration:2200});
+  }
+}
+function renderNotifInbox(){
+  const readIds = getReadNotifIds();
+  const visible = visibleNotifications();
+  const unreadCount = visible.filter(n => !readIds.includes(n.id)).length;
+  const showBadges = readProfileNotificationPrefs().badges !== false;
+  const badge = document.getElementById('notifMenuBadge');
+  if(badge) badge.classList.toggle('show', showBadges && unreadCount > 0);
+  const homeBadge = document.getElementById('homeNotifBadge');
+  if(homeBadge) homeBadge.classList.toggle('show', showBadges && unreadCount > 0);
+
+  const list = document.getElementById('notifInboxList');
+  const label = document.getElementById('notifInboxLabel');
+  if(!list) return;
+  if(visible.length === 0){
+    list.innerHTML = '<p class="notif-empty">No notifications yet</p>';
+    if(label) label.style.display = 'none';
+    return;
+  }
+  if(label) label.style.display = '';
+  list.innerHTML = visible.map(n=>{
+    const highlight = notifHighlightIds.includes(n.id);
+    return `
+      <div class="notif-inbox-card${highlight ? ' unread' : ''}">
+        <button class="notif-inbox-del" onclick="deleteNotif('${n.id}')" aria-label="Delete notification">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+        <p class="notif-inbox-title">${escapeHtml(n.title || 'Notification')}</p>
+        <p class="notif-inbox-body">${escapeHtml(n.body || '')}</p>
+        <p class="notif-inbox-time">${escapeHtml(fmtNotifTime(n.createdAt))}</p>
+      </div>`;
+  }).join('');
+}
+
+/* ================= SEND US A MESSAGE -> WHATSAPP (Help & support) =================
+   The message box no longer writes to Firestore. Tapping send opens a WhatsApp chat with the
+   number from Contact info, with whatever the person typed already filled in. The whole box is
+   hidden by renderHelpContactCards() when no WhatsApp number is set. */
+function openSupportWhatsApp(){
+  const digits = String(getContactInfo().whatsapp || '').replace(/[^\d]/g, '');
+  if(!digits){ showToast('WhatsApp support isn\u2019t available right now', { icon: toastIcons.info }); return; }
+  const input = document.getElementById('supportMsgInput');
+  const text = input ? input.value.trim() : '';
+  const url = 'https://wa.me/' + digits + (text ? '?text=' + encodeURIComponent(text) : '');
+  window.open(url, '_blank', 'noopener');
+}
+
+// Sets an avatar div's fallback-letter text without nuking a photo <img> already inside it —
+// textContent would otherwise wipe out that child, so this only touches a dedicated text node.
+function setAvatarLetter(avatarEl, letter){
+  if(!avatarEl) return;
+  let textNode = null;
+  for(const node of avatarEl.childNodes){ if(node.nodeType === Node.TEXT_NODE){ textNode = node; break; } }
+  if(textNode){ textNode.nodeValue = letter; }
+  else { avatarEl.insertBefore(document.createTextNode(letter), avatarEl.firstChild); }
+}
+function profileMetaStorageKey(uid){ return 'ethvelle.profileMeta.' + String(uid || 'guest'); }
+function defaultProfileUsername(user){
+  const raw = String((user && user.email ? user.email.split('@')[0] : '') || 'creator').toLowerCase();
+  return raw.replace(/[^a-z0-9._-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,30) || 'creator';
+}
+function getProfileMeta(user){
+  const u = user || currentUser;
+  const defaults = { name:(u && u.displayName)||'', username:defaultProfileUsername(u), headline:'', bio:'' };
+  if(!u || !u.uid) return defaults;
+  try{
+    const saved = JSON.parse(localStorage.getItem(profileMetaStorageKey(u.uid)) || 'null');
+    return saved && typeof saved === 'object' ? { ...defaults, ...saved } : defaults;
+  }catch(e){ return defaults; }
+}
+function updateProfileUI(){
+  const nameEl = document.getElementById('profileName');
+  const handleEl = document.getElementById('profileHandle');
+  const avatarEl = document.getElementById('profileAvatar');
+  const settingsAvatarEl = document.getElementById('settingsAvatar');
+  const authLabelEl = document.getElementById('profileAuthLabel');
+  if(!nameEl) return;
+  const planName = getMyActivePlanName();
+  const meta = getProfileMeta();
+  const headlineEl = document.getElementById('profileHeadline');
+  const bioEl = document.getElementById('profileBio');
+  if(currentUser){
+    const label = currentUser.displayName || meta.name || 'Creator';
+    nameEl.textContent = label;
+    handleEl.textContent = meta.username ? '@' + meta.username : '@' + defaultProfileUsername(currentUser);
+    if(headlineEl){ headlineEl.textContent = meta.headline || ''; headlineEl.style.display = meta.headline ? 'block' : 'none'; }
+    if(bioEl){ bioEl.textContent = meta.bio || ''; bioEl.style.display = meta.bio ? 'block' : 'none'; }
+    setAvatarLetter(avatarEl, label.charAt(0).toUpperCase());
+    setAvatarLetter(settingsAvatarEl, label.charAt(0).toUpperCase());
+    if(authLabelEl) authLabelEl.textContent = 'Log out';
+  } else {
+    nameEl.textContent = 'Guest';
+    handleEl.textContent = 'Not signed in';
+    if(headlineEl){ headlineEl.textContent = ''; headlineEl.style.display = 'none'; }
+    if(bioEl){ bioEl.textContent = ''; bioEl.style.display = 'none'; }
+    setAvatarLetter(avatarEl, 'G');
+    setAvatarLetter(settingsAvatarEl, 'G');
+    if(authLabelEl) authLabelEl.textContent = 'Sign in';
+  }
+  const statPlanEl = document.getElementById('profileStatPlan');
+  if(statPlanEl) statPlanEl.textContent = currentUser ? planName : 'Free';
+  renderProfileAvatarPhoto();
+  updateAvatarUploadButtons();
+  if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+}
+
+/* ================= PROFILE PHOTO (any signed-in user, stored on this device) =================
+   A custom profile picture is saved as a compressed base64 data URL in localStorage, keyed
+   by uid — never uploaded anywhere, so it only shows on the device/browser it was set on.
+   Open to every signed-in account regardless of plan (previously Pro-only — the locked-badge
+   path below is kept dormant rather than deleted, in case plan-gating comes back later). */
+function profilePhotoKey(uid){ return 'riggy.profilePhoto.' + uid; }
+function isOnPaidPlan(){
+  if(!currentUser) return false;
+  const plan = getMyPlanData();
+  return Number(plan && plan.price) > 0;
+}
+function canUploadProfilePhoto(){
+  return !!currentUser;
+}
+function loadLocalProfilePhoto(uid){
+  renderProfileAvatarPhoto();
+}
+function clearLocalProfilePhoto(){
+  ['profileAvatar','settingsAvatar'].forEach(id=>{
+    const avatarEl = document.getElementById(id);
+    if(avatarEl){ const img = avatarEl.querySelector('img'); if(img) img.remove(); }
+  });
+}
+function getLocalProfilePhoto(){
+  if(!currentUser) return null;
+  try{ return localStorage.getItem(profilePhotoKey(currentUser.uid)); }catch(e){ return null; }
+}
+// Updates every avatar element on the page that shares the same photo — currently the Profile
+// screen's avatar and the Settings screen's avatar — so uploading from either place keeps both
+// in sync without a page reload.
+function renderProfileAvatarPhoto(){
+  const photo = getLocalProfilePhoto();
+  ['profileAvatar','settingsAvatar'].forEach(id=>{
+    const avatarEl = document.getElementById(id);
+    if(!avatarEl) return;
+    const existing = avatarEl.querySelector('img');
+    if(photo){
+      if(existing){ existing.src = photo; }
+      else { const img = document.createElement('img'); img.src = photo; img.alt = ''; avatarEl.appendChild(img); }
+      // FIXED: the fallback-letter text node (e.g. "U") was left sitting in the DOM under the
+      // <img> — now that the img is absolutely positioned it's fully covered visually, but we
+      // still blank the letter out here too so nothing can ever peek through at the edges.
+      avatarEl.dataset.letter = avatarEl.dataset.letter || avatarEl.textContent.trim();
+      for(const node of Array.from(avatarEl.childNodes)){
+        if(node.nodeType === Node.TEXT_NODE) node.textContent = '';
+      }
+    } else if(existing){
+      existing.remove();
+      // Restore the fallback letter now that there's no photo to show instead.
+      if(avatarEl.dataset.letter) avatarEl.firstChild
+        ? avatarEl.insertBefore(document.createTextNode(avatarEl.dataset.letter), avatarEl.firstChild)
+        : avatarEl.appendChild(document.createTextNode(avatarEl.dataset.letter));
+    }
+  });
+}
+function updateAvatarUploadButtons(){
+  const allowed = !!currentUser && canUploadProfilePhoto();
+  const editBtn = document.getElementById('profileAvatarEditBtn');
+  const lockBtn = document.getElementById('profileAvatarLockBtn');
+  if(editBtn && lockBtn){
+    if(!currentUser){ editBtn.style.display = 'none'; lockBtn.style.display = 'none'; }
+    else { editBtn.style.display = allowed ? 'flex' : 'none'; lockBtn.style.display = allowed ? 'none' : 'flex'; }
+  }
+  const settingsEditBtn = document.getElementById('settingsAvatarEditBtn');
+  if(settingsEditBtn) settingsEditBtn.style.display = allowed ? 'flex' : 'none';
+}
+function onLockedAvatarTap(){
+  showToast('Sign in to set a custom profile photo', { icon: toastIcons.info, duration:2200 });
+}
+// Downscales to a small square JPEG before storing — an uncompressed phone photo can be
+// several MB, which would blow past localStorage's ~5MB-per-origin ceiling after only a
+// few changes. 256x256 is plenty for a 76px avatar at any screen density.
+const PROFILE_PHOTO_MAX_DIM = 256;
+function onProfilePhotoChosen(file){
+  if(!file || !currentUser || !canUploadProfilePhoto()) return;
+  if(!/^image\//.test(file.type)){ showToast('Please choose an image file', { icon: toastIcons.info }); return; }
+  const reader = new FileReader();
+  reader.onload = function(e){
+    const img = new Image();
+    img.onload = function(){
+      const size = PROFILE_PHOTO_MAX_DIM;
+      const canvas = document.createElement('canvas');
+      canvas.width = size; canvas.height = size;
+      const ctx = canvas.getContext('2d');
+      // High-quality downscale: without this, small scaled-down images (avatars, tile
+      // thumbnails, logos) come out with jagged/pixelated edges on some mobile browsers,
+      // which default to a cheap filter instead of a smooth one.
+      ctx.imageSmoothingEnabled = true;
+      ctx.imageSmoothingQuality = 'high';
+      // Cover-crop to a square from the image's center, so portrait/landscape photos both
+      // fill the round avatar instead of being squeezed.
+      const s = Math.min(img.width, img.height);
+      const sx = (img.width - s) / 2, sy = (img.height - s) / 2;
+      ctx.drawImage(img, sx, sy, s, s, 0, 0, size, size);
+      let dataUrl;
+      try{ dataUrl = canvas.toDataURL('image/jpeg', 0.85); }catch(err){
+        showToast('Couldn\u2019t process that image', { icon: toastIcons.info }); return;
+      }
+      try{
+        localStorage.setItem(profilePhotoKey(currentUser.uid), dataUrl);
+        renderProfileAvatarPhoto();
+        showToast('Profile photo updated', { icon: toastIcons.check, duration:1400 });
+      }catch(err){
+        showToast('Couldn\u2019t save photo \u2014 storage full?', { icon: toastIcons.info });
+      }
+    };
+    img.onerror = function(){ showToast('Couldn\u2019t read that image', { icon: toastIcons.info }); };
+    img.src = e.target.result;
+  };
+  reader.onerror = function(){ showToast('Couldn\u2019t read that file', { icon: toastIcons.info }); };
+  reader.readAsDataURL(file);
+}
+function onProfileAuthTap(){
+  if(currentUser){
+    signOutUser();
+  } else {
+    openLoginScreen();
+  }
+}
+function signOutUser(){
+  if(firebaseReady && fbAuth){
+    fbAuth.signOut().catch(()=>{});
+  }
+  currentUser = null;
+  // Never let a verified current-password linger past sign-out.
+  pwVerifiedCurrentPassword = null;
+  stopMyOrdersSync();
+  myActivePlanId = 'free';
+  myActivePlanName = 'Free';
+  myHasEverOrdered = true; // signed-out visitors never see the first-purchase offer either
+  try{ localStorage.removeItem('riggy.user.v1'); }catch(e){}
+  updateProfileUI();
+  _plansSig = null;
+  renderPaymentPlans();
+  // Speed changes should not trigger an authentication toast.
+}
+/* ================= SETTINGS (edit display name / password) ================= */
+// Guest-guards every Profile sub-screen that needs an account (Settings, My Plan): instead
+// of landing signed-out people on a broken form, send them to sign in first and bounce them
+// back here the moment that succeeds — the same resume pattern openLoginScreen() already
+// supports for Export/Checkout.
+let settingsReturnScreen = 'profile';
+function openSettingsScreen(){
+  const activeEl = document.querySelector('.screen.active');
+  const activeName = activeEl && activeEl.id ? activeEl.id.replace(/^screen-/, '') : '';
+  if(activeName && activeName !== 'settings' && activeName !== 'login' && activeName !== 'splash'){
+    settingsReturnScreen = activeName;
+  }
+  if(!currentUser){ openLoginScreen(()=>openSettingsScreen()); return; }
+  // Settings is a regular destination page, not a panel layered over the previous screen.
+  document.querySelectorAll('.screen').forEach(el=>el.classList.remove('active'));
+  const settingsPage = document.getElementById('screen-settings');
+  if(settingsPage) settingsPage.classList.add('active');
+  const backdrop = document.getElementById('settingsSheetBackdrop');
+  if(backdrop) backdrop.classList.remove('active');
+  if(typeof prefillSettingsScreen === 'function') prefillSettingsScreen();
+  trackEvent('screen_view', {screen:'settings'});
+}
+function closeProfileSettingsSheet(){
+  const sheet = document.getElementById('screen-settings');
+  const backdrop = document.getElementById('settingsSheetBackdrop');
+  if(sheet) sheet.classList.remove('active');
+  if(backdrop) backdrop.classList.remove('active');
+  const target = document.getElementById('screen-' + (settingsReturnScreen || 'profile')) || document.getElementById('screen-profile');
+  document.querySelectorAll('.screen').forEach(el=>el.classList.remove('active'));
+  if(target) target.classList.add('active');
+}
+// Notifications can be opened from the home bell and from the Profile menu. Back returns to
+// wherever the person came from, so each entry point records its origin first. Any other route
+// into the screen falls back to Profile.
+let notifReturnScreen = 'profile';
+function showNotificationsFrom(origin){
+  notifReturnScreen = origin;
+  goTo('notifications');
+}
+function notifGoBack(){
+  const target = notifReturnScreen || 'profile';
+  notifReturnScreen = 'profile';
+  goTo(target);
+}
+// Home topbar bell -> same Notifications screen as Profile menu. Guest-guarded like Settings/
+// My Plan since the inbox is per-account; signs in first and bounces back here on success,
+// still remembering that it was opened from Home.
+function openNotificationsFromHome(){
+  if(!currentUser){ openLoginScreen(()=>showNotificationsFrom('home')); return; }
+  showNotificationsFrom('home');
+}
+function prefillSettingsScreen(){
+  if(!currentUser){ openLoginScreen(()=>openSettingsScreen()); return; }
+  const meta = getProfileMeta(currentUser);
+  document.getElementById('settingsNameInput').value = currentUser.displayName || meta.name || '';
+  document.getElementById('settingsUsernameInput').value = meta.username || defaultProfileUsername(currentUser);
+  document.getElementById('settingsHeadlineInput').value = meta.headline || '';
+  document.getElementById('settingsBioInput').value = meta.bio || '';
+  const note = document.getElementById('settingsNameNote');
+  if(note) note.textContent = '';
+  const label = currentUser.displayName || meta.name || 'Creator';
+  setAvatarLetter(document.getElementById('settingsAvatar'), label.charAt(0).toUpperCase());
+  renderProfileAvatarPhoto();
+  prefillProfileNotificationPrefs();
+}
+function cancelProfileSettings(){
+  const note = document.getElementById('settingsNameNote');
+  if(note) note.textContent = '';
+  closeProfileSettingsSheet();
+}
+function normalizeProfileUsername(value){
+  return String(value||'').trim().replace(/^@+/, '').toLowerCase().replace(/\s+/g,'-').replace(/[^a-z0-9._-]/g,'').replace(/^-+|-+$/g,'').slice(0,30);
+}
+async function saveProfileSettings(){
+  if(!currentUser || !(firebaseReady && fbAuth && fbAuth.currentUser)){
+    showToast('Sign in to update your profile', {icon: toastIcons.info});
+    return;
+  }
+  const name = document.getElementById('settingsNameInput').value.trim();
+  const username = normalizeProfileUsername(document.getElementById('settingsUsernameInput').value);
+  const headline = document.getElementById('settingsHeadlineInput').value.trim();
+  const bio = document.getElementById('settingsBioInput').value.trim();
+  const note = document.getElementById('settingsNameNote');
+  if(!name){ if(note) note.textContent = 'Please enter your name.'; return; }
+  if(!username){ if(note) note.textContent = 'Please choose a valid username.'; return; }
+  if(username.length < 3){ if(note) note.textContent = 'Username must be at least 3 characters.'; return; }
+  const btn = document.getElementById('settingsSaveBtn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  if(note) note.textContent = '';
+  try{
+    if(name !== (currentUser.displayName || '')){
+      await fbAuth.currentUser.updateProfile({ displayName:name });
+      currentUser.displayName = name;
+    }
+    const meta = { name, username, headline, bio, updatedAt:Date.now() };
+    try{ localStorage.setItem(profileMetaStorageKey(currentUser.uid), JSON.stringify(meta)); }
+    catch(storageErr){ throw new Error('Could not save profile details on this device. Check available browser storage.'); }
+    updateProfileUI();
+    showToast('Profile saved', {icon: toastIcons.check, duration:1500});
+    goTo('profile');
+  }catch(err){
+    if(note) note.textContent = err && err.message ? err.message : friendlyAdminAuthErrorText(err);
+  }finally{
+    btn.disabled = false; btn.textContent = 'Save';
+  }
+}
+// Small, local copy of the admin panel's friendlyAdminAuthError pattern — this file has no
+// such helper yet, and pulling in the whole admin error-mapping table would be overkill for
+// the handful of codes updateProfile/updatePassword can actually raise.
+function friendlyAdminAuthErrorText(err){
+  const code = (err && err.code) || '';
+  if(code.indexOf('weak-password') > -1) return 'Password should be at least 6 characters';
+  if(code.indexOf('wrong-password') > -1 || code.indexOf('invalid-credential') > -1) return 'Current password is incorrect';
+  if(code.indexOf('network-request-failed') > -1) return 'Network error — check your connection and try again';
+  return 'Could not save changes — try again';
+}
+
+async function sendSettingsPasswordReset(){
+  const authUser = fbAuth && fbAuth.currentUser;
+  const hasEmailPassword = !!(authUser && (authUser.providerData||[]).some(p=>p.providerId==='password'));
+  if(!firebaseReady || !fbAuth || !authUser || !hasEmailPassword || !authUser.email){
+    showToast('Password reset is only available for email/password accounts', {icon: toastIcons.info});
+    return;
+  }
+  try{
+    await fbAuth.sendPasswordResetEmail(authUser.email);
+    showToast('Password reset email sent. Check your inbox and spam folder.', {icon: toastIcons.check, duration:2600});
+  }catch(err){
+    showToast(friendlyAdminAuthErrorText(err), {icon: toastIcons.info, duration:2600});
+  }
+}
+
+/* ================= PASSWORD CHANGE — 2-STEP FLOW =================
+   Per request: don't show current/new/confirm all on one page. Step 1 asks only for the
+   current password and verifies it (reauthenticate) right there on "Next". Only once that
+   succeeds does Step 2 appear, asking for the new password twice, with its own "Confirm"
+   button that actually applies the change. "Back" returns to Step 1 without losing the
+   already-verified current password (so the person isn't forced to retype it just to fix a
+   typo in the new one) — re-verification only happens if they reopen Settings fresh or the
+   session needs it again. */
+// Holds the current password once Step 1 has verified it, so Step 2's Confirm can
+// reauthenticate silently right before updatePassword without asking for it a second time.
+// Cleared on screen entry, on successful password change, and on sign-out.
+let pwVerifiedCurrentPassword = null;
+function resetPasswordStepFlow(){
+  pwVerifiedCurrentPassword = null;
+  const cur = document.getElementById('settingsCurrentPasswordInput');
+  const next = document.getElementById('settingsPasswordInput');
+  const confirm = document.getElementById('settingsPasswordConfirmInput');
+  if(cur) cur.value = '';
+  if(next) next.value = '';
+  if(confirm) confirm.value = '';
+  const step1Card = document.getElementById('pwStep1Card');
+  const step1Note = document.getElementById('pwStep1Note');
+  const step1Btn = document.getElementById('pwStep1NextBtn');
+  const step2Card = document.getElementById('pwStep2Card');
+  const step2Note = document.getElementById('pwStep2Note');
+  const step2Buttons = document.getElementById('pwStep2Buttons');
+  if(step1Card) step1Card.style.display = '';
+  if(step1Note) step1Note.style.display = '';
+  if(step1Btn){ step1Btn.style.display = ''; step1Btn.disabled = false; step1Btn.textContent = 'Next'; }
+  if(step2Card) step2Card.style.display = 'none';
+  if(step2Note) step2Note.style.display = 'none';
+  if(step2Buttons) step2Buttons.style.display = 'none';
+  document.getElementById('settingsNameNote').textContent = '';
+}
+// Step 1 "Next": verify the typed current password by reauthenticating with it. A blank
+// field is allowed through (matches "leave blank to keep current password" — the person just
+// isn't changing it right now) and simply does nothing.
+async function pwStepVerifyCurrent(){
+  const currentPasswordEl = document.getElementById('settingsCurrentPasswordInput');
+  const currentPassword = currentPasswordEl.value;
+  if(!currentPassword) return;
+  if(!currentUser || !(firebaseReady && fbAuth && fbAuth.currentUser)){
+    showToast('Sign in to change your password', {icon: toastIcons.info});
+    return;
+  }
+  const btn = document.getElementById('pwStep1NextBtn');
+  btn.disabled = true; btn.textContent = 'Checking…';
+  document.getElementById('settingsNameNote').textContent = '';
+  try{
+    const email = fbAuth.currentUser.email;
+    const cred = firebase.auth.EmailAuthProvider.credential(email, currentPassword);
+    await fbAuth.currentUser.reauthenticateWithCredential(cred);
+    // Verified — remember it for Step 2's silent reauth right before updatePassword, then
+    // swap the panel over to Step 2.
+    pwVerifiedCurrentPassword = currentPassword;
+    document.getElementById('pwStep1Card').style.display = 'none';
+    document.getElementById('pwStep1Note').style.display = 'none';
+    btn.style.display = 'none';
+    document.getElementById('pwStep2Card').style.display = '';
+    document.getElementById('pwStep2Note').style.display = '';
+    document.getElementById('pwStep2Buttons').style.display = '';
+    document.getElementById('settingsPasswordInput').focus();
+  }catch(err){
+    const code = (err && err.code) || '';
+    if(code.indexOf('requires-recent-login') > -1){
+      document.getElementById('settingsNameNote').textContent = 'Please sign in again to change your password, then retry.';
+      openLoginScreen(()=>goTo('settings'));
+    } else {
+      document.getElementById('settingsNameNote').textContent = friendlyAdminAuthErrorText(err);
+    }
+  }
+  btn.disabled = false; btn.textContent = 'Next';
+}
+// Step 2 "Back": return to Step 1. Keeps the already-verified current password in memory
+// (pwVerifiedCurrentPassword) rather than wiping it, so correcting a new-password typo
+// doesn't force retyping the current password too.
+function pwStepBackToCurrent(){
+  document.getElementById('settingsPasswordInput').value = '';
+  document.getElementById('settingsPasswordConfirmInput').value = '';
+  document.getElementById('pwStep2Card').style.display = 'none';
+  document.getElementById('pwStep2Note').style.display = 'none';
+  document.getElementById('pwStep2Buttons').style.display = 'none';
+  document.getElementById('pwStep1Card').style.display = '';
+  document.getElementById('pwStep1Note').style.display = '';
+  document.getElementById('pwStep1NextBtn').style.display = '';
+  document.getElementById('settingsNameNote').textContent = '';
+}
+// Step 2 "Confirm": validate the new password + confirmation, then actually apply it.
+async function pwStepConfirmNew(){
+  const newPasswordEl = document.getElementById('settingsPasswordInput');
+  const confirmPasswordEl = document.getElementById('settingsPasswordConfirmInput');
+  const newPassword = newPasswordEl.value;
+  const confirmPassword = confirmPasswordEl.value;
+  if(!newPassword || newPassword.length < 6){
+    showToast('New password should be at least 6 characters', {icon: toastIcons.info});
+    return;
+  }
+  if(newPassword !== confirmPassword){
+    showToast('New password and confirmation don\u2019t match', {icon: toastIcons.info});
+    return;
+  }
+  if(!pwVerifiedCurrentPassword || !currentUser || !(firebaseReady && fbAuth && fbAuth.currentUser)){
+    // Verified password fell out of memory (e.g. long idle, or Settings was reopened) —
+    // safest is to send them back to re-verify Step 1 rather than guess.
+    showToast('Please re-enter your current password', {icon: toastIcons.info});
+    resetPasswordStepFlow();
+    return;
+  }
+  const btn = document.querySelector('#pwStep2Buttons .settings-step-btn:not(.secondary)');
+  const backBtn = document.querySelector('#pwStep2Buttons .settings-step-btn.secondary');
+  btn.disabled = true; btn.textContent = 'Saving…'; if(backBtn) backBtn.disabled = true;
+  document.getElementById('settingsNameNote').textContent = '';
+  try{
+    // Reauthenticate again right before the actual change — the credential from Step 1 can
+    // have gone stale if the person lingered on Step 2, and Firebase requires a fresh one
+    // for a sensitive action like this regardless.
+    const email = fbAuth.currentUser.email;
+    const cred = firebase.auth.EmailAuthProvider.credential(email, pwVerifiedCurrentPassword);
+    await fbAuth.currentUser.reauthenticateWithCredential(cred);
+    await fbAuth.currentUser.updatePassword(newPassword);
+    showToast('Password changed', {icon: toastIcons.check, duration:1600});
+    resetPasswordStepFlow();
+  }catch(err){
+    const code = (err && err.code) || '';
+    if(code.indexOf('wrong-password') > -1 || code.indexOf('invalid-credential') > -1){
+      // The remembered current password no longer checks out — don't silently retry, send
+      // them back to Step 1 to re-enter it.
+      showToast('Current password no longer verified — please re-enter it', {icon: toastIcons.info});
+      resetPasswordStepFlow();
+      return;
+    } else if(code.indexOf('requires-recent-login') > -1){
+      document.getElementById('settingsNameNote').textContent = 'Please sign in again to change your password, then retry.';
+      openLoginScreen(()=>goTo('settings'));
+    } else {
+      document.getElementById('settingsNameNote').textContent = friendlyAdminAuthErrorText(err);
+    }
+  }
+  btn.disabled = false; btn.textContent = 'Confirm'; if(backBtn) backBtn.disabled = false;
+}
+
+/* ================= NOTIFICATIONS (local on/off preferences) =================
+   No push/email backend exists yet to actually deliver these, so for now they're a simple
+   per-device preference store — flipping them just saves a flag locally (per the "soon but
+   not yet wired up" scope this section was built to). */
+const NOTIF_PREFS_KEY = 'riggy.notifPrefs.v1';
+const NOTIF_PREF_DEFAULTS = { push:true, email:false, exportDone:true, billing:true };
+function loadNotifPrefs(){
+  try{
+    const raw = localStorage.getItem(NOTIF_PREFS_KEY);
+    if(raw) return { ...NOTIF_PREF_DEFAULTS, ...JSON.parse(raw) };
+  }catch(e){}
+  return { ...NOTIF_PREF_DEFAULTS };
+}
+let notifPrefs = loadNotifPrefs();
+function saveNotifPrefs(){
+  try{ localStorage.setItem(NOTIF_PREFS_KEY, JSON.stringify(notifPrefs)); }catch(e){}
+}
+function renderNotifToggles(){
+  Object.keys(NOTIF_PREF_DEFAULTS).forEach(key=>{
+    const el = document.getElementById('notifToggle-'+key);
+    if(el) el.classList.toggle('on', !!notifPrefs[key]);
+  });
+}
+function toggleNotifPref(key){
+  notifPrefs[key] = !notifPrefs[key];
+  saveNotifPrefs();
+  renderNotifToggles();
+}
+
+/* ================= HELP & SUPPORT (FAQ accordion) ================= */
+const HELP_FAQ = [
+  { q:'How do I rig my first character?', a:'From Home or Projects, tap Create, upload flat artwork, and the auto-rig tool will detect the joints for you. You can fine-tune the skeleton before posing.' },
+  { q:'How many projects can I have?', a:'This depends on your plan — check Profile → Billing & plan to see your current usage and limit.' },
+  { q:'How do exports work?', a:'Exports are limited per month depending on your plan, and export quality (resolution) is also capped by plan. Billing & plan shows exactly how many you have left this month.' },
+  { q:'How do I upgrade my plan?', a:'Go to Profile → Billing & plan and tap Upgrade. Payments are verified manually via bKash or Nagad — your plan activates once the payment is approved.' },
+  { q:'My saved model disappeared — why?', a:'Saved models are stored on this device only. Reinstalling the app, clearing browser data, or switching devices will clear your saved model library.' }
+];
+function renderHelpFaq(){
+  const list = document.getElementById('helpFaqList');
+  if(!list || list.dataset.rendered) return;
+  list.dataset.rendered = '1';
+  list.innerHTML = HELP_FAQ.map((item,i)=>`
+    <div class="help-item" id="helpItem-${i}">
+      <div class="help-q" onclick="toggleHelpItem(${i})">
+        <b>${escapeHtml(item.q)}</b>
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg>
+      </div>
+      <p class="help-a">${escapeHtml(item.a)}</p>
+    </div>`).join('');
+}
+function toggleHelpItem(i){
+  const el = document.getElementById('helpItem-'+i);
+  if(el) el.classList.toggle('open');
+}
+// Renders the Email / WhatsApp contact cards from admin-set contactInfo (siteContent/main).
+// The WhatsApp card only appears once a number is actually configured — no dead link shown
+// by default. Re-run on every open (not cached like FAQ) since an admin can update this
+// live while the Help screen is sitting open across a siteContent snapshot refresh.
+function renderHelpContactCards(){
+  const wrap = document.getElementById('helpContactCards');
+  if(!wrap) return;
+  const info = getContactInfo();
+  let html = '';
+  if(info.email){
+    html += `
+      <div class="help-contact-card tappable email-contact-card" onclick="window.location.href='mailto:${escapeHtml(info.email)}'">
+        <svg class="gmail-contact-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 7v11" stroke="#4285F4" stroke-width="2.8" stroke-linecap="round"/><path d="M3.5 7 12 13.2 20.5 7" stroke="#EA4335" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.2 20.5 7" stroke="#FBBC04" stroke-width="2.8" stroke-linecap="round"/><path d="M20.5 7v11" stroke="#34A853" stroke-width="2.8" stroke-linecap="round"/></svg>
+        <div class="hc-text"><b>Email support</b><span>${escapeHtml(info.email)}</span></div>
+      </div>`;
+  }
+  if(info.whatsapp){
+    const digits = String(info.whatsapp).replace(/[^\d+]/g, '');
+    html += `
+      <div class="help-contact-card tappable whatsapp-contact-card" onclick="window.open('https://wa.me/${escapeHtml(digits.replace(/^\+/,''))}', '_blank', 'noopener')">
+        <svg class="whatsapp-contact-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="11.6" r="9.3" fill="#25D366"/><path d="M5.3 20.2 6.5 16.8" stroke="#25D366" stroke-width="2.2" stroke-linecap="round"/><path d="M8.4 7.6c-.4.2-.8.9-.8 1.5 0 2.6 3.5 6.1 6.2 6.1.7 0 1.4-.4 1.7-1l.4-.9-2.2-1.1-.9 1c-1.3-.5-2.1-1.3-2.7-2.6l.9-1-1.1-2.1-.9.1c-.2 0-.4 0-.6 0Z" fill="none" stroke="#fff" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="hc-text"><b>WhatsApp</b><span>${escapeHtml(info.whatsapp)}</span></div>
+      </div>`;
+  }
+  wrap.innerHTML = html;
+  // The message box redirects to WhatsApp, so it's only shown when a number is configured.
+  const compose = document.getElementById('helpComposeWrap');
+  if(compose) compose.style.display = info.whatsapp ? '' : 'none';
+}

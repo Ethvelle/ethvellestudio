@@ -1,0 +1,1000 @@
+// this scale, and keeps results instant as you type, like YouTube's own search-as-you-type feel.
+function onTutorialSearchInput(value){
+  tutorialSearchQuery = (value || '').trim();
+  const bar = document.getElementById('tutorialSearchBar');
+  if(bar) bar.classList.toggle('has-query', tutorialSearchQuery.length > 0);
+  _tutorialsSig = null; // force a re-render even though the underlying data hasn't changed
+  renderTutorialsGrid();
+}
+function clearTutorialSearch(){
+  const input = document.getElementById('tutorialSearchInput');
+  if(input) input.value = '';
+  onTutorialSearchInput('');
+  if(input) input.focus();
+}
+function renderTutorialsGrid(){
+  const wrap = document.getElementById('tutorialGrid');
+  if(!wrap) return;
+  const allTutorials = getTutorials();
+  const q = tutorialSearchQuery.toLowerCase();
+  const tutorials = q ? allTutorials.filter(t=>(t.title||'').toLowerCase().includes(q)) : allTutorials;
+  const sig = JSON.stringify(tutorials) + '|' + q;
+  if(sig === _tutorialsSig) return;
+  _tutorialsSig = sig;
+  if(!allTutorials.length){
+    wrap.innerHTML = `<div class="tutorial-empty">No tutorials yet — check back soon.</div>`;
+    return;
+  }
+  if(!tutorials.length){
+    wrap.innerHTML = `<div class="tutorial-empty">No tutorials match “${escapeHtml(tutorialSearchQuery)}”.</div>`;
+    return;
+  }
+  wrap.innerHTML = tutorials.map(t=>{
+    const img = safeImageUrl(t.image);
+    const thumb = img
+      ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(t.title||'')}" decoding="async" loading="lazy" onerror="this.closest('.tutorial-thumb-wrap').classList.add('failed'); this.style.display='none';">`
+      : `<div class="tutorial-thumb-fallback">${TUTORIAL_PLACEHOLDER_SVG}</div>`;
+    return `
+      <div class="tutorial-card" data-atype="link" data-avalue="${escapeHtml(t.videoUrl||'')}">
+        <div class="tutorial-thumb-wrap">
+          ${thumb}
+          <div class="tutorial-play-badge"><svg viewBox="0 0 68 48"><path d="M66.5 7.7c-.8-2.9-2.6-5.1-5.3-5.8C56.5 0.5 34 0.5 34 0.5s-22.5 0-27.2 1.4C4.1 2.6 2.3 4.8 1.5 7.7 0.1 12.5 0.1 24 0.1 24s0 11.5 1.4 16.3c.8 2.9 2.6 5.1 5.3 5.8C11.5 47.5 34 47.5 34 47.5s22.5 0 27.2-1.4c2.7-.7 4.5-2.9 5.3-5.8C67.9 35.5 67.9 24 67.9 24s0-11.5-1.4-16.3z" fill="#FF0000" opacity="0.92"/><path d="M27 34l18-10-18-10v20z" fill="#fff"/></svg></div>
+        </div>
+        <div class="tutorial-meta">
+          <div class="tutorial-meta-icon"><img src="https://i.postimg.cc/HkD7s6pT/file-00000000c3a88211816ac81485d9da1b.png" alt="Tutorials" loading="lazy" decoding="async"></div>
+          <div>
+            <p class="tutorial-title">${escapeHtml(t.title||'Untitled')}</p>
+            <p class="tutorial-sub">Tutorial · Ethvelle</p>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ---------------- RENDER: PAYMENT PLANS ---------------- */
+/* ================= PLAN PRICING (admin discount + first-purchase offer + promo popup) =====
+   A configured promo-popup discount has priority over plan-level and first-purchase discounts
+   for its target plan. A popup may target one plan or all paid plans (__all_paid__). If no promo
+   applies to a plan, the best applicable regular discount is used as before.
+   Returns { finalPrice, originalPrice, off, label } or null if no discount applies. */
+function computePlanDiscount(plan){
+  const price = Number(plan.price) || 0;
+  if(price <= 0) return null;
+  function offFor(d){
+    if(!d || !d.on) return 0;
+    const v = Number(d.value) || 0;
+    return d.type === 'amount' ? v : Math.round(price * v / 100);
+  }
+  const pd = window.activePromoDiscount;
+  const promoTargetsPlan = pd && (pd.applyToAll === true || pd.planId === '__all_paid__' || pd.planId === plan.id);
+  if(promoTargetsPlan){
+    const value = Number(pd.value) || 0;
+    const promoOff = pd.type === 'amount' ? value : Math.round(price * value / 100);
+    if(promoOff > 0){
+      const off = Math.min(promoOff, price); // never discount below ৳0
+      return { finalPrice: price - off, originalPrice: price, off, label: pd.label || 'Promo discount', isPromo:true };
+    }
+  }
+  const candidates = [];
+  if(plan.discount && plan.discount.on){
+    const off = offFor(plan.discount);
+    if(off > 0) candidates.push({ off, label: plan.discount.label || 'Discount' });
+  }
+  if(plan.firstPurchaseOffer && plan.firstPurchaseOffer.on && currentUser && !myHasEverOrdered){
+    const off = offFor(plan.firstPurchaseOffer);
+    if(off > 0) candidates.push({ off, label: plan.firstPurchaseOffer.label || 'First purchase offer' });
+  }
+  if(!candidates.length) return null;
+  candidates.sort((a,b)=>b.off - a.off);
+  const best = candidates[0];
+  const off = Math.min(best.off, price); // never discount below ৳0
+  return { finalPrice: price - off, originalPrice: price, off, label: best.label };
+}
+function renderPaymentPlans(){
+  const scroll = document.querySelector('#screen-payment .demo-scroll');
+  if(!scroll) return;
+  const plans = getPlans();
+  // Whether the signed-in user currently holds ANY paid (non-free) plan — once true, the
+  // Free card is no longer shown at all, the same way most subscription apps stop offering
+  // you the free tier once you're already a paying customer. Signed-out visitors and
+  // Free-tier users still see every card, Free included.
+  const hasActivePaidPlan = !!(currentUser && myActivePlanId && myActivePlanId !== 'free');
+  const orderSig = myLatestOrderInfo ? [myLatestOrderInfo.id,myLatestOrderInfo.planId,myLatestOrderInfo.status].join(':') : '';
+  const planOrderSig = JSON.stringify(Object.keys(myPlanOrderStates).sort().map(k=>[k,myPlanOrderStates[k].id,myPlanOrderStates[k].status]));
+  const sig = JSON.stringify(plans) + '|' + myActivePlanId + '|' + (currentUser?'in':'out') + '|' + myHasEverOrdered + '|' + orderSig + '|' + planOrderSig + '|' + JSON.stringify(window.activePromoDiscount||null);
+  if(sig === _plansSig) return;
+  _plansSig = sig;
+  // The user's own plan always sorts to the very top of the list, ahead of every other
+  // card, so they see "this is what I have" first rather than having to scroll to find it.
+  const ordered = plans.slice().sort((a,b)=>{
+    const aMine = currentUser && a.id === myActivePlanId;
+    const bMine = currentUser && b.id === myActivePlanId;
+    if(aMine && !bMine) return -1;
+    if(bMine && !aMine) return 1;
+    return 0;
+  });
+  const cardsHtml = ordered.filter(p=>{
+    const isFree = Number(p.price) === 0;
+    // Drop the Free card once the user already has a paid plan active.
+    if(isFree && hasActivePaidPlan) return false;
+    return true;
+  }).map(p=>{
+    const isFree = Number(p.price) === 0;
+    const disc = computePlanDiscount(p);
+    // priceHtml shows the struck-through original price next to the discounted one when a
+    // discount applies; otherwise just the plain price, same as before.
+    const priceHtml = isFree
+      ? '৳0<span>/month</span>'
+      : disc
+        ? `<span class="plan-price-strike">৳${disc.originalPrice}</span> ৳${disc.finalPrice}<span>/month</span>`
+        : `৳${p.price}<span>/month</span>`;
+    const featuresHtml = (p.features||[]).map(f=>`<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(f)}</div>`).join('');
+    const planCreditGrant = getPlanCreditGrant(p);
+    const creditsHtml = planCreditGrant > 0 ? `<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>${planCreditGrant.toLocaleString()} credits per approved payment</div>` : '';
+    // A card is the user's current plan if they're signed in and its id matches their
+    // admin-approved plan (myActivePlanId), OR it's the free card and they have no active
+    // paid plan at all. Everything else always reads "Upgrade to X", even the ৳0 card, so a
+    // Pro user browsing back to Free correctly sees "Upgrade" isn't offered but Free isn't
+    // mislabeled as their current plan either.
+    const isMine = currentUser ? (p.id === myActivePlanId) : isFree;
+    // A submitted pending order replaces the Upgrade button on that exact plan card.
+    // Normalize ids/status because admin-published plan ids may not use the built-in names.
+    const orderForPlan = currentUser ? (myPlanOrderStates[String(p.id)] || (myLatestOrderInfo && String(myLatestOrderInfo.planId) === String(p.id) ? myLatestOrderInfo : null)) : null;
+    const orderStatusForPlan = String(orderForPlan && orderForPlan.status || '').toLowerCase();
+    const hasPendingOrder = !!orderForPlan && orderStatusForPlan === 'pending';
+    const ctaHtml = (isMine || hasPendingOrder) ? '' : `<button class="plan-cta" onclick="event.stopPropagation(); confirmPlan('${p.id}')">Upgrade to ${escapeHtml(p.name)}</button>`;
+    // Badge: "Current" always wins (shows what the user actually owns). Otherwise, a discount
+    // badge takes priority over the plain custom badge, since "33% off" is more useful to see
+    // at a glance than "Popular" — but a plan can still carry both a badgeText AND a discount;
+    // only one badge chip is shown at a time to avoid crowding the card.
+    let badgeHtml = '';
+    if(isMine){
+      badgeHtml = '<div class="plan-badge plan-badge-current">Current</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'pending'){
+      badgeHtml = '<div class="plan-badge plan-badge-order pending">Order pending</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'rejected'){
+      badgeHtml = '<div class="plan-badge plan-badge-order rejected">Order rejected</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'approved'){
+      badgeHtml = '<div class="plan-badge plan-badge-order approved">Order approved</div>';
+    } else if(disc){
+      const pct = Math.round(disc.off / disc.originalPrice * 100);
+      badgeHtml = disc.isPromo
+        ? `<div class="plan-badge plan-badge-discount"><span class="promo-discount-p" title="Promo discount">P</span>${pct}% off</div>`
+        : `<div class="plan-badge plan-badge-discount">${escapeHtml(disc.label)} \u2014 ${pct}% off</div>`;
+    } else if(p.popular && p.badgeText){
+      badgeHtml = `<div class="plan-badge">${escapeHtml(p.badgeText)}</div>`;
+    }
+    return `
+      <div class="plan-card${p.popular?' featured':''}${isMine?' current-plan':''}" data-plan="${p.id}" data-name="${escapeHtml(p.name)}" onclick="selectPlan(this, true)">
+        <div class="plan-card-top">
+          ${badgeHtml}
+          <div class="plan-radio"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+        </div>
+        <div class="plan-name">${escapeHtml(p.name)}</div>
+        <p class="plan-price">${priceHtml}</p>
+        <p class="plan-desc">${escapeHtml(p.desc||'')}</p>
+        <div class="plan-feature-list">${featuresHtml}${creditsHtml}</div>
+        ${ctaHtml}
+      </div>`;
+  }).join('');
+  scroll.innerHTML = cardsHtml;
+  // No plan is highlighted merely because it is the current/default plan.
+  // A border and checked radio appear only after the visitor explicitly taps a card.
+  scroll.querySelectorAll('.plan-card.selected').forEach(card=>card.classList.remove('selected'));
+  selectedPlan = null;
+}
+
+// Populate the Home screen and Payment screen once immediately (from cache/defaults so
+// there's never a blank flash), then again as soon as a live Firestore read comes back.
+wireContentTaps();
+(function wireCreateSectionTracking(){
+  const home = document.getElementById('screen-home');
+  if(!home || home.dataset.createTrackingWired) return;
+  home.dataset.createTrackingWired = '1';
+  home.addEventListener('click', function(event){
+    const tile = event.target && event.target.closest ? event.target.closest('.home-tile') : null;
+    const createButton = event.target && event.target.closest ? event.target.closest('.home-nav-create-btn') : null;
+    if(!tile && !createButton) return;
+    const labelEl = tile ? tile.querySelector('span') : null;
+    trackEvent('create_section_click', {
+      source:tile ? 'what_would_you_create_tile' : 'home_create_button',
+      itemLabel:labelEl ? labelEl.textContent.trim().slice(0,70) : 'Create button',
+      screen:'home'
+    });
+  });
+})();
+renderHomeTiles();
+renderHomeBanners();
+renderHomeAnimations();
+renderPaymentPlans();
+renderTutorialsGrid();
+renderPromptLibrary();
+applyCustomAnimPresets(); // from cached siteContent, if any — re-applied again once Firestore responds below
+wirePromoPopups(); // schedules from cached/default popups immediately; re-checked again once Firestore responds below
+
+if(firebaseReady && fbDb){
+  fbDb.collection('siteContent').doc('main').onSnapshot({ includeMetadataChanges:true }, function(doc){
+    const fromCache=!!(doc.metadata&&doc.metadata.fromCache);
+    if(doc.exists){
+      const data=doc.data()||{};
+      siteContent={
+        banners:data.banners||null,animations:data.animations||null,plans:data.plans||null,tiles:data.tiles||null,
+        tutorials:data.tutorials||null,contactInfo:data.contactInfo||null,
+        creditSettings:data.creditSettings||siteContent.creditSettings||defaultCreditSettings(),
+        promoPopups:(splitSiteContentLoaded.promoPopups&&splitSiteContentExists.promoPopups)?(siteContent.promoPopups||[]):(data.promoPopups||null),
+        customAnimPresets:data.customAnimPresets||null,
+        prompts:(splitSiteContentLoaded.prompts&&splitSiteContentExists.prompts)?(siteContent.prompts||[]):(data.prompts||[]),
+        assets:(splitSiteContentLoaded.assets&&splitSiteContentExists.assets)?(siteContent.assets||[]):(data.assets||[]),
+        models:(splitSiteContentLoaded.models&&splitSiteContentExists.models)?(siteContent.models||[]):(data.models||[]),
+        animationAccess:(splitSiteContentLoaded.animationAccess&&splitSiteContentExists.animationAccess)?(siteContent.animationAccess||{}):(data.animationAccess||{})
+      };
+      publishedModelAssets = Array.isArray(siteContent.models) ? siteContent.models.map(m=>({...m,origin:'admin'})) : [];
+      try{localStorage.setItem(SITE_CONTENT_CACHE_KEY,JSON.stringify(siteContent));}catch(e){}
+      if(typeof renderModelsTab==='function' && document.getElementById('modelsGrid')) renderModelsTab();
+      if(typeof renderModelLibraryList==='function' && document.getElementById('modelAssetListBody')) renderModelLibraryList();
+      renderHomeTiles();renderHomeBanners();renderHomeAnimations();renderPaymentPlans();renderTutorialsGrid();renderPromptLibrary();applyCustomAnimPresets();
+      if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+      if(typeof renderExportCreditEstimate==='function')renderExportCreditEstimate();
+      if(typeof renderAnimList==='function'&&document.getElementById('animListBody'))renderAnimList();
+      if(document.getElementById('editorAssetLibrary'))renderAssetsPanel();
+      if(document.getElementById('screen-help')&&document.getElementById('screen-help').classList.contains('active'))renderHelpContactCards();
+    }
+    if(!fromCache){promoPopupContentServerConfirmed=true;wirePromoPopups(true);}
+    else wirePromoPopups();
+  },function(err){
+    console.warn('Ethvelle: could not read siteContent from Firestore, using cached/default content',err);
+    promoPopupContentServerConfirmed=true;wirePromoPopups(true);
+  });
+  // New, smaller documents are authoritative for prompts, assets, popup targeting, and animation access.
+  // If a split document does not exist yet, the legacy value read from siteContent/main is retained.
+  SPLIT_SITE_CONTENT_KEYS.forEach(key=>{
+    const unsub=fbDb.collection('siteContent').doc(key).onSnapshot({includeMetadataChanges:true},function(doc){
+      splitSiteContentLoaded[key]=true; splitSiteContentExists[key]=!!doc.exists;
+      if(doc.exists){
+        const data=doc.data()||{};
+        if(Object.prototype.hasOwnProperty.call(data,key))siteContent[key]=data[key];
+      }
+      try{localStorage.setItem(SITE_CONTENT_CACHE_KEY,JSON.stringify(siteContent));}catch(e){}
+      if(key==='prompts')renderPromptLibrary();
+      if(key==='assets'&&document.getElementById('editorAssetLibrary'))renderAssetsPanel();
+      if(key==='models'){publishedModelAssets=Array.isArray(siteContent.models)?siteContent.models.map(m=>({...m,origin:'admin'})):[];if(typeof renderModelsTab==='function')renderModelsTab();if(typeof renderModelLibraryList==='function')renderModelLibraryList();}
+      if(key==='animationAccess'&&typeof renderAnimList==='function'&&document.getElementById('animListBody'))renderAnimList();
+      if(key==='promoPopups'){
+        if(doc.metadata&&!doc.metadata.fromCache){promoPopupContentServerConfirmed=true;wirePromoPopups(true);}
+        else wirePromoPopups();
+      }
+    },function(err){console.warn('Ethvelle: could not read siteContent/'+key,err);});
+    splitSiteContentUnsubs.push(unsub);
+  });
+}
+</script>
+
+
+
+<script>
+/* ============================================================================
+   ETHVELLE CHARACTER QUALITY UPDATE
+   - Optional Gemini landmark detection (body, face, palm, thumb and 5 fingers)
+   - Blink / talk facial overlays
+   - Hand-pose clips, plus a hardened mesh deformation path above
+   ----------------------------------------------------------------------------
+   SECURITY: this HTML placeholder is client-side. For a public production site,
+   proxy Gemini requests through your server and keep the API key there.
+   ============================================================================ */
+window.ETHVELLE_GEMINI_CONFIG = window.ETHVELLE_GEMINI_CONFIG || {
+  apiKey: 'PASTE_YOUR_GEMINI_API_KEY_HERE', // <-- add your Google AI Studio API key here for local testing
+  model: 'gemini-3.5-flash'                // requested model ID; currently auto-routed by Google to 3.6 Flash
+};
+var faceAnimationTimeOverride = null;
+
+function ethvelleHasGeminiKey(){
+  const k=String(window.ETHVELLE_GEMINI_CONFIG?.apiKey||'').trim();
+  return !!k && k!=='PASTE_YOUR_GEMINI_API_KEY_HERE' && k!=='YOUR_GEMINI_API_KEY';
+}
+function ethvelleSafePoint(p){
+  if(!p || typeof p!=='object') return null;
+  const x=Number(p.x), y=Number(p.y);
+  if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>1||y<0||y>1) return null;
+  return {x,y};
+}
+function ethvelleCopyPoints(src){
+  const out={};
+  Object.keys(src||{}).forEach(k=>{const p=ethvelleSafePoint(src[k]);if(p)out[k]=p;});
+  return out;
+}
+function ethvelleEstimateFace(srcCanvas,joints){
+  if(!srcCanvas||!joints||!joints.headTop||!joints.neck) return null;
+  const top=joints.headTop, neck=joints.neck;
+  const headH=Math.max(0.025,neck.y-top.y);
+  const shoulderSpan=Math.abs((joints.shoulderR?.x??(top.x+0.12))-(joints.shoulderL?.x??(top.x-0.12)));
+  const headW=Math.max(0.045,Math.min(0.34,shoulderSpan*0.65||headH*0.75));
+  const cx=neck.x;
+  const face={
+    leftEye:{x:Math.max(0.005,cx-headW*0.19),y:Math.min(.99,top.y+headH*.49),w:headW*.18,h:headH*.075},
+    rightEye:{x:Math.min(.995,cx+headW*0.19),y:Math.min(.99,top.y+headH*.49),w:headW*.18,h:headH*.075},
+    mouth:{x:cx,y:Math.min(.995,top.y+headH*.88),w:headW*.24,h:headH*.095},
+    source:'estimated'
+  };
+  try{
+    const ctx=srcCanvas.getContext('2d',{willReadFrequently:true});
+    const px=Math.round(Math.max(0,Math.min(srcCanvas.width-1,cx*srcCanvas.width)));
+    const py=Math.round(Math.max(0,Math.min(srcCanvas.height-1,(top.y+headH*.66)*srcCanvas.height)));
+    const r=Math.max(2,Math.round(Math.min(srcCanvas.width,srcCanvas.height)*.006));
+    const d=ctx.getImageData(Math.max(0,px-r),Math.max(0,py-r),Math.min(srcCanvas.width-px+r,r*2+1),Math.min(srcCanvas.height-py+r,r*2+1)).data;
+    let R=0,G=0,B=0,n=0;
+    for(let i=0;i<d.length;i+=4){
+      if(d[i+3]<120)continue;
+      const lum=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
+      if(lum<38||lum>246)continue;
+      R+=d[i];G+=d[i+1];B+=d[i+2];n++;
+    }
+    if(n) face.skinColor='#'+[R/n,G/n,B/n].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  }catch(e){}
+  face.skinColor=face.skinColor||'#dba982';
+  return face;
+}
+function ethvelleNormalizeFace(raw,srcCanvas,joints){
+  const fallback=ethvelleEstimateFace(srcCanvas,joints);
+  if(!raw||typeof raw!=='object') return fallback;
+  const out={...(fallback||{}),source:'gemini'};
+  ['leftEye','rightEye','mouth'].forEach(k=>{
+    const p=raw[k];
+    const pos=ethvelleSafePoint(p);
+    if(!pos)return;
+    const w=Number(p.w),h=Number(p.h);
+    if(!Number.isFinite(w)||!Number.isFinite(h)||w<=0||h<=0)return;
+    out[k]={x:pos.x,y:pos.y,w:Math.min(.4,w),h:Math.min(.3,h)};
+  });
+  if(/^#[0-9a-f]{6}$/i.test(String(raw.skinColor||'')))out.skinColor=raw.skinColor;
+  return out;
+}
+async function analyzeAutoRigWithGemini(silent){
+  if(!autoRigState||!autoRigState.srcCanvas||!autoRigState.joints){showToast('Upload a character first',{icon:toastIcons.info,duration:1800});return;}
+  if(!ethvelleHasGeminiKey()){
+    const status=document.getElementById('autoRigGeminiStatus');
+    if(status)status.textContent='Add your API key to ETHVELLE_GEMINI_CONFIG.apiKey near the end of this file, then try again.';
+    if(!silent)showToast('Gemini key missing — see ETHVELLE_GEMINI_CONFIG at the end of the HTML file.',{icon:toastIcons.info,duration:3000});
+    return;
+  }
+  const btn=document.getElementById('autoRigGeminiBtn'),status=document.getElementById('autoRigGeminiStatus');
+  if(btn){btn.disabled=true;btn.textContent='Analyzing body, fingers and face…';}
+  if(status)status.textContent='Gemini is estimating normalized joint positions. You can still correct points afterward.';
+  try{
+    const dataUrl=autoRigState.srcCanvas.toDataURL('image/png');
+    const m=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if(!m)throw new Error('Could not encode image for Gemini.');
+    const prompt=`Analyze this single full-body 2D cartoon character image for a 2D puppet rig. Return ONLY JSON. Coordinates x,y are normalized to the whole image from 0 to 1, origin top-left. Use image-left as L and image-right as R to match the editor. Body joints needed: headTop (top of skull), neck, shoulderL, shoulderR (shoulder anchors close to the torso centerline), elbowL, wristL, elbowR, wristR, hip center, kneeL, ankleL, kneeR, ankleR. For each visible hand, estimate palmL/palmR and thumbBase/Mid/Tip, indexBase/Mid/Tip, middleBase/Mid/Tip, ringBase/Mid/Tip, pinkyBase/Mid/Tip, with the side suffix L or R (e.g. indexBaseL). Omit or set null any point hidden or too small to locate confidently; do not invent precise tiny fingertips if they are not visible. Also return face leftEye, rightEye and mouth objects as {x,y,w,h}, where x,y are the feature center and w,h are normalized feature width and height. Estimate skinColor as a 6-digit hex color near the eyes/mouth, not the hair or clothes. Keep joints on the actual drawn anatomy, avoid background pixels and keep headTop above neck, neck above hip, and ankles below knees. JSON shape: {"joints":{"headTop":{"x":0.5,"y":0.1},...},"face":{"leftEye":{"x":0.46,"y":0.18,"w":0.03,"h":0.01},"rightEye":...,"mouth":...,"skinColor":"#dba982"},"confidence":0.8,"warnings":[]}.`;
+    const url='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(window.ETHVELLE_GEMINI_CONFIG.model||'gemini-3.5-flash')+':generateContent?key='+encodeURIComponent(window.ETHVELLE_GEMINI_CONFIG.apiKey.trim());
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:m[1],data:m[2]}}]}],generationConfig:{temperature:0.1,responseMimeType:'application/json'}})});
+    const payload=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(payload?.error?.message||('Gemini request failed ('+res.status+').'));
+    const textOut=(payload.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
+    const jsonText=textOut.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+    const parsed=JSON.parse(jsonText);
+    const detected=ethvelleCopyPoints(parsed.joints||{});
+    const required=['headTop','neck','shoulderL','shoulderR','elbowL','elbowR','wristL','wristR','hip','kneeL','kneeR','ankleL','ankleR'];
+    const merged={...autoRigState.joints};
+    required.forEach(k=>{if(detected[k])merged[k]=detected[k];});
+    // Keep Gemini's lateral shoulder positions; buildRigOverrideFromJoints converts them to
+    // torso-local attachment offsets so the shoulder pivots stay on the drawn silhouette.
+    const validOrder=merged.headTop.y<merged.neck.y&&merged.neck.y<merged.hip.y&&merged.kneeL.y>merged.hip.y&&merged.kneeR.y>merged.hip.y&&merged.ankleL.y>merged.kneeL.y&&merged.ankleR.y>merged.kneeR.y;
+    if(!validOrder)throw new Error('Gemini returned inconsistent body-joint order. Use the local rig and adjust the dots manually.');
+    Object.keys(detected).forEach(k=>{if(!required.includes(k))merged[k]=detected[k];});
+    autoRigState.joints=merged;
+    autoRigState.originalJoints=JSON.parse(JSON.stringify(merged));
+    autoRigState.attachAt={armL:Math.max(0.2,Math.min(0.98,(merged.hip.y-merged.shoulderL.y)/Math.max(.01,merged.hip.y-merged.neck.y))),armR:Math.max(0.2,Math.min(.98,(merged.hip.y-merged.shoulderR.y)/Math.max(.01,merged.hip.y-merged.neck.y)))};
+    autoRigState.face=ethvelleNormalizeFace(parsed.face,autoRigState.srcCanvas,merged);
+    autoRigState.aiProvider='Gemini';
+    autoRigState.aiConfidence=Number(parsed.confidence)||null;
+    autoRigState.handRig=!!(merged.palmL&&merged.palmR&&['L','R'].some(side=>['thumb','index','middle','ring','pinky'].some(f=>merged[f+'Base'+side]&&merged[f+'Mid'+side]&&merged[f+'Tip'+side])));
+    autoRigState.warnings=Array.isArray(parsed.warnings)?parsed.warnings.filter(x=>typeof x==='string').slice(0,5):[];
+    renderAutoRigWarnings();renderAutoRigOverlay();
+    if(status)status.textContent='Gemini analysis complete. Check the points before creating the rig; missing fingertips may still need manual correction.';
+    if(!silent)showToast('Gemini detected the body and face landmarks',{icon:toastIcons.check,duration:1800});
+  }catch(err){
+    console.warn('Ethvelle Gemini rig analysis failed:',err);
+    if(status)status.textContent='Gemini analysis failed: '+(err.message||'unknown error')+' Local detection is still available.';
+    if(!silent)showToast('Gemini analysis failed — local rig is unchanged.',{icon:toastIcons.info,duration:2600});
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Analyze with Gemini · hands + face';}
+  }
+}
+
+// Gemini finger points are also draggable in the upload preview; small gold dots distinguish them.
+(function installDetailedRigOverlay(){
+  if(typeof renderAutoRigOverlay!=='function')return;
+  const original=renderAutoRigOverlay;
+  renderAutoRigOverlay=function(){
+    original();
+    if(!autoRigState||!autoRigState.joints)return;
+    const layer=document.getElementById('autoRigJointLayer');
+    if(!layer)return;
+    const existingKeys=new Set(AUTORIG_JOINT_KEYS);
+    const extra=Object.keys(autoRigState.joints).filter(k=>!existingKeys.has(k)&&/^(palm[LR]|(thumb|index|middle|ring|pinky)(Base|Mid|Tip)[LR])$/.test(k));
+    const pairs=[];
+    ['L','R'].forEach(side=>{
+      if(autoRigState.joints['wrist'+side]&&autoRigState.joints['palm'+side])pairs.push(['wrist'+side,'palm'+side]);
+      ['thumb','index','middle','ring','pinky'].forEach(f=>{
+        const a=f+'Base'+side,b=f+'Mid'+side,c=f+'Tip'+side;
+        if(autoRigState.joints[a]&&autoRigState.joints[b])pairs.push([a,b]);
+        if(autoRigState.joints[b]&&autoRigState.joints[c])pairs.push([b,c]);
+      });
+    });
+    if(!layer.__evv109FingerBoneNodes)layer.__evv109FingerBoneNodes=[];
+    if(!layer.__evv109FingerDotNodes)layer.__evv109FingerDotNodes=new Map();
+    const boneNodes=layer.__evv109FingerBoneNodes;
+    const dotNodes=layer.__evv109FingerDotNodes;
+    // Paint existing finger bones in place; no remove/insert churn during a drag.
+    pairs.forEach(([a,b],index)=>{
+      const pa=autoRigState.joints[a],pb=autoRigState.joints[b];if(!pa||!pb)return;
+      const p0=autoRigImgFracToPx(pa.x,pa.y),p1=autoRigImgFracToPx(pb.x,pb.y),dx=p1.x-p0.x,dy=p1.y-p0.y;
+      let el=boneNodes[index];
+      if(!el){el=document.createElement('div');el.className='autorig-bone-line-el';el.dataset.extraBone='1';el.style.background='#F5B942';el.style.height='2px';layer.appendChild(el);boneNodes[index]=el;}
+      el.style.display='block';el.style.left=p0.x+'px';el.style.top=p0.y+'px';el.style.width=Math.hypot(dx,dy)+'px';
+      el.style.transform='translateY(-50%) rotate('+Math.atan2(dy,dx)+'rad)';
+    });
+    for(let i=pairs.length;i<boneNodes.length;i++)boneNodes[i].style.display='none';
+    const active=new Set(extra);
+    extra.forEach(key=>{
+      const pt=autoRigState.joints[key],p=autoRigImgFracToPx(pt.x,pt.y);
+      let dot=dotNodes.get(key);
+      if(!dot||!dot.isConnected){dot=document.createElement('div');dot.className='autorig-joint-dot finger-joint';dot.dataset.joint=key;setupAutoRigJointDrag(dot,key);layer.appendChild(dot);dotNodes.set(key,dot);}
+      dot.style.display='block';dot.style.left=p.x+'px';dot.style.top=p.y+'px';
+    });
+    dotNodes.forEach((dot,key)=>{if(!active.has(key))dot.style.display='none';});
+  };
+})();
+
+// Save face/finger metadata alongside the original image. This wrapper keeps existing save/load behavior intact.
+(function preserveAIDataOnFinalize(){
+  if(typeof finalizeAutoRiggedCharacter!=='function')return;
+  const original=finalizeAutoRiggedCharacter;
+  finalizeAutoRiggedCharacter=function(){
+    if(autoRigState&&autoRigState.srcCanvas&&autoRigState.joints){
+      autoRigState.face=ethvelleNormalizeFace(autoRigState.face,autoRigState.srcCanvas,autoRigState.joints);
+      autoRigState.handRig=!!(autoRigState.joints.palmL&&autoRigState.joints.palmR&&['L','R'].some(side=>['thumb','index','middle','ring','pinky'].some(f=>autoRigState.joints[f+'Base'+side]&&autoRigState.joints[f+'Mid'+side]&&autoRigState.joints[f+'Tip'+side])));
+    }
+    original();
+  };
+})();
+
+function ethvelleFaceTime(){
+  if(Number.isFinite(faceAnimationTimeOverride))return faceAnimationTimeOverride;
+  return Number.isFinite(window.currentAbsoluteTimeSec)?window.currentAbsoluteTimeSec:(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0);
+}
+function ethvelleMapFacePoint(char,point,bStart,bEnd){
+  const mesh=char.skinMesh,face=char.autoRig?.face;
+  if(!mesh||!mesh.restBones?.head||!point)return null;
+  const rest=mesh.restBones.head,s=bStart('head'),e=bEnd('head');
+  const angle=Math.atan2(e.y-s.y,e.x-s.x),len=Math.max(1e-5,Math.hypot(e.x-s.x,e.y-s.y));
+  const x=point.x*mesh.srcW,y=point.y*mesh.srcH,dx=x-rest.ax,dy=y-rest.ay;
+  const ca=Math.cos(-rest.angle),sa=Math.sin(-rest.angle),lx=dx*ca-dy*sa,ly=dx*sa+dy*ca;
+  const scale=Math.max(.92,Math.min(1.08,len/rest.len)),rot=Math.cos(angle),sin=Math.sin(angle),delta=angle-rest.angle;
+  return {x:s.x+(lx*scale*Math.cos(angle)-ly*scale*Math.sin(angle)),y:s.y+(lx*scale*Math.sin(angle)+ly*scale*Math.cos(angle)),angle:delta,scale};
+}
+function drawEthvelleFaceMotion(targetCtx,char,bStart,bEnd){
+  const face=char.autoRig?.face,mesh=char.skinMesh;
+  if(!face||!mesh||!mesh.restBones?.head)return;
+  const t=ethvelleFaceTime();
+  const hash=String(char.id||'c').split('').reduce((a,c)=>a+c.charCodeAt(0),0)%37/37;
+  const phase=((t+hash*1.7+0.8)%3.7+3.7)%3.7;
+  const blink=phase<0.105 || (phase>3.48&&phase<3.58);
+  const clipKey=(char.id===activeCharacter()?.id&&activeClip)?activeClip.animKey:(char.clip?.animKey||null);
+  const talking=(clipKey==='talk'||clipKey==='talkBlink') || char.faceMotion?.talking===true;
+  const skin= /^#[0-9a-f]{6}$/i.test(face.skinColor||'')?face.skinColor:'#dba982';
+  function drawFeature(name,mode){
+    const f=face[name];if(!f)return;
+    if(mode==='eye'&&!blink)return;
+    if(mode==='mouth'&&!talking)return;
+    const center=ethvelleMapFacePoint(char,f,bStart,bEnd);if(!center)return;
+    const w=Math.max(1,Number(f.w||.02)*mesh.srcW*center.scale),h=Math.max(1,Number(f.h||.01)*mesh.srcH*center.scale);
+    targetCtx.save();targetCtx.translate(center.x,center.y);targetCtx.rotate(center.angle);
+    targetCtx.fillStyle=skin;targetCtx.beginPath();targetCtx.ellipse(0,0,w*.72,h*.9,0,0,Math.PI*2);targetCtx.fill();
+    targetCtx.lineCap='round';targetCtx.lineJoin='round';
+    if(mode==='eye'){
+      if(blink){targetCtx.strokeStyle='#392922';targetCtx.lineWidth=Math.max(1,w*.10);targetCtx.beginPath();targetCtx.moveTo(-w*.48,h*.05);targetCtx.quadraticCurveTo(0,h*.34,w*.48,h*.05);targetCtx.stroke();}
+    }else if(mode==='mouth'&&(talking)){
+      const open=.10+.5*(.5+.5*Math.sin(t*16.5+hash*3));
+      targetCtx.fillStyle='#3e1720';targetCtx.strokeStyle='#3e1720';targetCtx.lineWidth=Math.max(1,w*.055);
+      targetCtx.beginPath();targetCtx.ellipse(0,0,w*.47,Math.max(h*.12,h*open),0,0,Math.PI*2);targetCtx.fill();targetCtx.stroke();
+      if(open>.34){targetCtx.fillStyle='#e9788a';targetCtx.beginPath();targetCtx.ellipse(0,h*open*.43,w*.22,h*.10,0,0,Math.PI*2);targetCtx.fill();}
+    }
+    targetCtx.restore();
+  }
+  drawFeature('leftEye','eye');drawFeature('rightEye','eye');drawFeature('mouth','mouth');
+}
+
+// Add the facial pass after skin drawing for both the live canvas and export context.
+(function attachFacePass(){
+  if(typeof drawCustomCharacterOnContext!=='function')return;
+  const original=drawCustomCharacterOnContext;
+  drawCustomCharacterOnContext=function(targetCtx,char,boneStartFn,boneEndFn){
+    original(targetCtx,char,boneStartFn,boneEndFn);
+    try{drawEthvelleFaceMotion(targetCtx,char,boneStartFn||getBoneStart,boneEndFn||getBoneEnd);}catch(e){console.debug('Ethvelle face pass skipped',e);}
+  };
+})();
+
+// Additional animation clips: talk drives the mouth overlay; gesture poses bend detected finger bones.
+Object.assign(animPresets,{
+  talk:{name:'Talk + blink',duration:2.4,keyframes:[
+    {t:0,pose:{head:0,spine:0,armL:0,armR:0,gestureFist:0,gesturePoint:0,gesturePeace:0,gestureThumbsUp:0}},
+    {t:.25,pose:{head:-4*D,spine:1.5*D,armL:-3*D,armR:3*D,gestureFist:0}},
+    {t:.5,pose:{head:2*D,spine:-1.5*D,armL:2*D,armR:-2*D,gestureFist:0}},
+    {t:.75,pose:{head:-2*D,spine:1*D,armL:-2*D,armR:2*D,gestureFist:0}},
+    {t:1,pose:{head:0,spine:0,armL:0,armR:0,gestureFist:0}}
+  ]},
+  fist:{name:'Fist pose',duration:1,keyframes:[{t:0,pose:{gestureFist:1}},{t:1,pose:{gestureFist:1}}]},
+  point:{name:'Point pose',duration:1,keyframes:[{t:0,pose:{gesturePoint:1}},{t:1,pose:{gesturePoint:1}}]},
+  peace:{name:'Peace sign',duration:1,keyframes:[{t:0,pose:{gesturePeace:1}},{t:1,pose:{gesturePeace:1}}]},
+  thumbsUp:{name:'Thumbs up',duration:1,keyframes:[{t:0,pose:{gestureThumbsUp:1}},{t:1,pose:{gestureThumbsUp:1}}]}
+});
+
+// Drive facial motion from the same absolute timeline time used by the editor and the exported frames.
+(function trackExportFaceTime(){
+  // Patch the export loop's absolute timestamp without changing any media-export behavior.
+  const scripts=[...document.scripts];
+  const last=scripts[scripts.length-1];
+  // drawEthvelleFaceMotion reads faceAnimationTimeOverride; global rendering sets currentAbsoluteTimeSec.
+  // The export loop below uses a local clipAbsoluteT, which is assigned in the hook if the optional callback exists.
+  window.ethvelleSetFaceTime=t=>{faceAnimationTimeOverride=Number.isFinite(t)?t:null;};
+})();
+</script>
+
+
+
+<script id="ethvelle-model-lab-integration">
+const SHEET_KEYS_12 = ['head','torso','armL_upper','armL_lower','handL','armR_upper','armR_lower','handR','legL_upper','legL_lower','legR_upper','legR_lower'];
+const SHEET_KEYS_17 = [...SHEET_KEYS_12, 'head_blink','mouth_closed','mouth_open','handL_fist','handR_fist'];
+const SHEET_KEYS_27 = [...SHEET_KEYS_12, 'head_blink','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_fist','handR_fist','handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm'];
+// Fourteen structural pieces shared by new humanoid, animal and bird sheets. The parser uses anatomy-position detection for these pieces; they are not required to sit in a grid.
+const SHEET_KEYS_14 = ['head','torso','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR',
+  'legL_upper','legR_upper','legL_lower','legR_lower','shoeL','shoeR'];
+// Mythic humanoids use the familiar head/torso/arms, with no human legs: the lower body is a smooth 3-link tail.
+const MYTHIC_MODEL_TYPES = ['mermaid','lamia','ghost'];
+const isMythicModelType = type => MYTHIC_MODEL_TYPES.includes(String(type||''));
+const WINGED_HUMANOID_MODEL_TYPES = ['fairy','devil'];
+const isWingedHumanoidType = type => WINGED_HUMANOID_MODEL_TYPES.includes(String(type||''));
+const SHEET_KEYS_WINGED_HUMANOID_16 = [...SHEET_KEYS_14,'wingL','wingR'];
+const SHEET_KEYS_MYTHIC_BASE = ['head','torso','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR','tail','tail_mid','tail_tip'];
+// New animal and bird base sheets add one independently articulated tail silhouette.
+// Existing 14-piece species sheets remain valid for backward compatibility.
+const SHEET_KEYS_SPECIES_15 = ['head','torso','tail',...SHEET_KEYS_14.slice(2)];
+// v344: new BEAST MAN base sheets are the 14 anatomy-position pieces + ONE independent tail = 15 pieces (same key order as species 15).
+const SHEET_KEYS_BEAST_15 = ['head','torso','tail',...SHEET_KEYS_14.slice(2)];
+// Current bird base sheet: 12 body parts (head, wing-less body, 6 wing pieces, 4 leg pieces where each lower leg
+// already includes its foot) + 1 independent tail = 13 pieces. No separate shoe/foot keys are used.
+const SHEET_KEYS_BIRD_13 = ['head','torso','tail','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR','legL_upper','legR_upper','legL_lower','legR_lower'];
+// v319 compact bird base order: blank head, body, near default wing, tail, far default wing, near leg/foot, far leg/foot.
+const SHEET_KEYS_BIRD_7 = ['head','torso','armL_upper','tail','armR_upper','legL_upper','legR_upper'];
+// v321 bird face/flight kit: open eye, closed-eye lid, two beak states, one brow and two complete flight-wing swaps.
+// The previous six-part version remains supported for existing projects.
+const SHEET_KEYS_BIRD_VARIANTS_6 = ['bird_eye','beak_closed','beak_open','bird_brow','wingL_fly','wingR_fly'];
+const SHEET_KEYS_BIRD_VARIANTS_7 = ['bird_eye','bird_eye_closed','beak_closed','beak_open','bird_brow','wingL_fly','wingR_fly'];
+// v319 humanoid face/hand kit: five face assets plus four paired hand gesture types.
+const SHEET_KEYS_HUMANOID_VARIANTS_17 = ['eye_L','eye_R','brow_L','brow_R','head_sad','head_angry','head_shock','head_laugh','mouth_inner',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+// v328: the humanoid face kit gained two closed-eye parts (eye_closed_L/R) for real blink animation.
+// CORE = the original 17-part kit (still accepted); KEYS also lists the closed eyes so every "nested face part" check includes them.
+const SHEET_KEYS_HUMANOID_VARIANTS_19 = ['eye_L','eye_R','brow_L','brow_R','head_sad','head_angry','head_shock','head_laugh','mouth_inner','eye_closed_L','eye_closed_R',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+const SHEET_HUMANOID_FACE_KIT_CORE = ['mouth_inner','eye_L','eye_R','brow_L','brow_R'];
+const SHEET_HUMANOID_FACE_KIT_KEYS = ['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_BIRD_FACE_KIT_KEYS = ['bird_eye','beak_closed','beak_open','bird_brow'];
+// The new second-sheet workflow contains exactly 13 optional pieces. The fist pair remains
+// supported when importing the older full 27-part sheet, but is not required in this compact sheet.
+const SHEET_KEYS_VARIANTS_13 = ['head_blink','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm'];
+// Current supplemental sheet: 16 pieces, adding an explicit open-eye head and paired holding hands.
+// The 13-part list remains accepted for older saved sheets/projects.
+const SHEET_KEYS_VARIANTS_16 = ['head_blink','head_open','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+// Animal/bird second sheet: eye states, independent mouth/beak overlays, four full-head expressions, and a muzzle/beak grip pose.
+const SHEET_KEYS_SPECIES_VARIANTS = ['head_blink','head_open','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh','mouth_hold'];
+// Animal face kit v318: four eye-free expression heads, one inner-mouth layer, two open eyes, two independent closed-eye lids and two independent eyebrows.
+const SHEET_KEYS_ANIMAL_VARIANTS = ['head_sad','head_angry','head_shock','head_laugh','mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_FACE_KIT_KEYS = ['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_KEYS = [...new Set([...SHEET_KEYS_27, ...SHEET_KEYS_ANIMAL_VARIANTS, ...SHEET_KEYS_HUMANOID_VARIANTS_17, ...SHEET_KEYS_HUMANOID_VARIANTS_19, ...SHEET_KEYS_BIRD_7, ...SHEET_KEYS_BIRD_VARIANTS_6, ...SHEET_KEYS_BIRD_VARIANTS_7, ...SHEET_KEYS_14, ...SHEET_KEYS_SPECIES_15, ...SHEET_KEYS_MYTHIC_BASE, ...SHEET_KEYS_WINGED_HUMANOID_16, ...SHEET_KEYS_VARIANTS_16, ...SHEET_KEYS_SPECIES_VARIANTS])];
+const SHEET_PARENT = { head:'torso', tail:'torso', tail_mid:'tail', tail_tip:'tail_mid', wingL:'torso', wingR:'torso', armL_upper:'torso', armR_upper:'torso', legL_upper:'torso', legR_upper:'torso',
+  armL_lower:'armL_upper', armR_lower:'armR_upper', handL:'armL_lower', handR:'armR_lower', legL_lower:'legL_upper', legR_lower:'legR_upper', shoeL:'legL_lower', shoeR:'legR_lower',
+  mouth_inner:'head', eye_L:'head', eye_R:'head', eye_closed_L:'head', eye_closed_R:'head', brow_L:'head', brow_R:'head',
+  bird_eye:'head', bird_eye_closed:'head', bird_brow:'head', beak_closed:'head', beak_open:'head', wingL_fly:'torso', wingR_fly:'torso',
+  head_blink:'torso', head_open:'torso', mouth_closed:'head', mouth_open:'head', mouth_hold:'head', handL_fist:'armL_lower', handR_fist:'armR_lower',
+  head_sad:'torso', head_angry:'torso', head_shock:'torso', head_laugh:'torso',
+  handL_point:'armL_lower', handL_thumb:'armL_lower', handL_palm:'armL_lower', handL_hold:'armL_lower',
+  handR_point:'armR_lower', handR_thumb:'armR_lower', handR_palm:'armR_lower', handR_hold:'armR_lower' };
+const SHEET_LABEL = { head:'Head', torso:'Body', tail:'Tail base', tail_mid:'Tail middle segment', tail_tip:'Tail tip / fin', armL_upper:'Left upper arm', armL_lower:'Left forearm', handL:'Left hand', armR_upper:'Right upper arm', armR_lower:'Right forearm', handR:'Right hand',
+  legL_upper:'Left thigh', legL_lower:'Left shin', shoeL:'Left shoe', legR_upper:'Right thigh', legR_lower:'Right shin', shoeR:'Right shoe', wingL:'Left back wing', wingR:'Right back wing',
+  mouth_inner:'Inner mouth', eye_L:'Open eye (left)', eye_R:'Open eye (right)', eye_closed_L:'Closed eye (left)', eye_closed_R:'Closed eye (right)', brow_L:'Eyebrow (left)', brow_R:'Eyebrow (right)',
+  bird_eye:'Bird eye (open)', bird_eye_closed:'Bird eye (closed)', bird_brow:'Bird eyebrow', beak_closed:'Closed beak', beak_open:'Open beak', wingL_fly:'Left flying wing', wingR_fly:'Right flying wing',
+  head_blink:'Eyes closed', head_open:'Eyes open', mouth_closed:'Mouth (closed)', mouth_open:'Mouth (open)', mouth_hold:'Mouth (holding grip)', handL_fist:'Left fist', handR_fist:'Right fist',
+  head_sad:'Head (sad)', head_angry:'Head (angry)', head_shock:'Head (shocked)', head_laugh:'Head (laughing)',
+  handL_point:'Left hand (point)', handR_point:'Right hand (point)', handL_thumb:'Left thumbs up', handR_thumb:'Right thumbs up',
+  handL_palm:'Left open palm', handR_palm:'Right open palm', handL_hold:'Left holding hand', handR_hold:'Right holding hand' };
+// handL/handR are a REAL wrist bone (['handL','handL']): the generic 21-bone rig already carries this bone
+// separately from forearmL/forearmR (see applyPoseToBones / the animPresets pose deltas), so giving it its
+// own piece here simply makes that existing bone visible and independently posable, instead of the old
+// trick of blending the forearm's and hand's angles into one rigid forearm+hand image.
+const SHEET_BONES = { head:['head','head'], torso:['pelvis','neck'], tail:['tail','tail'], tail_mid:['tail_mid','tail_mid'], tail_tip:['tail_tip','tail_tip'], wingL:['wingL','wingL'], wingR:['wingR','wingR'], armL_upper:['upperArmL','upperArmL'], armL_lower:['forearmL','forearmL'], handL:['handL','handL'],
+  armR_upper:['upperArmR','upperArmR'], armR_lower:['forearmR','forearmR'], handR:['handR','handR'], legL_upper:['thighL','thighL'], legL_lower:['shinL','footL'], shoeL:['footL','footL'],
+  legR_upper:['thighR','thighR'], legR_lower:['shinR','footR'], shoeR:['footR','footR'],
+  mouth_inner:['head','head'], eye_L:['head','head'], eye_R:['head','head'], eye_closed_L:['head','head'], eye_closed_R:['head','head'], brow_L:['head','head'], brow_R:['head','head'],
+  bird_eye:['head','head'], bird_eye_closed:['head','head'], bird_brow:['head','head'], beak_closed:['head','head'], beak_open:['head','head'], wingL_fly:['upperArmL','upperArmL'], wingR_fly:['upperArmR','upperArmR'],
+  head_blink:['head','head'], head_open:['head','head'], mouth_closed:['head','head'], mouth_open:['head','head'], mouth_hold:['head','head'], handL_fist:['handL','handL'], handR_fist:['handR','handR'],
+  head_sad:['head','head'], head_angry:['head','head'], head_shock:['head','head'], head_laugh:['head','head'],
+  handL_point:['handL','handL'], handL_thumb:['handL','handL'], handL_palm:['handL','handL'], handL_hold:['handL','handL'],
+  handR_point:['handR','handR'], handR_thumb:['handR','handR'], handR_palm:['handR','handR'], handR_hold:['handR','handR'] };
+// Z-order (back to front). Within each limb the most DISTAL piece is drawn first and the more PROXIMAL
+// piece after, so its joint end visually overlaps and hides the seam -- hand first, then forearm (whose
+// elbow end overlaps the hand's wrist), then upper arm last (whose cuff overlaps the forearm's elbow).
+const SHEET_DEFAULT_ORDER = ['tail','shoeR','shoeL','legR_lower','legL_lower','legR_upper','legL_upper',
+  'handL','handL_fist','handL_point','handL_thumb','handL_palm','handL_hold','armL_lower','armL_upper',
+  'torso','mouth_inner','head','head_blink','head_open','head_sad','head_angry','head_shock','head_laugh','mouth_closed','mouth_open','mouth_hold',
+  'handR','handR_fist','handR_point','handR_thumb','handR_palm','handR_hold','armR_lower','armR_upper'];
+// SIDE VIEW (pure profile, facing right): the R-side limbs are the FAR limbs and are drawn BEHIND the body,
+// the L-side limbs are the NEAR limbs and are drawn IN FRONT of it. Their silhouettes are the same, so they
+// are never mirrored; see edDefaultLayout (which switches the mirror heuristic off) and edStanceOf. Within
+// each limb this view's existing convention runs the other way from the front view (upper arm first, then
+// forearm, then hand last), so the new hand piece is simply appended after its forearm, continuing that trend.
+const SHEET_DEFAULT_ORDER_BIRD_7 = ['legR_upper','armR_upper','wingR_fly','torso','tail','head','beak_closed','beak_open','bird_eye_closed','bird_eye','bird_brow','legL_upper','armL_upper','wingL_fly'];
+const SHEET_DEFAULT_ORDER_HUMANOID_FACEKIT = [...SHEET_DEFAULT_ORDER,'eye_closed_L','eye_closed_R','eye_L','eye_R','brow_L','brow_R'];
+const SHEET_DEFAULT_ORDER_WINGED = ['wingL','wingR',...SHEET_DEFAULT_ORDER];
+// Mythic depth order: tail fin -> middle -> waist root, then the normal far/body/near layering.
+const SHEET_DEFAULT_ORDER_MYTHIC = ['tail_tip','tail_mid','tail','handL','handL_fist','handL_point','handL_thumb','handL_palm','handL_hold','armL_lower','armL_upper','torso','mouth_inner','head','head_blink','head_open','head_sad','head_angry','head_shock','head_laugh','mouth_closed','mouth_open','mouth_hold','eye_closed_L','eye_closed_R','eye_L','eye_R','brow_L','brow_R','handR','handR_fist','handR_point','handR_thumb','handR_palm','handR_hold','armR_lower','armR_upper'];
+const SHEET_DEFAULT_ORDER_SIDE = ['tail','legR_upper','legR_lower','shoeR','armR_upper','armR_lower','handR','handR_fist','handR_point','handR_thumb','handR_palm','handR_hold','torso','mouth_inner','head','head_blink','head_open','head_sad','head_angry','head_shock','head_laugh','eye_closed_L','eye_closed_R','eye_L','eye_R','brow_L','brow_R','mouth_closed','mouth_open','mouth_hold',
+  'legL_upper','legL_lower','shoeL','armL_upper','armL_lower','handL','handL_fist','handL_point','handL_thumb','handL_palm','handL_hold'];
+// Normalize depth order for humanoids: BOTH arm/hand chains must sit in front of the torso AND the legs
+// (pants). Earlier builds forced one arm behind the body, which hid that hand under the hoodie/pants
+// while the other arm stayed on top. Arm pieces that are already in front are left exactly where they
+// are, so a deliberate front-side layering from the editor is preserved.
+// Bird tail artwork is always layered over body art.
+function sheetDepthOrderForView(order, modelType, view){
+  let out=Array.isArray(order)?order.slice():[];
+  // v352: Mermaid and Naga / Lamia both need the head artwork behind the torso.
+  // The body overlaps the lower jaw/neck join so the head does not look pasted onto
+  // the front of the base body. Keep every full-expression-head swap in the same slot;
+  // independently nested eyes and brows are still painted in the face pass.
+  if(modelType==='lamia'||modelType==='mermaid'){
+    const backHeadKeys=['head','head_blink','head_open','head_sad','head_angry','head_shock','head_laugh'];
+    const headParts=out.filter(k=>backHeadKeys.includes(k));
+    out=out.filter(k=>!backHeadKeys.includes(k));
+    const torsoAt=out.indexOf('torso');
+    out.splice(torsoAt<0?0:torsoAt,0,...headParts);
+  }
+  if(modelType==='bird'){
+    const ti=out.indexOf('tail'),bi=out.indexOf('torso');
+    if(ti>=0&&bi>=0&&ti<bi){out.splice(ti,1);out.splice(out.indexOf('torso')+1,0,'tail');}
+    // v325: the closed-eye lid must sit UNDER the open eye, never on top of it.
+    const bci=out.indexOf('bird_eye_closed'),boi=out.indexOf('bird_eye');
+    if(bci>=0&&boi>=0&&bci>boi){out.splice(bci,1);out.splice(out.indexOf('bird_eye'),0,'bird_eye_closed');}
+  }
+  if(modelType==='humanoid'||isWingedHumanoidType(modelType)){
+    const chainL=['handL','handL_fist','handL_point','handL_thumb','handL_palm','handL_hold','armL_lower','armL_upper'];
+    const chainR=['handR','handR_fist','handR_point','handR_thumb','handR_palm','handR_hold','armR_lower','armR_upper'];
+    const armKeys=[...chainL,...chainR];
+    const bodyKeys=['torso','legL_upper','legL_lower','shoeL','legR_upper','legR_lower','shoeR'];
+    // v324 FRONT VIEW: the viewer-left arm (L keys) is the character's RIGHT arm and stays IN FRONT of the
+    // body, pants and shoes. The viewer-right arm (R keys) is the character's LEFT arm and is tucked UNDER
+    // the body and pants (drawn first). Distal-first order inside each limb is preserved.
+    if(!view || view==='front'){
+      const under=out.filter(k=>chainR.includes(k));
+      out=out.filter(k=>!chainR.includes(k));
+      out.unshift(...under);
+      let lastBodyF=-1;
+      out.forEach((k,i)=>{ if(bodyKeys.includes(k)) lastBodyF=i; });
+      if(lastBodyF>=0){
+        const behindL=out.filter((k,i)=>chainL.includes(k)&&i<lastBodyF);
+        if(behindL.length){
+          out=out.filter((k,i)=>!(chainL.includes(k)&&i<lastBodyF));
+          out.push(...behindL);
+        }
+      }
+      return out;
+    }
+    let lastBody=-1;
+    out.forEach((k,i)=>{ if(bodyKeys.includes(k)) lastBody=i; });
+    if(lastBody>=0){
+      const behind=out.filter((k,i)=>armKeys.includes(k)&&i<lastBody);
+      if(behind.length){
+        out=out.filter((k,i)=>!(armKeys.includes(k)&&i<lastBody));
+        // keep distal-first order inside each limb, and keep the arms after body/legs/head
+        out.push(...behind);
+      }
+    }
+  }
+  return out;
+}
+const SHEET_LABEL_SIDE = { armL_upper:'Near arm', armL_lower:'Near forearm', handL:'Near hand', armR_upper:'Far arm', armR_lower:'Far forearm', handR:'Far hand',
+  legL_upper:'Near thigh', legL_lower:'Near shin', shoeL:'Near shoe', legR_upper:'Far thigh', legR_lower:'Far shin', shoeR:'Far shoe', handL_fist:'Near fist', handR_fist:'Far fist',
+  handL_point:'Near point', handR_point:'Far point', handL_thumb:'Near thumbs up', handR_thumb:'Far thumbs up',
+  handL_palm:'Near open palm', handR_palm:'Far open palm' };
+function sheetLabel(k){
+  const type = ED.modelType || 'humanoid';
+  if(isMythicModelType(type)){
+    const labels={tail:'Tail base / waist joint',tail_mid:'Tail middle segment',tail_tip:type==='mermaid'?'Tail fin / fluke':type==='ghost'?'Ectoplasm tip':'Tail tip'};
+    return labels[k] || SHEET_LABEL[k] || k;
+  }
+  if(isWingedHumanoidType(type) && (k==='wingL'||k==='wingR')) return k==='wingL'?'Left back wing':'Right back wing';
+  if(type === 'animal'){
+    const labels={head:'Head / muzzle',torso:'Body',tail:'Tail',armL_upper:'Near front leg (upper)',armL_lower:'Near front leg (lower)',handL:'Near front paw',armR_upper:'Far front leg (upper)',armR_lower:'Far front leg (lower)',handR:'Far front paw',legL_upper:'Near hind leg (upper)',legL_lower:'Near hind leg (lower)',shoeL:'Near hind paw',legR_upper:'Far hind leg (upper)',legR_lower:'Far hind leg (lower)',shoeR:'Far hind paw',head_blink:'Head (blink)',mouth_closed:'Muzzle (closed)',mouth_open:'Muzzle (open)',head_sad:'Head (sad)',head_angry:'Head (angry)',head_shock:'Head (startled)',head_laugh:'Head (happy)',mouth_inner:'Inner mouth (behind head)',eye_L:'Open eye (left)',eye_R:'Open eye (right)',eye_closed_L:'Closed eye (left)',eye_closed_R:'Closed eye (right)',brow_L:'Eyebrow (left)',brow_R:'Eyebrow (right)',mouth_hold:'Muzzle (holding grip)',handL_fist:'Near paw (curled)',handR_fist:'Far paw (curled)',handL_point:'Near paw (raised)',handR_point:'Far paw (raised)',handL_thumb:'Near paw (extended)',handR_thumb:'Far paw (extended)',handL_palm:'Near open paw',handR_palm:'Far open paw'};
+    return labels[k] || SHEET_LABEL[k] || k;
+  }
+  if(type === 'bird'){
+    const labels={head:'Head (blank face)',torso:'Body (no wings)',tail:'Tail feathers',armL_upper:'Near default wing',armR_upper:'Far default wing',legL_upper:'Near complete leg and foot',legR_upper:'Far complete leg and foot',bird_eye:'Bird eye (open)',bird_eye_closed:'Bird eye (closed)',bird_brow:'Bird eyebrow',beak_closed:'Closed beak',beak_open:'Open beak',wingL_fly:'Near flying wing',wingR_fly:'Far flying wing',armL_lower:'Near wing (legacy lower)',handL:'Near wingtip (legacy)',armR_lower:'Far wing (legacy lower)',handR:'Far wingtip (legacy)',legL_lower:'Near lower leg (legacy)',legR_lower:'Far lower leg (legacy)',head_blink:'Head (legacy blink)',mouth_closed:'Beak (legacy closed)',mouth_open:'Beak (legacy open)',head_sad:'Head (legacy sad)',head_angry:'Head (legacy alert)',head_shock:'Head (legacy surprised)',head_laugh:'Head (legacy happy)',mouth_hold:'Beak (legacy grip)'};
+    return labels[k] || SHEET_LABEL[k] || k;
+  }
+  if(ED.view === 'side' && SHEET_LABEL_SIDE[k]) return SHEET_LABEL_SIDE[k];
+  // v324: in the FRONT view the character faces the viewer, so the piece on the viewer's LEFT is the
+  // character's own RIGHT arm/hand (and vice versa). Arm and hand names are shown by the character's side.
+  if(ED.view !== 'side' && ED.view !== 'back'){
+    const m = /^(arm|hand)([LR])(_.*)?$/.exec(k);
+    if(m){ const swapped = m[1] + (m[2]==='L'?'R':'L') + (m[3]||''); if(SHEET_LABEL[swapped]) return SHEET_LABEL[swapped]; }
+  }
+  return SHEET_LABEL[k];
+}
+const SHEET_FILL = 0.68;      // fraction of the stage height a new model fills (leaves headroom for jumps)
+// Alternate textures ("expression swaps"). SHEET_ALTS[base] lists every texture that can stand in for `base`: the blink and
+// the expression heads replace the head, the open mouth replaces the closed one, and the fist / pointing / thumbs-up /
+// open-palm textures replace the plain hand (NOT the forearm -- the forearm is untouched by a gesture swap now that it
+// is its own piece). SHEET_ALT_OF is the reverse lookup, used to skip an alt when iterating parts normally (it never
+// gets its own independent slot in the draw order -- it stands in for its base).
+const SHEET_ALTS = {
+  head:['head_blink','head_open','head_sad','head_angry','head_shock','head_laugh'],
+  mouth_closed:['mouth_open','mouth_hold'],
+  beak_closed:['beak_open'],
+  armL_upper:['wingL_fly'], armR_upper:['wingR_fly'],
+  handL:['handL_fist','handL_point','handL_thumb','handL_palm','handL_hold'],
+  handR:['handR_fist','handR_point','handR_thumb','handR_palm','handR_hold']
+};
+const SHEET_ALT_OF = {};
+Object.keys(SHEET_ALTS).forEach(b=>SHEET_ALTS[b].forEach(a=>{ SHEET_ALT_OF[a] = b; }));
+// The expression heads are complete heads (their own mouth included), so the closed/open mouth pieces are not drawn over them.
+const SHEET_EMO_HEADS = ['head_sad','head_angry','head_shock','head_laugh'];
+// Given a base key and a character's expression state, returns which key should actually be drawn.
+// `parts` is whatever object holds the sheet's known part keys (sh.parts at runtime, ED.arts while
+// editing) -- if the alt texture isn't actually part of this particular model, always falls back to
+// the base so an expression flag left set on an old/basic model can never blank out a part.
+function sheetActiveKey(baseKey, expr, parts){
+  if(!expr || !parts) return baseKey;
+  if(baseKey === 'head'){
+    const emo = expr.emo ? 'head_'+expr.emo : null;
+    // Keep expression heads intact; blinking is composited as an eye-only overlay for moods.
+    if(expr.eyeState==='closed' && !(emo && parts[emo])) return parts.head_blink ? 'head_blink' : baseKey;
+    if(expr.eyeState==='open' && !(emo && parts[emo]) && parts.head_open) return 'head_open';
+    if((expr.blink || expr.ambientBlink) && !(emo && parts[emo])) return parts.head_blink ? 'head_blink' : baseKey;
+    return emo && parts[emo] ? emo : baseKey;
+  }
+  if(baseKey === 'beak_closed' && expr.mouth === 'open' && parts.beak_open) return 'beak_open';
+  if((baseKey === 'armL_upper' || baseKey === 'armR_upper') && expr.flying){ const fly=baseKey==='armL_upper'?'wingL_fly':'wingR_fly'; if(parts[fly]) return fly; }
+  if(baseKey === 'mouth_closed') {
+    if(expr.mouth === 'open' && parts.mouth_open) return 'mouth_open';
+    if(expr.mouth === 'hold' && parts.mouth_hold) return 'mouth_hold';
+    return baseKey;
+  }
+  const side = baseKey === 'handL' ? 'L' : baseKey === 'handR' ? 'R' : '';
+  if(side){
+    if((side === 'L' ? expr.fistL : expr.fistR) && parts['hand'+side+'_fist']) return 'hand'+side+'_fist';
+    const g = side === 'L' ? expr.gestL : expr.gestR;
+    if(g && parts['hand'+side+'_'+g]) return 'hand'+side+'_'+g;
+  }
+  return baseKey;
+}
+
+// Fresh per-character expression state (blink / mouth / fists). `ambientBlink` is the random idle blink; it is
+// kept separate from `blink` (driven by the Talk + Blink clip) so the two can never fight or leave the eyes stuck.
+function sheetExprFresh(){ return { blink:false, mouth:'closed', eyeState:'auto', fistL:false, fistR:false, flying:false, ambientBlink:false, faceKitHideMouth:false, emo:null, gestL:null, gestR:null, customExpressionId:null, customGestureLId:null, customGestureRId:null }; }
+
+// Shared prompt rules. Every sheet gets the same joint, colour and layout rules so the image AI output stays consistent.
+const sheetCanvas = ratio => "Canvas " + ratio + ". Export with a FULLY TRANSPARENT background (a real alpha channel, nothing behind the pieces -- not a solid color, not a checkerboard, not a matte). Keep edges crisp with no background-colored halo. If your tool truly cannot export transparency, use a pure solid BLACK background instead, and draw the character with NO black or near-black outlines or clothing, so the black can be removed cleanly.";
+const SHEET_P_ROUNDED = "ROUNDED, BORDERLESS JOINT ENDS (very important, for smooth animation): every piece that joins another piece must END IN A SOFT, ROUNDED CAP at that joint, like a rounded pill or capsule end. Never a flat straight cut and never a sharp corner at a joint. The shoulder end of each upper arm, the elbow end of each forearm, the wrist end of each hand, the hip end of each thigh, the knee end of each shin, the ankle end of each foot and the neck stub of the head are all smooth and fully rounded, reaching a little past the joint so the piece can rotate with no gap or hard edge showing. The torso's shoulder and hip edges are rounded too, and so are sleeve cuffs and trouser hems. At EVERY edge where one piece mates with or overlaps another, omit the black/dark outer stroke completely on that hidden attachment edge; continue the exact local fill colour to the edge. Keep dark outlines ONLY on exposed external contours, never on internal joining edges. No dark seam, border, shadow or halo at a joint.";
+const SHEET_P_COLOR = "COLOR CONSISTENCY (no darkening): every piece must use EXACTLY the same colors and the same brightness as its partner. Do NOT darken, shade, tint or dim any piece, including the pieces on the viewer's right. A left and right piece must look identical in color. Flat, even lighting only: no shading tones, no cast shadows, no ambient occlusion, no darker folds or edges.";
+const SHEET_P_COLOR_SIDE = "COLOR CONSISTENCY (no darkening): use one set of flat colors with even brightness across the whole character. The far-side pieces (the limbs and hands on the far side of the body) must be EXACTLY the same colors and brightness as their near partners. Do NOT make the far side darker, dimmer, desaturated or shaded, and do not add depth shading to make a far limb look like it is behind the body. Flat, even lighting only: no shading tones, no cast shadows, no ambient occlusion, no darker folds or edges.";
+const SHEET_P_RULES = "Rules: no text, labels, numbers, extra pieces or perspective. Same outline weight on every piece. Every piece fully visible and uncropped.";
+const SHEET_P_MIRROR = "IMPORTANT -- mirroring: piece 6 must be a true MIRROR IMAGE of piece 3 (not the same drawing repeated), piece 7 a true mirror image of piece 4, piece 8 a true mirror image of piece 5, piece 11 a true mirror image of piece 9 and piece 12 a true mirror image of piece 10. If the right arm or leg is just a copy of the left one, the finished hand or foot will look anatomically backwards on that side.";
+const SHEET_P_MIRROR_EXT = "IMPORTANT -- mirroring: piece 6 must be a true MIRROR IMAGE of piece 3, piece 7 of piece 4, piece 8 of piece 5, piece 11 of piece 9, piece 12 of piece 10, piece 21 of piece 20, piece 23 of piece 22, piece 25 of piece 24 and piece 27 of piece 26. Every right-side hand or foot must be a mirror image of its left-side partner, not a copy, or it will look anatomically backwards. The heads (1, 13, 16, 17, 18, 19) and mouths (14, 15) face front and are NOT mirrored.";
+const SHEET_P_MIRROR_BACK = "IMPORTANT -- mirroring: a back view is symmetric, so piece 6 must be a true MIRROR IMAGE of piece 3 (not the same drawing repeated), piece 7 a true mirror image of piece 4, piece 8 of piece 5, piece 11 of piece 9 and piece 12 of piece 10. If the right arm or leg is just a copy of the left one, the finished hand or foot will look anatomically backwards on that side.";
+const SHEET_P_NOMIRROR = "IMPORTANT -- NO MIRRORING IN SIDE VIEW: pieces 6, 7, 8, 11 and 12 are the far-side pieces. Each far piece has the SAME silhouette as its near partner (pieces 3, 4, 5, 9 and 10). Do NOT mirror or flip them. A mirrored hand or foot would point the wrong way.";
+const SHEET_P_NOMIRROR_EXT = "IMPORTANT -- NO MIRRORING IN SIDE VIEW: the far-side pieces are 6, 7, 8, 11, 12, 21, 23, 25 and 27. Each one has the SAME silhouette as its near partner (3, 4, 5, 9, 10, 20, 22, 24 and 26). Do NOT mirror or flip any of them. A mirrored hand or foot would point the wrong way. The heads and mouths face the viewer's right in profile and are not mirrored either.";
+const SHEET_P_NOSLEEVE = "BARE FOREARMS AND HANDS (no sleeve): every forearm piece and every hand piece -- including every fist, pointing, thumbs-up and open-palm version of the hand -- is COMPLETELY BARE skin, with NO sleeve, NO cuff and NO fabric of any kind, even if the character's upper arm and sleeve are long. Sleeve fabric belongs ONLY on the upper-arm piece, and it ends cleanly at the elbow -- nothing carries over onto the forearm or hand pieces.";
+const SHEET_P_HANDFRAME = "HAND-GESTURE FRAMING: every fist, pointing, thumbs-up and open-palm piece REPLACES ONLY the plain hand piece -- same wrist position, same size, same framing as the open hand it is based on. The forearm is a separate piece and is never redrawn for a gesture; only the hand and fingers change shape between versions.";
+const SHEET_P_MOUTH_EDGE = "MOUTH-PIECE EDGE BLENDING (important): pieces 14 and 15 are only mouth/lower-face patches that sit directly on top of the main head. Their OUTER silhouette must have NO black, dark-brown, or dark outline at all; use the exact same flat skin colour right to the outside edge as the main face so the patch disappears into the face when overlaid. Keep dark lines ONLY for the actual smile/lips/inside of the open mouth. Do not draw a rectangular border around either mouth piece, and do not add a shadow, halo, or background fringe.";
+
+const SHEET_PROMPT = [
+ "Create a 2D character PART SHEET for cut-out animation. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines, front view. If a reference image is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("16:9"),
+ "Draw exactly 12 separate pieces in 2 rows of 6, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs straight and vertical, relaxed. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head with a short rounded neck stub, upright, facing front; 2) torso from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) upper arm on the viewer's left (rounded shoulder end to rounded elbow end, sleeve included); 4) forearm on the viewer's left, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) hand on the viewer's left, a relaxed open hand with the thumb facing the body, rounded wrist end; 6) upper arm on the viewer's right.",
+ "Row 2, left to right: 7) forearm on the viewer's right, same as piece 4; 8) hand on the viewer's right, same as piece 5; 9) thigh on the viewer's left (rounded hip end to rounded knee end); 10) shin and foot on the viewer's left (rounded knee end, shoe included); 11) thigh on the viewer's right; 12) shin and foot on the viewer's right.",
+ SHEET_P_MIRROR,
+ SHEET_P_COLOR,
+ SHEET_P_RULES
+].join("\n\n");
+
+const SHEET_PROMPT_EXT = [
+ "Create a 2D character PART SHEET for cut-out animation, with FACIAL EXPRESSIONS and HAND GESTURES. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines, front view. If a reference image is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("9:16 (tall)"),
+ "Draw exactly 27 separate pieces: four rows of 6 and a final row of 3, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs straight and vertical, relaxed. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece. All six heads (pieces 1, 13, 16, 17, 18 and 19) must be the SAME size, angle, position and framing, so each one can replace the head in place.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head with a short rounded neck stub, upright, facing front, eyes OPEN, calm neutral face; 2) torso from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) upper arm on the viewer's left (rounded shoulder end to rounded elbow end, sleeve included); 4) forearm on the viewer's left, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) hand on the viewer's left, a relaxed open hand with the thumb facing the body, rounded wrist end; 6) upper arm on the viewer's right.",
+ "Row 2, left to right: 7) forearm on the viewer's right, same as piece 4; 8) hand on the viewer's right, same as piece 5; 9) thigh on the viewer's left (rounded hip end to rounded knee end); 10) shin and foot on the viewer's left (rounded knee end, shoe included); 11) thigh on the viewer's right; 12) shin and foot on the viewer's right.",
+ "Row 3, left to right: 13) the SAME head as piece 1 with the eyes CLOSED (a blink frame, everything else identical); 14) a close-up of just the mouth and lower face, lips CLOSED and neutral, on its own with nothing else from the head; 15) the same mouth close-up with the mouth OPEN as if mid-word, same size and framing as piece 14; 16) the SAME head with a SAD face: eyebrows raised and tilted up in the middle, eyes looking down, mouth turned down in a frown; 17) the SAME head with an ANGRY face: eyebrows slanted sharply down toward the nose, eyes narrowed, teeth clenched in a hard frown; 18) the SAME head with a SHOCKED face: eyes wide open with small pupils, eyebrows raised high, mouth open in a round O.",
+ "Row 4, left to right: 19) the SAME head LAUGHING: eyes squeezed shut into happy arcs, big open smiling mouth; 20) the LEFT hand closed into a FIST, same wrist position and framing as piece 5, with NO forearm attached; 21) the RIGHT hand closed into a FIST, same framing as piece 8; 22) the LEFT hand POINTING: index finger extended straight out, other fingers curled, same framing as piece 5; 23) the RIGHT hand POINTING, same framing as piece 8; 24) the LEFT hand giving a THUMBS UP (thumb straight up, other fingers closed), same framing as piece 5.",
+ "Row 5, left to right: 25) the RIGHT hand giving a THUMBS UP, same framing as piece 8; 26) the LEFT hand with an OPEN PALM (fingers straight and naturally together, not spread apart, palm facing the viewer), same framing as piece 5; 27) the RIGHT hand with an OPEN PALM, same framing as piece 8.",
+ SHEET_P_HANDFRAME,
+ SHEET_P_MOUTH_EDGE,
+ SHEET_P_MIRROR_EXT,
+ "Expression heads 16 to 19 are complete heads with their own mouth, drawn in that emotion. Keep each face readable at small size, with strong clear shapes.",
+ SHEET_P_COLOR,
+ SHEET_P_RULES
+].join("\n\n");
+
+const SHEET_PROMPT_SIDE = [
+ "Create a 2D character PART SHEET for cut-out animation. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. SIDE VIEW: the whole character is in a pure side profile, facing the viewer's right. If a reference image of the character is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("16:9"),
+ "Draw exactly 12 separate pieces in 2 rows of 6, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body side-view drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs straight down, relaxed, with no swing. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head in pure side profile facing right, with a short rounded neck stub, eye and mouth drawn in profile; 2) torso in side profile from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) NEAR upper arm (the arm closest to the viewer), rounded shoulder end to rounded elbow end, sleeve included; 4) NEAR forearm, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) NEAR hand, a relaxed open hand with the fingers pointing down, rounded wrist end; 6) FAR upper arm (the arm on the far side of the body), same profile as piece 3.",
+ "Row 2, left to right: 7) FAR forearm, same profile as piece 4; 8) FAR hand, same profile as piece 5; 9) NEAR thigh (rounded hip end to rounded knee end); 10) NEAR shin and shoe, shoe in side profile with the toe pointing to the right (the facing direction); 11) FAR thigh, same profile as piece 9; 12) FAR shin and shoe, same profile as piece 10.",
+ SHEET_P_NOMIRROR,
+ SHEET_P_COLOR_SIDE,
+ SHEET_P_RULES
+].join("\n\n");
+
+const SHEET_PROMPT_SIDE_EXT = [
+ "Create a 2D character PART SHEET for cut-out animation, with FACIAL EXPRESSIONS and HAND GESTURES. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. SIDE VIEW: the whole character is in a pure side profile, facing the viewer's right. If a reference image of the character is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("9:16 (tall)"),
+ "Draw exactly 27 separate pieces: four rows of 6 and a final row of 3, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body side-view drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs straight down, relaxed, with no swing. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two. All six heads (pieces 1, 13, 16, 17, 18 and 19) must be the SAME size, angle, position and framing.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head in pure side profile facing right, eyes OPEN, with a short rounded neck stub; 2) torso in side profile from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) NEAR upper arm (the arm closest to the viewer), rounded shoulder end to rounded elbow end, sleeve included; 4) NEAR forearm, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) NEAR hand, a relaxed open hand with the fingers pointing down, rounded wrist end; 6) FAR upper arm, same profile as piece 3.",
+ "Row 2, left to right: 7) FAR forearm, same profile as piece 4; 8) FAR hand, same profile as piece 5; 9) NEAR thigh (rounded hip end to rounded knee end); 10) NEAR shin and shoe, toe pointing right; 11) FAR thigh, same profile as piece 9; 12) FAR shin and shoe, same profile as piece 10.",
+ "Row 3, left to right, all in the same side profile facing right: 13) the SAME head as piece 1 with the eyes CLOSED (a blink frame, everything else identical); 14) a close-up of just the mouth and lower face in profile, lips CLOSED and neutral; 15) the same profile mouth close-up with the mouth OPEN as if mid-word, same size and framing as piece 14; 16) the SAME profile head with a SAD face: eyebrow raised and tilted up in the middle, eye looking down, mouth turned down in a frown; 17) the SAME profile head with an ANGRY face: eyebrow slanted sharply down, eye narrowed, teeth clenched in a hard frown; 18) the SAME profile head with a SHOCKED face: eye wide open, eyebrow high, mouth open in a round O.",
+ "Row 4, left to right: 19) the SAME profile head LAUGHING: eye squeezed into a happy arc, big open smiling mouth; 20) the NEAR hand closed into a FIST, same wrist position and framing as piece 5, with NO forearm attached; 21) the FAR hand closed into a FIST, same profile as piece 20; 22) the NEAR hand POINTING, index finger extended straight out, other fingers curled, same framing as piece 5; 23) the FAR hand POINTING, same profile as piece 22; 24) the NEAR hand giving a THUMBS UP (thumb straight up, other fingers closed), same framing as piece 5.",
+ "Row 5, left to right: 25) the FAR hand giving a THUMBS UP, same profile as piece 24; 26) the NEAR hand with an OPEN PALM facing forward, fingers straight and naturally together (not spread apart), same framing as piece 5; 27) the FAR hand with an OPEN PALM, same profile as piece 26.",
+ SHEET_P_HANDFRAME,
+ SHEET_P_MOUTH_EDGE,
+ SHEET_P_NOMIRROR_EXT,
+ "Expression heads 16 to 19 are complete profile heads with their own mouth, drawn in that emotion.",
+ SHEET_P_COLOR_SIDE,
+ SHEET_P_RULES
+].join("\n\n");
+
+// Back view: the same 12 pieces as the basic front sheet, drawn from behind. There is no face, so no blink/talk/expression pieces.
+const SHEET_PROMPT_BACK = [
+ "Create a 2D character PART SHEET for cut-out animation. Character: [DESCRIBE YOUR CHARACTER: age, hairstyle, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. BACK VIEW: the whole character is seen from directly behind, facing away from the viewer, standing straight. The face is NOT visible, so draw only the back of the head and the hair. If a reference image of the character is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("16:9"),
+ "Draw exactly 12 separate pieces in 2 rows of 6, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing seen from behind (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs perfectly straight and vertical, arms relaxed at the sides. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head seen from behind (back of the head and hair, no face), with a short rounded neck stub, upright; 2) torso seen from behind, from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) upper arm on the viewer's left (rounded shoulder end to rounded elbow end, sleeve included); 4) forearm on the viewer's left, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) hand on the viewer's left, back of the hand showing, thumb toward the body, rounded wrist end; 6) upper arm on the viewer's right.",
+ "Row 2, left to right: 7) forearm on the viewer's right, same as piece 4; 8) hand on the viewer's right, same as piece 5; 9) thigh on the viewer's left (rounded hip end to rounded knee end); 10) shin and shoe on the viewer's left, seen from behind with the heel toward the viewer; 11) thigh on the viewer's right; 12) shin and shoe on the viewer's right, seen from behind with the heel toward the viewer.",
+ SHEET_P_MIRROR_BACK,
+ SHEET_P_COLOR,
+ SHEET_P_RULES
+].join("\n\n");
+
+// Angled view: the head/face is drawn straight-on (fully legible for expression swapping, same as the
+// front view's head), but the torso and every limb are drawn turned slightly to one side -- a subtle
+// 3/4 angle rather than a flat orthographic front. This gives the body some visible depth and volume
+// while the face stays perfectly readable. It still parses as a plain front-view sheet (same 10/25
+// pieces in the same grid, same left/right pairing), so nothing in the upload/rig pipeline needs to
+// change for it -- only this prompt text and the view picker are new.
+const SHEET_PROMPT_ANGLE = [
+ "Create a 2D character PART SHEET for cut-out animation. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. ANGLED VIEW: the head/face is drawn STRAIGHT ON, fully facing the viewer, exactly like a front-view portrait. The torso and every limb, however, are drawn turned slightly to one side -- a subtle 3/4 angle (not a flat front view, not a side profile) that shows a hint of the body's depth and volume while still clearly reading as the front of the character. If a reference image is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("16:9"),
+ "Draw exactly 12 separate pieces in 2 rows of 6, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs relaxed, following the same gentle turned angle as the torso. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head with a short rounded neck stub, upright, facing the viewer STRAIGHT ON (not turned); 2) torso from the shoulders down to the hip line, turned slightly to one side at a subtle 3/4 angle, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) upper arm on the viewer's left, following the torso's turned angle (rounded shoulder end to rounded elbow end, sleeve included); 4) forearm on the viewer's left, same turned angle, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) hand on the viewer's left, a relaxed open hand with the thumb facing the body, rounded wrist end; 6) upper arm on the viewer's right.",
+ "Row 2, left to right: 7) forearm on the viewer's right, same as piece 4; 8) hand on the viewer's right, same as piece 5; 9) thigh on the viewer's left, same turned angle (rounded hip end to rounded knee end); 10) shin and foot on the viewer's left (rounded knee end, shoe included); 11) thigh on the viewer's right; 12) shin and foot on the viewer's right.",
+ SHEET_P_MIRROR,
+ SHEET_P_COLOR,
+ SHEET_P_RULES
+].join("\n\n");
+
+const SHEET_PROMPT_ANGLE_EXT = [
+ "Create a 2D character PART SHEET for cut-out animation, with FACIAL EXPRESSIONS and HAND GESTURES. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. ANGLED VIEW: the head/face is drawn STRAIGHT ON, fully facing the viewer, exactly like a front-view portrait -- this keeps every expression fully readable. The torso and every limb, however, are drawn turned slightly to one side -- a subtle 3/4 angle (not a flat front view, not a side profile) that shows a hint of the body's depth and volume while still clearly reading as the front of the character. If a reference image is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("9:16 (tall)"),
+ "Draw exactly 27 separate pieces: four rows of 6 and a final row of 3, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing (torso about 1.2x the head height, limbs in natural proportion). Crop every head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs relaxed, following the same gentle turned angle as the torso. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two. All six heads (pieces 1, 13, 16, 17, 18 and 19) must be the SAME size, straight-on angle, position and framing, so each one can replace the head in place.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head with a short rounded neck stub, upright, facing the viewer STRAIGHT ON, eyes OPEN, calm neutral face; 2) torso from the shoulders down to the hip line, turned slightly to one side at a subtle 3/4 angle, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) upper arm on the viewer's left, following the torso's turned angle (rounded shoulder end to rounded elbow end, sleeve included); 4) forearm on the viewer's left, same turned angle, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) hand on the viewer's left, a relaxed open hand with the thumb facing the body, rounded wrist end; 6) upper arm on the viewer's right.",
+ "Row 2, left to right: 7) forearm on the viewer's right, same as piece 4; 8) hand on the viewer's right, same as piece 5; 9) thigh on the viewer's left, same turned angle (rounded hip end to rounded knee end); 10) shin and foot on the viewer's left (rounded knee end, shoe included); 11) thigh on the viewer's right; 12) shin and foot on the viewer's right.",
+ "Row 3, left to right: 13) the SAME head as piece 1 with the eyes CLOSED (a blink frame, everything else identical); 14) a close-up of just the mouth and lower face, lips CLOSED and neutral; 15) the same mouth close-up with the mouth OPEN as if mid-word, same size and framing as piece 14; 16) the SAME head with a SAD face: eyebrows raised and tilted up in the middle, eyes looking down, mouth turned down in a frown; 17) the SAME head with an ANGRY face: eyebrows slanted sharply down toward the nose, eyes narrowed, teeth clenched in a hard frown; 18) the SAME head with a SHOCKED face: eyes wide open with small pupils, eyebrows raised high, mouth open in a round O.",
+ "Row 4, left to right: 19) the SAME head LAUGHING: eyes squeezed shut into happy arcs, big open smiling mouth; 20) the LEFT hand closed into a FIST, same wrist position and framing as piece 5, with NO forearm attached; 21) the RIGHT hand closed into a FIST, same framing as piece 8; 22) the LEFT hand POINTING: index finger extended straight out, other fingers curled, same framing as piece 5; 23) the RIGHT hand POINTING, same framing as piece 8; 24) the LEFT hand giving a THUMBS UP (thumb straight up, other fingers closed), same framing as piece 5.",
+ "Row 5, left to right: 25) the RIGHT hand giving a THUMBS UP, same framing as piece 8; 26) the LEFT hand with an OPEN PALM (fingers straight and naturally together, not spread apart, palm facing the viewer), same framing as piece 5; 27) the RIGHT hand with an OPEN PALM, same framing as piece 8.",
+ SHEET_P_HANDFRAME,
+ SHEET_P_MOUTH_EDGE,
+ SHEET_P_MIRROR_EXT,
+ "Expression heads 16 to 19 are complete heads with their own mouth, drawn in that emotion, straight-on like piece 1. Keep each face readable at small size, with strong clear shapes.",
+ SHEET_P_COLOR,
+ SHEET_P_RULES
+].join("\n\n");
+
+// Turned view: the head/face is drawn straight-on, fully facing the viewer (exactly like the front view's
+// head), but the torso and every limb are drawn in a PURE SIDE PROFILE -- not a subtle 3/4 turn like the
+// angled view, but the same full profile body as the side view. This is the "face front, body side" look
+// (think of a simple explainer-video mascot standing in profile with its face turned back to the camera).
+// Because the body is genuinely side anatomy (one near limb, one far limb, no mirroring), this reuses the
+// SIDE view's layout, rig and NEAR/FAR part pairing -- only this prompt text and the view picker are new.
+// See buildFromSheet(), which maps sheetView 'turned' onto the 'side' layout path the same way 'angled'
+// already maps onto 'front'.
+const SHEET_PROMPT_TURNED = [
+ "Create a 2D character PART SHEET for cut-out animation. Character: [DESCRIBE YOUR CHARACTER: age, hair, outfit, colors, art style]. Flat cartoon style, clean smooth outlines. FRONT-FACING HEAD, SIDE-VIEW BODY: the head/face is drawn STRAIGHT ON, fully facing the viewer, exactly like a front-view portrait. The torso and every limb, however, are drawn in a PURE SIDE PROFILE, facing the viewer's right -- as if the body had turned a full quarter turn while the head turned back to look at the viewer. If a reference image is attached, copy its exact design, colors, proportions and art style.",
+ sheetCanvas("16:9"),
+ "Draw exactly 12 separate pieces in 2 rows of 6, with wide empty gaps so no pieces touch or overlap. Draw ALL pieces at ONE consistent scale, as if cut out of a single full-body drawing with this front-face/side-body twist (torso about 1.2x the head height, limbs in natural proportion). Crop the head at the exact same zoom as the torso -- the head must never look zoomed in or blown up compared to the body. Every limb hangs straight down in side profile, relaxed, with no swing. The ARM IS THREE SEPARATE PIECES -- upper arm, forearm and hand -- not two: the forearm ends at the wrist and the hand is its own piece.",
+ SHEET_P_ROUNDED,
+ SHEET_P_NOSLEEVE,
+ "Row 1, left to right: 1) head with a short rounded neck stub, upright, facing the viewer STRAIGHT ON -- the only front-facing piece on the whole sheet; 2) torso in PURE SIDE PROFILE from the shoulders down to the hip line, clothing included, NO arms and NO sleeves -- the shoulder seam ends in a clean flat cut with nothing hanging off it; 3) NEAR upper arm (the arm closest to the viewer, in profile), rounded shoulder end to rounded elbow end, sleeve included; 4) NEAR forearm, bare skin, rounded elbow end to rounded wrist end -- no hand attached; 5) NEAR hand, a relaxed open hand with the fingers pointing down, rounded wrist end; 6) FAR upper arm (the arm on the far side of the body), same profile as piece 3.",
+ "Row 2, left to right: 7) FAR forearm, same profile as piece 4; 8) FAR hand, same profile as piece 5; 9) NEAR thigh (rounded hip end to rounded knee end); 10) NEAR shin and shoe, shoe in side profile with the toe pointing to the right (the facing direction); 11) FAR thigh, same profile as piece 9; 12) FAR shin and shoe, same profile as piece 10.",
+ "NECK TWIST: the head faces forward while the torso faces sideways -- this is ONE pose, not two characters pasted together. Keep the neck stub on both the head and the torso short and rounded as usual; the twist itself is implied by the pose, not drawn as a visible extra piece.",
+ SHEET_P_NOMIRROR,
+ SHEET_P_COLOR_SIDE,
+ SHEET_P_RULES
+].join("\n\n");
+
+const SHEET_PROMPT_BASE_14 = [
+  'Create a production-ready 2D CUT-OUT ANIMATION BASE MODEL SHEET for one consistent cartoon teenage boy. Use TWO references: Reference X defines ONLY the part-sheet separation, clean cut-out style, spacing and body-part logic; Reference Y defines the exact character identity, face, hair, colours, clothing and proportions. Never copy X character design if it differs from Y.',
+  'CANVAS: vertical 9:16 transparent PNG, crisp 2D cel-shaded vector illustration, clean dark outlines, consistent lighting and colour. No labels, numbers, text, arrows, grid lines, cell borders, shadows, scenery, full assembled body, watermarks or extra objects. Wide transparent gaps between parts. Every part fully visible and separate.',
+  'OUTPUT GRID LOCK: exactly 14 isolated pieces in a strict 4-column grid with four rows: row 1 has 4 pieces, row 2 has 4, row 3 has 4, row 4 has exactly 2 pieces aligned to the left. Read left-to-right then top-to-bottom. Do not sort by anatomy or move a part to a different cell. Keep the centre of each part inside its assigned row. Leave all unused cells completely transparent.',
+  'EXACT PART ORDER: ROW 1: 1) complete neutral head with short neck connector, facing the same angle as Reference Y; 2) torso-only shirt/body from shoulders to waist, no head, no neck, no arms attached; 3) left/near upper arm with sleeve from shoulder to elbow; 4) right/far upper arm with sleeve from shoulder to elbow. ROW 2: 5) left forearm only, from elbow to wrist, no hand; 6) left relaxed open hand only, no forearm; 7) right forearm only, no hand; 8) right relaxed open hand only. ROW 3: 9) left thigh/trouser piece from hip to knee; 10) right thigh/trouser piece from hip to knee; 11) left lower-leg/shin/trouser piece from knee to ankle WITHOUT shoe; 12) right lower-leg/shin/trouser piece from knee to ankle WITHOUT shoe. ROW 4: 13) left shoe only; 14) right shoe only. Shoes must be separate from both shins.',
+  'IDENTITY LOCK: every part must match Reference Y exactly: hairstyle, skin tone, eye style, outline weight, shirt design and colour, trouser colour and seams, shoes, and proportions. Do not change the shirt style. The head is the same original face; do not add expressions or a talking mouth in this base sheet. There is only one torso. Arms are three separate pieces per side (upper arm, forearm, hand); legs are three separate pieces per side (thigh, shin, shoe).',
+  'JOINT AND RIG RULES: head has a short rounded neck connector; torso shoulder and hip edges are clean; upper arms have rounded shoulder and elbow ends; forearms have rounded elbow and wrist ends; hands have a clear wrist attachment at the top; thighs have rounded hip and knee ends; shins have rounded knee and ankle ends; shoes have the ankle opening at the top. Do not make triangular sharp joint tips. Do not attach extra skin, sleeve, fingers, leg, or shoe to another part.',
+  'SCALE AND ANGLE: all parts belong to one character, with matching scale and outline thickness. Use a consistent view based on Reference Y. Keep paired left/right arms, legs and shoes anatomically coherent; do not mirror text or asymmetric details. Hands are modestly sized, not oversized. All parts stay within their assigned grid cell and never touch another piece.',
+  'NEGATIVE PROMPT: 13 parts, 15 parts, 27 parts, duplicate part, missing hand, fused hand and forearm, fused shoe and shin, extra fingers, extra limbs, second torso, second head, full-body pose, assembled character, cropped hair, cropped feet, tiny face, giant hands, inconsistent face, clothing redesign, short-sleeve substitution if Reference Y has a hoodie, wrong shoe colour, different skin tone, overlapping parts, merged blobs, touching outlines, opaque background, painted checkerboard, labels, numbers, watermark, guide lines, cell borders, cast shadows, gradients, photorealism, 3D render.',
+  'FINAL VALIDATION: count exactly 14 pieces and verify every numbered cell against the list before rendering. If any part cannot be rendered correctly, keep its cell empty rather than inventing a different or duplicate part. Export one clean transparent PNG.'
+].join('\n\n');
+
+const SHEET_PROMPT_BASE_14_ANATOMY = [
+  'Create a production-ready 2D CUT-OUT ANIMATION CHARACTER MODEL SHEET from the attached character reference. Preserve the reference character identity exactly: face, hair, skin tone, outfit, clothing colours, accessories, proportions, outlines and illustration style. If two references are attached, use the first image ONLY to understand the anatomical cut-out layout and joint separation, and use the second image as the character design source.',
+  'CANVAS AND STYLE: vertical 9:16 portrait, real transparent PNG alpha background, polished 2D cartoon cut-outs, crisp clean outlines and even lighting. No black/white backdrop, no painted checkerboard, no grid, no cells, no labels, no numbers, no arrows, no cast shadows, no glow, no scenery and no watermark.',
+  'LAYOUT LOCK — ANATOMICAL ARRANGEMENT, NOT A GRID: arrange the 14 independent parts around one upright near-assembled human silhouette, following the supplied cut-out-sheet reference. Head at top centre; torso directly below it in the centre; upper arms at shoulder height to either side; forearms below their corresponding upper arms; each hand directly below its forearm; two thighs below the torso/hip line; two shins below the thighs; two shoes at the bottom, detached from the shins. Parts should appear close to their natural attachment positions but must NOT touch, overlap, or be connected. Leave wide transparent gaps. Do not arrange pieces into regular grid cells or a 27-part expression sheet.',
+  'EXACT COUNT — ONLY 14 SEPARATE PIECES: 1) one complete neutral head with hair, face and short rounded neck connector; 2) one torso/shirt/body from shoulders to the natural waist/hem only, no head, no arms, no sleeves and no separate triangular pelvis; 3) viewer-left upper arm from shoulder to elbow, including its sleeve; 4) viewer-right upper arm matching its side; 5) viewer-left forearm from elbow to wrist, without hand; 6) viewer-left relaxed open hand only, with a clear wrist attachment; 7) viewer-right forearm from elbow to wrist, without hand; 8) viewer-right relaxed open hand only; 9) viewer-left trouser thigh from hip to knee; 10) viewer-right trouser thigh from hip to knee; 11) viewer-left lower leg/shin from knee to ankle, no shoe; 12) viewer-right lower leg/shin, no shoe; 13) viewer-left shoe only; 14) viewer-right shoe only. Do NOT draw expression heads, mouth overlays, fist variants, extra limbs or any additional part.',
+  'POSITION AND SCALE LOCK: head is the highest piece and horizontally centred. Torso is the broad central piece below the head. Upper arms sit near shoulder height and clearly left/right of the centre. Forearms are lower than upper arms; hands lower than forearms. Thighs are beneath the torso and nearer the centre line than the arms. Shins are beneath the thighs; shoes are at the bottom. Match left/right pairs in scale and style. Each silhouette is wholly inside the canvas and surrounded by transparent pixels.',
+  'RIG-READY JOINTS: round the connection ends without sharp triangular tips. Head has its neck connector only inside the head piece; torso neck/shoulder edges and waistband/hem are clean. Upper arms have shoulder and elbow ends, forearms elbow and wrist ends, and hands a clearly cut wrist top. Thighs have hip and knee ends, shins have knee and ankle ends, shoes have a clear ankle opening at the top. Keep sleeve fabric only on upper arms. Keep the original waistband/hip artwork that belongs to the torso or trouser pieces; never invent blue filler shapes or trim away real clothing details.',
+  'TRANSPARENCY AND SEPARATION CHECK: exactly 14 independent connected silhouettes. No contour, hair, skin, sleeve, trouser, shoe or shadow pixel may bridge two parts. Every piece must be fully visible and uncropped. The background must be real transparency, not a checkerboard painted into the image.',
+  'NEGATIVE PROMPT: 12 parts, 27 parts, expression rows, regular grid, full assembled character, duplicate head, duplicate torso, attached hands, fused forearms and hands, fused arms and torso, fused thighs and torso, shoes attached to shins, separate neck, extra pelvis, sharp triangular joint tips, extra limbs, cropped parts, overlapping outlines, background pixels, grid lines, labels, text, numbers, watermark, glow, shadows, scenery, photorealism, 3D render.',
+  'FINAL VALIDATION: count exactly 14 pieces in this order of meaning: head, torso, two upper arms, two forearms, two hands, two thighs, two shins, two shoes. Check all fourteen pieces before export. Export one clean transparent PNG.'
+].join('\n\n');
+
+const SHEET_PROMPT_TURNED_EXT = [
+ "Create a production-ready 2D CUT-OUT ANIMATION CHARACTER PART SHEET. Character design: use the attached character reference as the source of truth for face, hair, hat, outfit, colors, accessories, line weight and proportions. If there is no reference, use a clean cartoon young male adventurer with brown hair, a charcoal cap, gray long-sleeve shirt, tan backpack, dark brown trousers and black boots. Keep the same character identity across every piece.",
+ "CANVAS AND TRANSPARENCY: vertical 9:16 portrait canvas. Export a real transparent PNG alpha background. No white/black background, no checkerboard painted into the image, no floor, no scenery, no labels, no numbers, no guide lines, no boxes, no shadows, no glow and no watermarks. Every piece floats separately on transparency with a crisp clean edge and generous empty space around it.",
+ "THE EXACT VIEW (most important): this character has a deliberate turned pose. The torso, shoulders, arms, forearms, hands, thighs, shins and shoes are in TRUE SIDE PROFILE, facing the viewer's RIGHT. The body silhouette must look like a side-view character, not a front-facing body and not a 3/4 torso. The HEAD is turned back toward the viewer in a NATURAL THREE-QUARTER VIEW, matching the reference: show the nose and both eyes if the reference does, but make one side of the face slightly narrower; do NOT draw a perfectly flat straight-on face and do NOT draw a pure side-profile face. The neck connects naturally to the side-profile torso. This is one coherent character pose, not two views pasted together.",
+ "SHEET GRID: exactly 27 isolated pieces. Use five horizontal rows, six evenly spaced columns in rows 1-4, and only three pieces in row 5 (centred or aligned to the left, but do not add anything to fill empty cells). Read left-to-right, then top-to-bottom. Keep pieces inside their own row and column; never let hair, shoes, fingers or outlines touch another piece. All parts must be fully visible and uncropped. The pieces must be large enough to be clearly identifiable but consistently scaled as parts of the same character.",
+ "CONSISTENT SCALE AND JOINT BUILD: use identical head size and framing for pieces 1, 13, 16, 17, 18 and 19. The neutral and expression heads must share the same three-quarter angle, neck-stub location, hair silhouette and scale. Arms are THREE pieces per side: upper arm/upper sleeve, forearm, and a fully separate hand. Never attach a hand to a forearm. Legs must read as long, natural-length adult cartoon legs, not short stumps: make both trouser/thigh pieces about 25–35% taller than the original sheet while keeping their width natural; the lower-leg/boot pieces remain separate. Hands should be about 10–15% smaller relative to the head and torso, including fist, pointing, thumbs-up, and open-palm variants. The thigh ends with a soft rounded knee cap; the lower leg begins with a matching rounded top. The torso is one torso-only piece from shoulder to hip, WITHOUT arms or sleeve shapes. The shoulder edges and hip hem are smooth and clean. Every connecting edge is rounded and slightly overlapped-looking, never a sharp point or triangular tip. Use one consistent outline weight; avoid heavy outer black edging on joint ends.",
+ "ROW 1 — pieces 1 to 6, left to right: 1) complete neutral head with the three-quarter, head-turned-back pose and a short rounded neck stub; eyes open, calm expression. 2) torso only, side profile facing right, from shoulder line to hip/waist, with the reference outfit, backpack strap/body detail where it belongs, absolutely no arms and no sleeves attached. 3) near-side upper arm from shoulder to elbow, side profile, matching the outfit; include sleeve fabric only for this upper-arm segment. 4) near-side forearm from elbow to wrist, separate from the upper arm and hand; continue the reference's sleeve/clothing if long-sleeved, ending in a smooth rounded wrist cuff. 5) near-side relaxed open hand, separate from the forearm, in side-view perspective and attached only at a rounded wrist end; fingers relaxed and naturally grouped. 6) far-side upper arm, side profile, same design and proportions as piece 3; do not mirror the anatomical silhouette if mirroring would reverse the side-profile orientation.",
+ "ROW 2 — pieces 7 to 12, left to right: 7) far-side forearm, matching piece 4, separate elbow and wrist ends. 8) far-side relaxed open hand, matching piece 5 in scale and wrist framing. 9) near-side thigh/trouser section from hip to knee, side profile facing right, rounded hip and knee ends. 10) near-side lower leg from knee to ankle INCLUDING the complete side-view boot/shoe, toe pointing right, rounded knee end. 11) far-side thigh, same design and proportions as piece 9. 12) far-side lower leg including complete boot/shoe, same scale as piece 10, toe pointing right.",
+ "ROW 3 — pieces 13 to 18, left to right: 13) exact same head as piece 1 with eyes closed for a blink, same three-quarter angle, crop, size, hair, ears, cap and neck-stub position. 14) mouth/lower-face overlay only, neutral closed mouth; no head, hair, eyes, nose, nostrils, or separate nose mark. Its outer edge must have NO black or dark border, no halo and no shadow; the edge skin colour must match the head exactly so it blends invisibly over piece 1. 15) same isolated lower-face/mouth overlay and same crop/scale as piece 14, with an open speaking mouth; NO nose or nostrils, and no outer dark border. Keep dark lines only inside the actual mouth/lip detail. 16) complete head with a sad expression; same angle and framing as piece 1, eyebrows raised inward, eyes sad/downward, mouth frowning. 17) complete head with an angry expression; same angle and framing as piece 1, eyebrows lowered inward, eyes narrowed, mouth angry. 18) complete head with a shocked expression; same angle and framing as piece 1, eyes wide, eyebrows raised, mouth open in an O.",
+ "ROW 4 — pieces 19 to 24, left to right: 19) complete laughing/happy head; same angle and framing as piece 1, joyful closed or crescent eyes and a broad open smile. 20) near-side hand in a closed fist, no forearm attached, matching piece 5's wrist anchor and size. 21) far-side fist, same scale and wrist framing as piece 20. 22) near-side pointing hand, index finger extended toward the viewer's RIGHT and remaining fingers curled naturally; no forearm; same wrist anchor and size as piece 5. 23) far-side pointing hand, matching piece 22. 24) near-side thumbs-up hand, thumb clearly raised, other fingers folded; no forearm; same wrist anchor and size as piece 5.",
+ "ROW 5 — pieces 25 to 27, left to right: 25) far-side thumbs-up hand, same framing as piece 24. 26) near-side open-palm hand, fingers straight and naturally together (not dramatically splayed), palm visible in a view compatible with the character's side-profile body; no forearm. 27) far-side open-palm hand, matching piece 26. Leave the remainder of the fifth row completely empty/transparent.",
+ "EXACT COUNT CHECK: there must be only these 27 pieces, no full-body character, no extra face, no extra hand, no duplicate boot, no decorative marks and no text. Preserve the stated number/order even if some empty space remains. All six complete heads (1, 13, 16, 17, 18, 19) have matching proportions and the same three-quarter head angle; pieces 14 and 15 are borderless overlays only. The head looks toward the viewer while the entire body and all limb pieces remain right-facing side profile.",
+ SHEET_P_ROUNDED,
+ SHEET_P_HANDFRAME,
+ SHEET_P_MOUTH_EDGE,
+ SHEET_P_COLOR_SIDE,
+ "NO LEFT/RIGHT ACCIDENTS: the far-side pieces are separate pieces, not extra limbs attached to the torso. Keep the near and far versions aligned and the same size, color and line weight. Do not draw a second torso, any attached arm on the torso, or a foot detached from its lower-leg piece.",
+ "Output should look like a clean professional animation cut-out asset sheet with five clear horizontal rows, broad transparency gaps, a stable character design and rounded joint attachment zones, ready for automatic part detection and rigging."
+].join("\n\n");
+
+// Primary 27-piece turned-view prompt for new humanoid uploads; the matching SHEET_KEYS_27 order is parsed row by row.
+let sheetView = 'turned';
+function setSheetView(){ sheetView = 'turned'; }
+
+// New species prompts use 14 anatomy-positioned pieces mapped to the existing side-profile rig.
+const SPECIES_PROMPTS = {
+  animal: [
+    'Create a production-ready 2D CUT-OUT ANIMATION BASE MODEL SHEET from the attached four-legged animal reference. The reference is the identity source of truth for the animal design, colours and markings ONLY - it is NOT a source for the facing direction: preserve the exact species, breed, head and muzzle silhouette, ears, nose, coat colours, markings, fur direction, body proportions, tail design, outline weight and shading. Show the animal in a true horizontal side profile ALWAYS facing the viewer\'s RIGHT: head/front on the right, rump/tail on the left - even when the reference faces left.',
+    'ORIENTATION RULE (HIGHEST PRIORITY - READ THIS FIRST): the finished sheet is ALWAYS a RIGHT-FACING sheet, no matter which way the attached reference faces. The reference may face left, face right, face the viewer or be turned three-quarter; in EVERY case the sheet must show the animal facing the RIGHT edge of the image. If the reference faces LEFT, mentally flip it left-to-right (mirror it) FIRST and then draw every piece from that mirrored version. Right-facing means: the nose and muzzle of the head point RIGHT; the HEAD sits on the RIGHT side of the sheet and the TAIL on the LEFT side; the front legs are the group on the right and the hind legs the group on the left; every paw points RIGHT; the tail tip points LEFT. The head keeps the reference\'s own viewing angle (for example a slight three-quarter turn) and is only mirrored when needed so the muzzle points RIGHT. NEVER output a left-facing sheet (head on the left, tail on the right, nose or toes pointing left), even if the reference is left-facing and even if copying it would be easier. Mirroring changes only the direction: keep colours, markings and proportions identical.',
+    'CANVAS: 16:9 landscape, real transparent PNG alpha, polished 2D cartoon cut-out art. Use a single consistent character scale, clean outlines and consistent light direction. No full assembled animal, no background, checkerboard, floor, grid, cells, labels, numbers, arrows, shadows, glow, scenery or watermark. Keep every part fully visible with wide transparent gaps.',
+    'TOP-PRIORITY RULES (check these five before anything else): (A) THE WHOLE SHEET FACES RIGHT: head and nose on the RIGHT, tail on the LEFT, all paws pointing RIGHT - if the reference faces left, mirror it so the sheet still faces RIGHT. (B) ALL FOUR PAW PIECES FACE RIGHT. In every paw the toes point to the RIGHT edge of the image, exactly like the head; no paw may point left, toward the viewer or downward. (C) ALL EIGHT LEG PIECES ARE PERFECTLY STRAIGHT, like flat paper-puppet limbs: no bend, curve, knee angle, hock or lean. If the reference shows a bent leg, a left-facing paw or a front-facing paw, redraw that piece straight / right-facing. (D) THE FOUR UPPER-LEG PIECES (4, 5, 10 and 11) ARE EACH ONE SINGLE FLAT COLOUR: the main body coat colour (for example pure orange on a fox) from top to bottom, with NO second colour on them - no dark brown or black tip, no sock, no zigzag colour edge. The darker leg colour is allowed only on the lower-leg pieces and paws. (E) ALL FOUR LEGS HAVE THE SAME THICKNESS: the two HIND (back) legs are NOT thicker, wider or bulkier than the two FRONT legs - all four upper-leg pieces share one width and one length, all four lower-leg pieces share one width and one length. These five rules override the reference pose.',
+    'EXACTLY 15 PARTS — NO MORE AND NO LESS. Arrange them in a loose anatomy-position layout, not a grid. Every numbered item is one isolated connected silhouette; do not add fur tufts, joints, claws, toes, ears, muzzle, or decorative fragments as separate pieces.',
+    'PART ORDER / ANATOMY: 1) one complete neutral head including both ears, nose, muzzle and a CLOSED mouth line; the entire eye area on the head is completely BLANK and has NO eye artwork of any kind - NO open eyes, NO eyeballs, NO irises, NO pupils, NO highlights, NO eyelashes, NO upper or lower eyelids, NO closed-eye lines, NO eye creases and NO eyebrows; do not draw, suggest or reserve any visible eye parts; end in a clean rounded cut along the bottom of the jaw/cheek fur — NO neck, NO throat, NO chest fur hanging below the chin and NO neck stub of any kind; 2) one horizontal BODY-ONLY torso from shoulder/chest to rump, with no head, NO neck or throat piece, no legs and no tail attached; its front and rear ends are clean rounded cuts; 3) ONE complete tail as a single continuous independent piece, separated only at its root where it attaches to the rump; 4) near-side front upper leg from shoulder to elbow; 5) far-side front upper leg; 6) near-side front lower leg from elbow to ankle, WITHOUT paw or foot; 7) near-side front paw only, side view with toes pointing RIGHT; 8) far-side front lower leg from elbow to ankle, WITHOUT paw or foot; 9) far-side front paw only, side view with toes pointing RIGHT; 10) near-side hind upper leg from hip to knee; 11) far-side hind upper leg; 12) near-side hind lower leg from knee to ankle, WITHOUT paw or foot; 13) far-side hind lower leg from knee to ankle, WITHOUT paw or foot; 14) near-side hind paw only, toes pointing RIGHT; 15) far-side hind paw only, toes pointing RIGHT.',
+    'ANATOMICAL POSITION (this layout is fixed and RIGHT-FACING for every reference, never a left-facing mirror image of it): place the head, horizontal body and independent tail across the upper/centre anatomy area: head above and to the RIGHT of the shoulder end, body through the centre, tail behind the rump on the LEFT with its ROOT facing RIGHT toward the body and tip extending LEFT. Put the six front-leg pieces in a tidy group on the RIGHT/shoulder half and the six hind-leg pieces in a matching group on the LEFT/haunch half. In each group arrange THREE clear vertical tiers: the near/far upper-leg pair together at the top, the near/far lower-leg pair together in the middle, and the near/far paw-only pair together at the bottom, so the bottom row of the sheet holds exactly four paws, all facing RIGHT. Far-side pieces sit slightly behind/left of their near-side partners. Keep all 15 silhouettes disconnected by transparent pixels and do not make a rigid rectangular grid.',
+    'BODY MUST BE PLAIN (piece 2): draw only the uninterrupted animal torso silhouette — chest, belly, back and rump. Do not draw any leg pixels, leg stumps, leg-shaped bumps, bent-leg silhouettes, leg-separation marks, vertical lines, dark strokes, shadows or colour patches that imitate the top of a leg. The belly contour must remain one clean continuous body contour. The body must look like a simple leg-free torso cut-out, not a complete animal with its legs erased.',
+    'STRAIGHT LEG SHAPES AND COLOUR: all four upper-leg pieces and all four lower-leg pieces must be straight, relaxed, unbent segments in a natural vertical hanging pose. Do NOT bend, curve, fold, crouch, angle or flex the first two leg pieces; make them as straight as the other straight leg examples. UPPER-LEG COLOUR RULE: all four upper-leg pieces (4, 5, 10 and 11) are filled with ONE single flat colour only - the main body coat colour, identical to the colour of the torso (for example pure orange on a fox) - from the top edge to the bottom edge. There is NO second colour anywhere on an upper-leg piece: no dark brown or black lower tip, no sock or stocking, no zigzag or jagged colour boundary, no white or cream patch, no gradient, no shading and no markings, even when the reference leg changes colour part-way down. The colour change from the body colour to the darker leg or foot colour happens only on the lower-leg pieces and paws, never on an upper-leg piece. Placed side by side, the four upper-leg pieces must look like four plain single-colour capsules (the thin dark outline around each piece is still drawn; it is not a second fill colour). All lower-leg pieces may use only the two flat coat colours actually visible on that matching leg in the reference; do not invent a third colour, gradient or shadow. Keep those colour rules consistent across both front and hind leg pairs. Every lower-leg piece ends cleanly at the ankle and has NO foot, paw, toes or claws attached. The four paw-only pieces remain separate and contain the paw/foot shape only, not extra shin length.',
+    'EQUAL LEG THICKNESS RULE (front legs and back legs are the same): the two HIND (back) legs must NOT be thicker, wider, rounder or bulkier than the two FRONT legs. Draw the near-side front upper leg first, then draw the far-side front upper leg and BOTH hind upper legs (pieces 4, 5, 10 and 11) as exact copies of it: the same width, the same length and the same slim capsule shape. NO big thigh, NO haunch bulge, NO hock bulge, NO wider top on the hind legs. Do the same for the lower legs: the four lower-leg pieces (6, 8, 12 and 13) have the same width and the same length as each other, and the four paw pieces (7, 9, 14 and 15) are the same size. A hind leg that is even slightly thicker than a front leg is a mistake - redraw it at the front-leg thickness. This rule overrides the real anatomy of the reference animal.',

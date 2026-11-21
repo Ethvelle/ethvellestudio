@@ -1,0 +1,1000 @@
+  const row=()=>document.getElementById('bottomToolsClip');
+  const SWITCH='ev-v284-switching';
+  function overlayFor(key){
+    try{return (Array.isArray(overlays)?overlays:[]).find(o=>o&&String(o.id)===key)||null;}catch(_e){return null;}
+  }
+  function kindFor(which){
+    if(which==null||which==='')return '';
+    const key=String(which);
+    if(key==='main'||/^seg\d+$/.test(key)||/^char\d+$/.test(key))return 'model';
+    const ov=overlayFor(key);
+    if(ov)return ov.type==='text'?'text':(ov.type==='audio'?'audio':'media');
+    try{if((Array.isArray(backgrounds)?backgrounds:[]).some(b=>b&&String(b.id)===key))return 'background';}catch(_e){}
+    return 'media';
+  }
+  // Two clips with the same signature get the same buttons, so switching between them needs no mask.
+  function signatureFor(which){
+    const kind=kindFor(which);
+    const ov=overlayFor(String(which));
+    return kind+':'+(ov?String(ov.type||''):'');
+  }
+  function applyKind(which){
+    const r=row();const kind=kindFor(which);
+    if(r&&kind&&r.dataset.evKind!==kind)r.dataset.evKind=kind;
+  }
+  let lastSig='',token=0,observer=null,failsafe=0;
+  function finish(my){
+    if(my!==token)return;
+    if(observer){observer.disconnect();observer=null;}
+    if(failsafe){clearTimeout(failsafe);failsafe=0;}
+    const r=row();if(r)r.classList.remove(SWITCH);
+  }
+  // Keep the buttons hidden until a whole animation frame passes with no further toolbar change.
+  // Scripts that adjust the toolbar in requestAnimationFrame run before this callback in the same
+  // frame, so when nothing else changes the buttons are shown again before that frame is painted.
+  function beginMask(r){
+    const my=++token;
+    if(observer){observer.disconnect();observer=null;}
+    if(failsafe){clearTimeout(failsafe);failsafe=0;}
+    r.classList.add(SWITCH);
+    let dirty=false;const t0=performance.now();
+    if(typeof MutationObserver==='function'){
+      observer=new MutationObserver(function(){dirty=true;});
+      observer.observe(r,{attributes:true,childList:true,subtree:true,attributeFilter:['style','class']});
+    }
+    const step=function(){
+      if(my!==token)return;
+      if(dirty&&performance.now()-t0<240){dirty=false;requestAnimationFrame(step);return;}
+      finish(my);
+    };
+    requestAnimationFrame(step);
+    failsafe=setTimeout(function(){finish(my);},320);
+  }
+  const prevSelect=window.selectClipForChrome;
+  if(typeof prevSelect==='function'&&!prevSelect.__evV284){
+    const wrapped=function(which){
+      const r=row();
+      let changed=false;
+      try{changed=String(which)!==String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');}catch(_e){}
+      if(r&&which!=null){
+        applyKind(which);
+        const sig=signatureFor(which);
+        if(changed){
+          // The first tools must be the visible ones, so never inherit the old scroll offset.
+          r.scrollLeft=0;
+          if(sig!==lastSig)beginMask(r);
+        }
+        lastSig=sig;
+      }
+      return prevSelect.apply(this,arguments);
+    };
+    wrapped.__evV284=true;
+    window.selectClipForChrome=wrapped;
+    try{selectClipForChrome=wrapped;}catch(_e){}
+  }
+  // Selection can also change without selectClipForChrome (it assigns selectedClip itself and
+  // then re-syncs the toolbar), so keep the kind in step after every toolbar sync as well.
+  const prevSync=window.syncBottomToolsMode;
+  if(typeof prevSync==='function'&&!prevSync.__evV284){
+    const wrappedSync=function(){
+      const result=prevSync.apply(this,arguments);
+      try{if(typeof selectedClip!=='undefined'&&selectedClip!=null)applyKind(selectedClip);}catch(_e){}
+      return result;
+    };
+    wrappedSync.__evV284=true;
+    window.syncBottomToolsMode=wrappedSync;
+    try{syncBottomToolsMode=wrappedSync;}catch(_e){}
+  }
+  try{if(typeof selectedClip!=='undefined'&&selectedClip!=null){applyKind(selectedClip);lastSig=signatureFor(selectedClip);}}catch(_e){}
+})();
+</script>
+
+<!-- Ethvelle v290: UI fixes -->
+<style id="ethvelle-v290-ui-fixes">
+  /* Home: credits capsule + profile icon keep a fixed blue border (no colour sampled from the photo). */
+  #screen-home .home-account-summary{border-color:#2F5CE8!important;background:linear-gradient(150deg,rgba(47,92,232,.18),#17171D 78%)!important;box-shadow:0 0 0 1px rgba(47,92,232,.25),0 0 16px rgba(47,92,232,.16),inset 0 1px 0 rgba(255,255,255,.07)!important;}
+  #screen-home .home-profile-trigger{border-color:#2F5CE8!important;}
+  #screen-home .home-profile-trigger:not(:has(img)){background:linear-gradient(155deg,#4E7CFF,#1E46C4)!important;}
+
+  /* Active filter tabs: flat solid blue, no white edge / 3D effect. */
+  #autoRigUploadBackdrop .ev-sheet-type-btn.active,
+  #screen-editor .evca-animation-categories .ev-sheet-type-btn.active,
+  #screen-editor .ev-sheet-type-btn.active,
+  .ev-sheet-type-btn.active,
+  .ev-sheet-type-btn[aria-pressed="true"],
+  .ev-sheet-type-btn[aria-selected="true"],
+  #screen-editor .evca-tabs > .evca-tab.active,
+  #screen-editor .evca-tabs > .evca-tab.active:focus,
+  #screen-editor .evca-tabs > .evca-tab.active:focus-visible,
+  #screen-editor .evca-tabs > .evca-tab.evca-flash-selected,
+  .evca-tab.active,.evca-tab.evca-flash-selected,.evca-tab:focus,.evca-tab:focus-visible{
+    background:#2F5CE8!important;background-image:none!important;
+    border:1px solid #2F5CE8!important;border-color:#2F5CE8!important;
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+    box-shadow:none!important;text-shadow:none!important;filter:none!important;outline:none!important;
+  }
+  .ev-sheet-type-btn.active::before,.ev-sheet-type-btn.active::after,
+  .evca-tab.active::before,.evca-tab.active::after{content:none!important;display:none!important;background:none!important;box-shadow:none!important;}
+
+  /* Billing: usage block titles in gray. */
+  #screen-myplan .myplan-stats-grid .myplan-stat-label,
+  #screen-myplan .myplan-stat-label,.myplan-stat-label{color:#8E929E!important;}
+
+  /* Credit history: delete button without glow, slightly thicker red border. */
+  body .myplan-credit-delete,body .myplan-credit-history .myplan-credit-delete{
+    box-shadow:none!important;filter:none!important;text-shadow:none!important;-webkit-tap-highlight-color:transparent;
+    border:1.5px solid rgba(255,90,90,.75)!important;background:transparent!important;
+  }
+  body .myplan-credit-delete:active,body .myplan-credit-delete:focus,body .myplan-credit-delete:hover{box-shadow:none!important;filter:none!important;background:rgba(255,90,90,.1)!important;}
+
+  /* Credit history: search bar above a scrolling list. */
+  .myplan-credit-history-card{display:flex!important;flex-direction:column!important;}
+  .myplan-credit-history-card .myplan-credit-history{height:auto!important;flex:1 1 auto!important;min-height:0!important;}
+  .myplan-credit-search{position:relative;flex:0 0 auto;margin:0 0 10px;}
+  .myplan-credit-search svg{position:absolute;left:12px;top:50%;transform:translateY(-50%);width:16px;height:16px;fill:none;stroke:#8E929E;stroke-width:2;stroke-linecap:round;pointer-events:none;}
+  .myplan-credit-search input{width:100%;box-sizing:border-box;height:40px;padding:0 12px 0 36px;border-radius:12px;border:1px solid var(--line);background:#17171C;color:#F5F5F7;font:inherit;font-size:13px;outline:none;-webkit-appearance:none;appearance:none;}
+  .myplan-credit-search input::placeholder{color:#8E929E;}
+  .myplan-credit-search input:focus{border-color:#4776FF;}
+  .myplan-credit-search input::-webkit-search-cancel-button{-webkit-appearance:none;}
+
+  /* Help & support: light-gray section titles and arrows. */
+  #screen-help .settings-group-label{color:#C4C7D0!important;}
+  #screen-help .help-q svg,#screen-help .help-item.open .help-q svg,#screen-help .help-item .help-q svg{stroke:#C4C7D0!important;}
+</style>
+<script id="ethvelle-v290-ui-fixes-js">
+(function(){
+  'use strict';
+  /* Credit history search */
+  window.filterCreditHistory=function(q){
+    window.__evCreditQuery=String(q||'');
+    const list=document.querySelector('.myplan-credit-history');if(!list)return;
+    const query=window.__evCreditQuery.trim().toLowerCase();
+    let shown=0;
+    list.querySelectorAll('.myplan-credit-row').forEach(function(row){
+      const hit=!query||row.textContent.toLowerCase().indexOf(query)!==-1;
+      row.style.display=hit?'':'none';if(hit)shown++;
+    });
+    let empty=list.querySelector('.ev-credit-nomatch');
+    if(query&&!shown&&list.querySelector('.myplan-credit-row')){
+      if(!empty){empty=document.createElement('div');empty.className='myplan-credit-empty ev-credit-nomatch';list.appendChild(empty);}
+      empty.textContent='No credit activity matches “'+window.__evCreditQuery.trim()+'”.';
+    }else if(empty){empty.remove();}
+  };
+  /* Credit history: once the list hits its top/bottom, keep sliding the page. */
+  function scrollParent(el){
+    for(let p=el.parentElement;p;p=p.parentElement){
+      const oy=getComputedStyle(p).overflowY;
+      if((oy==='auto'||oy==='scroll')&&p.scrollHeight>p.clientHeight+1)return p;
+    }
+    return null;
+  }
+  let lastY=null,lastList=null;
+  document.addEventListener('touchstart',function(e){
+    const l=e.target.closest&&e.target.closest('.myplan-credit-history');
+    lastList=l||null;lastY=l?e.touches[0].clientY:null;
+  },{passive:true,capture:true});
+  document.addEventListener('touchmove',function(e){
+    if(!lastList||lastY==null)return;
+    const y=e.touches[0].clientY,dy=y-lastY;lastY=y;
+    if(lastList.scrollHeight<=lastList.clientHeight+1)return;
+    const atTop=lastList.scrollTop<=0,atBottom=lastList.scrollTop+lastList.clientHeight>=lastList.scrollHeight-1;
+    if((dy>0&&atTop)||(dy<0&&atBottom)){
+      const p=scrollParent(lastList);
+      if(p){p.scrollTop-=dy;if(e.cancelable)e.preventDefault();}
+    }
+  },{passive:false,capture:true});
+  document.addEventListener('touchend',function(){lastList=null;lastY=null;},{passive:true,capture:true});
+
+  /* Policy / Terms emails always show the email from Help & support. */
+  function syncLegalEmails(){
+    try{
+      const email=(typeof getContactInfo==='function'&&getContactInfo().email)||'';
+      if(!email)return;
+      document.querySelectorAll('a.ev-support-email-link').forEach(function(a){
+        if(a.textContent!==email)a.textContent=email;
+        const h='mailto:'+email;if(a.getAttribute('href')!==h)a.setAttribute('href',h);
+      });
+    }catch(_e){}
+  }
+  window.syncLegalEmails=syncLegalEmails;
+  const prevGo=window.goTo;
+  if(typeof prevGo==='function'&&!prevGo.__evV290){
+    const w=function(){const r=prevGo.apply(this,arguments);syncLegalEmails();return r;};
+    w.__evV290=true;window.goTo=w;try{goTo=w;}catch(_e){}
+  }
+  const prevCards=window.renderHelpContactCards;
+  if(typeof prevCards==='function'&&!prevCards.__evV290){
+    const w=function(){const r=prevCards.apply(this,arguments);syncLegalEmails();return r;};
+    w.__evV290=true;window.renderHelpContactCards=w;try{renderHelpContactCards=w;}catch(_e){}
+  }
+  [0,800,2500,6000].forEach(function(t){setTimeout(syncLegalEmails,t);});
+})();
+</script>
+
+<style id="ethvelle-v291-clip-animation-label-center">
+  /* Centre every bottom-toolbar label under its icon, even when the text is wider than the button. */
+  #screen-editor #bottomToolsClip #clipAnimTool,
+  #screen-editor #bottomToolsClip #clipOverlayAnimationTool,
+  #screen-editor #bottomToolsClip .evca-toolbar-tool{align-items:center!important;text-align:center!important;}
+  #screen-editor #bottomToolsClip #clipAnimTool>span:not(.key-btn-badge),
+  #screen-editor #bottomToolsClip #clipOverlayAnimationTool>span:not(.key-btn-badge),
+  #screen-editor #bottomToolsClip .evca-toolbar-tool>span:not(.key-btn-badge){
+    display:flex!important;justify-content:center!important;align-items:flex-start!important;
+    width:100%!important;max-width:100%!important;margin:0 auto!important;padding:0!important;
+    text-align:center!important;white-space:nowrap!important;font-size:9.5px!important;letter-spacing:-.01em!important;
+  }
+</style>
+<script id="ethvelle-v291-billing-plan-tracking">
+(function(){
+  'use strict';
+  if(window.__ethvelleV291Billing)return;window.__ethvelleV291Billing=true;
+  function planOf(el){const card=el.closest('.myplan-available-plan');return card?{planId:card.dataset.planId||'',planName:card.dataset.planName||'',planPrice:card.dataset.planPrice||''}:null;}
+  function isPro(d){
+    if(String(d.planId).toLowerCase()==='pro'||String(d.planName).trim().toLowerCase()==='pro')return true;
+    try{return !getPlans().some(p=>String(p.id).toLowerCase()==='pro'||String(p.name||'').trim().toLowerCase()==='pro');}catch(_e){return true;}
+  }
+  document.addEventListener('click',function(e){
+    const t=e.target;if(!t||!t.closest||!t.closest('#myPlanScroll'))return;
+    const d=planOf(t);if(!d)return;
+    try{
+      if(t.closest('button.plan-cta')){if(isPro(d))trackEvent('billing_upgrade_to_pro_click',Object.assign({screen:'myplan'},d));}
+      else trackEvent('billing_plan_click',Object.assign({screen:'myplan'},d));
+    }catch(_e){}
+  },true);
+})();
+</script>
+
+
+<style id="ethvelle-v292-model-panel-css">
+  /* ===== Add model panel (#modelLibraryBackdrop): blue "Add character" button + square model blocks ===== */
+  #modelLibraryBackdrop .sheet-btn-secondary{
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    width:100%!important;height:52px!important;min-height:52px!important;flex:0 0 52px!important;
+    box-sizing:border-box!important;padding:0 16px!important;border-radius:16px!important;
+    border-width:1px!important;border-style:solid!important;font-size:14px!important;font-weight:700!important;
+    line-height:normal!important;
+  }
+  #app #modelLibraryBackdrop #modelLibraryAddBtn,
+  #modelLibraryBackdrop #modelLibraryAddBtn{
+    background:linear-gradient(165deg,#4A78F5,#2F5CE8)!important;
+    border:1px solid #2F5CE8!important;border-style:solid!important;
+    box-shadow:none!important;filter:none!important;
+  }
+  #modelLibraryBackdrop #modelLibraryAddBtn svg{stroke:#FFFFFF!important;}
+  #modelLibraryBackdrop #modelLibraryAddBtn span{color:#FFFFFF!important;font-weight:700!important;}
+  #modelLibraryBackdrop #modelLibraryAddBtn:active{transform:scale(.97);}
+
+  /* 2-column grid of square cards, same look as the Projects > Models section */
+  #modelLibraryBackdrop .model-asset-list{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr));grid-auto-rows:max-content;gap:12px!important;align-content:start;flex:1 1 auto;min-height:0;}
+  #modelLibraryBackdrop .model-asset-empty{grid-column:1/-1;}
+  #modelLibraryBackdrop .model-asset-item{
+    position:relative;display:flex;flex-shrink:0;min-height:max-content;flex-direction:column;align-items:stretch;gap:0!important;
+    padding:0!important;overflow:hidden;
+    background:var(--panel)!important;border:1px solid var(--line)!important;
+    border-radius:var(--radius-md,16px)!important;box-shadow:none!important;
+  }
+  #modelLibraryBackdrop .model-asset-item:active{transform:scale(.98);}
+  #modelLibraryBackdrop .model-asset-thumb{
+    display:block;width:100%!important;height:auto!important;aspect-ratio:1/1;flex:none;
+    box-sizing:border-box;padding:8px;object-fit:contain;object-position:center;
+    border:0!important;border-radius:0!important;background:var(--elevated-2)!important;
+  }
+  #modelLibraryBackdrop .model-asset-name{flex:none!important;width:100%;box-sizing:border-box;font-size:12.5px;font-weight:600;padding:9px 10px 11px;}
+  #modelLibraryBackdrop .model-asset-actions{position:absolute;top:6px;right:6px;gap:6px!important;z-index:2;}
+  #modelLibraryBackdrop .model-asset-icon-btn{width:26px!important;height:26px!important;border-radius:50%!important;background:rgba(10,10,12,.72)!important;}
+  #modelLibraryBackdrop .model-asset-icon-btn svg{width:14px!important;height:14px!important;}
+</style>
+<style id="ethvelle-v293-css">
+  /* Add character button: no glow */
+  #app #modelLibraryBackdrop #modelLibraryAddBtn,#modelLibraryBackdrop #modelLibraryAddBtn{box-shadow:none!important;filter:none!important;text-shadow:none!important;}
+  /* Privacy / Terms email: deep blue */
+  .legal-document a.ev-support-email-link,.legal-footnote a.ev-support-email-link,a.ev-support-email-link{color:#2F5CE8!important;}
+  /* Help & support message box: gray until the user types */
+  textarea#supportMsgInput{border:1px solid #4A4E5A!important;box-shadow:none!important;outline:none!important;}
+  textarea#supportMsgInput:focus:placeholder-shown{border-color:#4A4E5A!important;}
+  textarea#supportMsgInput:not(:placeholder-shown){border-color:#2F5CE8!important;}
+  /* Active plans block */
+  .ev-plan-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:14px;margin:0 0 12px;}
+  .ev-plan-top{display:flex;justify-content:space-between;align-items:center;gap:8px;}
+  .ev-plan-name{font-weight:700;font-size:15px;}
+  .ev-plan-timer{font-variant-numeric:tabular-nums;font-weight:700;font-size:13px;color:#2F5CE8;}
+  .ev-plan-timer.expired{color:#E5484D;}
+  .ev-plan-meta{font-size:12.5px;color:var(--text-faint,#8b90a0);margin-top:6px;display:flex;justify-content:space-between;}
+  .ev-plan-bar{height:6px;border-radius:99px;background:var(--elevated-2,#2a2d36);margin-top:8px;overflow:hidden;}
+  .ev-plan-bar>i{display:block;height:100%;background:#2F5CE8;border-radius:99px;}
+</style>
+<script id="ethvelle-v293-credits-plans-events">
+(function(){
+  'use strict';
+  const ms=v=>{try{return typeof creditTimestampMs==='function'?creditTimestampMs(v):(v&&v.toMillis?v.toMillis():(v?new Date(v).getTime():0));}catch(_e){return 0;}};
+  window.openCreditsHistoryScreen=function(){goTo('credits-history');window.renderCreditsHistoryScreen();};
+  function left(t){
+    let d=t-Date.now();if(d<=0)return 'Expired';
+    const D=Math.floor(d/864e5);d%=864e5;const H=Math.floor(d/36e5);d%=36e5;const M=Math.floor(d/6e4);const S=Math.floor((d%6e4)/1e3);
+    return (D?D+'d ':'')+String(H).padStart(2,'0')+'h '+String(M).padStart(2,'0')+'m '+String(S).padStart(2,'0')+'s';
+  }
+  window.evActivePlansHtml=function(owned){
+    const box=h=>'<div class="ev-plan-card"><div class="ev-plan-meta" style="margin:0">'+h+'</div></div>';
+    if(!currentUser)return box('Sign in to see your active plans.');
+    const paid=(owned||[]).filter(p=>Number(p.price)>0&&!['free','p_free'].includes(String(p.id)));
+    if(!paid.length)return box('No active paid plan right now.');
+    let pool=Math.max(0,Number(myCreditsBalance)||0);
+    return paid.map(p=>{
+      const st=(myPlanOrderStates&&myPlanOrderStates[String(p.id)])||{};
+      const grant=Number(typeof getPlanCreditGrant==='function'?getPlanCreditGrant(p):0)||Number(st.creditsGrantAmount)||0;
+      const start=ms(st.approvedAt)||ms(st.creditsGrantedAt)||ms(st.createdAt);
+      const exp=ms(st.expiresAt)||(start?start+(Number(p.durationDays)||30)*864e5:0);
+      const rem=grant>0?Math.min(pool,grant):pool;pool-=rem;
+      const pct=grant>0?Math.max(0,Math.min(100,Math.round(rem/grant*100))):0;
+      const timer=exp?'<span class="ev-plan-timer" data-ev-exp="'+exp+'">'+left(exp)+'</span>':'';
+      return '<div class="ev-plan-card"><div class="ev-plan-top"><span class="ev-plan-name">'+escapeHtml(p.name||'Plan')+'</span>'+timer+'</div>'
+        +'<div class="ev-plan-meta"><span>Credits remaining</span><b>'+rem.toLocaleString()+(grant>0?' / '+grant.toLocaleString():'')+'</b></div>'
+        +(grant>0?'<div class="ev-plan-bar"><i style="width:'+pct+'%"></i></div>':'')+'</div>';
+    }).join('');
+  };
+  setInterval(function(){document.querySelectorAll('[data-ev-exp]').forEach(function(el){const t=Number(el.dataset.evExp);el.textContent=left(t);el.classList.toggle('expired',t<=Date.now());});},1000);
+  // Events for the admin's Auto email & alerts engine (queued in Firestore `autoMessages`).
+  window.evQueueAutoEvent=function(event,vars,user){
+    try{
+      const u=user||currentUser;if(!u||!(firebaseReady&&fbDb))return;
+      fbDb.collection('autoMessages').add({event:event,uid:u.uid,email:u.email||null,name:u.displayName||null,vars:vars||{},status:'queued',createdAt:firebase.firestore.FieldValue.serverTimestamp()}).catch(function(){});
+    }catch(_e){}
+  };
+  const prev=window.changeMyCreditBalance;
+  if(typeof prev==='function'){
+    const w=async function(delta,entry){
+      const r=await prev.apply(this,arguments);
+      try{if(Number(delta)<0&&r&&r.id)window.evQueueAutoEvent('credits_spent',{credits:Math.abs(Math.trunc(Number(delta))),balance:r.balance,reason:(entry&&entry.description)||'Video export'});}catch(_e){}
+      return r;
+    };
+    window.changeMyCreditBalance=w;try{changeMyCreditBalance=w;}catch(_e){}
+  }
+})();
+</script>
+
+<style id="ethvelle-v295-css">
+  /* v295 Credits history: no boxed card, the whole page shows the history. */
+  #screen-credits-history .myplan-credit-history-card{
+    height:auto!important;min-height:0!important;max-height:none!important;flex:none!important;overflow:visible!important;
+    background:none!important;border:0!important;box-shadow:none!important;border-radius:0!important;padding:0!important;margin:0!important;
+  }
+  #screen-credits-history .myplan-credit-history{
+    height:auto!important;max-height:none!important;min-height:0!important;flex:none!important;
+    overflow:visible!important;overscroll-behavior:auto;
+  }
+  #screen-credits-history .myplan-credit-search{position:sticky!important;top:0;z-index:6;margin:0!important;padding:2px 0 10px;background:var(--bg);}
+  #screen-credits-history .myplan-credit-search svg{top:calc(50% - 4px);}
+  /* v295 Credits history: dustbin icon instead of the Delete word. */
+  body .myplan-credit-delete,body .myplan-credit-history .myplan-credit-delete{
+    width:34px;height:34px;min-width:34px;min-height:34px;padding:0!important;border-radius:9px;
+    display:inline-flex;align-items:center;justify-content:center;font-size:0;line-height:0;
+  }
+  .myplan-credit-delete svg{width:17px;height:17px;fill:none;stroke:#FF6B6B;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;pointer-events:none;}
+  /* v295 Privacy / Terms email: bright blue, one straight unbroken underline (no gaps at "@" and "g"). */
+  .legal-document a.ev-support-email-link,.legal-footnote a.ev-support-email-link,a.ev-support-email-link{
+    color:#4776FF!important;-webkit-text-fill-color:#4776FF!important;
+    text-decoration-line:underline!important;text-decoration-style:solid!important;text-decoration-color:#4776FF!important;
+    text-decoration-thickness:1px!important;text-underline-offset:3px!important;
+    text-decoration-skip-ink:none!important;-webkit-text-decoration-skip:none!important;
+  }
+  /* v295 Text box corner handle: pencil (tap = edit text, drag = resize / rotate). */
+  #selBoxLayer #sbScale[data-ev-icon="pencil"] svg{width:15px;height:15px;}
+  /* v295 Stroke never shows on the glyph itself, even for the first frame of a freshly built text layer.
+     The stroke is drawn only by the separate layer behind the letters, so a new layer can no longer flash a thick
+     outline over the fill while spacing / angle sliders are moved. */
+  #overlayMediaLayer .ethvelle-overlay-text-content > .evpa-text-effect-layer{-webkit-text-stroke:0.001px transparent!important;}
+</style>
+<script id="ethvelle-v295-js">
+(function(){
+  'use strict';
+  /* ---- pencil on the text box corner ---- */
+  const PENCIL='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
+  const SCALE='<svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
+  function isTextSelected(){
+    try{const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);return Array.isArray(overlays)&&overlays.some(o=>String(o.id)===id&&o.type==='text');}catch(_e){return false;}
+  }
+  function syncIcon(){
+    const b=document.getElementById('sbScale');if(!b)return;
+    const want='scale'; /* v307: same two-arrow resize/rotate icon for text and normal layers */
+    const markup=want==='pencil'?PENCIL:SCALE;
+    if(b.dataset.evIcon===want&&b.innerHTML===markup){
+      b.title=want==='pencil'?'Tap to edit text, drag to resize / rotate':'Drag to resize / rotate';
+      b.setAttribute('aria-label',b.title);return;
+    }
+    b.dataset.evIcon=want;b.innerHTML=markup;
+    b.title=want==='pencil'?'Tap to edit text, drag to resize / rotate':'Drag to resize / rotate';
+    b.setAttribute('aria-label',b.title);
+  }
+  window.__ethvelleSyncSelectionHandleIcon=syncIcon;
+  syncIcon();
+  setInterval(syncIcon,200); // retained only as a recovery fallback; selection wrappers update it synchronously
+  document.addEventListener('pointerdown',syncIcon,{capture:true,passive:true});
+  let down=null;
+  document.addEventListener('pointerdown',function(e){
+    const b=e.target&&e.target.closest&&e.target.closest('#sbScale');
+    down=null; /* v307: tapping the resize handle no longer opens the text editor */
+  },{capture:true,passive:true});
+  document.addEventListener('pointerup',function(e){
+    const d=down;down=null;if(!d||d.id!==e.pointerId)return;
+    if(Math.hypot(e.clientX-d.x,e.clientY-d.y)>8||performance.now()-d.t>650)return;
+    if(!isTextSelected())return;
+    try{if(typeof window.openEthvelleTextComposer==='function')window.openEthvelleTextComposer(selectedClip);}catch(_e){}
+  },{capture:true,passive:true});
+  document.addEventListener('pointercancel',function(){down=null;},{capture:true,passive:true});
+
+  /* ---- stroke layer: rebuild it in the same task as every text-layer render, before the browser can paint ---- */
+  ['renderOverlayLayers','renderFrame'].forEach(function(name){
+    const orig=window[name];
+    if(typeof orig!=='function'||orig.__evV295)return;
+    const w=function(){
+      const r=orig.apply(this,arguments);
+      try{if(typeof window.ethvelleSyncStrokeLayers==='function')window.ethvelleSyncStrokeLayers();}catch(_e){}
+      return r;
+    };
+    w.__evV295=true;
+    window[name]=w;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  });
+})();
+</script>
+
+<style id="ethvelle-v297-composer-full-effect-preview-css">
+  /* Exact text-renderer mirror sits below the editable textarea; the caret and selection stay native. */
+  #ethvelleTextComposer #evtcStagePreview{
+    position:fixed!important;z-index:100003!important;display:none;box-sizing:border-box;
+    margin:0;border:0;outline:0;overflow:visible;pointer-events:none;user-select:none;-webkit-user-select:none;
+    white-space:pre-wrap;overflow-wrap:anywhere;transform:none!important;transform-origin:center center;
+    isolation:isolate;background:transparent!important;
+  }
+  #ethvelleTextComposer #evtcStagePreview > .evpa-text-effect-layer{
+    position:relative;display:inline-block;max-width:100%;transform-origin:center center;
+    white-space:inherit;overflow-wrap:inherit;
+  }
+  #ethvelleTextComposer #evtcStagePreview > .evpa-text-effect-layer,
+  #ethvelleTextComposer #evtcStagePreview > .evpa-stroke-clone{
+    padding:.16em .34em!important;margin:-.16em -.34em!important;
+    box-sizing:content-box;background-origin:content-box;
+  }
+  #ethvelleTextComposer #evtcStagePreview.ev-text-highlight-plate{
+    position:fixed!important;isolation:isolate!important;background-color:transparent!important;
+    background-image:none!important;background-clip:border-box!important;-webkit-background-clip:border-box!important;
+    padding:0!important;border-radius:0!important;
+  }
+  #ethvelleTextComposer #evtcStagePreview.ev-text-highlight-plate::before{
+    content:""!important;display:block!important;position:absolute!important;
+    inset:var(--ev-text-highlight-inset,0px)!important;z-index:-1!important;pointer-events:none!important;
+    background:var(--ev-text-highlight-fill,rgba(24,42,102,.78))!important;
+    border-radius:var(--ev-text-highlight-radius,8px)!important;box-shadow:none!important;outline:none!important;
+    transform:none!important;filter:none!important;opacity:1!important;
+  }
+  #ethvelleTextComposer #evtcStageText.ev-v297-mirrored-text{
+    color:transparent!important;-webkit-text-fill-color:transparent!important;
+    -webkit-text-stroke:0 transparent!important;text-shadow:none!important;filter:none!important;
+    background:transparent!important;text-decoration:none!important;opacity:1!important;
+  }
+</style>
+<script id="ethvelle-v297-selection-shadow-composer-preview-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const PENCIL='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
+  const SCALE='<svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg>';
+  function selectedText(){
+    try{
+      const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+      return !!id&&Array.isArray(overlays)&&overlays.some(o=>o&&String(o.id)===id&&o.type==='text');
+    }catch(_e){return false;}
+  }
+  function syncHandle(){
+    const b=$('sbScale');if(!b)return;
+    const want='scale'; /* v307 */
+    const markup=want==='pencil'?PENCIL:SCALE;
+    /* A few older selection paths recreate the scale SVG without clearing data-ev-icon.
+       Compare the actual markup too, so a stale dataset can never leave the arrow visible. */
+    if(b.dataset.evIcon!==want||b.innerHTML!==markup){b.dataset.evIcon=want;b.innerHTML=markup;}
+    b.title=want==='pencil'?'Tap to edit text, drag to resize / rotate':'Drag to resize / rotate';
+    b.setAttribute('aria-label',b.title);
+  }
+  function syncSelectedControls(){
+    syncHandle();
+    /* Selection can be assigned AFTER the original selection-box paint. Repair the text
+       corners here, in the same call stack, rather than waiting for the v16 rAF fallback. */
+    if(selectedText()&&!window.__evTextDragActive&&typeof window.__ethvelleRepairLayoutCorners==='function'){
+      try{window.__ethvelleRepairLayoutCorners();}catch(_e){}
+    }
+  }
+  function wrapSync(name){
+    const original=window[name];if(typeof original!=='function'||original.__evV297Handle)return;
+    const wrapped=function(){const result=original.apply(this,arguments);syncSelectedControls();return result;};
+    wrapped.__evV297Handle=true;window[name]=wrapped;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  }
+  ['updateSelBox','selectClipForChrome','onClipSelected','selBoxApply','deselectAllClips'].forEach(wrapSync);
+  syncSelectedControls();
+  document.addEventListener('pointerdown',syncSelectedControls,{capture:true,passive:true});
+
+  let inputObserved=null,resizeObserver=null,previewBusy=false;
+  function ensurePreview(input){
+    let host=$('evtcStagePreview');
+    if(!host){
+      host=document.createElement('div');host.id='evtcStagePreview';host.className='ethvelle-overlay-text-content';
+      host.setAttribute('aria-hidden','true');
+      if(input&&input.parentNode)input.parentNode.insertBefore(host,input);
+      else{const root=$('ethvelleTextComposer');if(root)root.appendChild(host);}
+    }
+    return host;
+  }
+  function clearInputMirror(input){
+    if(!input)return;
+    input.classList.remove('ev-v297-mirrored-text');
+    input.style.removeProperty('-webkit-text-fill-color');
+    input.style.removeProperty('-webkit-text-stroke');
+    input.style.removeProperty('text-shadow');
+    input.style.removeProperty('filter');
+    input.style.removeProperty('text-decoration');
+    input.style.removeProperty('z-index');
+  }
+  function syncComposerPreview(input,model){
+    if(previewBusy)return;
+    const root=$('ethvelleTextComposer');
+    if(!input||!root||!root.classList.contains('active'))return;
+    const text=String(input.value||'');
+    const host=ensurePreview(input);if(!host)return;
+    if(!text){host.style.display='none';host.textContent='';clearInputMirror(input);return;}
+    previewBusy=true;
+    try{
+      const rect=input.getBoundingClientRect(),cs=getComputedStyle(input),t=model||((typeof window.ethvellePicsartGetTarget==='function'&&window.ethvellePicsartGetTarget())||{});
+      host.style.display='block';
+      host.style.left=rect.left+'px';host.style.top=rect.top+'px';host.style.width=rect.width+'px';host.style.height=rect.height+'px';
+      host.style.position='fixed';host.style.zIndex='100003';host.style.boxSizing='border-box';host.style.margin='0';
+      host.style.border='0';host.style.outline='0';host.style.padding=cs.padding;host.style.overflow='visible';
+      host.style.whiteSpace=cs.whiteSpace||'pre-wrap';host.style.overflowWrap=cs.overflowWrap||'anywhere';
+      host.style.textAlign=cs.textAlign||t.textAlign||'center';host.style.fontFamily=cs.fontFamily;
+      host.style.fontSize=cs.fontSize;host.style.fontWeight=cs.fontWeight;host.style.fontStyle=cs.fontStyle;
+      host.style.color=window.ethvelleHexToRgba?window.ethvelleHexToRgba(t.textColor||'#FFFFFF',Math.max(0,Math.min(100,Number(t.textOpacity==null?100:t.textOpacity)))/100):cs.color;
+      host.style.textTransform=t.textTransform||'none';host.style.pointerEvents='none';host.style.userSelect='none';
+      const visual=Object.assign({},t,{textContent:text,textBackgroundEnabled:false});
+      const oldGlyph=host.querySelector(':scope > .evpa-text-effect-layer');
+      if(!oldGlyph||oldGlyph.textContent!==text)host.textContent=text;
+      if(typeof window.ethvelleApplyTextEffectsToPreview==='function')window.ethvelleApplyTextEffectsToPreview(host,visual);
+      // applyEffectsToNode owns glyph effects; restore the textarea's exact text-box geometry afterwards.
+      host.style.position='fixed';host.style.left=rect.left+'px';host.style.top=rect.top+'px';
+      host.style.width=rect.width+'px';host.style.height=rect.height+'px';host.style.boxSizing='border-box';
+      host.style.padding=cs.padding;host.style.margin='0';host.style.textAlign=cs.textAlign||'center';
+      host.style.fontFamily=cs.fontFamily;host.style.fontSize=cs.fontSize;host.style.fontWeight=cs.fontWeight;host.style.fontStyle=cs.fontStyle;
+      host.style.color=window.ethvelleHexToRgba?window.ethvelleHexToRgba(t.textColor||'#FFFFFF',Math.max(0,Math.min(100,Number(t.textOpacity==null?100:t.textOpacity)))/100):cs.color;
+      host.style.textTransform=t.textTransform||'none';host.style.opacity=String(Math.max(0,Math.min(100,Number(t.textOverallOpacity==null?100:t.textOverallOpacity)))/100);
+      host.style.zIndex='100003';host.style.display='block';
+      // The backplate is already a separate composer layer; only the independent Highlight effect belongs here.
+      if(t.textBackgroundEnabled)host.classList.remove('ev-text-highlight-plate');
+      /* Bend/curve turns the glyph into one transformed span per character. In Chromium,
+         background-clip:text and -webkit-text-stroke on the outer span do not paint those
+         nested characters. Mirror the fill on each character, then rebuild the stroke clone
+         from that final character markup and apply its stroke to each copied character. */
+      const previewGlyph=host.querySelector(':scope > .evpa-text-effect-layer');
+      if(previewGlyph&&previewGlyph.children&&previewGlyph.children.length){
+        const grad=String(t.textGradient||''),texture=String(t.textTexture||'');
+        const fill=grad||texture;
+        const glyphRect=previewGlyph.getBoundingClientRect();
+        const fullSize=Math.max(1,glyphRect.width)+'px '+Math.max(1,glyphRect.height)+'px';
+        Array.from(previewGlyph.children).forEach(function(ch){
+          if(fill){
+            ch.style.backgroundImage=fill;
+            ch.style.backgroundClip='text';ch.style.webkitBackgroundClip='text';
+            ch.style.webkitTextFillColor='transparent';ch.style.color='transparent';
+            ch.style.backgroundRepeat='no-repeat';
+            ch.style.backgroundSize=grad?fullSize:String(t.textTextureSize||'100% 100%');
+            if(grad){const cr=ch.getBoundingClientRect();ch.style.backgroundPosition=(-Math.round(cr.left-glyphRect.left))+'px 0px';}
+          }else{
+            ch.style.removeProperty('background-image');ch.style.removeProperty('background-clip');
+            ch.style.removeProperty('-webkit-background-clip');ch.style.removeProperty('-webkit-text-fill-color');
+            ch.style.removeProperty('background-size');ch.style.removeProperty('background-position');
+            ch.style.removeProperty('background-repeat');ch.style.removeProperty('color');
+          }
+        });
+      }
+      /* Per-character fill styling changes the glyph's innerHTML signature. Rebuild the twin
+         after those writes so MutationObserver cannot later replace our character-level stroke. */
+      if(typeof window.ethvelleSyncStrokeLayers==='function')window.ethvelleSyncStrokeLayers();
+      const previewStroke=host.querySelector(':scope > .evpa-stroke-clone');
+      if(previewGlyph&&previewGlyph.children&&previewGlyph.children.length&&previewStroke){
+        const stroke=getComputedStyle(previewStroke).webkitTextStroke;
+        if(stroke&&stroke!=='0px rgba(0, 0, 0, 0)'){
+          previewStroke.querySelectorAll('*').forEach(function(ch){
+            ch.style.setProperty('-webkit-text-stroke',stroke,'important');
+            ch.style.setProperty('paint-order','normal','important');
+          });
+        }
+      }
+      input.classList.add('ev-v297-mirrored-text');
+      input.style.setProperty('color','transparent','important');
+      input.style.setProperty('-webkit-text-fill-color','transparent','important');
+      input.style.setProperty('-webkit-text-stroke','0 transparent','important');
+      input.style.setProperty('text-shadow','none','important');
+      input.style.setProperty('filter','none','important');
+      input.style.setProperty('background','transparent','important');
+      input.style.setProperty('text-decoration','none','important');
+      input.style.setProperty('opacity','1','important');
+      /* Keep the editable textarea above the visual mirror so the native caret and selection
+         remain visible; the textarea glyphs are transparent, so the styled mirror still paints. */
+      input.style.setProperty('z-index','100004','important');
+    }catch(err){console.warn('Ethvelle v297 composer preview:',err);}
+    finally{previewBusy=false;}
+  }
+  window.__ethvelleV297SyncComposerEffectPreview=syncComposerPreview;
+  function resync(){const input=$('evtcStageText');if(input){const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;syncComposerPreview(input,t);}}
+  function observeInput(){
+    const input=$('evtcStageText');if(!input||inputObserved===input)return;
+    inputObserved=input;
+    input.addEventListener('input',resync,{passive:true});
+    if(typeof ResizeObserver==='function'){
+      try{resizeObserver=new ResizeObserver(resync);resizeObserver.observe(input);}catch(_e){}
+    }
+  }
+  function wrapAfter(name,after){
+    const original=window[name];if(typeof original!=='function'||original.__evV297After)return;
+    const wrapped=function(){const result=original.apply(this,arguments);try{after.apply(this,arguments);}catch(_e){}return result;};
+    wrapped.__evV297After=true;window[name]=wrapped;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  }
+  const repaint=()=>{
+    observeInput();
+    const input=$('evtcStageText');if(!input)return;
+    const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+    syncComposerPreview(input,t);
+  };
+  wrapAfter('openEthvelleTextComposer',function(){
+    observeInput();
+    if(typeof window.ethvellePicsartRepaintText==='function')window.ethvellePicsartRepaintText();
+    repaint();
+  });
+  wrapAfter('updateEthvelleComposerText',repaint);
+  wrapAfter('setEthvelleComposerColor',repaint);
+  wrapAfter('setEthvelleComposerOpacity',repaint);
+  wrapAfter('ethvelleComposerToggleBold',repaint);
+  wrapAfter('ethvellePicsartRepaintText',repaint);
+  window.addEventListener('resize',repaint,{passive:true});
+  if(window.visualViewport){window.visualViewport.addEventListener('resize',repaint,{passive:true});window.visualViewport.addEventListener('scroll',repaint,{passive:true});}
+  document.addEventListener('DOMContentLoaded',observeInput,{once:true});
+  observeInput();
+})();
+</script>
+
+<style id="ethvelle-v298-ui-fixes-css">
+  /* v298-2: Character Preview canvas box is exactly 5:7 (same as its bitmap), so the two dark
+     letterbox bands on the left/right of the preview no longer appear. */
+  #screen-editor .evpa-props-sheet #evpaPropStagePreview,
+  #screen-editor #ethvelleCharacterPropsBackdrop #evpaPropStagePreview{
+    display:block!important;width:100%!important;height:auto!important;max-height:none!important;
+    aspect-ratio:5/7!important;margin:0!important;object-fit:fill!important;background:transparent!important;
+  }
+
+  /* v298-3: selected Left Hand / Right Hand / Flip Horizontal / Flip Vertical use a solid deep-blue
+     border with no soft inner glow. */
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active,
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active:focus,
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active:focus-visible,
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button.active,
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button.active:focus,
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button.active:focus-visible,
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-action-side button.active,
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-v149-flip-row button.active{
+    border:1.5px solid #2F5CE8!important;box-shadow:none!important;outline:0!important;
+    background:#20212A!important;color:#FFFFFF!important;
+  }
+
+  /* v298-4: fullscreen player controls: no bar background/border/blur, only the buttons, times and slider.
+     The cluster is centred at the bottom of the canvas in portrait and in landscape. */
+  #evcaInlineZoomHud .evca-zoom-control-bar,
+  #screen-editor .canvas-wrap.evca-inline-zoom #evcaInlineZoomHud .evca-zoom-control-bar{
+    background:transparent!important;border:0!important;box-shadow:none!important;
+    backdrop-filter:none!important;-webkit-backdrop-filter:none!important;
+    left:50%!important;right:auto!important;transform:translateX(-50%)!important;
+    width:min(520px,calc(100vw - 20px))!important;max-width:calc(100vw - 20px)!important;
+    bottom:calc(10px + env(safe-area-inset-bottom))!important;
+  }
+  /* Keep the bare icons and times readable on bright video frames. */
+  #evcaInlineZoomHud .evca-zoom-control-bar #evcaZoomCurrent,
+  #evcaInlineZoomHud .evca-zoom-control-bar #evcaZoomTotal,
+  #evcaInlineZoomHud .evca-zoom-control-bar .evca-zoom-time{text-shadow:0 1px 3px rgba(0,0,0,.75)!important;}
+  #evcaInlineZoomHud .evca-zoom-control-bar button svg{filter:drop-shadow(0 1px 2px rgba(0,0,0,.7))!important;}
+</style>
+
+<script id="ethvelle-v299-character-clip-fx">
+/* v299: per-clip Adjust (colour) + Clip animations (in / out / overall) for character animation clips.
+   The settings live on the clip object itself (clip.adjustments / clip.clipAnimations), exactly like
+   image and video clips, and are applied around each character when it is painted — on the live
+   stage, in frame capture and in exported video (export sets window.__evCharFxTime per frame). */
+(function(){
+  'use strict';
+  function clipsOf(c){
+    try{
+      if(typeof activeCharacter==='function' && c===activeCharacter()) return getAllStickmanClips(activeClip, splitStickmanSegments);
+      return getAllStickmanClips(c.clip, c.segments||[]);
+    }catch(_e){return [];}
+  }
+  function clipAt(c,t){
+    const list=clipsOf(c);
+    for(let i=0;i<list.length;i++){const cl=list[i].clip;if(cl&&t>=cl.trimStart&&t<cl.trimEnd)return cl;}
+    return null;
+  }
+  function nowT(){
+    const o=window.__evCharFxTime;
+    if(typeof o==='number'&&isFinite(o))return o;
+    return (typeof currentAbsoluteTimeSec==='number'&&isFinite(currentAbsoluteTimeSec))?currentAbsoluteTimeSec:0;
+  }
+  function fxFor(char){
+    if(!char||!char.bones)return null;
+    const cl=clipAt(char,nowT());
+    if(!cl)return null;
+    let filter='none';
+    if(cl.adjustments&&typeof window.ethvelleAdjustmentFilter==='function'){try{filter=window.ethvelleAdjustmentFilter(cl.adjustments,0)||'none';}catch(_e){}}
+    let a=null;
+    if(cl.clipAnimations&&typeof window.getEthvelleClipAnimationState==='function'){
+      try{a=window.getEthvelleClipAnimationState(cl,nowT());}catch(_e){}
+      if(a&&a.opacity===1&&a.scale===1&&!a.x&&!a.y&&!a.rotation)a=null;
+    }
+    if(filter==='none'&&!a)return null;
+    return {filter,anim:a};
+  }
+  // Splitting a clip: both halves keep the colour adjustments; the In animation stays on the first
+  // half and the Out animation moves to the second half.
+  window.__evSplitCarryFx=function(first,second){
+    try{
+      if(first.adjustments)second.adjustments=JSON.parse(JSON.stringify(first.adjustments));
+      if(first.adjustmentsPreset)second.adjustmentsPreset=first.adjustmentsPreset;
+      if(first.clipAnimations){
+        const ca=first.clipAnimations;
+        second.clipAnimations={...ca,in:'none'};
+        first.clipAnimations={...ca,out:'none'};
+      }
+    }catch(_e){}
+  };
+  const orig=window.drawCharacterToContext;
+  if(typeof orig==='function'&&!orig.__ev299Fx){
+    const wrapped=function(targetCtx,char){
+      let fx=null;
+      try{fx=fxFor(char);}catch(_e){fx=null;}
+      if(!fx||!targetCtx)return orig.apply(this,arguments);
+      targetCtx.save();
+      try{
+        if(fx.filter!=='none')targetCtx.filter=fx.filter;
+        const a=fx.anim;
+        if(a){
+          const hip=char.bones&&char.bones.hip,mt=char.modelTransform||{};
+          const px=(hip?hip.x:0)+(Number(mt.offsetX)||0),py=(hip?hip.y:0)+(Number(mt.offsetY)||0);
+          targetCtx.globalAlpha*=Math.max(0,Math.min(1,a.opacity));
+          targetCtx.translate(px+a.x,py+a.y);
+          targetCtx.rotate((a.rotation||0)*Math.PI/180);
+          targetCtx.scale(a.scale,a.scale);
+          targetCtx.translate(-px,-py);
+        }
+        return orig.apply(this,arguments);
+      }finally{targetCtx.restore();}
+    };
+    wrapped.__ev299Fx=true;
+    window.drawCharacterToContext=wrapped;
+  }
+})();
+</script>
+
+<style id="ethvelle-v300-monthly-credits-plan-css">
+  /* Credits history: a rolling 30-day window, with the search field pinned above scrolling rows. */
+  #screen-credits-history .sub-topbar h1{
+    font-size:clamp(15px,4.15vw,18px)!important;
+    letter-spacing:-.02em;
+  }
+  #screen-credits-history .myplan-credit-history-card{
+    height:auto!important;min-height:0!important;max-height:none!important;flex:none!important;
+    overflow:visible!important;background:transparent!important;border:0!important;
+    box-shadow:none!important;border-radius:0!important;padding:0!important;margin:0!important;
+  }
+  #screen-credits-history .myplan-credit-search{
+    position:sticky!important;top:0;z-index:30;isolation:isolate;
+    margin:0!important;padding:5px 0 11px!important;background:var(--bg,#0B0B0F)!important;
+    box-shadow:0 9px 13px -12px rgba(0,0,0,.95);
+  }
+  #screen-credits-history .myplan-credit-search input{
+    border-color:rgba(255,255,255,.10)!important;background:#17181E!important;
+  }
+  #screen-credits-history .myplan-credit-search svg{top:calc(50% - 3px)!important;z-index:1;}
+  #screen-credits-history .myplan-credit-history{
+    height:auto!important;max-height:none!important;min-height:0!important;flex:none!important;
+    overflow:visible!important;overscroll-behavior:auto!important;padding-bottom:30px;
+  }
+  #screen-credits-history .myplan-credit-row{position:relative;scroll-margin-top:58px;}
+  #screen-credits-history .myplan-credit-row-side{gap:7px!important;}
+  #screen-credits-history .myplan-credit-actions{
+    display:flex;flex-direction:row;align-items:center;justify-content:flex-end;gap:7px;
+  }
+  /* The delete control is intentionally icon-only and has no visible side border. */
+  #screen-credits-history .myplan-credit-delete{
+    display:inline-flex!important;align-items:center;justify-content:center;
+    width:34px!important;height:34px!important;min-width:34px!important;min-height:34px!important;
+    padding:0!important;border:0!important;border-color:transparent!important;
+    border-radius:9px!important;background:transparent!important;box-shadow:none!important;
+    color:#FF7777!important;font-size:0!important;line-height:0!important;
+  }
+  #screen-credits-history .myplan-credit-delete svg{
+    display:block;width:18px!important;height:18px!important;fill:none!important;
+    stroke:#FF7777!important;stroke-width:2!important;stroke-linecap:round;stroke-linejoin:round;
+  }
+  #screen-credits-history .myplan-credit-delete:active{background:rgba(255,107,107,.12)!important;}
+  #screen-credits-history .myplan-credit-delete:focus-visible,
+  #screen-credits-history .myplan-credit-mark:focus-visible{outline:2px solid #6C91FF!important;outline-offset:2px;}
+  #screen-credits-history .myplan-credit-mark{
+    display:inline-flex;align-items:center;justify-content:center;flex:0 0 34px;
+    width:34px;height:34px;min-width:34px;min-height:34px;padding:0;
+    border:1px solid rgba(180,190,210,.28);border-radius:9px;
+    background:rgba(255,255,255,.025);color:#AEB6C8;cursor:pointer;
+    -webkit-tap-highlight-color:transparent;
+  }
+  #screen-credits-history .myplan-credit-mark svg{width:17px;height:17px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  #screen-credits-history .myplan-credit-mark.is-marked{
+    border-color:rgba(91,135,255,.62);background:rgba(47,92,232,.20);color:#AFC4FF;
+  }
+
+  /* Active plan: a clear lifetime track plus a separate teal remaining-credit meter. */
+  .ev-plan-card{
+    background:linear-gradient(155deg,#1B1C23 0%,#14151A 100%)!important;
+    border:1px solid rgba(255,255,255,.10)!important;border-radius:16px!important;
+    padding:14px!important;margin:0 0 12px!important;
+    box-shadow:0 7px 20px rgba(0,0,0,.18)!important;
+  }
+  .ev-plan-top{display:flex;justify-content:space-between;align-items:center;gap:10px;}
+  .ev-plan-name{font-weight:800!important;font-size:15px!important;color:#F3F4F8!important;}
+  .ev-plan-timer{font-variant-numeric:tabular-nums;font-weight:800!important;font-size:12px!important;color:#91ACFF!important;text-align:right;}
+  .ev-plan-timer.expired{color:#FF7777!important;}
+  .ev-plan-timeline{margin-top:13px;}
+  .ev-plan-meter-head,.ev-plan-credit-meta{
+    display:flex;align-items:center;justify-content:space-between;gap:10px;
+    color:#D0D4DF;font-size:11.5px;font-weight:700;line-height:1.3;
+  }
+  .ev-plan-meter-head b{color:#E2E7F3;font-size:11px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .ev-plan-timebar,.ev-plan-credit-bar{
+    width:100%;height:7px;overflow:hidden;border-radius:99px;margin-top:8px;
+    background:rgba(255,255,255,.10);
+  }
+  .ev-plan-timebar>i,.ev-plan-credit-bar>i{
+    display:block;height:100%;border-radius:99px;transition:width .35s ease;
+  }
+  .ev-plan-timebar>i{background:linear-gradient(90deg,#4776FF,#78A0FF);}
+  .ev-plan-credit-block{
+    margin-top:12px;padding:10px 11px 11px;border-radius:11px;
+    border:1px solid rgba(66,194,170,.25);
+    background:linear-gradient(135deg,rgba(22,126,117,.25),rgba(22,86,105,.24));
+  }
+  .ev-plan-credit-meta{color:#D6EDE8;}
+  .ev-plan-credit-meta b{color:#F1FFFB;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .ev-plan-credit-bar{height:7px;margin-top:9px;background:rgba(219,255,247,.13);}
+  .ev-plan-credit-bar>i{background:linear-gradient(90deg,#36B99D,#68D9C1);}
+  .ev-plan-empty-meta{color:#CDD2DF!important;font-size:12px!important;line-height:1.5;}
+
+  /* Keep the character's Adjust control directly beside Animations when an animation clip is selected. */
+  #screen-editor #bottomToolsClip #clipAdjustTool.evlt-inline-tool{flex:0 0 66px!important;min-width:66px!important;max-width:66px!important;}
+</style>
+
+<script id="ethvelle-v300-monthly-credits-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV300MonthlyCredits)return;
+  window.__ethvelleV300MonthlyCredits=true;
+  const DAY=86400000,WINDOW_MS=30*DAY,MAX_TIMER=2147483000;
+  const $=id=>document.getElementById(id);
+  let expiryTimer=0;
+
+  function creditTime(value){
+    try{
+      if(typeof creditTimestampMs==='function')return Number(creditTimestampMs(value))||0;
+      if(value&&typeof value.toMillis==='function')return Number(value.toMillis())||0;
+      if(typeof value==='number')return value;
+      const n=new Date(value||0).getTime();return Number.isFinite(n)?n:0;
+    }catch(_e){return 0;}
+  }
+  function monthlyTransactions(){
+    const now=Date.now(),cutoff=now-WINDOW_MS;
+    return (Array.isArray(myCreditTransactions)?myCreditTransactions:[]).filter(t=>{
+      const stamp=creditTime(t&&t.createdAt);
+      return stamp>=cutoff&&stamp<=now+5*60*1000;
+    });
+  }
+  function decorateHistoryRows(rows){
+    rows.forEach((row,index)=>{
+      const side=row.querySelector('.myplan-credit-row-side');
+      if(!side)return;
+      let actions=side.querySelector('.myplan-credit-actions');
+      if(!actions){
+        actions=document.createElement('div');actions.className='myplan-credit-actions';
+        const del=side.querySelector('.myplan-credit-delete');
+        if(del)actions.appendChild(del);
+        side.appendChild(actions);
+      }
+      row.dataset.evCreditRow=String(index);
+    });
+  }
+
+  function scheduleHistoryExpiry(){
+    if(expiryTimer)clearTimeout(expiryTimer);
+    expiryTimer=0;
+    const now=Date.now();
+    let next=Infinity;
+    (Array.isArray(myCreditTransactions)?myCreditTransactions:[]).forEach(t=>{
+      const stamp=creditTime(t&&t.createdAt);if(!stamp)return;
+      const expires=stamp+WINDOW_MS+20;
+      if(expires>now&&expires<next)next=expires;
+    });
+    if(!Number.isFinite(next))return;
+    const delay=Math.max(1000,Math.min(MAX_TIMER,next-now));
+    expiryTimer=setTimeout(()=>{
+      const screen=$('screen-credits-history');
+      if(screen&&screen.classList.contains('active'))window.renderCreditsHistoryScreen();
+      else scheduleHistoryExpiry();
+    },delay);
+  }
+
+  const baseHistoryRenderer=window.renderCreditsHistoryScreen;
+  if(typeof baseHistoryRenderer==='function'&&!baseHistoryRenderer.__evv300){
+    const wrappedHistoryRenderer=function(){
+      const allTransactions=myCreditTransactions;
+      const inWindow=monthlyTransactions();
+      myCreditTransactions=inWindow;
+      let result;
+      try{result=baseHistoryRenderer.apply(this,arguments);}
+      finally{myCreditTransactions=allTransactions;}
+      const scroll=$('creditsHistoryScroll');
+      const heading=document.querySelector('#screen-credits-history .sub-topbar h1');
+      if(heading)heading.textContent='Credits history of this month';
+      if(scroll){
+        const section=scroll.querySelector('.myplan-credit-history-card');
+        if(section){
+          section.setAttribute('aria-label','Credits history of this month');
+          const list=section.querySelector('.myplan-credit-history');
+          if(list&&!inWindow.length&&currentUser){
+            const empty=list.querySelector('.myplan-credit-empty');
+            if(empty)empty.textContent='No credit activity in the last 30 days.';
+          }
+          const rows=list?Array.from(list.querySelectorAll('.myplan-credit-row')):[];
+          const visibleWindow=inWindow.filter(t=>!myHiddenCreditTransactionIds.includes(String(t&&t.id)));
+          rows.forEach((row,index)=>{row.dataset.evCreditId=String(visibleWindow[index]&&visibleWindow[index].id||'');});
+          decorateHistoryRows(rows);
+        }
+      }
+      scheduleHistoryExpiry();
+      return result;
+    };
+    wrappedHistoryRenderer.__evv300=true;
+    window.renderCreditsHistoryScreen=wrappedHistoryRenderer;
+    try{renderCreditsHistoryScreen=wrappedHistoryRenderer;}catch(_e){}
+  }
+
+  /* Plan progress indicators use the same billing state/credit pool as the original renderer. */
+  function remainingTime(end){
+    let d=end-Date.now();if(d<=0)return 'Expired';
+    const days=Math.floor(d/DAY);d%=DAY;const hours=Math.floor(d/3600000);d%=3600000;
+    const minutes=Math.floor(d/60000);const seconds=Math.floor((d%60000)/1000);
+    return (days?days+'d ':'')+String(hours).padStart(2,'0')+'h '+String(minutes).padStart(2,'0')+'m '+String(seconds).padStart(2,'0')+'s';
+  }
+  const clamp=(n,min,max)=>Math.max(min,Math.min(max,n));
+  window.evActivePlansHtml=function(owned){
+    const box=message=>'<div class="ev-plan-card"><div class="ev-plan-empty-meta">'+message+'</div></div>';
+    if(!currentUser)return box('Sign in to see your active plans.');
+    const paid=(owned||[]).filter(p=>Number(p.price)>0&&!['free','p_free'].includes(String(p.id)));
+    if(!paid.length)return box('No active paid plan right now.');
+    let pool=Math.max(0,Number(myCreditsBalance)||0);
+    const now=Date.now();
+    return paid.map(p=>{
+      const state=(myPlanOrderStates&&myPlanOrderStates[String(p.id)])||{};
+      const grant=Number(typeof getPlanCreditGrant==='function'?getPlanCreditGrant(p):0)||Number(state.creditsGrantAmount)||0;
+      const startFromState=creditTime(state.approvedAt)||creditTime(state.creditsGrantedAt)||creditTime(state.createdAt);
+      const duration=Math.max(1,Number(p.durationDays)||30)*DAY;
+      const exp=creditTime(state.expiresAt)||(startFromState?startFromState+duration:0);
+      const start=startFromState||(exp?exp-duration:0);
+      const rem=grant>0?Math.min(pool,grant):pool;pool-=rem;
+      const creditPct=grant>0?clamp(Math.round(rem/grant*100),0,100):(rem>0?100:0);
+      const timelinePct=exp&&start&&exp>start?clamp(Math.round((exp-now)/(exp-start)*100),0,100):(exp?(exp>now?100:0):100);
+      const timelineCountdown=exp?'<span class="ev-plan-timer ev-plan-timeline-countdown" data-ev-exp="'+exp+'">'+remainingTime(exp)+'</span>':'<span class="ev-plan-timeline-countdown">No expiry</span>';
+      const creditValue=rem.toLocaleString()+(grant>0?' / '+grant.toLocaleString():'');
+      return '<div class="ev-plan-card">'
+        +'<div class="ev-plan-top"><span class="ev-plan-name">'+escapeHtml(p.name||'Plan')+'</span></div>'
+        +'<div class="ev-plan-timeline">'
+          +'<div class="ev-plan-meter-head"><span>Timeline</span>'+timelineCountdown+'</div>'

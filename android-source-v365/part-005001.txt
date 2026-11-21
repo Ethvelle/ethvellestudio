@@ -1,0 +1,1000 @@
+  </div>
+
+  <!-- ============ MY PLAN (Billing & plan detail — real usage, not a redirect) ============ -->
+  <div class="screen" id="screen-myplan">
+    <div class="sub-topbar">
+      <div class="sub-back-btn" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
+      <h1>Billing &amp; plan</h1>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;" id="myPlanScroll"></div>
+  </div>
+
+  <!-- ============ CREDITS HISTORY (separate page, opened from Profile) ============ -->
+  <div class="screen" id="screen-credits-history">
+    <div class="sub-topbar">
+      <div class="sub-back-btn" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
+      <h1>Credits history</h1>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;" id="creditsHistoryScroll"></div>
+  </div>
+
+  <!-- ============ TUTORIALS (admin-managed, YouTube-style grid) ============ -->
+  <div class="screen" id="screen-tutorials">
+    <div class="topbar">
+      <h1>Tutorials</h1>
+    </div>
+    <div class="tutorial-search-wrap">
+      <div class="tutorial-search-bar" id="tutorialSearchBar">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input type="text" class="tutorial-search-input" id="tutorialSearchInput" placeholder="Search tutorials" autocomplete="off" oninput="onTutorialSearchInput(this.value)">
+        <div class="tutorial-search-clear" id="tutorialSearchClear" onclick="clearTutorialSearch()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;">
+      <div class="tutorial-grid" id="tutorialGrid"></div>
+    </div>
+    <div class="home-bottom-nav">
+      <div class="home-nav-item" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROMPTS & TEMPLATES (home tile) ============ -->
+  <div class="screen" id="screen-keyframeInfo">
+    <div class="topbar">
+      <h1>Prompts &amp; Templates</h1>
+    </div>
+    <div class="prompt-search-wrap" id="promptSearchWrap">
+      <div class="prompt-search-box" id="promptSearchBox">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="promptSearchInput" type="search" autocomplete="off" placeholder="Search prompts and templates" oninput="onPromptSearchInput(this.value)">
+        <button type="button" id="promptSearchClear" onclick="clearPromptSearch()" aria-label="Clear search">×</button>
+      </div>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;">
+      <div class="home-section" style="padding-top:6px;">
+        <div class="home-prompt-grid" id="keyframePromptGrid">
+          <div class="home-prompt-empty">No prompts published yet.</div>
+        </div>
+      </div>
+    </div>
+    <div class="home-bottom-nav">
+      <div class="home-nav-item" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROJECTS ============ -->
+  <div class="screen" id="screen-projects">
+    <div class="topbar" id="projectsTopbar">
+      <h1>Projects</h1>
+      <div class="topbar-actions">
+        <button class="icon-btn" id="projectsSearchToggle" onclick="toggleProjectsSearch()" aria-label="Search projects" title="Search projects"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg></button>
+        <button class="icon-btn" id="projectsToolsToggle" onclick="openProjectTools()" aria-label="Project options" title="Project options"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="5" r="1.5"/><circle cx="12" cy="12" r="1.5"/><circle cx="12" cy="19" r="1.5"/></svg></button>
+      </div>
+    </div>
+    <div class="projects-search-wrap" id="projectsSearchWrap" style="display:none;">
+      <div class="projects-search-field">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="M21 21l-4.3-4.3"/></svg>
+        <input id="projectsSearchInput" type="search" placeholder="Search your projects…" autocomplete="off" oninput="onProjectSearchInput(this.value)">
+        <button type="button" id="projectsSearchClear" onclick="clearProjectSearch()" aria-label="Clear search">×</button>
+      </div>
+    </div>
+    <div class="filter-row" id="projectsFilterRow">
+      <button class="filter-chip active" data-ptab="all" onclick="setProjectsTab('all')">All</button>
+      <button class="filter-chip" data-ptab="animations" onclick="setProjectsTab('animations')">My Projects</button>
+      <button class="filter-chip" data-ptab="models" onclick="setProjectsTab('models')">Models</button>
+    </div>
+    <div class="select-bar">
+      <div class="select-count" id="selectCount">Select projects</div>
+      <div class="select-actions">
+        <button class="select-pill" onclick="exitSelectMode()">Cancel</button>
+        <button class="select-pill danger" id="selectDeleteBtn" onclick="openBulkDeleteConfirm()" disabled>Delete</button>
+      </div>
+    </div>
+    <div class="projects-scroll" id="projectsTabPane-all">
+      <div class="projects-count" id="projectsCount">0 projects</div>
+      <div class="project-grid" id="projectGrid"></div>
+      <div class="empty-state" id="emptyState" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="#57575F" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="4"/><path d="M12 11v8M8 15l-3 3M16 15l3 3"/></svg>
+        <p>No projects yet. Tap Create to rig your first character.</p>
+      </div>
+    </div>
+    <div class="projects-scroll" id="projectsTabPane-models" style="display:none;">
+      <div class="projects-count" id="modelsCount">0 models</div>
+      <div class="models-grid" id="modelsGrid"></div>
+    </div>
+    <div class="home-bottom-nav">
+      <div class="home-nav-item" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item active" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROMO POPUP ============ -->
+  <div class="notification-popup-backdrop" id="notificationPopupBackdrop" onclick="if(event.target===this) closeLocationNotification()" aria-live="polite">
+    <div class="notification-popup-card" role="dialog" aria-modal="true" aria-labelledby="notificationPopupTitle">
+      <div class="notification-popup-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg></div>
+      <button class="notification-popup-close" onclick="closeLocationNotification()" aria-label="Close">×</button>
+      <p class="notification-popup-kicker">ETHVELLE NOTIFICATION</p><h3 id="notificationPopupTitle"></h3><p id="notificationPopupBody"></p>
+      <button class="notification-popup-button" onclick="closeLocationNotification()">Got it</button>
+    </div>
+  </div>
+
+  <div class="modal-backdrop" id="promptDetailBackdrop" onclick="if(event.target===this) closePromptDetails()">
+    <div class="modal-sheet"><div class="sheet-handle"></div><p class="sheet-title" id="promptDetailTitle">Prompt</p><div class="prompt-detail-scroll" id="promptDetailBody"></div><button class="sheet-btn" id="promptCopyBtn" onclick="copyPromptText()">Copy prompt</button><button class="sheet-btn-secondary" onclick="closePromptDetails()">Close</button></div>
+  </div>
+
+  <div id="promoPopupBackdrop" onclick="if(event.target===this) closePromoPopup()">
+    <div class="promo-popup-card">
+      <img id="promoPopupImg" class="promo-popup-img" alt="" onclick="handlePromoPopupTap()">
+      <div class="promo-popup-close" onclick="closePromoPopup()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ RATIO / NEW PROJECT MODAL ============ -->
+  <div class="modal-backdrop" id="ratioModalBackdrop" onclick="if(event.target===this) closeRatioModal()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">New animation</p>
+      <p class="sheet-sub">Name it and choose a canvas ratio</p>
+      <p class="field-label">Project name</p>
+      <input class="name-input" id="projectNameInput" placeholder="Untitled animation" maxlength="40">
+      <p class="field-label">Aspect ratio</p>
+      <div class="ratio-grid" id="ratioGrid">
+        <button class="ratio-opt selected" data-ratio="9:16" onclick="selectRatio(this)">
+          <div class="ratio-shape has-icon" style="width:34px; height:60px;"><svg viewBox="0 0 24 24"><path d="M19.6 6.7a4.9 4.9 0 01-3.8-4.2V2h-3.4v13.4a2.9 2.9 0 11-2-2.8V9.1a6.3 6.3 0 105.4 6.3V8.9a8.2 8.2 0 004.8 1.5V7a4.8 4.8 0 01-1-.3z"/></svg></div>
+          <span class="ratio-label">9:16</span>
+          <span class="ratio-plat">TikTok</span>
+        </button>
+        <button class="ratio-opt" data-ratio="1:1" onclick="selectRatio(this)">
+          <div class="ratio-shape has-icon" style="width:46px; height:46px;"><svg viewBox="0 0 24 24"><path d="M12 7.4A4.6 4.6 0 1016.6 12 4.6 4.6 0 0012 7.4zm0 7.6a3 3 0 113-3 3 3 0 01-3 3zM17.8 5.4a1.1 1.1 0 101.1 1.1 1.1 1.1 0 00-1.1-1.1z"/><path d="M16.6 2H7.4A5.4 5.4 0 002 7.4v9.2A5.4 5.4 0 007.4 22h9.2a5.4 5.4 0 005.4-5.4V7.4A5.4 5.4 0 0016.6 2zm3.8 14.6a3.8 3.8 0 01-3.8 3.8H7.4a3.8 3.8 0 01-3.8-3.8V7.4a3.8 3.8 0 013.8-3.8h9.2a3.8 3.8 0 013.8 3.8z"/></svg></div>
+          <span class="ratio-label">1:1</span>
+          <span class="ratio-plat">Instagram</span>
+        </button>
+        <button class="ratio-opt" data-ratio="16:9" onclick="selectRatio(this)">
+          <div class="ratio-shape has-icon" style="width:52px; height:30px;"><svg viewBox="0 0 24 24"><path d="M23.5 6.5a3 3 0 00-2.1-2.1C19.5 3.9 12 3.9 12 3.9s-7.5 0-9.4.5A3 3 0 00.5 6.5C0 8.4 0 12 0 12s0 3.6.5 5.5a3 3 0 002.1 2.1c1.9.5 9.4.5 9.4.5s7.5 0 9.4-.5a3 3 0 002.1-2.1c.5-1.9.5-5.5.5-5.5s0-3.6-.5-5.5zM9.6 15.6V8.4l6.2 3.6z"/></svg></div>
+          <span class="ratio-label">16:9</span>
+          <span class="ratio-plat">YouTube</span>
+        </button>
+        <button class="ratio-opt" data-ratio="4:5" onclick="selectRatio(this)">
+          <div class="ratio-shape has-icon" style="width:40px; height:50px;"><svg viewBox="0 0 24 24"><path d="M24 12.07C24 5.4 18.63 0 12 0S0 5.4 0 12.07C0 18.1 4.39 23.1 10.13 24v-8.44H7.08v-3.49h3.05V9.41c0-3.02 1.79-4.7 4.53-4.7 1.31 0 2.68.24 2.68.24v2.97h-1.51c-1.49 0-1.96.93-1.96 1.89v2.26h3.33l-.53 3.49h-2.8V24C19.61 23.1 24 18.1 24 12.07z"/></svg></div>
+          <span class="ratio-label">4:5</span>
+          <span class="ratio-plat">Facebook</span>
+        </button>
+      </div>
+      <button class="sheet-btn" onclick="createProject()">
+        Create project
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ PROJECT ACTIONS SHEET ============ -->
+  <div class="modal-backdrop" id="projectMenuBackdrop" onclick="if(event.target===this) closeProjectMenu()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="projectMenuTitle">Project</p>
+      <p class="sheet-sub">Choose an action</p>
+      <div class="action-list">
+        <button class="action-row" onclick="openEditorFromMenu()">
+          <div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg></div>
+          <span>Open project</span>
+        </button>
+        <button class="action-row" onclick="openRenameSheet()">
+          <div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20h4L18.5 9.5a2.12 2.12 0 00-3-3L5 17v3z"/></svg></div>
+          <span>Rename project</span>
+        </button>
+        <button class="action-row" onclick="duplicateProjectFromMenu()">
+          <div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg></div>
+          <span>Duplicate</span>
+        </button>
+        <button class="action-row danger" onclick="confirmDeleteFromMenu()">
+          <div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg></div>
+          <span>Delete project</span>
+        </button>
+      </div>
+      <button class="sheet-btn-secondary" onclick="closeProjectMenu()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ PROJECT TOOLS SHEET ============ -->
+  <div class="modal-backdrop" id="projectToolsBackdrop" onclick="if(event.target===this) closeProjectTools()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Project options</p>
+      <p class="sheet-sub">Sort your projects or select several at once.</p>
+      <div class="action-list">
+        <button class="action-row" onclick="setProjectSort('newest')"><div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M7 12h13M10 17h10"/><path d="M4 4v6"/></svg></div><span>Newest first</span></button>
+        <button class="action-row" onclick="setProjectSort('oldest')"><div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 7h16M4 12h13M4 17h10"/><path d="M20 14v6"/></svg></div><span>Oldest first</span></button>
+        <button class="action-row" onclick="setProjectSort('az')"><div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 18V5l3-2 3 2v13M4 10h6M14 7h6l-6 10h6"/></svg></div><span>Name A–Z</span></button>
+        <button class="action-row" onclick="startProjectMultiSelect()"><div class="action-row-icon"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="4"/><path d="m8 12 2.5 2.5L16 9"/></svg></div><span>Select projects</span></button>
+      </div>
+      <button class="sheet-btn-secondary" onclick="closeProjectTools()">Close</button>
+    </div>
+  </div>
+
+  <!-- ============ RENAME MODAL ============ -->
+  <div class="modal-backdrop" id="renameModalBackdrop" onclick="if(event.target===this) closeRenameSheet()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Rename project</p>
+      <p class="field-label">Project name</p>
+      <input class="name-input" id="renameInput" placeholder="Project name" maxlength="40">
+      <button class="sheet-btn" onclick="saveRenamedProject()">Save</button>
+    </div>
+  </div>
+
+  <!-- ============ BULK DELETE CONFIRM MODAL ============ -->
+  <div class="modal-backdrop" id="bulkDeleteBackdrop" onclick="if(event.target===this) closeBulkDeleteConfirm()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="bulkDeleteTitle">Delete projects?</p>
+      <p class="sheet-sub">This can't be undone. The selected projects and their animations will be permanently removed.</p>
+      <button class="sheet-btn danger-btn" id="bulkDeleteBtn" onclick="deleteSelectedConfirmed()">Delete</button>
+      <button class="sheet-btn-secondary" onclick="closeBulkDeleteConfirm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ DELETE CONFIRM MODAL ============ -->
+  <div class="modal-backdrop" id="deleteConfirmBackdrop" onclick="if(event.target===this) closeDeleteConfirm()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Delete this project?</p>
+      <p class="sheet-sub">This can't be undone. The project and its animation will be permanently removed.</p>
+      <button class="sheet-btn danger-btn" onclick="deleteProjectConfirmed()">Delete project</button>
+      <button class="sheet-btn-secondary" onclick="closeDeleteConfirm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ ADD CHARACTER MODAL ============
+       Tapping the "Add character" row/plus icon used to call addCharacter() directly,
+       instantly adding a stickman with no choice involved. Now it opens this chooser first
+       — Stickman (the existing instant-add flow) or Custom character (opens the 10-part
+       upload builder below — see openCustomCharBuilder/PART_SLOTS). -->
+  <div class="modal-backdrop" id="addCharModalBackdrop" onclick="if(event.target===this) closeAddCharModal()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Add character</p>
+      <p class="sheet-sub">Choose a character type</p>
+      <div class="option-grid" style="grid-template-columns:repeat(2,minmax(0,1fr));">
+        <div class="option-tile" onclick="closeAddCharModal(); addCharacter();">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg>
+          <span>Stickman</span>
+        </div>
+        <div class="option-tile upload" onclick="closeAddCharModal(); openAutoRigUploader(false);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 4M12 15l-4 6M12 15l4 6"/></svg>
+          <span>Upload character</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MODEL LIBRARY MODAL ============
+       FEATURE (reusable custom models): every custom character rigged via the auto-rig
+       uploader is also saved as a standalone "model asset" (see saveCharacterAsModelAsset),
+       independent of whatever project it was first created in. This modal lists every saved
+       asset — tapping one adds it into the CURRENT project as a new character
+       (addCharacterFromModelAsset); the pencil/trash icons rename or delete the saved asset
+       itself. Reached from the bottom toolbar's "Add model" button and from the Add Character
+       chooser's "My models" tile. -->
+  <div class="modal-backdrop" id="modelLibraryBackdrop" onclick="if(event.target===this) closeModelLibrary()">
+    <div class="modal-sheet" style="max-height:82vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">My models</p>
+      <p class="sheet-sub">Reuse a saved model in this project, or upload a new one</p>
+      <div class="option-grid" style="grid-template-columns:1fr; margin-bottom:14px;">
+        <div class="option-tile upload" id="modelLibraryAddBtn" role="button" tabindex="0" style="aspect-ratio:auto; flex-direction:row; height:52px; gap:10px;" onclick="closeModelLibrary(); openAutoRigUploader(false);">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" style="width:20px;height:20px;"><path d="M12 5v14M5 12h14"/></svg>
+          <span style="font-size:14px;">Add character</span>
+        </div>
+      </div>
+      <div class="editor-asset-search-wrap evca-model-search-wrap" id="evcaModelSearchBar">
+        <svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+        <input class="editor-asset-search" id="modelLibrarySearchInput" type="search" aria-label="Search saved character models" autocomplete="off" placeholder="Search saved models…" oninput="renderModelLibraryList()">
+      </div>
+      <div class="model-asset-list" id="modelAssetListBody" style="overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+      <button class="sheet-btn-secondary" onclick="closeModelLibrary()" style="margin-top:14px;">Close</button>
+    </div>
+  </div>
+
+  <!-- ============ RENAME MODEL MODAL ============ -->
+  <div class="modal-backdrop" id="renameModelBackdrop" onclick="if(event.target===this) closeRenameModelModal()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Rename model</p>
+      <input type="text" id="renameModelInput" class="rename-model-input" maxlength="40" placeholder="Model name">
+      <button class="sheet-btn" onclick="confirmRenameModel()" style="margin-top:14px;">Save</button>
+      <button class="sheet-btn-secondary" onclick="closeRenameModelModal()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ DELETE MODEL CONFIRM MODAL ============ -->
+  <div class="modal-backdrop" id="deleteModelConfirmBackdrop" onclick="if(event.target===this) closeDeleteModelConfirm()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Delete this model?</p>
+      <p class="sheet-sub">This removes it from your saved models. It won't affect characters already added to a project.</p>
+      <button class="sheet-btn danger-btn" onclick="confirmDeleteModelAsset()">Delete</button>
+      <button class="sheet-btn-secondary" onclick="closeDeleteModelConfirm()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ MODEL LAB EDITOR LOADING POPUP ============ -->
+  <div id="edLoadingOverlay" aria-hidden="true" role="status" aria-live="polite">
+    <div class="ed-loading-card"><span class="ed-loading-spinner" aria-hidden="true"></span><b id="edLoadingTitle">Opening character editor</b><small>Preparing character parts…</small></div>
+  </div>
+
+  <!-- ============ MODEL LAB PART-SHEET EDITOR ============ -->
+  <div id="sheetEd" role="dialog" aria-label="Edit model">
+    <header class="ed-top">
+      <button class="ed-btn" onclick="edCancel()" aria-label="Close editor"><i data-ic="x"></i></button>
+      <div class="ed-title"><b>Edit model</b><span id="edSubtitle">Tap a part to edit it</span></div>
+      <button class="ed-btn" id="edUndoBtn" onclick="edUndo()" aria-label="Undo" disabled><i data-ic="undo"></i></button>
+      <button class="ed-btn" id="edRedoBtn" onclick="edRedo()" aria-label="Redo" disabled><i data-ic="redo"></i></button>
+      <button class="ed-done" onclick="edDone()">Done</button>
+    </header>
+    <div class="ed-main">
+      <div class="ed-stage" id="edStage">
+        <canvas id="edCanvas"></canvas>
+        <div class="ed-lockbadge" id="edLockBadge"></div>
+        <div class="ed-zoom">
+          <button onclick="edZoomBy(1.25)" aria-label="Zoom in">+</button>
+          <em id="edZoomVal">100%</em>
+          <button onclick="edZoomBy(0.8)" aria-label="Zoom out">&minus;</button>
+          <button onclick="edFit()" aria-label="Fit view" style="font-size:12px">Fit</button>
+          <button id="edBonesBtn" class="is-on" onclick="edToggleBones()" aria-label="Hide or show bones" title="Hide / show bones"><i data-ic="eye"></i></button>
+          <button id="edLockBtn" onclick="edToggleLock()" aria-label="Lock body parts to bones" title="Lock body parts to bones"><i data-ic="unlock"></i></button>
+          <button id="edResetSkeletonBtn" class="ed-reset-skeleton" onclick="edResetSkeletonToDefault()" aria-label="Reset skeleton to default position" title="Reset skeleton to default position"><i data-ic="reset"></i></button>
+        </div>
+      </div>
+      <div class="ed-panel">
+        <div class="ed-scroll" id="edScroll">
+        <div class="ed-model-name-panel">
+          <label for="edModelNameInput">Model name</label>
+          <input id="edModelNameInput" type="text" maxlength="40" autocomplete="off" spellcheck="false" placeholder="Enter model name" oninput="edSetModelName(this.value)">
+        </div>
+        <div class="ed-layers" id="edLayers"></div>
+        <div class="ed-tools">
+          <button class="ed-tool" onclick="edFlip('x')"><i data-ic="flipH"></i><span>Flip H</span></button>
+          <button class="ed-tool" onclick="edFlip('y')"><i data-ic="flipV"></i><span>Flip V</span></button>
+          <button class="ed-tool ed-similar-tool" onclick="edApplyToSimilarParts()" title="Apply this part's edits to matching parts"><i data-ic="copy"></i><span>Apply similar</span></button>
+          <button class="ed-tool" onclick="edResetAll()" title="Reset all parts to their starting layout"><i data-ic="reset"></i><span>Reset all</span></button>
+          <button class="ed-tool ed-whole-flip" id="edFlipModelBtn" onclick="edFlipModel()" title="Turn the entire side-profile rig 180 degrees. Near/far limbs swap, and every piece stays editable" aria-label="Turn whole model 180 degrees"><i data-ic="flipH"></i><span>Turn whole model</span></button>
+          <button class="ed-tool" id="edSwapBtn" onclick="edSwap()"><i data-ic="swap"></i><span>Swap L/R</span></button>
+          <button class="ed-tool" onclick="edResetPart()"><i data-ic="reset"></i><span>Reset part</span></button>
+        </div>
+        </div>
+        <div class="ed-adjust">
+          <div class="ed-modes" id="edModes">
+            <button data-m="size" onclick="edSetMode('size')">Size</button>
+            <button data-m="width" onclick="edSetMode('width')">Width</button>
+            <button data-m="height" onclick="edSetMode('height')">Length</button>
+            <button data-m="rotate" onclick="edSetMode('rotate')">Rotate</button>
+            <button data-m="position" onclick="edSetMode('position')">Move</button>
+          </div>
+          <div class="ed-slider">
+            <button onclick="edNudge(-1)" aria-label="Decrease">&minus;</button>
+            <input type="range" id="edSlider" min="30" max="300" value="100" oninput="edSliderInput(this.value)" onpointerdown="edSliderStart()" onkeydown="edSliderStart()" onchange="edSliderEnd()" onkeyup="edSliderEnd()">
+            <button onclick="edNudge(1)" aria-label="Increase">+</button>
+            <em id="edVal">100%</em>
+          </div>
+          <div class="ed-slider" id="edSliderRowY" style="display:none; margin-top:8px;">
+            <button onclick="edNudgeY(-1)" aria-label="Decrease">&minus;</button>
+            <input type="range" id="edSliderY" min="-150" max="150" value="0" oninput="edSliderInputY(this.value)" onpointerdown="edSliderStart()" onkeydown="edSliderStart()" onchange="edSliderEnd()" onkeyup="edSliderEnd()">
+            <button onclick="edNudgeY(1)" aria-label="Increase">+</button>
+            <em id="edValY">0%</em>
+          </div>
+        </div>
+        <!-- Extra-part upload area removed: expression and gesture parts now come from the 27-part model sheet. -->
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CUSTOM CHARACTER BUILDER MODAL ============
+       10-slot upload grid (see PART_SLOTS) for building an image-based posable character.
+       Tapping an empty slot opens the file picker (#partFileInput); tapping a filled slot
+       reopens the pivot editor below so the pin (and rotation/mirror) can be adjusted without
+       re-uploading. "Create character" is disabled until every slot is filled (see
+       renderCustomBuilderGrid). Also doubles as the EDIT flow for an already-created custom
+       character: opened via openCustomCharBuilder(true) from the Bones panel's "Rig my art"
+       tile, it pre-fills every slot from the active character's current parts and the done
+       button becomes "Save changes", updating that character in place instead of adding a new
+       one (see the customBuilderEditingExisting branch in finishCustomCharacterBuild). -->
+  <div class="modal-backdrop" id="customCharBuilderBackdrop" onclick="if(event.target===this) closeCustomCharBuilder()">
+    <div class="modal-sheet" style="height:82vh; max-height:82vh; display:flex; flex-direction:column; overflow:hidden;">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="customBuilderTitle">Build custom character</p>
+      <p class="sheet-sub" id="customBuilderSub">Upload a transparent PNG for each part, then pin its joint. All 10 parts are needed.</p>
+      <div class="part-slot-grid" id="customBuilderGrid" style="overflow-y:auto; -webkit-overflow-scrolling:touch;"></div>
+      <button class="sheet-btn" id="customBuilderDoneBtn" onclick="finishCustomCharacterBuild()" disabled style="margin-top:18px;">Create character</button>
+      <button class="sheet-btn-secondary" onclick="closeCustomCharBuilder()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ PIVOT EDITOR MODAL ============
+       Shown right after picking each part image (and reopenable by tapping a filled slot).
+       Drag the green dot (or tap anywhere on the image) to mark where this part hinges onto
+       its parent bone — see setupPivotDrag/positionPivotDot. Pivot is stored as a 0..1
+       fraction of the image's own width/height, not pixels (see customBuilderParts). Rotate/
+       Mirror bake the transform straight into the part's stored image (see
+       rotatePivotEditorPart/mirrorPivotEditorPart) so a part uploaded sideways or that needs
+       to face the other way can be fixed here instead of re-cropping and re-uploading. -->
+  <div class="modal-backdrop" id="pivotEditorBackdrop" onclick="if(event.target===this) closePivotEditor()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="pivotEditorTitle">Pin the joint</p>
+      <p class="sheet-sub">Drag the dot to where this part connects to the body</p>
+      <div class="pivot-editor-wrap" id="pivotEditorWrap">
+        <img id="pivotEditorImg" class="pivot-editor-img" alt="">
+        <div class="pivot-content-box" id="pivotContentBox" title="Detected artwork bounds"></div>
+        <div class="pivot-dot" id="pivotDot"></div>
+      </div>
+      <p class="sheet-sub" id="pivotEditorHint" style="margin-top:6px; opacity:0.7;">Dashed box shows the artwork Ethvelle detected — crop tighter if it looks off</p>
+      <div class="pivot-adjust-row">
+        <button class="pivot-adjust-btn" onclick="rotatePivotEditorPart()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.11M21 3v5h-5"/></svg>
+          Rotate
+        </button>
+        <button class="pivot-adjust-btn" onclick="mirrorPivotEditorPart()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v18M17 8l3 4-3 4M7 8l-3 4 3 4"/></svg>
+          Mirror
+        </button>
+      </div>
+      <button class="sheet-btn" onclick="closePivotEditor()" style="margin-top:12px;">Done</button>
+    </div>
+  </div>
+
+  <!-- ============ TWO-SHEET HUMANOID MODEL UPLOAD ============ -->
+  <div class="modal-backdrop" id="autoRigUploadBackdrop" onclick="if(event.target===this) closeAutoRigUploader()">
+    <div class="modal-sheet" style="max-height:92vh;overflow-y:auto;-webkit-overflow-scrolling:touch;">
+      <div class="sheet-handle"></div>
+      <div class="ev-sheet-type-switch" role="group" aria-label="Character model type">
+        <button type="button" class="ev-sheet-type-btn active" data-sheet-type="humanoid" aria-pressed="true" onclick="setUploadSheetType('humanoid')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg><span>Humanoid</span></button>
+        <button type="button" class="ev-sheet-type-btn" data-sheet-type="animal" aria-pressed="false" onclick="setUploadSheetType('animal')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/></svg><span>Animals</span></button>
+        <button type="button" class="ev-sheet-type-btn" data-sheet-type="bird" aria-pressed="false" onclick="setUploadSheetType('bird')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/></svg><span>Birds</span></button>
+        <button type="button" class="ev-sheet-type-btn" data-sheet-type="mermaid" aria-pressed="false" onclick="setUploadSheetType('mermaid')"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="3.6" r="2.1"/><path d="M9.5 6.2c-1.5.9-2.5 2.5-2.5 4.3v1.1c0 1.2.9 2.1 2.1 2.1h5.8c1.2 0 2.1-.9 2.1-2.1v-1.1c0-1.8-1-3.4-2.5-4.3"/><path d="M9.1 8.4 7.3 10.1M14.9 8.4l1.8 1.7"/><path d="M10 13.7c-.1 1.3-.9 2.1-1.9 3.1-1.2 1.2-.7 2.8.8 3.4 1.2.5 2.3.9 3.1 2 .8-1.1 1.9-1.5 3.1-2 1.5-.6 2-2.2.8-3.4-1-1-1.8-1.8-1.9-3.1"/><path d="M12 22.1c-.9-1.2-2.2-1.8-4.2-1.8.7-1.1 1.4-2 2.5-2.6M12 22.1c.9-1.2 2.2-1.8 4.2-1.8-.7-1.1-1.4-2-2.5-2.6"/></svg><span>Mermaid</span></button>
+        <button type="button" class="ev-sheet-type-btn" data-sheet-type="lamia" aria-pressed="false" onclick="setUploadSheetType('lamia')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 20c0-4.1 2.6-7.2 6.1-7.2 2.3 0 3.3 1.8 5.5 1.8 2.4 0 3.9-1.5 3.9-3.7 0-1.9-1.3-3.3-3.1-3.3-1.7 0-3 1.2-3 2.8"/><path d="m16.4 7.7 1.5-2.1 2.8.5-.5 2.8-2.3.8"/><path d="m20.1 8.4 1.7-.9m-1.7.9 1.2 1.4"/><circle cx="18.7" cy="7.2" r=".45" fill="currentColor" stroke="none"/><path d="M6.2 17.4h.01M8.7 15.4h.01M11.2 15.4h.01"/></svg><span>Naga / Lamia</span></button>
+        
+        
+        
+        <button type="button" class="ev-sheet-type-btn" data-sheet-type="beastman" aria-pressed="false" onclick="setUploadSheetType('beastman')"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 3.5 9 7h6l4-3.5V11a7 7 0 0 1-14 0z"/><path d="M10 13.5h4l-2 2z"/><path d="M9 11h.01M15 11h.01"/></svg><span>Beast Men</span></button>
+      </div>
+      <div class="two-sheet-stack">
+        <section class="two-sheet-card" aria-label="Base body sheet upload">
+          <div class="two-sheet-card-head"><div class="two-sheet-number">01</div><div class="two-sheet-heading"><p class="two-sheet-card-title">Base Character Body</p></div><button type="button" class="ev-sheet-copy-sq" data-copy="base" title="Copy base-sheet prompt" aria-label="Copy base-sheet prompt" onclick="evCopySheetPrompt(this,'base')"><svg class="ic-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg><svg class="ic-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button></div>
+          <div class="autorig-upload-area two-sheet-upload-area" id="baseSheetUploadArea" onclick="document.getElementById('baseSheetFileInput').click()" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();document.getElementById('baseSheetFileInput').click();}">
+            <img id="baseSheetPreviewImg" class="autorig-upload-preview" style="display:none;" alt="Base character sheet preview">
+            <svg id="baseSheetUploadIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5M12 5v12"/></svg>
+            <b id="baseSheetUploadLabel">Upload 14-part base-body sheet</b>
+            <span id="baseSheetUploadHint" aria-hidden="true"></span>
+          </div>
+          <p id="baseSheetStatus" class="two-sheet-status" aria-live="polite"></p>
+          <input type="file" id="baseSheetFileInput" accept="image/png,image/jpeg,image/webp" style="display:none!important">
+        </section>
+        <section class="two-sheet-card" aria-label="Expression and gesture sheet upload">
+          <div class="two-sheet-card-head"><div class="two-sheet-number">02</div><div class="two-sheet-heading"><p class="two-sheet-card-title">Face & Gesture Variations</p></div><button type="button" class="ev-sheet-copy-sq" data-copy="variant" title="Copy expression prompt" aria-label="Copy expression prompt" onclick="evCopySheetPrompt(this,'variant')"><svg class="ic-copy" viewBox="0 0 24 24" aria-hidden="true"><rect x="9" y="9" width="11" height="11" rx="2.5"/><path d="M5 15V6.5A2.5 2.5 0 0 1 7.5 4H15"/></svg><svg class="ic-check" viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg></button></div>
+          <div class="autorig-upload-area two-sheet-upload-area" id="variantSheetUploadArea" onclick="if(twoSheetUploadState.base)document.getElementById('variantSheetFileInput').click();else showToast('Upload the base sheet first',{icon:toastIcons.info,duration:1800})" role="button" tabindex="0" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();if(twoSheetUploadState.base)document.getElementById('variantSheetFileInput').click();else showToast('Upload the base sheet first',{icon:toastIcons.info,duration:1800});}">
+            <img id="variantSheetPreviewImg" class="autorig-upload-preview" style="display:none;" alt="Face and expression sheet preview">
+            <svg id="variantSheetUploadIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5M12 5v12"/></svg>
+            <b id="variantSheetUploadLabel">Upload 19-part face and hand sheet</b>
+            <span id="variantSheetUploadHint" aria-hidden="true"></span>
+          </div>
+          <p id="variantSheetStatus" class="two-sheet-status" aria-live="polite"></p>
+          <input type="file" id="variantSheetFileInput" accept="image/png,image/jpeg,image/webp" style="display:none!important">
+        </section>
+      </div>
+      <button class="sheet-btn two-sheet-create-btn" id="twoSheetCreateBtn" type="button" onclick="createFromTwoSheets()" disabled style="margin-top:14px;">Create rigged character</button>
+      <button class="sheet-btn-secondary" type="button" onclick="closeAutoRigUploader()">Cancel</button>
+      <!-- Hidden legacy controls are retained so older combined-sheet and auto-rig imports still work. -->
+      <div id="legacySheetHiddenUI" style="display:none!important;">
+        <p class="sheet-sub" id="sheetUploadSub">Legacy combined sheet importer.</p>
+        <button class="sheet-btn-secondary" id="sheetCopyExtBtn" type="button" onclick="copySheetPrompt()">Copy 27-part humanoid image prompt</button>
+        <div class="autorig-upload-area" id="autoRigUploadArea">
+          <img id="autoRigUploadPreviewImg" class="autorig-upload-preview" style="display:none;" alt="Legacy combined sheet preview">
+          <svg id="autoRigUploadIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><path d="m7 10 5-5 5 5M12 5v12"/></svg>
+          <b id="autoRigUploadLabel">Upload humanoid model sheet</b>
+          <span id="autoRigUploadHint">Legacy 27-part sheet</span>
+        </div>
+        <input type="file" id="sheetFileInput" accept="image/png,image/jpeg,image/webp" style="display:none!important">
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ AUTO-RIG: AUTO RIG PREVIEW MODAL ============
+       Shows the uploaded character with its auto-detected bone skeleton + draggable joint
+       handles overlaid (see openAutoRigPreview/renderAutoRigOverlay). Dragging a joint updates
+       the live bone-line/region overlay by mutating autoRigState.joints; final body-part crops
+       + the rig override are generated once, when "Create Rigged Character" is tapped (see
+       finalizeAutoRiggedCharacter). -->
+  <div class="modal-backdrop" id="autoRigPreviewBackdrop" onclick="if(event.target===this) closeAutoRigPreview()">
+    <div class="modal-sheet" style="max-height:92vh; overflow-y:auto; -webkit-overflow-scrolling:touch;">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title" id="autoRigPreviewTitle">Auto Rig Preview</p>
+      <p class="sheet-sub">Drag any point to fix it, or use the buttons below</p>
+      <div class="autorig-stage-wrap" id="autoRigStageWrap">
+        <img id="autoRigStageImg" class="autorig-stage-img" alt="" ondragstart="return false;">
+        <div id="autoRigRegionLayer"></div>
+        <div id="autoRigBoneLayer"></div>
+        <div id="autoRigJointLayer"></div>
+        <div class="autorig-progress-overlay" id="autoRigProgressOverlay" style="display:none;">
+          <div class="autorig-spinner"></div>
+          <div class="autorig-status-list" id="autoRigStatusList"></div>
+        </div>
+      </div>
+      <div id="autoRigWarningsWrap"></div>
+      <div class="autorig-ai-row">
+        <button class="autorig-ai-btn" id="autoRigGeminiBtn" onclick="analyzeAutoRigWithGemini()">Analyze with Gemini · hands + face</button>
+        <div class="autorig-ai-status" id="autoRigGeminiStatus">AI analysis is optional. Add your key in ETHVELLE_GEMINI_CONFIG below to enable it.</div>
+      </div>
+      <div class="pivot-adjust-row" style="margin-top:14px;">
+        <button class="pivot-adjust-btn" onclick="resetAutoRig()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 2v6h6"/><path d="M3.51 15a9 9 0 1 0 2.13-9.36L3 8"/></svg>
+          Reset Auto Rig
+        </button>
+        <button class="pivot-adjust-btn" onclick="rebuildAutoRigDetection()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-3.5-7.11M21 3v5h-5"/></svg>
+          Re-detect
+        </button>
+      </div>
+      <button class="sheet-btn" id="autoRigCreateBtn" onclick="finalizeAutoRiggedCharacter()" style="margin-top:12px;">Create Rigged Character</button>
+      <button class="sheet-btn-secondary" onclick="closeAutoRigPreview()">Cancel</button>
+    </div>
+  </div>
+
+  <!-- ============ EXPORT MODAL ============ -->
+  <div class="modal-backdrop" id="exportModalBackdrop" onclick="if(event.target===this) closeExportSheet()">
+    <div class="modal-sheet">
+      <div class="sheet-handle"></div>
+      <p class="sheet-title">Export animation</p>
+      <p class="sheet-sub">Choose a quality, then download the video</p>
+      <p class="field-label">Quality</p>
+      <div class="ratio-grid" id="exportQualityGrid">
+        <button class="ratio-opt" data-quality="480" onclick="selectExportQuality(this)">
+          <div class="ratio-shape quality-shape" style="width:48px; height:34px;"><span class="quality-badge">SD</span></div>
+          <span class="ratio-label">480p</span>
+        </button>
+        <button class="ratio-opt selected" data-quality="720" onclick="selectExportQuality(this)">
+          <div class="ratio-shape quality-shape" style="width:48px; height:34px;"><span class="quality-badge">HD</span></div>
+          <span class="ratio-label">720p</span>
+        </button>
+        <button class="ratio-opt" data-quality="1080" onclick="selectExportQuality(this)">
+          <div class="ratio-shape quality-shape" style="width:48px; height:34px;"><span class="quality-badge">FHD</span></div>
+          <span class="ratio-label">1080p</span>
+        </button>
+        <button class="ratio-opt" data-quality="1440" onclick="selectExportQuality(this)">
+          <div class="ratio-shape quality-shape" style="width:48px; height:34px;"><span class="quality-badge">QHD</span></div>
+          <span class="ratio-label">1440p</span>
+        </button>
+        <button class="ratio-opt" data-quality="2160" onclick="selectExportQuality(this)">
+          <div class="ratio-shape quality-shape" style="width:48px; height:34px;"><span class="quality-badge">4K</span></div>
+          <span class="ratio-label">2160p</span>
+        </button>
+      </div>
+      <p class="quality-plan-hint" id="exportQualityHint" style="display:none;"></p>
+      <p id="exportCreditEstimate" class="quality-plan-hint" style="display:block;margin-top:8px;"></p>
+      <button class="sheet-btn" id="exportConfirmBtn" onclick="startExport()">
+        Export &amp; download
+      </button>
+    </div>
+  </div>
+
+  <!-- ============ EDITOR ============ -->
+  <div class="screen" id="screen-editor">
+    <div class="editor-topbar">
+      <div class="left">
+        <button class="editor-icon-btn" onclick="exitEditor()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M15 18l-6-6 6-6"/></svg>
+        </button>
+        <button class="editor-icon-btn" id="undoBtn" onclick="undoHistory()" style="opacity:0.4;">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 14l-4-4 4-4M5 10h11a4 4 0 010 8h-1"/></svg>
+        </button>
+        <button class="editor-icon-btn" id="redoBtn" onclick="redoHistory()" style="opacity:0.4;">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M15 6l4 4-4 4M19 10H8a4 4 0 000 8h1"/></svg>
+        </button>
+      </div>
+      <div class="right">
+        <div class="res-pill" id="ratioPill">540P</div>
+        <button class="export-btn ready" id="exportBtn" onclick="openExportSheet()">Export</button>
+      </div>
+    </div>
+
+    <div class="canvas-wrap">
+<div class="canvas-stage" id="canvasStage">
+        <img id="bgImgLayer" class="bg-img-layer" alt="" draggable="false">
+        <!-- BUGFIX (added clips never showed on the canvas): video/image overlay clips
+             (the "Clips" row in the timeline) used to only ever render into the timeline's
+             own thumbnail strip — nothing anywhere ever drew their actual picture/video onto
+             the live stage or into the exported video, so adding one visibly changed the
+             timeline but the canvas behind the stickman never showed it. This layer holds a
+             <video>/<img> element per overlay clip that's active at the current playhead
+             time (see renderOverlayMedia in PART "overlay media compositing"), sitting above
+             the plain Background layer but below the stickman canvas — matching the
+             Background/Character/Overlay stacking already described in the timeline row
+             order comment above. -->
+        <div id="overlayMediaLayer" class="overlay-media-layer"></div>
+        <canvas id="stickCanvas"></canvas>
+      </div>
+      <!-- CapCut-style selection box for the selected Background / image-video Clip / Character.
+           Positioned and sized entirely by updateSelBox(); hidden whenever nothing draggable is
+           selected. See "ON-CANVAS SELECTION BOX" in the script. -->
+      <div id="selBoxLayer">
+        <div class="sb-frame" id="selBoxFrame"></div>
+        <div class="sb-btn" id="sbDelete" title="Deselect layer" aria-label="Deselect layer" role="button" tabindex="0"><svg viewBox="0 0 24 24"><path d="M6 6l12 12M18 6L6 18"/></svg></div>
+        <div class="sb-btn" id="sbScale" title="Drag to resize / rotate"><svg viewBox="0 0 24 24"><path d="M14 4h6v6M10 20H4v-6M20 4l-7 7M4 20l7-7"/></svg></div>
+      </div>
+    </div>
+
+    <div class="transport-row">
+      <div class="time-readout" id="timeReadout">0:00 / 0:02</div>
+      <div class="transport-cluster">
+        <button class="transport-btn" onclick="seekFrame(-1)"><svg viewBox="0 0 24 24"><path d="M19 20L9 12l10-8v16zM7 4v16H5V4h2z"/></svg></button>
+        <button class="play-btn" id="playBtn" onclick="togglePlay()">
+          <svg id="playIcon" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button class="transport-btn" onclick="seekFrame(1)"><svg viewBox="0 0 24 24"><path d="M5 4l10 8-10 8V4zM17 4h2v16h-2V4z"/></svg></button>
+        <button class="key-btn" id="transportKeyBtn" onclick="toggleKeyframeAtPlayhead()" title="Set/remove keyframe at playhead">
+          <svg viewBox="0 0 24 24"><path d="M12 3L4 12l8 9 8-9z"/></svg>
+          <span class="key-btn-badge" id="transportKeyBadge">+</span>
+        </button>
+        <button class="transport-zoom-btn" id="transportZoomBtn" type="button" onclick="toggleCanvasZoomView()" title="Zoom canvas" aria-label="Zoom canvas" aria-pressed="false">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M21 16v3a2 2 0 0 1-2 2h-3M8 21H5a2 2 0 0 1-2-2v-3"/><path d="M8 8 3 3m13 5 5-5m-5 13 5 5M8 16l-5 5"/></svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="timeline-area">
+      <div class="timeline-scroll" id="timelineScroll">
+        <!-- Fixed center playhead line — positioned relative to the scroller itself (not the
+             scrolling inner content), so vertical scrolling through the layer list never moves,
+             clips, or hides it. Horizontal position is pinned dead-center and never changes;
+             the track content scrolls underneath it instead (CapCut-style). -->
+        <div class="playhead-wrap"><div class="playhead" id="playhead"></div></div>
+        <div class="timeline-inner" id="timelineInner">
+          <div class="timeline-ruler" id="timelineRuler"></div>
+          <div class="timeline-frame-readout" id="timelineFrameReadout" aria-live="off" hidden></div>
+          <!-- Row order (top to bottom): Background, then the stickman/animation track,
+               then overlay layers — per request, background sits on top with animation
+               clips stacked underneath it, overlays below that. -->
+          <!-- FEATURE (multiple sequential backgrounds): this row used to contain a single
+               static #bgTrackClip div (one background for the whole project). It's now an
+               empty container that renderBackgroundTrack() fully populates, the same way
+               #overlayRows already does for the Clips/Audio rows below — so the Background
+               row can hold several clips placed one after another in time, exactly like a
+               Clips row, instead of being hardcoded to exactly one. -->
+          <div class="layer-row" data-layer="background" id="backgroundRow">
+            <!-- REVERTED the small "Background" caption that used to sit under this badge
+                 (own .layer-badge-wrap/.layer-badge-label, added in an earlier session) — per
+                 request, removed from here; the row's identity is now shown on the bottom
+                 toolbar's Background tool-item label instead (see .tool-item[data-tool="bg"]
+                 above), matching how Character/Overlay rows have always relied on their
+                 title="" tooltip alone with no caption. -->
+            <div class="layer-badge" id="bgLayerBadge" title="Background layer" aria-label="Background layer">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+            </div>
+            <div class="layer-track" id="track-background"></div>
+          </div>
+          <!-- One row per character (see renderCharacterLayers), each carrying that
+               character's OWN animation clip(s) directly in its own track — no separate
+               shared "Character rig" row anymore. Tapping a row makes that character the
+               active one — its rig becomes posable, its Transform panel shows that
+               character's own size/position/rotation, and its own clips become the ones
+               draggable/trimmable on the timeline. Every character still draws on the SAME
+               shared canvas at once, and (see animateAllCharacters) every character's own
+               clip now animates it during playback/export regardless of which one is active. -->
+          <div id="characterRows"></div>
+          <div class="layer-row char-add-row">
+            <div class="layer-badge" title="Add character" aria-label="Add character">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg>
+            </div>
+            <div class="layer-track char-add-track"><span>Add character</span></div>
+          </div>
+          <div id="overlayRows"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Default bottom tool row (Media / Bones / Transform / Animate / Overlay / BG / Text / Audio) -->
+    <div class="bottom-tools" id="bottomToolsDefault">
+      <div class="tool-item" data-tool="media" onclick="openPanel('media')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>
+        <span>Media</span>
+      </div>
+      <!-- FEATURE (replace Bones with Add model): the old "Bones" tool opened a panel with
+           just "Reset pose" and "Rig my art" (jump to the auto-rig uploader for the active
+           character). Per request this slot is now a direct "Add model" action — tapping it
+           opens the model library (openModelLibrary), where an existing saved model can be
+           reused or a brand new one uploaded (openAutoRigUploader) — instead of a panel. -->
+      <div class="tool-item" data-tool="model" onclick="openModelLibrary()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg>
+        <span>Characters</span>
+      </div>
+      <div class="tool-item" data-tool="transform" onclick="openPanel('transform')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+        <span>Transform</span>
+      </div>
+      <div class="tool-item" data-tool="anim" onclick="openPanel('anim')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <span>Animate</span>
+      </div>
+      <div class="tool-item" data-tool="overlay" onclick="openPanel('overlay')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="13" height="13" rx="2"/><path d="M8 21h10a2 2 0 002-2V9"/></svg>
+        <span>Overlay</span>
+      </div>
+      <div class="tool-item" data-tool="assets" onclick="openPanel('assets')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M7 14l3-3 3 3 3-5 2 3"/><circle cx="8" cy="8" r="1"/></svg>
+        <span>Assets</span>
+      </div>
+      <div class="tool-item" data-tool="bg" onclick="openPanel('bg')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+        <span>Background</span>
+      </div>
+      <div class="tool-item" data-tool="text" onclick="openPanel('text')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7V4h16v3M9 20h6M12 4v16"/></svg>
+        <span>Text</span>
+      </div>
+      <div class="tool-item" data-tool="audio" onclick="openPanel('audio')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+        <span>Audio</span>
+      </div>
+    </div>
+
+    <!-- Contextual bottom tool row shown when a clip/layer is selected — CapCut-style:
+         Split / Animations / Speed / Delete etc. replace the default row instead of a
+         separate strip floating above the timeline. Which items actually show is decided
+         per clip type in syncBottomToolsMode(): the stickman clip gets Key/Animations/
+         Transform (posing + presets apply only to the rig), while background/overlay/media
+         clips get Trim instead (Bones/Animations don't mean anything for a plain shape,
+         image, video, or audio layer). Split/Done/Delete apply to every clip type. -->
+    <div class="bottom-tools" id="bottomToolsClip" style="display:none;">
+      <div class="tool-item ethvelle-media-access" id="clipMediaAccessTool" onclick="openPanel('media')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>
+        <span>Media</span>
+      </div>
+      <div class="tool-item" id="clipSplitTool" onclick="splitSelectedClipAtPlayhead()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="6" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M20 4L8.12 15.88M14.47 14.48L20 20M8.12 8.12L12 12"/></svg>
+        <span>Split</span>
+      </div>
+      <div class="tool-item" id="clipKeyTool" onclick="toggleKeyframeAtPlayhead()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round"><path d="M12 3L4 12l8 9 8-9z"/></svg>
+        <span class="key-btn-badge" id="clipKeyBadge">+</span>
+        <span>Key</span>
+      </div>
+      <div class="tool-item" id="clipAnimTool" onclick="openPanel('anim')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <span>Animations</span>
+      </div>
+      <div class="tool-item" id="clipCharacterActionsTool" onclick="openClipCharacterActions()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="7" r="3"/><path d="M3.5 20c.4-3.7 2.3-5.5 5.5-5.5 2.2 0 3.8.9 4.7 2.6M16 8v6m-3-3h6m1 4 1.5 1.5M14 16l-1.5 1.5"/></svg>
+        <span>Face &amp; Hands</span>
+      </div>
+      <div class="tool-item evlt-inline-tool" id="clipModelPartsTool" onclick="openSelectedCharacterModelEditor()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="7" r="3.3"/><path d="M5.5 21v-2.2a6.5 6.5 0 0113 0V21M4 12l3-1.5M20 12l-3-1.5M9 15l-2 3M15 15l2 3"/></svg>
+        <span>Model Parts</span>
+      </div>
+      <div class="tool-item evlt-inline-tool" id="clipHeldItemsTool" onclick="openCharacterPropsPanel()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12.2 3.2 18 6.3l-5.8 3.1-5.8-3.1 5.8-3.1Z"/><path d="M6.4 6.3v5.1l5.8 3.1 5.8-3.1V6.3M12.2 9.4v5.1"/><path d="m3.1 15.5 3.1-2a2.9 2.9 0 0 1 3.2.2l1 .8h3.2a1.8 1.8 0 0 1 0 3.6H9.9a5 5 0 0 1-2.4-.6l-3.9-2Z"/><path d="m18 13.2 1.1-.7a1.6 1.6 0 0 1 2.2.5 1.6 1.6 0 0 1-.5 2.2l-3 2a5.2 5.2 0 0 1-2.8.8h-2.1"/></svg>
+        <span>Held Items</span>
+      </div>
+      <div class="tool-item" id="clipCustomAnimTool" onclick="openCustomAnimationStudio()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 5h18M3 12h18M3 19h18"/><path d="M7 2v6M17 9v6M11 16v6"/><path d="M5 12l2-2 2 2M15 5l2 2 2-2"/></svg>
+        <span>Custom</span>
+      </div>
+      <div class="tool-item" id="clipTrimTool" onclick="replaceSelectedClip()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 2l4 4-4 4M3 12v-2a4 4 0 014-4h14M7 22l-4-4 4-4M21 12v2a4 4 0 01-4 4H3"/></svg>
+        <span>Replace</span>
+      </div>
+      <div class="tool-item" id="clipSpeedTool" onclick="openPanel('speed')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M13 2L3 14h7l-1 8 10-12h-7l1-8z"/></svg>
+        <span id="clipSpeedLabel">Speed</span>
+      </div>
+      <div class="tool-item" id="clipVolumeTool" onclick="openPanel('volume')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M11 5L6 9H2v6h4l5 4V5z"/><path d="M15.5 8.5a5 5 0 010 7"/></svg>
+        <span id="clipVolumeLabel">Volume</span>
+      </div>
+      <div class="tool-item" id="clipChromaTool" onclick="openPanel('chroma')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16v16H4z"/><path d="M8 8l8 8M16 8L8 16"/><circle cx="12" cy="12" r="2"/></svg>
+        <span>Chroma Key</span>
+      </div>
+      <div class="tool-item" id="clipExtractAudioTool" onclick="extractAudioFromClip()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/><path d="M3 3l18 18"/></svg>
+        <span>Extract Audio</span>
+      </div>
+      <div class="tool-item evca-audio-only-tool" id="clipAudioEffectsTool" onclick="openPanel('audioEffects')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8h3l2-4 4 16 2-8 2 4h3"/></svg><span>Effects</span>
+      </div>
+      <div class="tool-item evca-audio-only-tool" id="clipAudioVoiceTool" onclick="openPanel('audioVoice')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3a3 3 0 00-3 3v5a3 3 0 006 0V6a3 3 0 00-3-3z"/><path d="M5 10v1a7 7 0 0014 0v-1M12 18v3M8 21h8"/></svg><span>Voice</span>
+      </div>
+      <div class="tool-item evca-audio-only-tool" id="clipAudioAdjustTool" onclick="openPanel('audioAdjust')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 18V6M4 18h16M8 14l3-4 3 2 5-6"/></svg><span>Adjust</span>
+      </div>
+      <div class="tool-item evca-audio-only-tool" id="clipAudioEnhanceTool" onclick="openPanel('audioEnhance')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8L12 3z"/><path d="M19 16l.9 2.1L22 19l-2.1.9L19 22l-.9-2.1L16 19l2.1-.9L19 16z"/></svg><span>Enhance</span>
+      </div>
+      <div class="tool-item evca-audio-only-tool" id="clipAudioNoiseTool" onclick="openPanel('audioNoise')" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 10v4M7 7v10M11 4v16M15 8v8M19 10v4M22 11v2"/></svg><span>Noise</span>
+      </div>
+      <div class="tool-item" id="clipAddMediaTool" onclick="(function(){ const isAudio=(overlays.find(o=>o.id===selectedClip)||{}).type==='audio'; triggerUpload(isAudio?'audio':'overlay', isAudio?'audio':'clips'); })()" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+        <span>Add</span>
+      </div>
+      <div class="tool-item" id="clipTransformTool" onclick="openPanel('transform')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H5a2 2 0 00-2 2v3M16 3h3a2 2 0 012 2v3M8 21H5a2 2 0 01-2-2v-3M16 21h3a2 2 0 002-2v-3"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+        <span>Transform</span>
+      </div>
+      <!-- FEATURE ("I can move any layer or Animation character or clip forward or
+           backward... bring one clip above another"): these two reorder the SELECTED
+           clip/character's paint order by one step each tap — Forward = paints on top of
+           (in front of) the item that's currently right above it, Backward = paints behind
+           the item right below it. See reorderSelectedLayer() for what "one step" means per
+           clip type (array position for overlays/backgrounds, explicit z-order for
+           characters). Hidden entirely when there's nothing to reorder against — see
+           syncBottomToolsMode's canReorder computation. -->
+      <div class="tool-item" id="clipForwardTool" onclick="reorderSelectedLayer(1)" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="7" y="7" width="11" height="11" rx="1.5"/><path d="M4 13.5V6a2 2 0 012-2h7.5"/></svg>
+        <span>Forward</span>
+      </div>
+      <div class="tool-item" id="clipBackwardTool" onclick="reorderSelectedLayer(-1)" style="display:none;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="6" y="6" width="11" height="11" rx="1.5"/><path d="M20 10.5V18a2 2 0 01-2 2H10.5"/></svg>
+        <span>Backward</span>
+      </div>
+      <!-- FEATURE ("I want you made I can duplicate my layer, animation clip or
+           background"): clones the selected clip/character in place, immediately after the
+           original — see duplicateSelectedLayer(). Uses the exact same "spread the object
+           with a fresh id" pattern splitSelectedClipAtPlayhead already uses for its second
+           half, just without cutting the original's own length down first. -->
+      <div class="tool-item" id="clipDuplicateTool" onclick="duplicateSelectedLayer()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+        <span>Duplicate</span>
+      </div>
+      <div class="tool-item" id="clipDoneTool" onclick="deselectAllClips()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        <span>Done</span>
+      </div>
+      <div class="tool-item danger" id="clipDeleteTool" onclick="deleteSelectedClip()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+        <span>Delete</span>
+      </div>
+      <div class="tool-item danger" id="clipDeleteCharacterTool" onclick="deleteSelectedCharacterFromAnimation()" style="display:none; min-width:84px;">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/><path d="M18 16l4 4m0-4l-4 4"/></svg>
+        <span>Del model</span>
+      </div>
+    </div>
+
+    <!-- Contextual bottom tool row shown when a single keyframe diamond is selected -->
+    <div class="bottom-tools" id="bottomToolsKeyframe" style="display:none;">
+      <div class="tool-item ethvelle-media-access" id="keyframeMediaAccessTool" onclick="openPanel('media')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8" cy="8" r="1.2" fill="currentColor" stroke="none"/></svg>
+        <span>Media</span>
+      </div>
+      <button type="button" class="tool-item evca-frame-capture-tool" id="evcaFrameCaptureTool-keyframe" title="Frame Capture" aria-label="Frame Capture" onclick="openEthvelleFrameCapture()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8v8H8zM12 2v3m0 14v3M2 12h3m14 0h3"/></svg>
+        <span>Frame</span>
+      </button>
+      <div class="tool-item" id="keyframeDoneTool" onclick="deselectAllClips()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        <span>Done</span>
+      </div>
+      <div class="tool-item danger" id="keyframeDeleteTool" onclick="deleteSelectedKeyframe()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+        <span>Delete key</span>
+      </div>
+    </div>
+
+    <!-- slide up panel -->
+    <div class="tool-panel-backdrop" id="panelBackdrop" onclick="closePanel()"></div>
+    <div class="tool-panel" id="toolPanel">
+      <div class="tool-panel-header">
+        <h3 id="panelTitle">Media</h3>
+        <button class="tool-panel-close" onclick="closePanel()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
+      </div>
+      <div class="tool-panel-body" id="panelBody"></div>
+    </div>
+
+  </div>
+
+  <div class="toast" id="toast"></div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*,video/*">
+<!-- Dedicated file input for the custom-character builder's 10 body-part slots (see
+     PART_SLOTS/onPartSlotTap) — kept separate from #fileInput so picking a part image never
+     interferes with whatever #fileInput's uploadTarget/uploadAppendGroup state happens to be
+     mid-use elsewhere (e.g. mid-Background-upload) if a user somehow has both flows open. -->
+<input type="file" id="partFileInput" accept="image/png,image/webp">
+<!-- Dedicated file input for the single-image auto-rig uploader (see openAutoRigUploader /
+     handleAutoRigImageUpload). Kept separate for the same reason as #partFileInput above. -->
+<input type="file" id="autoRigFileInput" accept="image/png,image/jpeg,image/webp">
+
+<script>
+/* =====================================================================================
+   ETHVELLE — MAIN APP
+   Firebase config below connects this file to the same Firebase project used by the
+   separate admin panel file (riggy-admin-panel.html), so banners/animations/plans that
+   the admin publishes show up here automatically via Firestore.
+
+   This file also owns the end-user login system: email/password sign up + sign in, and
+   "Continue with Google" (Firebase Authentication). Users can browse and create projects
+   as a guest; signing in is only required when they tap Export (see openExportSheet()).
+   ===================================================================================== */
+
+/* ---------------- FIREBASE CONFIG ---------------- */
+const FIREBASE_CONFIG = {
+  apiKey: "AIzaSyCL_KzcK05wfpkalDdVk4qOUN6OLpZoeBE",
+  authDomain: "ethvelle.firebaseapp.com",
+  projectId: "ethvelle",
+  storageBucket: "ethvelle.firebasestorage.app",
+  messagingSenderId: "664707685739",
+  appId: "1:664707685739:web:10dbfd0986beb9be80002e",
+  measurementId: "G-WJ6TY23GY2"
+};
+/* Payment proof images are compressed locally and stored directly in each Firestore order. */
+
+let fbApp = null, fbDb = null, fbAuth = null, firebaseReady = false;
+try{

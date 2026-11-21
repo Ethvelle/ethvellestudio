@@ -1,0 +1,1000 @@
+    const id=String(ov.id),fallback=ov;
+    try{
+      return new Proxy(fallback,{
+        get(target,key){const live=v140LiveOverlay(id)||target;return Reflect.get(live,key,live);},
+        set(target,key,value){const live=v140LiveOverlay(id)||target;return Reflect.set(live,key,value,live);},
+        has(target,key){const live=v140LiveOverlay(id)||target;return Reflect.has(live,key);}
+      });
+    }catch(_e){
+      const proxy={};
+      const props=new Set(Object.keys(fallback).concat(['id','src','type','trimStart','trimEnd','sourceOffset','sourceDuration','speed','reversePlayback','volume','keyframes','chromaKey']));
+      props.forEach(key=>{try{Object.defineProperty(proxy,key,{enumerable:true,configurable:true,get(){const live=v140LiveOverlay(id)||fallback;return live[key];},set(value){const live=v140LiveOverlay(id)||fallback;live[key]=value;}});}catch(_e){}});
+      return proxy;
+    }
+  }
+  function v140ShowUnlockToast(){
+    if(window.__ethvelleV140UnlockToastShown)return;
+    window.__ethvelleV140UnlockToastShown=true;
+    try{if(typeof showToast==='function')showToast('Tap Play once to enable sound',{duration:2400});}catch(_e){}
+  }
+  function v140ReportPlayError(err,kind,id){
+    const name=String(err&&err.name||'Error');
+    const key=String(kind||'media')+':'+String(id||'')+':'+name;
+    const now=Date.now(),last=V140_PLAY_WARN_AT.get(key)||0;
+    if(now-last>900){
+      V140_PLAY_WARN_AT.set(key,now);
+      try{console.warn('Ethvelle '+kind+' play() rejected: '+name,err);}catch(_e){}
+    }
+    if(name==='NotAllowedError')v140ShowUnlockToast();
+  }
+  function v140InstrumentPlay(el,kind,id){
+    if(!el||el.__evV140PlayInstrumented)return;
+    try{
+      const nativePlay=el.play.bind(el);
+      el.play=function(){
+        let result;
+        try{result=nativePlay();}
+        catch(err){v140ReportPlayError(err,kind,id);throw err;}
+        if(result&&typeof result.then==='function')result.catch(err=>v140ReportPlayError(err,kind,id));
+        return result;
+      };
+      el.__evV140PlayInstrumented=true;
+    }catch(err){console.warn('Ethvelle could not instrument '+kind+' play():',err);}
+  }
+  function v140ResumeAudioContext(){
+    try{
+      const ctx=typeof ensureAudioOverlayContext==='function'?ensureAudioOverlayContext():null;
+      if(ctx&&ctx.state==='suspended'){
+        const promise=ctx.resume();
+        if(promise&&typeof promise.catch==='function')promise.catch(err=>console.warn('Ethvelle AudioContext resume rejected:',err&&err.name||'Error',err));
+      }
+      return ctx;
+    }catch(err){console.warn('Ethvelle AudioContext resume failed:',err&&err.name||'Error',err);return null;}
+  }
+
+  /* --------------------------------------------------------------------------
+     BUG 1 — prime every per-clip media element in the actual Play gesture.
+     Existing per-id elements are intentionally retained because each owns its own
+     MediaElementSource and DSP graph (voice, EQ, noise gate, fades and pan).
+     -------------------------------------------------------------------------- */
+  const V140_VIDEO_NODES=window.__ethvelleV140VideoNodes||(window.__ethvelleV140VideoNodes=new WeakMap());
+  function v140EnsureVideoAudioNodes(el,id){
+    if(!el||el.tagName!=='VIDEO')return null;
+    let nodes=V140_VIDEO_NODES.get(el)||el.__evV140AudioNodes||null;
+    if(nodes)return nodes;
+    const ctx=v140ResumeAudioContext();
+    if(!ctx)return null;
+    try{
+      const source=ctx.createMediaElementSource(el),gain=ctx.createGain();
+      source.connect(gain);gain.connect(ctx.destination);gain.gain.value=0;
+      nodes={ctx,source,gain,id:String(id||el.dataset.evV72OverlayId||'')};
+      V140_VIDEO_NODES.set(el,nodes);el.__evV140AudioNodes=nodes;
+      return nodes;
+    }catch(err){
+      console.warn('Ethvelle video audio gain setup failed:',err&&err.name||'Error',err);
+      return null;
+    }
+  }
+  function v140SetVideoGain(el,value,fadeSeconds){
+    const nodes=el&&(V140_VIDEO_NODES.get(el)||el.__evV140AudioNodes);
+    const v=Math.max(0,Math.min(2,Number(value)||0));
+    if(nodes&&nodes.gain){
+      try{
+        const param=nodes.gain.gain,ctx=nodes.ctx;
+        param.cancelScheduledValues(ctx.currentTime);
+        if(fadeSeconds>0){param.setValueAtTime(param.value,ctx.currentTime);param.linearRampToValueAtTime(v,ctx.currentTime+fadeSeconds);}
+        else param.setValueAtTime(v,ctx.currentTime);
+      }catch(_e){try{nodes.gain.gain.value=v;}catch(__e){}}
+      try{el.volume=1;el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');}catch(_e){}
+    }else{
+      try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=Math.min(1,v);}catch(_e){}
+    }
+    return !!nodes;
+  }
+  function v140StopVideo(el,pauseIt){
+    if(!el||el.tagName!=='VIDEO')return;
+    if(el.__evGainRampRaf){try{cancelAnimationFrame(el.__evGainRampRaf);}catch(_e){}el.__evGainRampRaf=0;}
+    delete el.dataset.evGainRampActive;delete el.dataset.evGainRampDone;delete el.dataset.evStablePlayingSince;delete el.dataset.evPlayingEventSeen;
+    v140SetVideoGain(el,0,0);
+    if(pauseIt!==false&&!el.paused){try{el.pause();}catch(_e){}}
+  }
+  function v140MuteOtherVideos(keepEl){
+    // v279: overlapping video layers must ALL be heard (doubled sound), so nothing is muted here.
+    return;
+    if(typeof overlayMediaEls==='undefined')return;
+    Object.keys(overlayMediaEls).forEach(id=>{
+      const other=overlayMediaEls[id];
+      if(!other||other===keepEl||other.tagName!=='VIDEO')return;
+      if(other.__evGainRampRaf){try{cancelAnimationFrame(other.__evGainRampRaf);}catch(_e){}other.__evGainRampRaf=0;}
+      delete other.dataset.evGainRampActive;
+      v140SetVideoGain(other,0,0);
+    });
+  }
+  function v140VideoPreferred(id,time){
+    // v279: every active forward-playing video layer is audible, not just the topmost one, so two
+    // overlapping copies of a clip are heard together (doubled) instead of one being auto-muted.
+    if(!Array.isArray(overlays))return false;
+    const t=Number.isFinite(Number(time))?Number(time):Number(currentAbsoluteTimeSec)||0;
+    const ov=overlays.find(o=>o&&o.type==='video'&&String(o.id)===String(id));
+    return !!(ov&&!ov.reversePlayback&&t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0));
+  }
+  function v140RampVideoAudible(el,ov){
+    if(!el||el.tagName!=='VIDEO')return false;
+    const id=String((ov&&ov.id)||el.dataset.evV72OverlayId||'');
+    const live=v140LiveOverlay(id,'video');
+    if(!live)return false;
+    const t=Number(currentAbsoluteTimeSec)||0;
+    const active=t>=Number(live.trimStart||0)&&t<Number(live.trimEnd||0);
+    if(el.dataset.evV140Priming==='1'&&!active){v140SetVideoGain(el,0,0);return true;}
+    const aligned=isPlaying&&!live.reversePlayback&&active&&el.isConnected&&el.readyState>=2&&!el.seeking&&
+      el.dataset.evPlayingEventSeen==='1'&&!(evVideoBufferStall&&String(evVideoBufferStall.id)===id);
+    // Keep audio attached to a live video element during ordinary mobile decoder drift.
+    // The visual compositor already gates presentation separately; pausing the whole video
+    // here left playback visibly running after the browser's mute flag had been restored.
+    if(!aligned){v140StopVideo(el,true);return false;}
+    if(!v140VideoPreferred(id,t)){
+      v140SetVideoGain(el,0,0);return false;
+    }
+    v140MuteOtherVideos(el);
+    if(el.__evGainRampRaf)return true;
+    const rawTarget=el.dataset.evTargetVolume==null?(live.volume==null?1:Number(live.volume)):Number(el.dataset.evTargetVolume);
+    const target=Math.max(0,Math.min(1,Number.isFinite(rawTarget)?rawTarget:1));
+    const nodes=v140EnsureVideoAudioNodes(el,id);
+    if(el.dataset.evGainRampDone==='1'){
+      v140SetVideoGain(el,target,0);return true;
+    }
+    const start=performance.now();
+    if(nodes)v140SetVideoGain(el,0,0);
+    else{try{el.volume=0;el.muted=false;el.removeAttribute('muted');}catch(_e){}}
+    el.dataset.evGainRampActive='1';
+    const step=()=>{
+      el.__evGainRampRaf=0;
+      const now=Number(currentAbsoluteTimeSec)||0;
+      const current=v140LiveOverlay(id,'video');
+      if(!current||!isPlaying||now<Number(current.trimStart||0)||now>=Number(current.trimEnd||0)||
+         (evVideoBufferStall&&String(evVideoBufferStall.id)===id)||el.seeking||!el.isConnected){v140StopVideo(el,true);return;}
+      const amount=Math.min(1,Math.max(0,(performance.now()-start)/110));
+      v140SetVideoGain(el,target*amount,0);
+      if(amount<1)el.__evGainRampRaf=requestAnimationFrame(step);
+      else{delete el.dataset.evGainRampActive;el.dataset.evGainRampDone='1';v140SetVideoGain(el,target,0);}
+    };
+    el.__evGainRampRaf=requestAnimationFrame(step);
+    return true;
+  }
+  function v140SafePlayVideo(el,ov){
+    if(!el||el.tagName!=='VIDEO')return Promise.resolve(false);
+    const id=String((ov&&ov.id)||el.dataset.evV72OverlayId||'');
+    const live=v140LiveOverlay(id,'video');
+    if(!live)return Promise.resolve(false);
+    const now=Number(currentAbsoluteTimeSec)||0;
+    const active=now>=Number(live.trimStart||0)&&now<Number(live.trimEnd||0);
+    if(el.dataset.evV140Priming==='1'&&!active){v140SetVideoGain(el,0,0);return Promise.resolve(false);}
+    if(live.reversePlayback||!active||(evVideoBufferStall&&String(evVideoBufferStall.id)===id)){
+      v140StopVideo(el,true);return Promise.resolve(false);
+    }
+    if(el.seeking||el.readyState<2)return Promise.resolve(!el.paused);
+    const expected=evOverlayVideoExpectedLocalTime(live,now,el);
+    const drift=Math.abs((Number(el.currentTime)||0)-expected);
+    const seekAt=Number(el.dataset.evPlaySeekAt)||0;
+    const justSeeked=seekAt>0&&performance.now()-seekAt<1500;
+    const tolerance=(!el.paused||justSeeked)?EV_VIDEO_ALIGN_TOL_PLAYING:EV_VIDEO_ALIGN_TOL_START;
+    if(drift>tolerance){
+      v140StopVideo(el,true);
+      if(!el.seeking&&el.readyState>=1){
+        const latency=Math.max(0,Math.min(1200,Number(el.dataset.evSeekLatencyMs)||0));
+        const speed=Math.max(.05,Number(live.speed)||1);
+        const maxT=Math.max(.05,(Number(live.sourceDuration)||Number(el.duration)||expected+.05)-.02);
+        const target=Math.max(0,Math.min(maxT,expected+(latency/1000)*speed));
+        el.dataset.evPreciseSyncTarget=String(target);el.dataset.evSeekRequestAt=String(performance.now());
+        try{el.currentTime=target;}catch(_e){delete el.dataset.evPreciseSyncTarget;}
+      }
+      return Promise.resolve(false);
+    }
+    delete el.dataset.evPreciseSyncTarget;
+    v140EnsureVideoAudioNodes(el,id);v140InstrumentPlay(el,'video',id);
+    try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+    if(!el.paused){if(isPlaying&&el.dataset.evPlayingEventSeen==='1')v140RampVideoAudible(el,live);return Promise.resolve(true);}
+    if(el.dataset.evV140PlayPending==='1')return el.__evV140PrimePromise||Promise.resolve(false);
+    el.dataset.evV140PlayPending='1';
+    let nativePromise;
+    try{nativePromise=el.play();}catch(err){delete el.dataset.evV140PlayPending;v140ReportPlayError(err,'video',id);return Promise.resolve(false);}
+    const attempt=Promise.resolve(nativePromise).then(()=>{
+      delete el.dataset.evV140PlayPending;
+      const current=v140LiveOverlay(id,'video'),t=Number(currentAbsoluteTimeSec)||0;
+      if(current&&isPlaying&&t>=Number(current.trimStart||0)&&t<Number(current.trimEnd||0))v140RampVideoAudible(el,current);
+      else v140StopVideo(el,true);
+      return true;
+    },err=>{delete el.dataset.evV140PlayPending;v140ReportPlayError(err,'video',id);return false;});
+    el.__evV140PrimePromise=attempt;
+    return attempt;
+  }
+
+  const oldExpected=window.evOverlayVideoExpectedLocalTime;
+  if(typeof oldExpected==='function')window.evOverlayVideoExpectedLocalTime=function(ov,time,el){return oldExpected.call(this,v140LiveProxy(ov),time,el);};
+  const oldPresentable=window.evOverlayVideoFrameIsPresentable;
+  if(typeof oldPresentable==='function')window.evOverlayVideoFrameIsPresentable=function(ov,el,time){return oldPresentable.call(this,v140LiveProxy(ov),el,time);};
+  const oldActive=window.evOverlayVideoIsActiveAt;
+  if(typeof oldActive==='function')window.evOverlayVideoIsActiveAt=function(ov,time){return oldActive.call(this,v140LiveProxy(ov),time);};
+  window.evStopOverlayVideo=v140StopVideo;
+  window.evMuteOtherOverlayVideos=v140MuteOtherVideos;
+  window.evRampOverlayVideoAudible=v140RampVideoAudible;
+  window.evSafePlayVideo=v140SafePlayVideo;
+  window.evSafePlayOverlayVideo=v140SafePlayVideo;
+  const oldWatch=window.evWatchIncomingOverlayVideo;
+  if(typeof oldWatch==='function')window.evWatchIncomingOverlayVideo=function(ov,el){return oldWatch.call(this,v140LiveProxy(ov),el);};
+
+  const oldSetupVideo=window.setupOverlayVideoEl;
+  if(typeof oldSetupVideo==='function'){
+    window.setupOverlayVideoEl=function(el,ov){
+      const liveProxy=v140LiveProxy(ov),id=String(ov&&ov.id||'');
+      const result=oldSetupVideo.call(this,el,liveProxy);
+      v140EnsureVideoAudioNodes(el,id);v140InstrumentPlay(el,'video',id);
+      try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+      if(!el.__evV140PauseWrapped){
+        try{
+          const nativePause=el.pause.bind(el);
+          el.pause=function(){
+            const live=v140LiveOverlay(id,'video'),t=Number(currentAbsoluteTimeSec)||0;
+            const active=!!live&&t>=Number(live.trimStart||0)&&t<Number(live.trimEnd||0);
+            if(el.dataset.evV140Priming==='1'&&isPlaying&&!active&&el.dataset.evV140AllowPrimePause!=='1')return;
+            return nativePause();
+          };
+          el.__evV140PauseWrapped=true;
+        }catch(_e){}
+      }
+      return result;
+    };
+  }
+
+  const oldReleaseVideo=window.releaseOverlayVideoEl;
+  if(typeof oldReleaseVideo==='function'){
+    window.releaseOverlayVideoEl=function(el){
+      // v278 FIX (audio dies after split + extend/trim/enhance): a <video> element can be bound to a
+      // MediaElementSourceNode only ONCE in its lifetime, and from then on ALL of its sound flows through
+      // that node. Disconnecting the node (what this used to do) left the pooled element permanently
+      // silent, and the next createMediaElementSource() on it threw "already connected previously".
+      // The source->gain->destination chain therefore stays wired; releasing just mutes it, and the
+      // same nodes are reused when the pooled element is handed to another clip.
+      const nodes=el&&(V140_VIDEO_NODES.get(el)||el.__evV140AudioNodes);
+      if(nodes){
+        try{
+          const param=nodes.gain.gain,at=nodes.ctx.currentTime;
+          param.cancelScheduledValues(at);param.setValueAtTime(0,at);
+        }catch(_e){try{nodes.gain.gain.value=0;}catch(__e){}}
+        try{V140_VIDEO_NODES.set(el,nodes);el.__evV140AudioNodes=nodes;}catch(_e){}
+      }
+      // BUGFIX v150: this used to re-park every released decoder forever ("v140-loop-pool")
+      // instead of actually releasing it, with no cap — on a timeline with many clips that
+      // meant dozens of live <video> decoders accumulating over a single playback pass. The
+      // bounded warm pool now prepares only adjacent clips that follow the current playhead;
+      // there is no loop-start decoder to preserve because playback stops at the content end.
+      if(window.__evVideoDebug)try{console.log('[evVideo] release',el&&el.dataset&&el.dataset.evV72OverlayId);}catch(_e){}
+      return oldReleaseVideo.apply(this,arguments);
+    };
+  }
+
+  const oldWarmVideos=window.warmUpcomingOverlayVideos;
+  if(typeof oldWarmVideos==='function'){
+    window.warmUpcomingOverlayVideos=function(t){
+      // Keep the bounded adjacent-clip warm pool active for new clips and after scrubs.
+      // Playback stops at the project-content end, so no loop-wrap decoder is prepared.
+      const result=oldWarmVideos.apply(this,arguments);
+      Object.keys(overlayWarmEls).forEach(id=>{
+        const el=overlayWarmEls[id];if(!el)return;
+        v140EnsureVideoAudioNodes(el,id);v140InstrumentPlay(el,'video',id);
+        try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+      });
+      return result;
+    };
+  }
+
+  // Render first, while still inside Play's user-activation stack, so the current video
+  // receives its normal compositor element before the gesture-prime loop begins.
+  function v140PrepareMediaForGesture(){
+    const time=Number(currentAbsoluteTimeSec)||0;
+    window.__ethvelleV140PreprimedSession=true;
+    v140ResumeAudioContext();
+    try{if(typeof renderOverlayMedia==='function')renderOverlayMedia(time);}catch(err){console.warn('Ethvelle media gesture preparation:',err);}
+    const audios=[];
+    (Array.isArray(overlays)?overlays:[]).filter(o=>o&&o.type==='audio'&&o.src&&o.id).forEach(ov=>{
+      let el=null;
+      try{el=evAudioOverlayEnsure(ov);}catch(err){console.warn('Ethvelle audio element preparation:',err);}
+      if(!el)return;
+      const id=String(ov.id);v140InstrumentPlay(el,'audio',id);
+      const nodes=audioOverlayNodes&&audioOverlayNodes[id];
+      if(nodes&&nodes.gain&&audioOverlayAudioCtx){try{nodes.gain.gain.cancelScheduledValues(audioOverlayAudioCtx.currentTime);nodes.gain.gain.setValueAtTime(0,audioOverlayAudioCtx.currentTime);}catch(_e){nodes.gain.gain.value=0;}}
+      const cfg=typeof evAudioOverlayRate==='function'?evAudioOverlayRate(ov):{rate:Math.max(.05,Number(ov.speed)||1)};
+      const active=time>=Number(ov.trimStart||0)&&time<Number(ov.trimEnd||0);
+      const target=active?evAudioOverlayLocalTime(ov,time,el,cfg.rate):Math.max(0,Number(ov.sourceOffset)||0);
+      if(el.readyState>=1&&!el.seeking&&Math.abs((Number(el.currentTime)||0)-target)>.04){try{el.currentTime=target;}catch(_e){}}
+      el.dataset.evAudioNeedsSync='1';el.dataset.evV140Priming='1';
+      try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+      audios.push({id,el});
+    });
+
+    const videos=[],layer=document.getElementById('overlayMediaLayer');
+    // BUGFIX v150 (stage blanks + audio crackle at cuts): this used to prime EVERY video
+    // clip in the whole project inside the Play gesture — a decoder, a MediaElementSource
+    // and a play() call for clips minutes away on the timeline. On a phone that meant many
+    // simultaneous decoders competing for the same hardware decode/audio budget, which is
+    // what produced the blank-canvas stalls and audio dropouts at clip cuts. Only the
+    // clip(s) actually active the instant Play is pressed need a decoder unlocked inside
+    // this trusted gesture; everything else is already pre-warmed, bounded to EV_WARM_MAX
+    // (2) next/previous decoders, by warmUpcomingOverlayVideos as the timeline approaches it.
+    if(window.__evVideoDebug)try{console.log('[evVideo] gesture-prime scan at',time);}catch(_e){}
+    (Array.isArray(overlays)?overlays:[]).filter(o=>o&&o.type==='video'&&window.evEffectiveVideoSrc(o)&&o.id&&!o.reversePlayback&&
+      time>=Number(o.trimStart||0)&&time<Number(o.trimEnd||0)).forEach(ov=>{
+      const id=String(ov.id);let el=overlayMediaEls[id]||overlayWarmEls[id]||null;
+      const effectiveSrc=window.evEffectiveVideoSrc(ov);
+      if(el&&String(el.dataset.evWarmSrc||el.getAttribute('src')||el.src||'')!==effectiveSrc){
+        if(overlayWarmEls[id]===el)delete overlayWarmEls[id];
+        try{const nodes=V140_VIDEO_NODES.get(el)||el.__evV140AudioNodes;if(nodes){const at=nodes.ctx.currentTime;nodes.gain.gain.cancelScheduledValues(at);nodes.gain.gain.setValueAtTime(0,at);}}catch(_e){}
+        try{oldReleaseVideo&&oldReleaseVideo(el);}catch(_e){}
+        if(overlayMediaEls[id]===el)delete overlayMediaEls[id];
+        el=null;
+      }
+      if(!el){
+        if(!layer)return;
+        el=document.createElement('video');
+        el.dataset.evWarmElement='1';el.dataset.evWarmSrc=effectiveSrc;
+        el.dataset.evWarmTarget=String(Math.max(0,Number(ov.sourceOffset)||0));
+        el.dataset.evWarmRole='v140-gesture-prime';
+        el.style.visibility='hidden';el.style.opacity='0';el.style.pointerEvents='none';
+        layer.appendChild(el);
+        try{setupOverlayVideoEl(el,v140LiveProxy(ov));}catch(err){console.warn('Ethvelle video element preparation:',err);}
+        overlayWarmEls[id]=el;
+      }
+      if(!el.isConnected&&layer)layer.appendChild(el);
+      el.dataset.evWarmSrc=effectiveSrc;
+      v140EnsureVideoAudioNodes(el,id);v140InstrumentPlay(el,'video',id);
+      v140SetVideoGain(el,0,0);
+      try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+      el.dataset.evV140Priming='1';
+      videos.push({id,el});
+    });
+    return {audios,videos};
+  }
+  function v140PrimeOneAudio(entry){
+    const el=entry.el,id=entry.id,live=v140LiveOverlay(id,'audio');if(!el||!live)return;
+    el.dataset.evAudioPlayPending='1';
+    let p;
+    try{p=el.play();}catch(err){delete el.dataset.evAudioPlayPending;v140ReportPlayError(err,'audio',id);return;}
+    if(p&&typeof p.then==='function'){
+      p.then(()=>{
+        delete el.dataset.evAudioPlayPending;delete el.dataset.evV140Priming;
+        const current=v140LiveOverlay(id,'audio'),t=Number(currentAbsoluteTimeSec)||0;
+        if(!current||!isPlaying||t<Number(current.trimStart||0)||t>=Number(current.trimEnd||0)){
+          try{el.pause();}catch(_e){}
+          if(current)el.dataset.evAudioNeedsSync='1';
+        }
+      },()=>{delete el.dataset.evAudioPlayPending;delete el.dataset.evV140Priming;});
+    }else{delete el.dataset.evAudioPlayPending;delete el.dataset.evV140Priming;}
+  }
+  function v140PrimeOneVideo(entry){
+    const el=entry.el,id=entry.id,live=v140LiveOverlay(id,'video');if(!el||!live)return;
+    el.dataset.evV140PlayPending='1';
+    let p;
+    try{p=el.play();}catch(err){delete el.dataset.evV140PlayPending;v140ReportPlayError(err,'video',id);return;}
+    if(p&&typeof p.then==='function'){
+      p.then(()=>{
+        delete el.dataset.evV140PlayPending;delete el.dataset.evV140Priming;
+        const current=v140LiveOverlay(id,'video'),t=Number(currentAbsoluteTimeSec)||0;
+        if(current&&isPlaying&&t>=Number(current.trimStart||0)&&t<Number(current.trimEnd||0))v140RampVideoAudible(el,current);
+        else{
+          el.dataset.evV140AllowPrimePause='1';try{el.pause();}catch(_e){}delete el.dataset.evV140AllowPrimePause;
+        }
+      },()=>{delete el.dataset.evV140PlayPending;delete el.dataset.evV140Priming;});
+    }else{
+      delete el.dataset.evV140PlayPending;delete el.dataset.evV140Priming;
+      const t=Number(currentAbsoluteTimeSec)||0;
+      if(!(isPlaying&&t>=Number(live.trimStart||0)&&t<Number(live.trimEnd||0))){el.dataset.evV140AllowPrimePause='1';try{el.pause();}catch(_e){}delete el.dataset.evV140AllowPrimePause;}
+    }
+  }
+
+  const oldStartPlayback=window.startPlayback;
+  if(typeof oldStartPlayback==='function'&&!oldStartPlayback.__ethvelleV140GesturePrime){
+    const wrappedStart=function(){
+      if(isPlaying)return oldStartPlayback.apply(this,arguments);
+      const prepared=v140PrepareMediaForGesture();
+      const result=oldStartPlayback.apply(this,arguments);
+      // startPlayback sets isPlaying synchronously; these play() calls therefore still run
+      // inside the same trusted Play pointer/click event, before its activation expires.
+      if(isPlaying&&prepared){prepared.audios.forEach(v140PrimeOneAudio);prepared.videos.forEach(v140PrimeOneVideo);}
+      return result;
+    };
+    wrappedStart.__ethvelleV140GesturePrime=true;window.startPlayback=wrappedStart;
+  }
+  const oldTogglePlayback=window.togglePlayback;
+  if(typeof oldTogglePlayback==='function'&&!oldTogglePlayback.__ethvelleV140Toggle){
+    const wrappedToggle=function(){return oldTogglePlayback.apply(this,arguments);};
+    wrappedToggle.__ethvelleV140Toggle=true;window.togglePlayback=wrappedToggle;
+  }
+
+  // The video element keeps volume at 1. The per-video GainNode is the sole live volume
+  // control, so later clips do not depend on changing `muted` after their load event.
+  const oldRenderVideo=window.renderOverlayMedia;
+  if(typeof oldRenderVideo==='function'&&!oldRenderVideo.__ethvelleV140Volume){
+    const wrappedRenderVideo=function(t){
+      const result=oldRenderVideo.apply(this,arguments);
+      (Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+        if(!ov||ov.type!=='video')return;
+        const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];if(!el||el.tagName!=='VIDEO')return;
+        v140EnsureVideoAudioNodes(el,ov.id);
+        try{el.muted=false;el.defaultMuted=false;el.removeAttribute('muted');el.volume=1;}catch(_e){}
+      });
+      return result;
+    };
+    wrappedRenderVideo.__ethvelleV140Volume=true;window.renderOverlayMedia=wrappedRenderVideo;
+  }
+
+  // Every user pointerdown is also an immediate retry opportunity after NotAllowedError.
+  document.addEventListener('pointerdown',function(){
+    if(!isPlaying)return;
+    // A foreground/background transition can suspend Web Audio again on mobile. A real
+    // user pointer gesture is the only reliable place to request another resume.
+    v140ResumeAudioContext();
+    const t=Number(currentAbsoluteTimeSec)||0;
+    (Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+      if(!ov)return;
+      if(ov.type==='audio'&&t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0)){
+        const el=audioOverlayEls&&audioOverlayEls[String(ov.id)];if(el&&el.paused&&typeof evAudioOverlayStart==='function')evAudioOverlayStart(ov,el,t);
+      }else if(ov.type==='video'&&!ov.reversePlayback&&t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0)){
+        const el=(overlayMediaEls&&overlayMediaEls[String(ov.id)])||(overlayWarmEls&&overlayWarmEls[String(ov.id)]);
+        if(el&&el.paused)v140SafePlayVideo(el,ov);
+      }
+    });
+  },true);
+
+  /* --------------------------------------------------------------------------
+     BUG 2 — normalized signatures + compact payloads, waveform/thumb side cache.
+     `pushHistory()` in the original and v133 transaction wrapper both call the global
+     snapshotState binding. Returning a stable signature here protects the redo branch
+     even when v133 schedules a commit for a scrub/selection/play event.
+     -------------------------------------------------------------------------- */
+  function v140CacheOverlayAssets(list){
+    (Array.isArray(list)?list:[]).forEach(ov=>{
+      if(!ov||ov.id==null||(!ov.peaks&&!ov.thumbs))return;
+      const key=String(ov.id)+'|'+String(ov.src||'');
+      const prior=V140_WAVE_CACHE.get(key)||{};
+      if(ov.peaks&&ov.peaks.length)prior.peaks=Array.from(ov.peaks,p=>Array.isArray(p)?[Number(p[0])||0,Number(p[1])||0]:p);
+      if(ov.thumbs&&ov.thumbs.length)prior.thumbs=Array.from(ov.thumbs);
+      V140_WAVE_CACHE.delete(key);V140_WAVE_CACHE.set(key,prior);
+    });
+    while(V140_WAVE_CACHE.size>96)V140_WAVE_CACHE.delete(V140_WAVE_CACHE.keys().next().value);
+  }
+  function v140StripHistoryFields(value,mode,inCharacters){
+    if(Array.isArray(value))return value.map(v=>v140StripHistoryFields(v,mode,inCharacters));
+    if(!value||typeof value!=='object')return value;
+    const out={};
+    Object.keys(value).sort().forEach(key=>{
+      if(key.startsWith('__')||key==='peaks'||key==='thumbs')return;
+      if(['currentAbsoluteTimeSec','playheadTimeSec','playhead','currentTime','frame','currentFrame','runtimeFrame'].includes(key))return;
+      if(mode==='signature'&&inCharacters&&['bones','baseAngles','modelTransform','restTransform','hipRestY'].includes(key))return;
+      const childInCharacters=inCharacters||(key==='characters');
+      out[key]=v140StripHistoryFields(value[key],mode,childInCharacters);
+    });
+    return out;
+  }
+  function v140StableStringify(value){
+    if(Array.isArray(value))return '['+value.map(v140StableStringify).join(',')+']';
+    if(value&&typeof value==='object'){
+      return '{'+Object.keys(value).sort().map(k=>JSON.stringify(k)+':'+v140StableStringify(value[k])).join(',')+'}';
+    }
+    return JSON.stringify(value);
+  }
+  const oldSnapshotState=window.snapshotState;
+  if(typeof oldSnapshotState==='function'&&!oldSnapshotState.__ethvelleV140Normalized){
+    const wrappedSnapshot=function(){
+      // Match the original snapshot's project fields, but never stringify the media caches.
+      // This avoids allocating a huge temporary JSON string on every history commit.
+      const full={currentAnimKey,activeClip,splitStickmanSegments,timelineDuration,bgDuration,
+        characters,activeCharIdx,bgTransform,currentBg,backgrounds,overlays};
+      v140CacheOverlayAssets(full.overlays);
+      const payload=v140StripHistoryFields(full,'payload',false);
+      const normalized=v140StripHistoryFields(full,'signature',false);
+      const signature='__ethvelle_v140__'+v140StableStringify(normalized);
+      V140_HISTORY_PAYLOADS.set(signature,JSON.stringify(payload));
+      if(typeof historyStack!=='undefined'&&Array.isArray(historyStack)){
+        const keep=new Set(historyStack);keep.add(signature);
+        Array.from(V140_HISTORY_PAYLOADS.keys()).forEach(key=>{if(!keep.has(key))V140_HISTORY_PAYLOADS.delete(key);});
+      }
+      return signature;
+    };
+    wrappedSnapshot.__ethvelleV140Normalized=true;window.snapshotState=wrappedSnapshot;
+  }
+
+  const oldApplySnapshot=window.applySnapshot;
+  if(typeof oldApplySnapshot==='function'&&!oldApplySnapshot.__ethvelleV140Rehydrate){
+    const wrappedApply=function(snap){
+      let expanded=String(snap||'');
+      const payload=V140_HISTORY_PAYLOADS.get(expanded);
+      if(payload)expanded=payload;
+      try{
+        const data=JSON.parse(expanded);
+        v140CacheOverlayAssets(data.overlays);
+        (Array.isArray(data.overlays)?data.overlays:[]).forEach(ov=>{
+          if(!ov||ov.id==null)return;
+          const cached=V140_WAVE_CACHE.get(String(ov.id)+'|'+String(ov.src||''));
+          if(cached){if(!ov.peaks&&cached.peaks)ov.peaks=Array.from(cached.peaks,p=>Array.isArray(p)?[p[0],p[1]]:p);if(!ov.thumbs&&cached.thumbs)ov.thumbs=Array.from(cached.thumbs);}
+        });
+        expanded=JSON.stringify(data);
+      }catch(err){console.warn('Ethvelle history snapshot rehydrate:',err);}
+      const result=oldApplySnapshot.call(this,expanded);
+      const targetIndex=typeof historyIndex!=='undefined'?historyIndex:-1;
+      // Once the restore's DOM/layout work has settled, refresh only the current history
+      // head. The redo entries after targetIndex are intentionally left untouched.
+      requestAnimationFrame(()=>requestAnimationFrame(()=>setTimeout(()=>{
+        try{
+          if(typeof historyStack==='undefined'||targetIndex<0||historyIndex!==targetIndex)return;
+          const fresh=window.snapshotState();
+          historyStack[targetIndex]=fresh;
+          if(typeof updateHistoryButtons==='function')updateHistoryButtons();
+        }catch(err){console.warn('Ethvelle restored history refresh:',err);}
+      },300)));
+      return result;
+    };
+    wrappedApply.__ethvelleV140Rehydrate=true;window.applySnapshot=wrappedApply;
+  }
+
+  const oldUpdateButtons=window.updateHistoryButtons;
+  window.updateHistoryButtons=function(){
+    const undoBtn=document.getElementById('undoBtn'),redoBtn=document.getElementById('redoBtn');
+    const canUndo=typeof historyIndex!=='undefined'&&historyIndex>0;
+    const canRedo=typeof historyIndex!=='undefined'&&Array.isArray(historyStack)&&historyIndex<historyStack.length-1;
+    if(undoBtn){undoBtn.classList.toggle('history-available',canUndo);undoBtn.style.opacity=canUndo?'1':'0.4';undoBtn.setAttribute('aria-disabled',canUndo?'false':'true');}
+    if(redoBtn){redoBtn.classList.toggle('history-available',canRedo);redoBtn.style.opacity=canRedo?'1':'0.4';redoBtn.setAttribute('aria-disabled',canRedo?'false':'true');}
+    if(typeof oldUpdateButtons==='function'){
+      // The original function only mirrors the same cursor state; call it for any future
+      // small UI additions, then re-assert the exact history-index state above.
+      try{oldUpdateButtons.apply(this,arguments);}catch(_e){}
+      if(undoBtn){undoBtn.style.opacity=canUndo?'1':'0.4';undoBtn.setAttribute('aria-disabled',canUndo?'false':'true');}
+      if(redoBtn){redoBtn.style.opacity=canRedo?'1':'0.4';redoBtn.setAttribute('aria-disabled',canRedo?'false':'true');}
+    }
+  };
+
+  function v140ResetPendingHistory(){
+    try{if(typeof window.__ethvelleV139ResetHistoryTransaction==='function')window.__ethvelleV139ResetHistoryTransaction();}catch(_e){}
+  }
+  const oldUndoHistory=window.undoHistory;
+  if(typeof oldUndoHistory==='function'&&!oldUndoHistory.__ethvelleV140Nav){
+    const wrappedUndo=function(){
+      const result=oldUndoHistory.apply(this,arguments);
+      V140_LAST_HISTORY_NAV_AT=Date.now();v140ResetPendingHistory();
+      if(typeof updateHistoryButtons==='function')updateHistoryButtons();
+      return result;
+    };
+    wrappedUndo.__ethvelleV140Nav=true;window.undoHistory=wrappedUndo;
+  }
+  const oldRedoHistory=window.redoHistory;
+  if(typeof oldRedoHistory==='function'&&!oldRedoHistory.__ethvelleV140Nav){
+    const wrappedRedo=function(){
+      const result=oldRedoHistory.apply(this,arguments);
+      V140_LAST_HISTORY_NAV_AT=Date.now();v140ResetPendingHistory();
+      if(typeof updateHistoryButtons==='function')updateHistoryButtons();
+      return result;
+    };
+    wrappedRedo.__ethvelleV140Nav=true;window.redoHistory=wrappedRedo;
+  }
+
+  const oldPersist=window.persistProjectState;
+  if(typeof oldPersist==='function'&&!oldPersist.__ethvelleV140History){
+    const wrappedPersist=function(opts){
+      const result=oldPersist.apply(this,arguments);
+      if(opts&&opts.skipHistory===true&&(restoringHistory||Date.now()-V140_LAST_HISTORY_NAV_AT<600))v140ResetPendingHistory();
+      return result;
+    };
+    wrappedPersist.__ethvelleV140History=true;window.persistProjectState=wrappedPersist;
+  }
+
+  function v140IsClipGestureTarget(target){
+    return !!(target&&target.closest&&target.closest('.overlay-clip[data-overlay-id],.track-clip[data-bg-id],.anim-clip,.char-clip,.kf-marker,.anim-clip-handle,[data-kf-idx],[data-object-kf-idx],#overlayMediaLayer .overlay-text-render,#canvasStage'));
+  }
+  function v140IsNavigationTarget(target){
+    if(!target||!target.closest)return false;
+    if(target.closest('#undoBtn,#redoBtn,#playBtn,#playIcon,#transportZoomBtn,.playhead-wrap,.playhead,#timelineRuler,.timeline-ruler,#timelineFrameReadout,.timeline-frame-readout,#evcaZoomPlay,#evcaZoomOut,#evcaZoomScrub,.evca-zoom-scrub-wrap,.evca-zoom-scrub-track'))return true;
+    const scroller=target.closest('#timelineScroll');
+    if(scroller&&!v140IsClipGestureTarget(target))return true;
+    return false;
+  }
+  const pointerStarts=new Map();
+  document.addEventListener('pointerdown',e=>{
+    if(!e||!e.target)return;
+    if(v140IsNavigationTarget(e.target)){v140ResetPendingHistory();return;}
+    if(v140IsClipGestureTarget(e.target))pointerStarts.set(e.pointerId,{x:e.clientX,y:e.clientY,moved:false});
+  },true);
+  document.addEventListener('pointermove',e=>{
+    const state=pointerStarts.get(e.pointerId);if(!state)return;
+    if(Math.hypot(e.clientX-state.x,e.clientY-state.y)>5)state.moved=true;
+  },true);
+  document.addEventListener('pointerup',e=>{
+    const state=pointerStarts.get(e.pointerId);if(!state)return;
+    pointerStarts.delete(e.pointerId);
+    if(!state.moved){v140ResetPendingHistory();V140_LAST_POINTER_DRAG=false;}
+    else V140_LAST_POINTER_DRAG=true;
+    setTimeout(()=>{V140_LAST_POINTER_DRAG=false;},260);
+  },true);
+  document.addEventListener('pointercancel',e=>{if(pointerStarts.has(e.pointerId)){pointerStarts.delete(e.pointerId);v140ResetPendingHistory();}},true);
+  document.addEventListener('click',e=>{
+    if(!e||!e.target)return;
+    if(v140IsNavigationTarget(e.target)||v140IsClipGestureTarget(e.target)&&!V140_LAST_POINTER_DRAG)v140ResetPendingHistory();
+  },true);
+  ['input','change','keydown','keyup'].forEach(type=>document.addEventListener(type,e=>{
+    if(e&&e.target&&v140IsNavigationTarget(e.target))v140ResetPendingHistory();
+  },true));
+
+  /* --------------------------------------------------------------------------
+     BUG 3 — 100 peaks/sec, dense fixed-pitch bars, and background migration.
+     -------------------------------------------------------------------------- */
+  function v140RoundPeak(value){return Math.round((Number(value)||0)*100)/100;}
+  window.generateAudioWaveform=function(url){
+    return fetch(url).then(response=>{
+      if(!response.ok)throw new Error('Waveform fetch failed: '+response.status);
+      return response.arrayBuffer();
+    }).then(buffer=>{
+      const AC=window.AudioContext||window.webkitAudioContext;
+      if(!AC)throw new Error('Web Audio is unavailable');
+      const actx=new AC();
+      return actx.decodeAudioData(buffer).then(audioBuffer=>{
+        const raw=audioBuffer.getChannelData(0),duration=Math.max(.001,Number(audioBuffer.duration)||raw.length/audioBuffer.sampleRate);
+        const samples=Math.min(20000,Math.max(200,Math.ceil(duration*100)));
+        const peaks=new Array(samples);
+        for(let i=0;i<samples;i++){
+          const start=Math.floor(i*raw.length/samples);
+          const end=Math.max(start+1,Math.floor((i+1)*raw.length/samples));
+          let min=1,max=-1;
+          for(let j=start;j<end&&j<raw.length;j++){const value=raw[j];if(value<min)min=value;if(value>max)max=value;}
+          if(max<min){min=0;max=0;}
+          peaks[i]=[v140RoundPeak(min),v140RoundPeak(max)];
+        }
+        try{const close=actx.close();if(close&&typeof close.catch==='function')close.catch(err=>console.warn('Ethvelle waveform AudioContext close:',err));}catch(_e){}
+        return {peaks,duration};
+      },err=>{try{actx.close();}catch(_e){}throw err;});
+    }).catch(err=>{console.warn('Ethvelle waveform generation failed:',err&&err.name||'Error',err);return {peaks:[],duration:1};});
+  };
+
+  window.drawWaveform=function(ov){
+    if(!ov||!ov.id||!Array.isArray(ov.peaks)||!ov.peaks.length)return;
+    const canvas=document.querySelector('canvas[data-waveform-for="'+String(ov.id).replace(/["\\]/g,'\\$&')+'"]');
+    if(!canvas)return;
+    const rect=canvas.getBoundingClientRect();
+    const w=Math.max(1,Math.round(rect.width)),h=Math.max(1,Math.round(rect.height));
+    const dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+    if(canvas.width!==Math.round(w*dpr))canvas.width=Math.round(w*dpr);
+    if(canvas.height!==Math.round(h*dpr))canvas.height=Math.round(h*dpr);
+    const c=canvas.getContext('2d');if(!c)return;
+    c.setTransform(dpr,0,0,dpr,0,0);c.clearRect(0,0,w,h);
+    c.fillStyle='rgba(102, 95, 255, 0.98)';
+    const mid=h/2,scale=Math.max(1,(h-4)/2),duration=Math.max(.001,Number(ov.sourceDuration)||Number(ov.duration)||((Number(ov.trimEnd)||0)-(Number(ov.trimStart)||0))*Math.max(.05,Number(ov.speed)||1));
+    const sourceOffset=Math.max(0,Number(ov.sourceOffset)||0);
+    const speed=Math.max(.05,Number(ov.speed)||1);
+    const sourceSpan=Math.max(.001,(Number(ov.trimEnd)-Number(ov.trimStart))*speed);
+    const peaks=ov.peaks,peakCount=peaks.length;
+    const pixelsPerBar=2,barWidth=1.3,barCount=Math.max(1,Math.ceil(w/pixelsPerBar));
+    const peakSeconds=duration/peakCount;
+    for(let i=0;i<barCount;i++){
+      const x=i*pixelsPerBar;
+      const xEnd=Math.min(w,x+pixelsPerBar);
+      const f0=x/w,f1=xEnd/w;
+      const t0=Math.max(0,Math.min(duration,sourceOffset+sourceSpan*f0));
+      const t1=Math.max(t0+0.000001,Math.min(duration,sourceOffset+sourceSpan*f1));
+      let first=Math.max(0,Math.min(peakCount-1,Math.floor(t0/peakSeconds)));
+      let last=Math.max(first,Math.min(peakCount-1,Math.ceil(t1/peakSeconds)-1));
+      let min=0,max=0;
+      for(let p=first;p<=last;p++){
+        const peak=peaks[p];if(!peak)continue;
+        const lo=Math.max(-1,Math.min(0,Number(peak[0])||0));
+        const hi=Math.max(0,Math.min(1,Number(peak[1])||0));
+        if(lo<min)min=lo;if(hi>max)max=hi;
+      }
+      const yTop=mid-max*scale,yBottom=mid-min*scale;
+      const barH=Math.max(1.7,yBottom-yTop);
+      c.fillRect(x,Math.max(1,yTop),Math.min(barWidth,Math.max(.5,w-x)),Math.min(h-2,barH));
+    }
+  };
+
+  const V140_WAVE_REGEN=window.__ethvelleV140WaveRegen||(window.__ethvelleV140WaveRegen=new Map());
+  function v140WaveNeedsRegeneration(ov){
+    if(!ov||ov.type!=='audio'||!ov.src)return false;
+    const duration=Math.max(.1,Number(ov.sourceDuration)||Number(ov.duration)||((Number(ov.trimEnd)||0)-(Number(ov.trimStart)||0))*Math.max(.05,Number(ov.speed)||1));
+    const minimum=Math.min(20000,Math.max(200,Math.ceil(duration*40)));
+    return !Array.isArray(ov.peaks)||ov.peaks.length<minimum;
+  }
+  function v140EnsureWaveformFresh(ov){
+    if(!v140WaveNeedsRegeneration(ov))return;
+    const id=String(ov.id),src=String(ov.src||''),key=id+'|'+src;
+    if(V140_WAVE_REGEN.has(key))return;
+    V140_WAVE_REGEN.set(key,true);
+    window.generateAudioWaveform(src).then(result=>{
+      const live=v140LiveOverlay(id,'audio');
+      if(!live||String(live.src||'')!==src||!result||!Array.isArray(result.peaks)||!result.peaks.length)return;
+      live.peaks=Array.from(result.peaks,p=>Array.isArray(p)?[v140RoundPeak(p[0]),v140RoundPeak(p[1])]:p);
+      live.sourceDuration=Number(result.duration)||Number(live.sourceDuration)||1;
+      v140CacheOverlayAssets([live]);
+      requestAnimationFrame(()=>{try{window.drawWaveform(live);}catch(_e){}});
+      try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(err){console.warn('Ethvelle waveform cache save:',err);}
+    }).catch(err=>console.warn('Ethvelle legacy waveform refresh:',err)).finally(()=>V140_WAVE_REGEN.delete(key));
+  }
+  const oldRedrawWaveforms=window.redrawAllWaveforms;
+  window.redrawAllWaveforms=function(){
+    (Array.isArray(overlays)?overlays:[]).forEach(ov=>{if(ov&&ov.type==='audio')v140EnsureWaveformFresh(ov);});
+    if(typeof oldRedrawWaveforms==='function')return oldRedrawWaveforms.apply(this,arguments);
+    (Array.isArray(overlays)?overlays:[]).filter(ov=>ov&&ov.type==='audio').forEach(window.drawWaveform);
+  };
+
+  // The core audio renderer is wrapped three times by the v65/v66/v67 DSP patches.
+  // This is the outermost v140 wrapper: it runs only after those wrappers have configured
+  // their nodes and reasserts the active context without disconnecting or bypassing DSP.
+  const oldRenderAudio=window.renderAudioOverlayMedia;
+  if(typeof oldRenderAudio==='function'&&!oldRenderAudio.__ethvelleV140Context){
+    const wrappedAudioRender=function(t){
+      const result=oldRenderAudio.apply(this,arguments);
+      const ctx=audioOverlayAudioCtx;
+      if(ctx&&isPlaying&&ctx.state==='suspended'){
+        try{const p=ctx.resume();if(p&&typeof p.catch==='function')p.catch(err=>console.warn('Ethvelle audio context stayed suspended:',err&&err.name||'Error',err));}catch(err){console.warn('Ethvelle audio context resume:',err);}
+      }
+      // The existing v65/v66/v67 graph builders all terminate nodes.gain at destination.
+      // Mark/repair only a plain graph that none of those wrappers has claimed; do not
+      // reconnect processed gain nodes (which would duplicate their output).
+      (Array.isArray(overlays)?overlays:[]).filter(o=>o&&o.type==='audio').forEach(ov=>{
+        const nodes=audioOverlayNodes&&audioOverlayNodes[String(ov.id)];if(!nodes||!nodes.gain||!ctx)return;
+        if(!nodes.__evcaDsp&&!nodes.__evcaV66&&!nodes.__evcaV67&&!nodes.__evV140DirectOutput){
+          try{nodes.gain.connect(ctx.destination);}catch(_e){}
+          nodes.__evV140DirectOutput=true;
+        }
+      });
+      return result;
+    };
+    wrappedAudioRender.__ethvelleV140Context=true;window.renderAudioOverlayMedia=wrappedAudioRender;
+  }
+
+  if(typeof updateHistoryButtons==='function')updateHistoryButtons();
+})();
+</script>
+
+<script id="ethvelle-v141-smooth-video-slide-history-fix">
+(function(){
+  'use strict';
+  if(window.__ethvelleV141SmoothSlideFixes)return;
+  window.__ethvelleV141SmoothSlideFixes=true;
+
+  /* ------------------------------------------------------------------------
+     BUG 1 — Keep a gesture-primed future video parked on its exact first
+     source frame. v140 calls play() on every clip inside the Play gesture,
+     then pauses future clips. That short priming playback advances currentTime;
+     the boundary gate later requires <=40ms alignment and otherwise stalls the
+     whole timeline while a new seek/decode completes. Reset the parked warm
+     element immediately after that priming pause, and re-check against the live
+     clip at adoption (trim/split/undo may have changed its source offset).
+     ------------------------------------------------------------------------ */
+  function v141LiveOverlay(id){
+    return Array.isArray(overlays)
+      ? overlays.find(o=>o&&String(o.id)===String(id))||null
+      : null;
+  }
+  const priorSetupVideo=window.setupOverlayVideoEl;
+  if(typeof priorSetupVideo==='function'&&!priorSetupVideo.__ethvelleV141WarmReset){
+    const wrappedSetupVideo=function(el,ov){
+      const result=priorSetupVideo.apply(this,arguments);
+      if(el&&el.tagName==='VIDEO'&&!el.__evV141WarmResetListener){
+        const resetGesturePrimedPosition=()=>{
+          if(el.dataset.evWarmElement!=='1'||el.dataset.evWarmRole!=='v140-gesture-prime')return;
+          const live=v141LiveOverlay(el.dataset.evV72OverlayId|| (ov&&ov.id));
+          if(!live||live.type!=='video'||live.reversePlayback)return;
+          const target=Math.max(0,Number(live.sourceOffset)||0);
+          el.dataset.evWarmTarget=String(target);
+          if(el.readyState>=1&&!el.seeking&&Math.abs((Number(el.currentTime)||0)-target)>0.015){
+            const now=performance.now();
+            el.dataset.evSeekRequestAt=String(now);
+            try{el.currentTime=target;}catch(err){console.warn('Ethvelle warm-video source reset:',err&&err.name||'Error',err);}
+          }
+        };
+        // The v140 prime promise pauses future clips after a short user-gesture play.
+        // Rewind on that pause so the decoder is already parked at sourceOffset before
+        // the timeline reaches the next clip. This does not touch an adopted/live clip.
+        el.addEventListener('pause',resetGesturePrimedPosition);
+        el.__evV141WarmResetListener=true;
+      }
+      return result;
+    };
+    wrappedSetupVideo.__ethvelleV141WarmReset=true;
+    window.setupOverlayVideoEl=wrappedSetupVideo;
+  }
+
+  const priorReleaseVideo=window.releaseOverlayVideoEl;
+  if(typeof priorReleaseVideo==='function'&&!priorReleaseVideo.__ethvelleV141LoopReset){
+    const wrappedReleaseVideo=function(el){
+      const result=priorReleaseVideo.apply(this,arguments);
+      // v140 parks finished clip decoders for the next project loop. They must be
+      // rewound after parking; otherwise the next loop inherits the previous end frame
+      // and the same boundary gate waits for a full-duration corrective seek.
+      if(el&&el.tagName==='VIDEO'&&el.dataset.evWarmElement==='1'&&el.dataset.evWarmRole==='v140-loop-pool'){
+        const live=v141LiveOverlay(el.dataset.evV72OverlayId||'');
+        if(live&&live.type==='video'&&!live.reversePlayback){
+          const target=Math.max(0,Number(live.sourceOffset)||0);
+          el.dataset.evWarmTarget=String(target);
+          if(el.readyState>=1&&!el.seeking&&Math.abs((Number(el.currentTime)||0)-target)>0.015){
+            const now=performance.now();el.dataset.evSeekRequestAt=String(now);
+            try{el.currentTime=target;}catch(err){console.warn('Ethvelle loop-video source reset:',err&&err.name||'Error',err);}
+          }
+        }
+      }
+      return result;
+    };
+    wrappedReleaseVideo.__ethvelleV141LoopReset=true;
+    window.releaseOverlayVideoEl=wrappedReleaseVideo;
+  }
+
+  const priorTakeWarm=window.takeWarmOverlayVideo;
+  if(typeof priorTakeWarm==='function'&&!priorTakeWarm.__ethvelleV141BoundarySync){
+    const wrappedTakeWarm=function(ov){
+      const el=priorTakeWarm.apply(this,arguments);
+      if(el&&ov&&el.tagName==='VIDEO'&&el.paused&&el.readyState>=1&&!el.seeking){
+        const t=Math.max(Number(currentAbsoluteTimeSec)||0,Number(ov.trimStart)||0);
+        let expected=Number(ov.sourceOffset)||0;
+        try{if(typeof evOverlayVideoExpectedLocalTime==='function')expected=evOverlayVideoExpectedLocalTime(ov,t,el);}catch(_e){}
+        if(Number.isFinite(expected)&&Math.abs((Number(el.currentTime)||0)-expected)>0.035){
+          const now=performance.now();
+          el.dataset.evSeekRequestAt=String(now);
+          el.dataset.evPlaySeekAt=String(now);
+          try{el.currentTime=expected;}catch(err){console.warn('Ethvelle incoming-video alignment:',err&&err.name||'Error',err);}
+        }
+      }
+      return el;
+    };
+    wrappedTakeWarm.__ethvelleV141BoundarySync=true;
+    window.takeWarmOverlayVideo=wrappedTakeWarm;
+  }
+
+  /* ------------------------------------------------------------------------
+     BUG 2 — Exclude ONLY the four directional In/Out slide presets from the
+     history signature and payload. They stay in the live project and saved
+     project, but Undo/Redo never changes them. Other animation presets,
+     durations, filters and real edits remain normal history entries.
+     ------------------------------------------------------------------------ */
+  const DIRECTIONAL_SLIDES=new Set(['slide-left','slide-right','slide-up','slide-down']);
+  const HISTORY_PREFIX='__ethvelle_v140__';
+  const historyPayloads=window.__ethvelleV140HistoryPayloads;
+  const slideState=window.__ethvelleV141SlideHistoryState||
+    (window.__ethvelleV141SlideHistoryState=new Map());
+
+  function slideKey(ov){return String(ov&&ov.id!=null?ov.id:'');}
+  function captureCurrentSlidePresets(){
+    if(!Array.isArray(overlays))return;
+    overlays.forEach(ov=>{
+      if(!ov||ov.id==null)return;
+      const key=slideKey(ov),cfg=ov.clipAnimations&&typeof ov.clipAnimations==='object'?ov.clipAnimations:{};
+      const entry=slideState.get(key)||{};
+      ['in','out'].forEach(slot=>{
+        const value=cfg[slot];
+        if(DIRECTIONAL_SLIDES.has(String(value)))entry[slot]=String(value);
+        else delete entry[slot];
+      });
+      if(entry.in||entry.out)slideState.set(key,entry);
+      else slideState.delete(key);
+    });
+    while(slideState.size>512)slideState.delete(slideState.keys().next().value);
+  }
+  function stripDirectionalSlides(value,parentKey){
+    if(Array.isArray(value))return value.map(item=>stripDirectionalSlides(item,''));
+    if(!value||typeof value!=='object')return value;
+    const out={};
+    Object.keys(value).sort().forEach(key=>{
+      if(parentKey==='clipAnimations'&&(key==='in'||key==='out')&&DIRECTIONAL_SLIDES.has(String(value[key])))return;
+      const child=stripDirectionalSlides(value[key],key);
+      if(child!==undefined)out[key]=child;
+    });
+    if(parentKey==='clipAnimations'){
+      const hasActive=['in','out','overall'].some(key=>out[key]&&out[key]!=='none');
+      if(!hasActive){
+        // getAnimationConfig() materializes these defaults when the first preset is
+        // selected. Remove that inert scaffolding too, so a slide-only choice has the
+        // exact same history signature as the untouched clip and cannot cut Redo.
+        if(out.in==='none')delete out.in;
+        if(out.out==='none')delete out.out;
+        if(out.overall==='none')delete out.overall;
+        if(Number(out.inDuration)===0.45)delete out.inDuration;
+        if(Number(out.outDuration)===0.45)delete out.outDuration;
+        if(Number(out.overallDuration)===1.2)delete out.overallDuration;
+      }
+      if(!Object.keys(out).length)return undefined;
+    }
+    return out;
+  }
+  function normalizeHistorySignature(value,inCharacters,parentKey){
+    if(Array.isArray(value))return value.map(item=>normalizeHistorySignature(item,inCharacters,''));
+    if(!value||typeof value!=='object')return value;
+    const out={};
+    Object.keys(value).sort().forEach(key=>{
+      if(key.startsWith('__')||key==='peaks'||key==='thumbs')return;
+      if(['currentAbsoluteTimeSec','playheadTimeSec','playhead','currentTime','frame','currentFrame','runtimeFrame'].includes(key))return;
+      if(inCharacters&&['bones','baseAngles','modelTransform','restTransform','hipRestY'].includes(key))return;
+      if(parentKey==='clipAnimations'&&(key==='in'||key==='out')&&DIRECTIONAL_SLIDES.has(String(value[key])))return;
+      out[key]=normalizeHistorySignature(value[key],inCharacters||key==='characters',key);
+    });
+    return out;
+  }
+  function stableHistoryString(value){
+    if(Array.isArray(value))return '['+value.map(stableHistoryString).join(',')+']';
+    if(value&&typeof value==='object')return '{'+Object.keys(value).sort().map(key=>JSON.stringify(key)+':'+stableHistoryString(value[key])).join(',')+'}';
+    return JSON.stringify(value);
+  }
+
+  const priorSnapshotState=window.snapshotState;
+  if(typeof priorSnapshotState==='function'&&!priorSnapshotState.__ethvelleV141SlideHistory){
+    const wrappedSnapshotState=function(){
+      captureCurrentSlidePresets();
+      const baseSignature=priorSnapshotState.apply(this,arguments);
+      if(!historyPayloads||typeof baseSignature!=='string')return baseSignature;
+      try{
+        const payloadText=historyPayloads.get(baseSignature);
+        if(!payloadText)return baseSignature;
+        const payload=stripDirectionalSlides(JSON.parse(payloadText),'' );
+        const normalized=normalizeHistorySignature(payload,false,'');
+        const signature=HISTORY_PREFIX+stableHistoryString(normalized);
+        // Store a compact, direction-free payload under the returned signature.
+        historyPayloads.set(signature,JSON.stringify(payload));
+        return signature;
+      }catch(err){
+        console.warn('Ethvelle directional-slide history normalization:',err);
+        return baseSignature;
+      }
+    };
+    wrappedSnapshotState.__ethvelleV141SlideHistory=true;
+    window.snapshotState=wrappedSnapshotState;
+  }
+
+  function mergeCurrentDirectionalSlides(restoredData){
+    if(!restoredData||!Array.isArray(restoredData.overlays))return;
+    const currentById=new Map((Array.isArray(overlays)?overlays:[]).filter(Boolean).map(ov=>[slideKey(ov),ov]));
+    restoredData.overlays.forEach(target=>{
+      if(!target||target.id==null)return;
+      const key=slideKey(target),current=currentById.get(key)||null;
+      const cached=slideState.get(key)||{};
+      const targetCfg=target.clipAnimations&&typeof target.clipAnimations==='object'?target.clipAnimations:(target.clipAnimations={});
+      const liveCfg=current&&current.clipAnimations&&typeof current.clipAnimations==='object'?current.clipAnimations:{};
+      ['in','out'].forEach(slot=>{
+        const liveValue=liveCfg[slot];
+        const cachedValue=cached[slot];
+        const savedValue=targetCfg[slot];
+        let preserve;
+        if(DIRECTIONAL_SLIDES.has(String(liveValue)))preserve=String(liveValue);
+        else if(DIRECTIONAL_SLIDES.has(String(cachedValue)))preserve=String(cachedValue);
+        else if(DIRECTIONAL_SLIDES.has(String(savedValue))){
+          // A legacy/older snapshot may still contain a directional slide. Keep the
+          // current non-slide choice (Fade/None/Zoom/etc), or remove the slide if none
+          // is currently selected; do not let Undo/Redo introduce it.
+          if(liveValue!==undefined&&liveValue!==null)preserve=liveValue;
+        }
+        if(preserve!==undefined)targetCfg[slot]=preserve;
+        else if(DIRECTIONAL_SLIDES.has(String(savedValue)))delete targetCfg[slot];
+      });
+      if(!Object.keys(targetCfg).length)delete target.clipAnimations;
+    });
+  }
+
+  const priorApplySnapshot=window.applySnapshot;
+  if(typeof priorApplySnapshot==='function'&&!priorApplySnapshot.__ethvelleV141SlideHistory){
+    const wrappedApplySnapshot=function(snapshot){
+      captureCurrentSlidePresets();
+      if(historyPayloads&&typeof snapshot==='string'){
+        try{
+          let payloadText=historyPayloads.get(snapshot)||null;
+          if(!payloadText&&snapshot.startsWith(HISTORY_PREFIX))payloadText=snapshot.slice(HISTORY_PREFIX.length);
+          let data=payloadText?JSON.parse(payloadText):JSON.parse(snapshot);
+          if(data&&typeof data==='object'&&Array.isArray(data.overlays)){
+            mergeCurrentDirectionalSlides(data);
+            // The previous v140 restore wrapper still performs waveform-cache rehydration,
+            // UI rebuild and its settled history-head refresh when given ordinary JSON.
+            return priorApplySnapshot.call(this,JSON.stringify(data));
+          }
+        }catch(err){
+          console.warn('Ethvelle directional-slide restore merge:',err);
+        }
+      }
+      return priorApplySnapshot.apply(this,arguments);
+    };
+    wrappedApplySnapshot.__ethvelleV141SlideHistory=true;
+    window.applySnapshot=wrappedApplySnapshot;
+  }
+
+  if(typeof updateHistoryButtons==='function')updateHistoryButtons();

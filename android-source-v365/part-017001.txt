@@ -1,0 +1,1000 @@
+      if(g.type==='scroll'){ applyClipVerticalScrollHandoff(g, e.clientY); return 'handled'; }
+      if(g.type==='scrub'){ scheduleTimelineScrub(timeFromDragAnchor(g.startX,g.startTime,e.clientX)); return 'handled'; }
+      const dx = Math.abs(e.clientX-g.startX), dy = Math.abs(e.clientY-g.startY);
+      if(dy>=MOVE_TOL && dy>=dx*0.82){ clearTimer(); g.type='scroll'; applyClipVerticalScrollHandoff(g,e.clientY); return 'handled'; }
+      if(dx>=MOVE_TOL){ clearTimer(); g.type='scrub'; scheduleTimelineScrub(timeFromDragAnchor(g.startX,g.startTime,e.clientX)); }
+      return 'handled';
+    },
+    // Ends the gesture; returns what it was: 'pending' (plain tap), 'scrub', 'scroll' or 'trim'.
+    up(e){
+      clearTimer();
+      const done = g; g = null;
+      if(!done) return '';
+      if(done.type==='scrub'){ try{ flushTimelineScrub(timeFromDragAnchor(done.startX,done.startTime,e.clientX), false); }catch(_e){} }
+      return done.type;
+    },
+    cancel(){ clearTimer(); const done = g; g = null; return done ? done.type : ''; }
+  };
+}
+window.ethvelleMakeHandleHoldGate = ethvelleMakeHandleHoldGate;
+// Must match the .timeline-ruler{margin-left} CSS value above and the .layer-row badge
+// column it's compensating for (12px row padding + 26px badge + 10px gap = 48px).
+const TRACK_LEAD_PX = 48;
+
+// Builds the keyframe-diamond markers for one clip's own keyframe track. `ref` is the
+// clip's selection ref ('main' or 'segN') so each marker's click handler re-selects the
+// right clip/keyframe pair — this is what lets split segments show and manage their own
+// keyframes exactly like the main clip does, instead of only the main clip ever getting them.
+function keyframeMarkerX(clip,kf,pps){
+  const clipWidth=Math.max(MIN_CLIP_SEC*pps,(Number(clip?.trimEnd)-Number(clip?.trimStart))*pps);
+  const raw=(Number(kf?.t)-Number(clip?.trimStart))*pps;
+  const maxX=Math.max(9,clipWidth-9);
+  return Math.max(9,Math.min(maxX,Number.isFinite(raw)?raw:9));
+}
+function kfMarkersHtml(ref, clip){
+  if(!clip) return '';
+  const pps = pxPerSecond();
+  return (Array.isArray(clip.keyframes)?clip.keyframes:[]).map((kf, idx)=>{
+    const relX = keyframeMarkerX(clip,kf,pps);
+    const under = Math.abs(Number(kf.t)-Number(currentAbsoluteTimeSec)) <= keyframeContactWindow();
+    const isActive = (selectedClip===ref && idx===selectedKfIdx) || under;
+    return `<div class="kf-marker ${isActive?'active':''} ${under?'under-playhead':''}" style="left:${relX}px;" data-kf-idx="${idx}" aria-label="Keyframe ${idx+1}" role="button" onclick="event.stopPropagation(); selectKeyframe(${idx}, '${ref}')"></div>`;
+  }).join('');
+}
+// v235: paint only the marker strip when a character keyframe changes. The clip DOM, row
+// badge and scroll position remain untouched, so the layer icon cannot make a one-frame hop.
+function refreshCharacterKeyframeMarkers(ref,clip){
+  const markerRef=/^seg\d+$/.test(String(ref||''))?String(ref):'main';
+  const track=document.getElementById(markerRef==='main'?'kfTrack':'kfTrack-'+markerRef);
+  if(!track)return false;
+  const html=kfMarkersHtml(markerRef,clip);
+  if(track.innerHTML!==html)track.innerHTML=html;
+  return true;
+}
+// Additive transform/volume keyframes for Background, Image/Text, Video and Audio clips.
+// The original Character pose-keyframe system above remains unchanged.
+const ETHVELLE_OBJECT_KF_TOLERANCE = 0.05;
+function ethvelleObjectKeyframeContactWindow(){
+  // Match the visual half-width of the 15px keyframe diamond, so any overlap with the
+  // fixed 2px playhead line counts as being parked on that keyframe at every timeline zoom.
+  return Math.max(ETHVELLE_OBJECT_KF_TOLERANCE,10.5/Math.max(1,pxPerSecond()));
+}
+window.__ethvelleSelectedObjectKeyframe = null;
+function ethvelleObjectClipById(id){
+  if(id==null)return null;
+  const key=String(id);
+  return backgrounds.find(b=>String(b.id)===key) || overlays.find(o=>String(o.id)===key) || null;
+}
+function ethvelleObjectKeyframeProperty(clip){
+  return clip&&clip.type==='audio'?'volume':'transform';
+}
+function ethvelleCloneObjectKeyframeValue(value,property){
+  if(property==='volume')return Number(value==null?1:value);
+  const v=value||{};
+  return {scale:Number(v.scale==null?1:v.scale),offsetX:Number(v.offsetX)||0,offsetY:Number(v.offsetY)||0,rotation:Number(v.rotation)||0};
+}
+function ethvelleObjectBaseValue(clip,property){
+  const base=clip&&clip.ethvelleMediaKeyframeBase;
+  if(base&&Object.prototype.hasOwnProperty.call(base,property))return ethvelleCloneObjectKeyframeValue(base[property],property);
+  if(property==='volume')return Number(clip&&clip.volume!=null?clip.volume:1);
+  return ethvelleCloneObjectKeyframeValue(clip&&clip.transform,property);
+}
+function ethvelleInterpolateObjectValue(a,b,p,property){
+  const mix=(x,y)=>Number(x||0)+(Number(y||0)-Number(x||0))*p;
+  if(property==='volume')return mix(a,b);
+  const out={};
+  ['scale','offsetX','offsetY'].forEach(k=>out[k]=mix(a&&a[k],b&&b[k]));
+  const ar=Number(a&&a.rotation)||0,br=Number(b&&b.rotation)||0;
+  const delta=((br-ar+540)%360)-180;
+  out.rotation=ar+delta*p;
+  return out;
+}
+const ethvelleObjectKeyframeCache=new WeakMap();
+function ethvelleGetObjectKeyframeValue(clip,property,time){
+  if(!clip)return null;
+  const t=Number(time),source=Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+  if(!Number.isFinite(t)||!source.length)return null;
+  let cache=ethvelleObjectKeyframeCache.get(clip);
+  // The keyframe array is often edited in place (same array and same item count):
+  // an existing key's time/property/value may change without changing array identity.
+  // Validate the small key list before reusing the sorted groups, otherwise edits can
+  // keep rendering stale interpolation or show a key at its old time.
+  let cacheValid=!!(cache&&cache.source===source&&cache.length===source.length);
+  if(cacheValid){
+    for(let i=0;i<source.length;i++){
+      const key=source[i],entry=cache.entries&&cache.entries[i];
+      if(!entry||entry.ref!==key||entry.t!==Number(key&&key.t)||entry.property!==(key&&key.property)||entry.valueRef!==(key&&key.value)){cacheValid=false;break;}
+    }
+  }
+  if(!cacheValid){
+    const groups=Object.create(null),entries=new Array(source.length);
+    for(let i=0;i<source.length;i++){
+      const key=source[i];
+      entries[i]={ref:key,t:Number(key&&key.t),property:key&&key.property,valueRef:key&&key.value};
+      if(!key||!key.property||!Number.isFinite(Number(key.t))||key.value==null)continue;
+      (groups[key.property]||(groups[key.property]=[])).push(key);
+    }
+    Object.keys(groups).forEach(name=>groups[name].sort((a,b)=>Number(a.t)-Number(b.t)));
+    cache={source,length:source.length,entries,groups};ethvelleObjectKeyframeCache.set(clip,cache);
+  }
+  const keys=cache.groups[property]||[];if(!keys.length)return null;
+  const first=keys[0],firstT=Number(first.t),base=ethvelleObjectBaseValue(clip,property);
+  const clipStart=Number.isFinite(Number(clip.trimStart))?Number(clip.trimStart):firstT;
+  if(t<firstT){
+    const span=firstT-clipStart;
+    if(span<=0)return ethvelleCloneObjectKeyframeValue(first.value,property);
+    return ethvelleInterpolateObjectValue(base,first.value,Math.max(0,Math.min(1,(t-clipStart)/span)),property);
+  }
+  let prev=first;
+  for(let i=1;i<keys.length;i++){
+    const next=keys[i],a=Number(prev.t),b=Number(next.t);
+    if(t<=b){const f=b>a?Math.max(0,Math.min(1,(t-a)/(b-a))):1;return ethvelleInterpolateObjectValue(prev.value,next.value,f,property);}
+    prev=next;
+  }
+  return ethvelleCloneObjectKeyframeValue(prev.value,property);
+}
+window.ethvelleGetObjectKeyframeValue=ethvelleGetObjectKeyframeValue;
+function ethvelleObjectKeyframeMarkersHtml(id,clip){
+  // Keep every clip's keyframes in the timeline DOM all the time. Selection only changes
+  // the active styling; it must never control whether a keyframe exists or is painted.
+  if(!clip||!Array.isArray(clip.ethvelleMediaKeyframes)||!clip.ethvelleMediaKeyframes.length)return '';
+  const pps=pxPerSecond(),duration=Math.max(0.05,Number(clip.trimEnd)-Number(clip.trimStart));
+  const width=Math.max(MIN_CLIP_SEC*pps,duration*pps),chosen=window.__ethvelleSelectedObjectKeyframe;
+  return clip.ethvelleMediaKeyframes.map((kf,idx)=>{
+    const raw=(Number(kf.t)-Number(clip.trimStart))*pps;
+    const x=Math.max(9,Math.min(Math.max(9,width-9),Number.isFinite(raw)?raw:9));
+    const under=kf.property===ethvelleObjectKeyframeProperty(clip)&&Math.abs(Number(kf.t)-Number(currentAbsoluteTimeSec))<=ethvelleObjectKeyframeContactWindow();
+    const active=(String(selectedClip)===String(id)&&chosen&&String(chosen.id)===String(id)&&Number(chosen.index)===idx)||under;
+    const safeId=String(id).replace(/\\/g,'\\\\').replace(/'/g,"\\'");
+    return `<div class="kf-marker ${active?'active':''} ${under?'under-playhead':''}" style="left:${x}px;" data-object-kf-idx="${idx}" aria-label="Keyframe ${idx+1}" role="button" onclick="event.stopPropagation();selectObjectKeyframe('${safeId}',${idx})"></div>`;
+  }).join('');
+}
+function ethvelleRefreshObjectKeyframeTracks(selectedId){
+  const id=selectedId==null?'':String(selectedId);
+  // Do not empty the previously active track here. Its markers remain visible even
+  // after selection moves to another clip; only the active styling is refreshed.
+  let track=null;
+  if(id){
+    // All project IDs are generated internally and contain only URL-safe characters.
+    // A direct attribute lookup avoids iterating every layer when selection changes.
+    track=document.querySelector(`[data-object-kf-track="${id}"]`);
+  }
+  if(track){
+    const clip=ethvelleObjectClipById(id);
+    const html=ethvelleObjectKeyframeMarkersHtml(id,clip);
+    if(track.innerHTML!==html)track.innerHTML=html;
+  }
+  window.__ethvelleActiveObjectKeyframeTrack=track;
+  return track;
+}
+function selectObjectKeyframe(id,index){
+  const clip=ethvelleObjectClipById(id),keys=clip&&clip.ethvelleMediaKeyframes;
+  if(!clip||!Array.isArray(keys)||!keys[index])return;
+  pausePlayback();
+  selectClipForChrome(id);
+  window.__ethvelleSelectedObjectKeyframe={id:String(id),index:Number(index)};
+  ethvelleRefreshObjectKeyframeTracks(id);
+  seekAbsoluteTimelineSeconds(Number(keys[index].t));
+  updateKeyButtonState();
+}
+function toggleObjectKeyframeAtPlayhead(){
+  const id=selectedClip,clip=ethvelleObjectClipById(id);
+  if(!clip){showToast('Select a Background, Media, Text or Audio clip first.',{icon:toastIcons.info});return;}
+  if(!onClipSelected(clip,'keyframe'))return;
+  const t=Number(getCurrentAbsoluteTime()),start=Number(clip.trimStart)||0,end=Number(clip.trimEnd)||0;
+  const property=ethvelleObjectKeyframeProperty(clip);
+  if(!Array.isArray(clip.ethvelleMediaKeyframes))clip.ethvelleMediaKeyframes=[];
+  if(!clip.ethvelleMediaKeyframeBase||typeof clip.ethvelleMediaKeyframeBase!=='object')clip.ethvelleMediaKeyframeBase={};
+  if(!Object.prototype.hasOwnProperty.call(clip.ethvelleMediaKeyframeBase,property)){
+    clip.ethvelleMediaKeyframeBase[property]=ethvelleObjectBaseValue(clip,property);
+  }
+  const keys=clip.ethvelleMediaKeyframes;
+  const existing=keys.findIndex(k=>k&&k.property===property&&Math.abs(Number(k.t)-t)<=ethvelleObjectKeyframeContactWindow());
+  if(existing>=0){keys.splice(existing,1);window.__ethvelleSelectedObjectKeyframe=null;}
+  else{
+    // Snapshot the currently displayed/interpolated value, not merely the authored base.
+    // This lets a newly inserted key preserve the motion/volume that was live at this time.
+    const liveValue=ethvelleGetObjectKeyframeValue(clip,property,t);
+    const value=property==='volume'
+      ? Number(liveValue==null?(clip.volume==null?1:clip.volume):liveValue)
+      : ethvelleCloneObjectKeyframeValue(liveValue||clip.transform,property);
+    keys.push({t,property,value});
+    keys.sort((a,b)=>Number(a.t)-Number(b.t));
+    const idx=keys.findIndex(k=>k&&k.property===property&&Math.abs(Number(k.t)-t)<0.00001);
+    window.__ethvelleSelectedObjectKeyframe={id:String(id),index:idx};
+  }
+  // The clip row and its badge/icon are already in the DOM. Refresh only this clip's
+  // keyframe-marker track; rebuilding the complete Background/Media row caused its badge
+  // to jump sideways for one frame whenever a keyframe was added or removed.
+  ethvelleRefreshObjectKeyframeTracks(id);
+  updateKeyButtonState();renderFrame();
+  showToast(existing>=0?'Keyframe removed':'Keyframe added',{icon:toastIcons.check,duration:1200});
+  persistProjectState();
+}
+function ethvelleScheduleObjectVolumeAutomation(param,clip,when,duration){
+  if(!param||!clip||!Number.isFinite(duration)||duration<=0)return;
+  const start=Number(clip.trimStart)||0,end=Math.min(Number(clip.trimEnd)||start+duration,start+duration);
+  const base=ethvelleGetObjectKeyframeValue(clip,'volume',start);
+  const keys=(Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[])
+    .filter(k=>k&&k.property==='volume'&&Number(k.t)>start&&Number(k.t)<end)
+    .slice().sort((a,b)=>Number(a.t)-Number(b.t));
+  const clampVol=v=>Math.max(0,Math.min(2,Number(v)||0));
+  try{
+    param.cancelScheduledValues(when);
+    param.setValueAtTime(clampVol(base==null?ethvelleObjectBaseValue(clip,'volume'):base),when);
+    keys.forEach(k=>param.linearRampToValueAtTime(clampVol(k.value),when+(Number(k.t)-start)));
+    const atEnd=ethvelleGetObjectKeyframeValue(clip,'volume',Math.max(start,end-0.0001));
+    if(atEnd!=null)param.linearRampToValueAtTime(clampVol(atEnd),when+Math.max(0,duration));
+  }catch(_e){try{param.value=clampVol(base==null?clip.volume:base);}catch(__e){}}
+}
+// Sub-lane vertical geometry for a character's own clip row — mirrors SUB_LANE_H(48)/the
+// +6/+4 spacing renderOverlayLayers already uses for Clips/Audio, just applied to the
+// main+segments clip lane instead. Kept as named constants so both renderTimelineClip
+// (initial layout) and the live-drag repack path (wireClipInteractions/
+// wireSplitSegmentInteractions) always agree on the exact same numbers.
+// Real (non-pseudo-element) selection border bars, one per edge — see the .track-clip.selected/
+// .anim-clip.selected/.overlay-clip.selected CSS comments for why this replaced the old
+// box-shadow-ring approach. Only visually shows once the CSS `.selected` class is also on the
+// clip (`.track-clip .sel-edge-top` etc select unconditionally, `.track-clip.selected` is what
+// actually needs the border), but it's harmless/invisible markup to include on every clip
+// unconditionally — far simpler than conditionally splicing it in only for the selected one,
+// and it costs nothing since these four divs are just thin (2-3px) empty boxes.
+const SEL_EDGE_HTML = '<div class="sel-edge-top"></div><div class="sel-edge-bottom"></div><div class="sel-edge-left"></div><div class="sel-edge-right"></div>';
+const CHAR_SUB_LANE_H = 36;
+const CHAR_LANE_GAP = 6;
+function charClipLaneTop(laneIdx){ return 3 + laneIdx*(CHAR_SUB_LANE_H+CHAR_LANE_GAP); }
+// Character tracks use the same overlap packing model as Clips/Text/Audio: clips remain at
+// their actual timeline times, and any time-overlap is represented by a separate vertical
+// sub-lane. This keeps the active clip under the pointer and never shifts another clip's time.
+function charRowHeightForLanes(laneCount){
+  const count=Math.max(1,Math.floor(Number(laneCount)||1));
+  // Preserve the existing 42px track / 46px row in the single-lane case; each added
+  // lane contributes one 36px clip plus the same 6px breathing gap.
+  return CHAR_SUB_LANE_H+6+(count-1)*(CHAR_SUB_LANE_H+CHAR_LANE_GAP);
+}
+function characterClipLaneLayout(clip, segments){
+  const entries=getAllStickmanClips(clip,segments);
+  const lanes=[], laneOf=new Map();
+  entries.forEach(entry=>{
+    const start=Number(entry.clip.trimStart)||0;
+    let laneIndex=lanes.findIndex(lane=>start >= lane.end-0.001);
+    if(laneIndex<0) laneIndex=lanes.length;
+    if(!lanes[laneIndex]) lanes[laneIndex]={end:-Infinity};
+    lanes[laneIndex].end=Number(entry.clip.trimEnd)||start;
+    laneOf.set(entry.ref,laneIndex);
+  });
+  const signature=entries.map(entry=>entry.ref+':'+laneOf.get(entry.ref)).join('|');
+  return {laneOf,laneCount:Math.max(1,lanes.length),signature,entries};
+}
+// Kept as a compatibility hook for the speed panel and older call sites. Character clips no
+// longer push one another sideways in time; this now only returns their vertical lane layout.
+function resolveCharClipOverlaps(clip, segments, movedRef){
+  return characterClipLaneLayout(clip,segments);
+}
+function setCharacterLaneGeometry(row,track,laneCount){
+  if(!row || !track) return;
+  const trackH=charRowHeightForLanes(laneCount);
+  const rowH=trackH+4;
+  const rowValue=rowH+'px',trackValue=trackH+'px';
+  if(row.style.getPropertyValue('--ev-char-row-height')!==rowValue) row.style.setProperty('--ev-char-row-height',rowValue);
+  if(track.style.getPropertyValue('--ev-char-track-height')!==trackValue) track.style.setProperty('--ev-char-track-height',trackValue);
+  // Keep inline fallbacks for browsers / embedded WebViews that ignore the custom properties.
+  if(row.style.height!==rowValue) row.style.height=rowValue;
+  if(track.style.height!==trackValue) track.style.height=trackValue;
+  return {rowH,trackH};
+}
+function setCharacterClipLane(el,laneIndex){
+  if(!el) return;
+  const top=charClipLaneTop(laneIndex)+'px';
+  if(el.style.getPropertyValue('--ev-char-lane-top')!==top){
+    el.style.setProperty('--ev-char-lane-top',top);
+    el.style.top=top;
+  }
+}
+// Recomputes only the light lane geometry on every pointer frame (no innerHTML rebuild, so
+// pointer capture remains intact). Overlapping character clips move down/up immediately,
+// while their trimStart/trimEnd and keyframe times are never rewritten by the lane solver.
+function applyCharClipLanes(movedRef, preserveDraggedRef){
+  const track=document.getElementById('track-char-'+activeCharIdx);
+  const row=track?track.closest('.char-row'):null;
+  if(!track||!row) return;
+  const layout=characterClipLaneLayout(activeClip,splitStickmanSegments);
+  setCharacterLaneGeometry(row,track,layout.laneCount);
+  const pps=pxPerSecond();
+  const allEnd=layout.entries.reduce((max,entry)=>Math.max(max,Number(entry.clip.trimEnd)||0),0);
+  if(allEnd>timelineDuration-0.3){
+    timelineDuration=allEnd+1;
+    syncTimelineInnerWidth();
+    renderRuler();
+  }
+  const mainEl=document.getElementById('animClipEl');
+  if(mainEl){
+    setCharacterClipLane(mainEl,layout.laneOf.get('main')||0);
+    if(preserveDraggedRef!=='main'){
+      setTimelineInlineStyle(mainEl,'left',(activeClip.trimStart*pps)+'px');
+      setTimelineInlineStyle(mainEl,'width',Math.max(MIN_CLIP_SEC*pps,(activeClip.trimEnd-activeClip.trimStart)*pps)+'px');
+      const kfTrack=document.getElementById('kfTrack');
+      if(kfTrack){
+        (activeClip.keyframes||[]).forEach((kf,idx)=>{
+          const marker=kfTrack.querySelector(`[data-kf-idx="${idx}"]`);
+          if(marker) setTimelineInlineStyle(marker,'left',keyframeMarkerX(activeClip,kf,pps)+'px');
+        });
+      }
+    }
+  }
+  splitStickmanSegments.forEach((seg,idx)=>{
+    const ref='seg'+idx,el=document.getElementById(ref+'El');
+    if(!el) return;
+    setCharacterClipLane(el,layout.laneOf.get(ref)||0);
+    if(preserveDraggedRef!==ref){
+      setTimelineInlineStyle(el,'left',(seg.trimStart*pps)+'px');
+      setTimelineInlineStyle(el,'width',Math.max(MIN_CLIP_SEC*pps,(seg.trimEnd-seg.trimStart)*pps)+'px');
+      const kfTrack=document.getElementById('kfTrack-'+ref);
+      if(kfTrack){
+        (seg.keyframes||[]).forEach((kf,kidx)=>{
+          const marker=kfTrack.querySelector(`[data-kf-idx="${kidx}"]`);
+          if(marker) setTimelineInlineStyle(marker,'left',keyframeMarkerX(seg,kf,pps)+'px');
+        });
+      }
+    }
+  });
+}
+function renderTimelineClip(options){
+  // The interactive clip markup always renders into the currently ACTIVE character's own
+  // row track (id="track-char-{activeCharIdx}") — there is no separate shared stickman
+  // track anymore. Every other character's row shows its own read-only preview instead
+  // (see readOnlyCharClipMarkup), rebuilt by renderCharacterLayers whenever the active
+  // character changes.
+  // BUGFIX ("timeline ruler (1s, 2s...) doesn't show until after you select+extend a
+  // clip"): renderRuler()/syncTimelineInnerWidth() used to be called only AFTER this
+  // function's own track-lookup guard below, so if the active character's clip row
+  // (#track-char-N) didn't exist in the DOM yet — which is true for a brief moment right
+  // when the editor first opens, before renderCharacterLayers() has built that row — this
+  // whole function returned early and the ruler was simply never drawn. It would then only
+  // ever get a first chance to draw once some other action (selecting/extending a clip)
+  // triggered a later renderTimelineClip() call, by which point the row finally existed.
+  // The ruler has nothing to do with any particular character's row, so it must never be
+  // gated behind that row's existence — moved both calls up, before the guard.
+  renderRuler();
+  syncPlayheadHeight();
+  const track = document.getElementById('track-char-'+activeCharIdx);
+  if(!track){ syncTimelineInnerWidth(); return; }
+  syncTimelineInnerWidth();
+  if(!activeClip){
+    track.innerHTML = '';
+    splitStickmanSegments = []; // segments are meaningless without a base clip
+    const emptyRow=track.closest('.char-row');
+    setCharacterLaneGeometry(emptyRow,track,1);
+    syncClipRefsToCharacter();
+    if(!(options&&options.skipOverlayRender)) renderOverlayLayers();
+    updateKeyButtonState();
+    return;
+  }
+  const pps = pxPerSecond();
+  const left = activeClip.trimStart * pps;
+  const width = Math.max(MIN_CLIP_SEC*pps, (activeClip.trimEnd - activeClip.trimStart) * pps);
+  const preset = animPresets[activeClip.animKey];
+
+  // Keyframe diamonds are persistent timeline information, not selection-only controls.
+  // Render them for every clip so they are already painted before the user taps a clip.
+  const kfMarkers = kfMarkersHtml('main', activeClip);
+
+  // Pack main + split segments into vertical sub-lanes exactly like the Clips/Text/Audio
+  // rows. Timeline times remain unchanged; an overlapping clip occupies the next lane.
+  const charLayout=characterClipLaneLayout(activeClip,splitStickmanSegments);
+
+  // Segments created by Split() render as their own independent clip elements on the
+  // same stickman track — same visuals as the main clip, but each with its own
+  // trim/select/delete via data-seg-idx instead of the fixed #animClipEl id. Each segment
+  // keeps its keyframe markers visible regardless of selection.
+  const segMarkup = splitStickmanSegments.map((seg, segIdx)=>{
+    const segId = 'seg'+segIdx;
+    const segLeft = seg.trimStart * pps;
+    const segWidth = Math.max(MIN_CLIP_SEC*pps, (seg.trimEnd - seg.trimStart) * pps);
+    const segPreset = animPresets[seg.animKey];
+    const segKfMarkers = kfMarkersHtml(segId, seg);
+    const segTop=charClipLaneTop(charLayout.laneOf.get(segId)||0);
+    return `
+      <div class="anim-clip ${selectedClip===segId?'selected':''}" data-seg-idx="${segIdx}" id="${segId}El" style="left:${segLeft}px; width:${segWidth}px; --ev-char-lane-top:${segTop}px; top:${segTop}px; height:${CHAR_SUB_LANE_H}px;">
+        <div class="anim-clip-handle left" data-seg-handle="left"></div>
+        <div class="anim-clip-body" data-seg-body="${segIdx}">${evMythicAnimationClipIcon(segPreset)}<span class="anim-clip-label">${segPreset ? segPreset.name : 'Animation'}</span></div>
+        <div class="anim-clip-handle right" data-seg-handle="right"></div>
+        <div class="keyframe-track" id="kfTrack-${segId}">${segKfMarkers}</div>
+        ${SEL_EDGE_HTML}
+      </div>
+    `;
+  }).join('');
+
+  const mainTop=charClipLaneTop(charLayout.laneOf.get('main')||0);
+  track.innerHTML = `
+    <div class="anim-clip ${selectedClip==='main'?'selected':''}" id="animClipEl" style="left:${left}px; width:${width}px; --ev-char-lane-top:${mainTop}px; top:${mainTop}px; height:${CHAR_SUB_LANE_H}px;">
+      <div class="anim-clip-handle left" id="clipHandleLeft"></div>
+      <div class="anim-clip-body" id="clipBody">${evMythicAnimationClipIcon(preset)}<span class="anim-clip-label">${preset.name}</span></div>
+      <div class="anim-clip-handle right" id="clipHandleRight"></div>
+      <div class="keyframe-track" id="kfTrack">${kfMarkers}</div>
+      ${SEL_EDGE_HTML}
+    </div>
+    ${segMarkup}
+  `;
+  const row=track.closest('.char-row');
+  setCharacterLaneGeometry(row,track,charLayout.laneCount);
+  wireClipInteractions();
+  wireSplitSegmentInteractions();
+  if(!(options&&options.skipOverlayRender)) renderOverlayLayers();
+  updateKeyButtonState();
+}
+
+// Wires drag/resize/select for each split-off segment clip. Mirrors wireClipInteractions
+// but operates on splitStickmanSegments[idx] instead of the global activeClip, and has no
+// keyframes/animation-swap of its own (v1 segments just replay the same preset pose-to-pose).
+function wireSplitSegmentInteractions(){
+  splitStickmanSegments.forEach((seg, segIdx)=>{
+    const segId = 'seg'+segIdx;
+    const clipEl = document.getElementById(segId+'El');
+    if(!clipEl) return;
+    const body = clipEl.querySelector(`[data-seg-body="${segIdx}"]`);
+    const leftHandle = clipEl.querySelector('[data-seg-handle="left"]');
+    const rightHandle = clipEl.querySelector('[data-seg-handle="right"]');
+    wireClipZoomGesture(body); // FEATURE: two-finger pinch on this clip zooms the timeline
+    clipEl.addEventListener('pointerdown', (e)=>{
+      if(e.target !== clipEl && !e.target.closest('.sel-edge-top, .sel-edge-bottom, .sel-edge-left, .sel-edge-right')) return;
+      e.stopPropagation();
+      if(isPlaying) pausePlayback();
+      selectClipForChrome(segId);
+    });
+
+    function reposition(){
+      // Recalculate the character row's vertical sub-lanes on every trim frame. Any
+      // overlapping clip moves to another lane immediately without changing timeline time.
+      applyCharClipLanes(segId);
+    }
+
+    // A quick touch-and-slide on a segment body ALWAYS scrubs the playhead, never moves the
+    // segment — matches the main clip body exactly. Only a LONG_PRESS_SWAP_MS hold-still,
+    // done before any sliding, arms move mode; once armed, every pointermove repositions the
+    // segment live in real time, tracking the finger 1:1. If that overlaps a neighbor, the
+    // row immediately places the overlapping clip on a separate vertical sub-lane.
+    const SEG_DRAG_TOLERANCE = 7;
+    let dragState = null; // null | {type:'pending'|'move'|'scroll', ...}
+    let swapPressTimer = null;
+    function clearSwapPressTimer(){ if(swapPressTimer){ clearTimeout(swapPressTimer); swapPressTimer=null; } }
+    function applySegmentMoveAt(clientX){
+      if(!dragState||dragState.type!=='move')return;
+      const pps=pxPerSecond();
+      const deltaSec=timelineDragDeltaPixels(dragState,clientX)/pps;
+      const len=dragState.origEnd-dragState.origStart;
+      const newStart=Math.max(0,dragState.origStart+deltaSec);
+      const shift=newStart-dragState.origStart;
+      seg.trimStart=newStart;seg.trimEnd=newStart+len;
+      // Re-pack neighbours first, then position the compositor-translated active segment
+      // from its FINAL solved time. This also handles the t=0 boundary case without a
+      // one-frame visual mismatch between the data and the finger-following DOM element.
+      applyCharClipLanes(segId,segId);
+      ensureTimelineRoomForDraggedClip(seg);
+      paintTimelineDragX(clipEl,(seg.trimStart-dragState.origStart)*pps);
+    }
+    body.onpointerdown = (e)=>{
+      e.stopPropagation();
+      if(isPlaying) pausePlayback();
+      selectClipForChrome(segId);
+      const timelineScroller=document.getElementById('timelineScroll');
+      dragState = { type:'pending', pointerId:e.pointerId, startScrollLeft:timelineScroller?timelineScroller.scrollLeft:0, startX:e.clientX, startY:e.clientY, lastX:e.clientX, startTime: getCurrentAbsoluteTime(), origStart:seg.trimStart, origEnd:seg.trimEnd, origKfTimes: (seg.keyframes||[]).map(k=>k.t) };
+      body.setPointerCapture(e.pointerId);
+      clearSwapPressTimer();
+      swapPressTimer=setTimeout(()=>{
+        swapPressTimer=null;
+        if(!dragState||dragState.type!=='pending')return;
+        dragState.type='move';clipEl.classList.add('dragging');if(window.ethvelleNotifyClipMoveReady)window.ethvelleNotifyClipMoveReady();armClipDrag();
+        startTimelineEdgeAutoScroll(dragState.pointerId,dragState.lastX,()=>{if(dragState&&dragState.type==='move')applySegmentMoveAt(dragState.lastX);});
+        if(Number.isFinite(dragState.lastX))applySegmentMoveAt(dragState.lastX);
+      },240);
+    };
+    body.onpointermove = (e)=>{
+      if(!dragState) return;
+      dragState.lastX=e.clientX;
+      if(dragState.type==='scroll'){ applyClipVerticalScrollHandoff(dragState, e.clientY); return; }
+      const movedPx = Math.abs(e.clientX - dragState.startX);
+      if(dragState.type==='pending'){
+        // A dominantly-vertical slide before the long-press fires means "scroll the row
+        // list", not "interact with this segment" — hand off to the shared scroller, same
+        // as sliding on empty timeline space (see applyClipVerticalScrollHandoff above).
+        const movedPy = Math.abs(e.clientY - dragState.startY);
+        if(movedPy >= SEG_DRAG_TOLERANCE && movedPy >= movedPx*0.82){
+          clearSwapPressTimer();
+          dragState.type = 'scroll';
+          const scroller = document.getElementById('timelineScroll');
+          dragState.scrollTopStart = scroller ? scroller.scrollTop : 0;
+          applyClipVerticalScrollHandoff(dragState, e.clientY);
+          return;
+        }
+        // A quick horizontal slide is a scrub. Moving the clip requires holding still for
+        // LONG_PRESS_MS; after that timer arms move mode, the clip follows the finger.
+        if(movedPx > 46){clearSwapPressTimer();dragState.type='scrub';}
+        return;
+      }
+      if(dragState.type==='scrub')return;
+      updateTimelineEdgeAutoScroll(e.pointerId,e.clientX,()=>{if(dragState&&dragState.type==='move')applySegmentMoveAt(dragState.lastX);});
+      scheduleTimelineDragFrame(body,e,point=>applySegmentMoveAt(point.clientX));
+      return;
+    };
+    body.onpointerup = (e)=>{
+      if(!dragState) return;
+      stopTimelineEdgeAutoScroll(e.pointerId);
+      clearSwapPressTimer();
+      const wasMove = dragState.type==='move';
+      const wasScroll = dragState.type==='scroll';
+      const wasScrub = dragState.type==='scrub';
+      const anchorX = dragState.startX, anchorTime = dragState.startTime;
+      if(wasMove)flushTimelineDragFrame(body,e,point=>applySegmentMoveAt(point.clientX));else cancelTimelineDragFrame(body);
+      if(wasMove){const movedBy=seg.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(seg.keyframes,dragState.origKfTimes,movedBy);if(window.ethvelleNotifyClipMoved)window.ethvelleNotifyClipMoved(movedBy);clearTimelineDragX(clipEl);}
+      dragState=null;body.releasePointerCapture(e.pointerId);
+      clipEl.classList.remove('dragging');
+      if(wasMove){
+        applyCharClipLanes(segId); // one final neighbor/layout pass, not once per pointer frame
+        disarmClipDrag();
+        // FIX: no snap-to-neighbor — the segment stays exactly where it was dropped, on
+        // whichever lane it now packs into (already applied live — see reposition above).
+        renderTimelineClip();
+      } else if(wasScrub&&!wasScroll){
+        const t = timeFromDragAnchor(anchorX, anchorTime, e.clientX);
+        flushTimelineScrub(t);
+      }
+      persistProjectState({skipHistory:true});
+    };
+    body.onpointercancel = ()=>{
+      if(!dragState) return;
+      stopTimelineEdgeAutoScroll(dragState.pointerId);
+      clearSwapPressTimer();
+      const wasMove=dragState.type==='move';
+      cancelTimelineDragFrame(body);
+      if(wasMove){const movedBy=seg.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(seg.keyframes,dragState.origKfTimes,movedBy);clearTimelineDragX(clipEl);}
+      dragState=null;
+      clipEl.classList.remove('dragging');
+      if(wasMove){
+        applyCharClipLanes(segId);
+        disarmClipDrag();
+        renderTimelineClip();
+      }
+    };
+
+    function wireHandle(handle, side){
+      let hs=null;
+      function applySegmentHandleAt(clientX){
+        if(!hs)return;
+        const pps=pxPerSecond();
+        const deltaSec=(clientX-hs.startX)/pps;
+        // Trimming is not clamped against a neighboring segment. If the new time range
+        // overlaps another clip, the live lane pass below puts it on a separate row lane.
+        if(side==='left'){
+          let newStart = Math.min(hs.origEnd-MIN_CLIP_SEC, Math.max(0, hs.origStart+deltaSec));
+          seg.trimStart = newStart;
+        } else {
+          let newEnd = Math.max(hs.origStart+MIN_CLIP_SEC, hs.origEnd+deltaSec);
+          newEnd = Math.min(newEnd, timelineDuration + 30);
+          seg.trimEnd = newEnd;
+          if(seg.trimEnd > timelineDuration - 0.3){ timelineDuration = seg.trimEnd+1; syncTimelineInnerWidth(); renderRuler(); }
+        }
+        // Reconcile all character sub-lanes immediately, before pointerup, so no two
+        // overlapping segments are drawn on top of one another during the resize.
+        applyCharClipLanes(segId);
+        // ADDED: same CapCut-style "Nf" live frame-count readout as the main clip's handles.
+        showTrimFrameBadge(handle,side==='left'?(seg.trimStart-hs.origStart):(seg.trimEnd-hs.origEnd));
+      }
+      // v279: trimming starts only after a long press on the handle (see ethvelleMakeHandleHoldGate).
+      const gate=ethvelleMakeHandleHoldGate((x)=>{
+        if(!handle.isConnected)return;
+        hs={startX:x,origStart:seg.trimStart,origEnd:seg.trimEnd};
+        clipEl.dataset.evTimelineDragActive='1';armClipDrag();
+      });
+      handle.onpointerdown=(e)=>{
+        e.stopPropagation();selectClipForChrome(segId);
+        gate.down(e);
+        try{handle.setPointerCapture(e.pointerId);}catch(_e){}
+      };
+      handle.onpointermove=(e)=>{if(gate.move(e)==='trim'&&hs)scheduleTimelineDragFrame(handle,e,point=>applySegmentHandleAt(point.clientX));};
+      handle.onpointerup=(e)=>{
+        gate.up(e);
+        if(hs===null){
+          // Plain tap, quick slide (scrub) or row scroll: nothing was trimmed.
+          cancelTimelineDragFrame(handle);
+          try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+          return;
+        }
+        flushTimelineDragFrame(handle,e,point=>applySegmentHandleAt(point.clientX));
+        hs=null;delete clipEl.dataset.evTimelineDragActive;
+        try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+        disarmClipDrag();
+        hideTrimFrameBadge();
+        renderTimelineClip();
+        persistProjectState();
+      };
+      handle.onpointercancel=()=>{
+        gate.cancel();
+        if(hs===null)return;
+        cancelTimelineDragFrame(handle);hs=null;delete clipEl.dataset.evTimelineDragActive;
+        hideTrimFrameBadge();
+        disarmClipDrag();
+      };
+    }
+    wireHandle(leftHandle,'left');
+    wireHandle(rightHandle,'right');
+  });
+}
+
+// Total scrollable width of the timeline, matching timelineDuration at the fixed zoom level.
+// BUGFIX (animation clip looked "cut off" / rows stopped short of the clip): every track row is
+// sized from `timelineDuration` (track width = timelineDuration * pps), but a freshly added
+// character arrives with a 5s 'default' clip (DEFAULT_CLIP_LEN) while timelineDuration still
+// held its 2s starting value — addCharacter()/addCharacterFromModelAsset()/the custom builder/
+// auto-rig never raised it (only setActiveAnimation() did). So the track was ~207px wide with
+// a 450px clip inside it, and the track's own overflow:hidden sliced the clip's right end off
+// flat, while the Background/"Add character" rows stopped at the same short width. Instead of
+// patching every creation path one by one, this is the single choke point every one of them
+// already goes through (renderTimelineClip -> syncTimelineInnerWidth): before any width is
+// computed, make sure the timeline is at least as long as the furthest end of ANY clip on ANY
+// row — characters (incl. split segments), backgrounds and overlays. It only ever GROWS the
+// timeline (never shrinks it), so it can't fight code that intentionally sets it larger.
+function ensureTimelineCoversContent(){
+  let need = 0;
+  try{
+    if(typeof combinedAllCharactersDuration === 'function' && characters.length) need = Math.max(need, combinedAllCharactersDuration());
+    (backgrounds||[]).forEach(b=>{ if(b && isFinite(b.trimEnd)) need = Math.max(need, b.trimEnd); });
+    (overlays||[]).forEach(o=>{ if(o && isFinite(o.trimEnd)) need = Math.max(need, o.trimEnd); });
+  }catch(e){ return false; }
+  if(need > timelineDuration + 1e-6){ timelineDuration = need; return true; }
+  return false;
+}
+function syncTimelineInnerWidth(){
+  const inner = document.getElementById('timelineInner');
+  const scroller = document.getElementById('timelineScroll');
+  if(!inner || !scroller) return;
+  if(ensureTimelineCoversContent()){
+    // The ruler's tick count is also derived from timelineDuration — keep it in step.
+    // (renderRuler doesn't call back into this function, so there's no recursion.)
+    renderRuler();
+  }
+  const pps = pxPerSecond();
+  const pad = scroller.clientWidth/2; // let earliest/last frame reach the fixed center line
+  inner.style.width = (timelineDuration*pps + pad*2) + 'px';
+  // Left padding is reduced by TRACK_LEAD_PX so that, combined with the ruler's matching
+  // margin-left and every layer-track's badge-column indent (both +TRACK_LEAD_PX), t=0
+  // still lands exactly `pad` px in — i.e. exactly under the fixed center playhead when
+  // scrollLeft is 0 — for the ruler AND the tracks alike, instead of the tracks landing
+  // 48px further right than the ruler (which was the source of the keyframe/clip vs.
+  // playhead misalignment).
+  inner.style.paddingLeft = Math.max(0, pad - TRACK_LEAD_PX) + 'px';
+  inner.style.paddingRight = pad + 'px';
+  // BUGFIX (dragging a Background clip's edge to extend it "sometimes" did nothing):
+  // renderTimelineClip() calls this function on practically every timeline change (selecting
+  // a clip, toggling a keyframe, playback ticking, etc. — dozens of call sites), and this used
+  // to unconditionally call renderBackgroundTrack() every single time, which rebuilds
+  // the ENTIRE background row's innerHTML from scratch — including whichever handle element
+  // the user might be mid-drag on right now. Replacing that element out from under an active
+  // pointer-capture drag silently kills the gesture (same failure mode the comment in
+  // wireBackgroundTrackInteractions already called out for ITS OWN calls into this function —
+  // the bug was simply reachable from this OTHER direction too, any time something unrelated
+  // triggered a re-render while the user's finger was still down on the handle). Skipping the
+  // rebuild while bgHandleDragActive is true (set for the duration of that one drag — see
+  // wireBackgroundTrackInteractions) leaves the in-progress handle/drag state completely alone;
+  // the width/padding updates above still apply immediately either way, and a full
+  // renderBackgroundTrack() still runs once on pointerup, after the gesture has actually ended.
+  if(!bgHandleDragActive) renderBackgroundTrack();
+}
+
+// FEATURE (multiple sequential backgrounds, non-overlapping): keeps `backgrounds` sorted by
+// trimStart and clamps the just-moved/resized clip against its immediate left/right
+// neighbors — exactly the same "hard wall, never push a neighbor" contract as
+// resolveCharClipOverlaps (see that function's own comment for the full rationale). Kept as
+// a separate function (rather than sharing one with the character-clip version) since the
+// two operate on different arrays with different call shapes, but the clamping logic itself
+// is intentionally identical.
+function resolveBgClipOverlaps(movedId){
+  const moved=backgrounds.find(b=>String(b.id)===String(movedId));
+  if(!moved)return;
+  const gap=0.015; // less than one frame; preserves a clear seam without a visible dead zone
+  const ordered=[...backgrounds].sort((a,b)=>a.trimStart-b.trimStart || (String(a.id)===String(movedId)?-1:String(b.id)===String(movedId)?1:0));
+  const movedIdx=ordered.findIndex(b=>String(b.id)===String(movedId));
+  const shiftEntry=(clip,newStart)=>{
+    const oldStart=Number(clip.trimStart)||0;
+    const duration=Math.max(MIN_CLIP_SEC,(Number(clip.trimEnd)||oldStart+MIN_CLIP_SEC)-oldStart);
+    const nextStart=Math.max(0,Number(newStart)||0);
+    const delta=nextStart-oldStart;
+    if(!Number.isFinite(delta)||Math.abs(delta)<0.000001)return;
+    clip.trimStart=nextStart;
+    clip.trimEnd=nextStart+duration;
+    (Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[]).forEach(kf=>{
+      const t=Number(kf.t);if(Number.isFinite(t))kf.t=t+delta;
+    });
+  };
+  // Keep the clip under the finger. Push earlier neighbours backwards instead of
+  // clamping the selected clip against an invisible collision wall.
+  let nextStart=moved.trimStart;
+  for(let i=movedIdx-1;i>=0;i--){
+    const clip=ordered[i];
+    if(clip.trimEnd>nextStart-gap){
+      const duration=Math.max(MIN_CLIP_SEC,clip.trimEnd-clip.trimStart);
+      shiftEntry(clip,Math.max(0,nextStart-gap-duration));
+    }
+    nextStart=clip.trimStart;
+  }
+  let previousEnd=moved.trimEnd;
+  for(let i=movedIdx+1;i<ordered.length;i++){
+    const clip=ordered[i];
+    if(clip.trimStart<previousEnd+gap)shiftEntry(clip,previousEnd+gap);
+    previousEnd=clip.trimEnd;
+  }
+  backgrounds.sort((a,b)=>a.trimStart-b.trimStart);
+  const last=backgrounds.reduce((max,b)=>Math.max(max,b.trimEnd),0);
+  if(last>timelineDuration-0.3){timelineDuration=last+1;syncTimelineInnerWidth();renderRuler();}
+}
+// Badge icon reflects row content, same convention as Clips/Audio/Character rows.
+const BG_PLUS_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
+const BG_FILLED_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+const BG_ROW_LANE_H = 36; // slightly taller than the compact character/overlay clips
+// BUGFIX ("selected background clip's bottom edge hidden/cut off under the row"): the actual
+// .track-clip BOX (below) used to get its inline height set to BG_ROW_LANE_H (60px) directly —
+// the same number used for the TRACK's own height. But .track-clip's base CSS already
+// positions itself at `top:3px` inside that track, so a 60px-tall clip starting 3px down
+// landed at 3–63px, 3px past the bottom of the 60px `#track-background` track underneath it —
+// and since that track clips its contents (overflow:hidden, needed so rounded corners never
+// bleed past the row), the clip's own bottom 3px, rounded corner included, was silently sliced
+// off flat. That read as exactly the reported bug: fine on top, flat-cut/"hidden under the
+// row" on the bottom, most visible once `.selected` added the full-width white sel-edge-bottom
+// bar right at that clipped edge. Every other clip type on this page (.anim-clip/.overlay-clip)
+// already leaves this same 3px (or 6px) gutter on BOTH top and bottom — .track-clip's own CSS
+// fallback (`top:3px; height:54px`) has always agreed with that convention; only this inline
+// override didn't. FIX: give the clip element its own height, 6px shorter than the track
+// (3px gutter top + 3px gutter bottom, matching .track-clip's CSS default exactly) instead of
+// reusing the track's full height for the clip inside it.
+// UPDATED: the block now fills the WHOLE lane (was BG_ROW_LANE_H - 6, i.e. a 3px gutter top and
+// bottom). The earlier bugfix above worried about a 60px clip starting at top:3px overflowing the
+// track — that was because the clip was offset 3px down. It's now pinned to top:0 (see .track-clip),
+// so height === lane height fits exactly with nothing clipped and nothing left uncovered.
+const BG_CLIP_H = BG_ROW_LANE_H;
+// FEATURE (multiple sequential backgrounds): replaces the old single-clip background
+// renderer, which
+// only ever built ONE fixed #bgTrackClip element. This now renders the ENTIRE `backgrounds`
+// array as a row of clips sitting side by side along the timeline — same visual language as
+// a Clips row (real image thumbnail strip, drag to move, edge-handles to trim), but clips on
+// this row can never overlap (see resolveBgClipOverlaps) since only one background can ever
+// be "playing" at a given instant, unlike Clips/Audio which intentionally allow overlap.
+function captureEthvelleRowScroll(){
+  const timeline=document.getElementById('timelineScroll');
+  const page=document.scrollingElement||document.documentElement;
+  return {timeline, page, timelineTop:timeline?timeline.scrollTop:0, pageTop:page?page.scrollTop:0};
+}
+function restoreEthvelleRowScroll(snapshot){
+  if(!snapshot)return;
+  const apply=()=>{
+    if(snapshot.timeline && snapshot.timeline.isConnected) snapshot.timeline.scrollTop=snapshot.timelineTop;
+    if(snapshot.page) snapshot.page.scrollTop=snapshot.pageTop;
+  };
+  // Restore immediately after the render, then only repeat on the next frame if no newer
+  // scroll has happened. The old unconditional RAF restore could overwrite a finger-driven
+  // vertical scroll that started in the same frame as a layer selection, snapping the whole
+  // timeline back to the stale scrollTop captured before the gesture.
+  apply();
+  const appliedTimelineTop=snapshot.timeline&&snapshot.timeline.isConnected?snapshot.timeline.scrollTop:null;
+  const appliedPageTop=snapshot.page?snapshot.page.scrollTop:null;
+  requestAnimationFrame(()=>{
+    if(snapshot.timeline&&snapshot.timeline.isConnected&&appliedTimelineTop!==null&&Math.abs(snapshot.timeline.scrollTop-appliedTimelineTop)<0.5){
+      snapshot.timeline.scrollTop=snapshot.timelineTop;
+    }
+    if(snapshot.page&&appliedPageTop!==null&&Math.abs(snapshot.page.scrollTop-appliedPageTop)<0.5){
+      snapshot.page.scrollTop=snapshot.pageTop;
+    }
+  });
+}
+function renderBackgroundTrack(){
+  const rowScrollSnapshot=captureEthvelleRowScroll();
+  const track = document.getElementById('track-background');
+  if(!track || bgHandleDragActive) return; // see bgHandleDragActive's own comment
+  const pps = pxPerSecond();
+  const badge = document.getElementById('bgLayerBadge');
+  if(badge) badge.innerHTML = BG_FILLED_ICON;
+  // The row's own height is fixed by CSS (.layer-row[data-layer="background"], 72px) —
+  // BG_ROW_LANE_H (60px) is sized to fit exactly inside that, matching every other track
+  // row's fixed 60px-track/72px-row convention, so no JS height is set here at all.
+  if(!backgrounds.length){
+    track.style.height = BG_ROW_LANE_H+'px';
+    // FEATURE (only the + badge should add a background): this placeholder used to open the
+    // file picker itself on tap (same as the badge), so tapping ANYWHERE on the empty
+    // Background row — not just its + button — jumped straight to the device file picker.
+    // Per request, the row itself is now inert; only bgLayerBadge (the dedicated + button
+    // beside the row, which already calls triggerUpload('background') on its own) can open
+    // the uploader. No onclick here at all, so a tap on the row does nothing.
+    track.innerHTML = `<div class="track-clip-empty char-add-track" style="height:${BG_ROW_LANE_H}px;"><span class="track-clip-empty-label">Background</span></div>`;
+    restoreEthvelleRowScroll(rowScrollSnapshot);
+    return;
+  }
+  track.style.height = BG_ROW_LANE_H+'px';
+  track.innerHTML = backgrounds.map(b=>{
+    const left = b.trimStart*pps;
+    const width = Math.max(MIN_CLIP_SEC*pps, (b.trimEnd-b.trimStart)*pps);
+    const selected = String(selectedClip)===String(b.id);
+    const isUrl = b.src && String(b.src).startsWith('url(');
+    let fillHtml, styleBg;
+    if(isUrl){
+      const url = String(b.src).slice(4,-1).replace(/^["']|["']$/g,'');
+      styleBg = '';
+      fillHtml = `<div class="clip-thumb-strip" style="background-image:url(${url}); background-size:auto 100%; background-repeat:repeat-x;"></div><div class="clip-media-label clip-media-label-bg" unselectable="on" onselectstart="return false;">Background</div>`;
+    } else {
+      styleBg = b.src || '#ffffff';
+      fillHtml = `<div class="clip-media-label clip-media-label-bg" unselectable="on" onselectstart="return false;">Background</div>`;
+    }
+    return `
+      <div class="track-clip ${selected?'selected':''}" data-bg-id="${b.id}" style="left:${left}px; width:${width}px; height:${BG_CLIP_H}px; background:${styleBg};">
+        <div class="anim-clip-handle left" data-bg-handle="left" data-bg-id="${b.id}"></div>
+        ${fillHtml}
+        <div class="anim-clip-handle right" data-bg-handle="right" data-bg-id="${b.id}"></div>
+        <div class="keyframe-track object-keyframe-track" data-object-kf-track="${b.id}">${ethvelleObjectKeyframeMarkersHtml(b.id,b)}</div>
+        ${SEL_EDGE_HTML}
+      </div>
+    `;
+  }).join('');
+  wireBackgroundTrackInteractions();
+  restoreEthvelleRowScroll(rowScrollSnapshot);
+}
+// Drag-to-move / edge-handle-to-trim for EACH background clip — mirrors
+// wireOverlayInteractions almost exactly, except every move/resize is clamped via
+// resolveBgClipOverlaps (background clips must never overlap) instead of being free to
+// overlap into their own sub-lane the way Clips/Audio can.
+function wireBackgroundTrackInteractions(){
+  backgrounds.forEach(b=>{
+    const clipEl = document.querySelector(`.track-clip[data-bg-id="${b.id}"]`);
+    if(!clipEl) return;
+    wireClipZoomGesture(clipEl); // FEATURE: two-finger pinch on this clip zooms the timeline
+    function reposition(){
+      const pps = pxPerSecond();
+      setTimelineInlineStyle(clipEl,'left',(b.trimStart*pps)+'px');
+      setTimelineInlineStyle(clipEl,'width',Math.max(MIN_CLIP_SEC*pps,(b.trimEnd-b.trimStart)*pps)+'px');
+    }
+    const BG_DRAG_TOLERANCE = 7;
+    const BG_SCRUB_TOLERANCE = 18;
+    const LONG_PRESS_MS = 240;
+    let dragState = null; // null | {type:'pending'|'move'|'scroll', ...}
+    let longPressTimer = null;
+    function clearLongPressTimer(){ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; } }
+    // Background clips use direct, RAF-batched `left` writes while moving. Some Android
+    // WebViews defer repainting the CSS-variable transform until pointerup, even though the
+    // model and custom property are updated during the gesture. Writing the absolute layout
+    // position keeps the background clip visibly under the finger on every frame. This is
+    // intentionally local to the Background row; overlay/character drag paths stay unchanged.
+    function paintBackgroundClipLeft(el,startTime,pps){
+      if(!el)return;
+      const left=Math.max(0,Number(startTime)||0)*pps;
+      const value=left.toFixed(3)+'px';
+      if(el.style.left!==value)el.style.left=value;
+    }
+    function applyBackgroundMoveAt(clientX){
+      if(!dragState||dragState.type!=='move')return;
+      const pps=pxPerSecond();
+      let desiredStart=Math.max(0,dragState.origStart+timelineDragDeltaPixels(dragState,clientX)/pps);
+      const duration=Math.max(MIN_CLIP_SEC,dragState.origEnd-dragState.origStart);
+      const others=dragState.layoutSnapshot||[]; // sorted once on pointerdown
+      const gap=0.015;
+      // Binary-search the dragged clip's current slot among the pre-sorted neighbours.
+      // If there is not enough timeline space to push every earlier neighbour left, clamp
+      // to the first collision-free position instead of allowing a temporary overlap at t=0.
+      const minStartByCount=dragState.minStartByCount||[0];
+      let low=0,high=others.length,rounds=0;
+      while(rounds++<=others.length){
+        low=0;high=others.length;
+        while(low<high){
+          const mid=(low+high)>>>1;
+          if(others[mid].start<desiredStart-0.000001)low=mid+1;else high=mid;
+        }
+        const minAllowed=minStartByCount[low]||0;
+        if(desiredStart>=minAllowed-0.000001)break;
+        desiredStart=minAllowed;
+      }
+      let nextStart=desiredStart;
+      for(let i=low-1;i>=0;i--){
+        const item=others[i];
+        let start=item.start;
+        if(start+item.duration>nextStart-gap)start=Math.max(0,nextStart-gap-item.duration);
+        item.clip.trimStart=start;item.clip.trimEnd=start+item.duration;
+        if(item.el)paintBackgroundClipLeft(item.el,start,pps);
+        nextStart=start;
+      }
+      let previousEnd=desiredStart+duration;
+      for(let i=low;i<others.length;i++){
+        const item=others[i];
+        let start=item.start;
+        if(start<previousEnd+gap)start=previousEnd+gap;
+        item.clip.trimStart=start;item.clip.trimEnd=start+item.duration;
+        if(item.el)paintBackgroundClipLeft(item.el,start,pps);
+        previousEnd=start+item.duration;
+      }
+      b.trimStart=desiredStart;b.trimEnd=desiredStart+duration;
+      const furthestBackgroundEnd=backgrounds.reduce((max,clip)=>Math.max(max,Number(clip&&clip.trimEnd)||0),0);
+      ensureTimelineRoomForDraggedClip({trimEnd:furthestBackgroundEnd});
+      paintBackgroundClipLeft(clipEl,desiredStart,pps);
+    }
+    function commitBackgroundDragLayout(snapshot){
+      (snapshot||[]).forEach(item=>{
+        const delta=(Number(item.clip.trimStart)||0)-item.start;
+        if(Math.abs(delta)>0.000001)shiftTimelineKeyframesOnce(item.clip.ethvelleMediaKeyframes,item.keyframeTimes,delta);
+        if(item.el)clearTimelineDragX(item.el);
+      });
+    }
+    clipEl.addEventListener('pointerdown', (e)=>{
+      // Keyframe diamonds own their tap; do not let the clip-body drag/scrub handler
+      // capture that pointer or reset the selected key before its click is delivered.
+      if((e.target.closest&&e.target.closest('.kf-marker'))||e.target.hasAttribute('data-bg-handle')) return;
+      e.stopPropagation();
+      // Protect the captured clip node immediately: selectClipForChrome can synchronize
+      // the timeline and otherwise rebuild this row before the long-press timer is armed.
+      bgHandleDragActive=true;
+      if(isPlaying) pausePlayback();
+      selectClipForChrome(b.id);
+      const bgTrack=document.getElementById('track-background');
+      const timelineScroller=document.getElementById('timelineScroll');
+      const bgElements=new Map();
+      if(bgTrack)bgTrack.querySelectorAll('.track-clip[data-bg-id]').forEach(el=>bgElements.set(String(el.dataset.bgId),el));
+      const layoutSnapshot=backgrounds.filter(clip=>clip!==b).map(clip=>{
+        const start=Number(clip.trimStart)||0;
+        const end=Math.max(start+MIN_CLIP_SEC,Number(clip.trimEnd)||start+MIN_CLIP_SEC);
+        return {clip,start,duration:end-start,keyframeTimes:(Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[]).map(k=>Number(k.t)||0),el:bgElements.get(String(clip.id))||null};
+      }).sort((a,bEntry)=>a.start-bEntry.start);
+      const minStartByCount=[0];let requiredStart=0;
+      layoutSnapshot.forEach(item=>{requiredStart+=item.duration+0.015;minStartByCount.push(requiredStart);});
+      dragState = { type:'pending', pointerId:e.pointerId, startScrollLeft:timelineScroller?timelineScroller.scrollLeft:0, startX:e.clientX, startY:e.clientY, lastX:e.clientX, startTime:getCurrentAbsoluteTime(), origStart:b.trimStart, origEnd:b.trimEnd, origKfTimes:(Array.isArray(b.ethvelleMediaKeyframes)?b.ethvelleMediaKeyframes:[]).map(k=>Number(k.t)||0), layoutSnapshot, minStartByCount };
+      clipEl.setPointerCapture(e.pointerId);
+      clearLongPressTimer();
+      longPressTimer=setTimeout(()=>{
+        longPressTimer=null;
+        if(!dragState||dragState.type!=='pending')return;
+        dragState.type='move';clipEl.classList.add('dragging');if(window.ethvelleNotifyClipMoveReady)window.ethvelleNotifyClipMoveReady();armClipDrag();
+        startTimelineEdgeAutoScroll(dragState.pointerId,dragState.lastX,()=>{if(dragState&&dragState.type==='move')applyBackgroundMoveAt(dragState.lastX);});
+        if(Number.isFinite(dragState.lastX))applyBackgroundMoveAt(dragState.lastX);
+      },LONG_PRESS_MS);
+    });
+    clipEl.addEventListener('pointermove', (e)=>{
+      if(!dragState) return;
+      dragState.lastX=e.clientX;
+      if(dragState.type==='scroll'){ applyClipVerticalScrollHandoff(dragState, e.clientY); return; }
+      const movedPx = Math.abs(e.clientX - dragState.startX);
+      if(dragState.type==='pending'){
+        // A dominantly-vertical slide before the long-press fires means "scroll the row
+        // list", not "interact with this background clip" — hand off to the shared scroller,
+        // same as sliding on empty timeline space (see applyClipVerticalScrollHandoff above).
+        const movedPy = Math.abs(e.clientY - dragState.startY);
+        if(movedPy >= BG_DRAG_TOLERANCE && movedPy >= movedPx*0.82){
+          clearLongPressTimer();
+          dragState.type = 'scroll';
+          const scroller = document.getElementById('timelineScroll');
+          dragState.scrollTopStart = scroller ? scroller.scrollTop : 0;
+          applyClipVerticalScrollHandoff(dragState, e.clientY);
+          return;
+        }
+        if(movedPx > BG_SCRUB_TOLERANCE && movedPx >= Math.max(1, movedPy*0.72)){
+          clearLongPressTimer();dragState.type='scrub';
+          scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        }
+        return;
+      }
+      if(dragState.type==='scrub'){
+        scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        return;
+      }
+      updateTimelineEdgeAutoScroll(e.pointerId,e.clientX,()=>{if(dragState&&dragState.type==='move')applyBackgroundMoveAt(dragState.lastX);});
+      scheduleTimelineDragFrame(clipEl,e,point=>applyBackgroundMoveAt(point.clientX));
+      return;
+    });
+    clipEl.addEventListener('pointerup', (e)=>{
+      if(!dragState) return;
+      stopTimelineEdgeAutoScroll(e.pointerId);
+      clearLongPressTimer();
+      const wasMove = dragState.type==='move';
+      const wasScroll = dragState.type==='scroll';
+      const wasScrub = dragState.type==='scrub';
+      const anchorX=dragState.startX,anchorTime=dragState.startTime;
+      if(wasMove)flushTimelineDragFrame(clipEl,e,point=>applyBackgroundMoveAt(point.clientX));else cancelTimelineDragFrame(clipEl);
+      if(wasMove){
+        const movedBy=b.trimStart-dragState.origStart;
+        shiftTimelineKeyframesOnce(b.ethvelleMediaKeyframes,dragState.origKfTimes,movedBy);
+        if(window.ethvelleNotifyClipMoved)window.ethvelleNotifyClipMoved(movedBy);
+        commitBackgroundDragLayout(dragState.layoutSnapshot||[]);
+        clearTimelineDragX(clipEl);
+      }

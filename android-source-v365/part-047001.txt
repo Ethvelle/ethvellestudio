@@ -1,0 +1,1000 @@
+    if(clip.type==='video'){
+      // Use the cached frame at the source timestamp shown FIRST by this timeline clip.
+      // The video may be reversed or trimmed, so the first timeline frame is not always t=0.
+      const sourceFrames=window.__evSourceFrames;
+      if(sourceFrames&&typeof sourceFrames.setFor==='function'&&typeof sourceFrames.nearest==='function'){
+        try{
+          const set=sourceFrames.setFor(clip);
+          if(set&&set.times&&set.times.length){
+            const span=Math.max(0,(Number(clip.trimEnd)-Number(clip.trimStart))*(Number(clip.speed)||1));
+            let firstSourceTime=Math.max(0,Number(clip.sourceOffset)||0);
+            if(clip.reversePlayback)firstSourceTime+=span;
+            const duration=Math.max(0,Number(clip.sourceDuration)||Number(set.duration)||0);
+            if(duration>0)firstSourceTime=Math.min(firstSourceTime,Math.max(0,duration-.04));
+            const cached=sourceFrames.nearest(set,firstSourceTime);
+            if(cached)return String(cached);
+          }
+        }catch(_e){}
+      }
+      const id=String(clip.id);
+      const node=Array.from(document.querySelectorAll('#timelineInner .overlay-clip')).find(el=>String(el.dataset.overlayId||'')===id);
+      // The strip can be virtualized while scrolled. Accept only tile zero, never an arbitrary
+      // visible middle frame, so the tracking card always represents the clip's first frame.
+      const tile=node&&node.querySelector('.ev-video-thumb-tile[data-ev-thumb-index="0"].ev-video-thumb-ready');
+      if(tile)return String(tile.dataset.evThumbUrl||unwrapTrackingThumb(getComputedStyle(tile).backgroundImage)||'');
+      // A supplied poster is only a fallback; prefer a real cached first frame whenever present.
+      return String(clip.poster||clip.thumbnail||'');
+    }
+    if(clip.type==='text'){
+      const label=String(clip.textContent||clip.name||'Text').slice(0,36);
+      const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="#242735"/><text x="160" y="98" text-anchor="middle" font-family="Arial" font-size="24" font-weight="700" fill="#fff">'+label.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</text></svg>';
+      return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+    }
+    return '';
+  }
+  function trackingThumbForBackground(clip){
+    if(!clip)return '';
+    const src=unwrapTrackingThumb(clip.thumbnail||clip.src||clip.image||'');
+    return src;
+  }
+  function trackingAspectRatio(clip){
+    if(!clip)return 16/9;
+    let el=null;
+    try{
+      if(clip.id!=null&&typeof overlayMediaEls!=='undefined'&&overlayMediaEls)el=overlayMediaEls[clip.id]||null;
+      if(!el&&String(clip.id||'').startsWith('bg'))el=document.getElementById('bgImgLayer');
+    }catch(_e){}
+    const w=Number(clip.sourceWidth)||Number(el&&(el.videoWidth||el.naturalWidth||el.width))||Number(clip.naturalWidth)||Number(clip.width)||0;
+    const h=Number(clip.sourceHeight)||Number(el&&(el.videoHeight||el.naturalHeight||el.height))||Number(clip.naturalHeight)||Number(clip.height)||0;
+    const explicit=Number(clip.aspectRatio||clip.ratio)||0;
+    const ratio=(w>0&&h>0)?w/h:explicit>0?explicit:16/9;
+    return Number.isFinite(ratio)&&ratio>0?Math.max(.18,Math.min(5.5,ratio)):16/9;
+  }
+  function trackingThumbBox(ratio){
+    const r=Math.max(.18,Math.min(5.5,Number(ratio)||16/9));
+    const h=Math.min(54,118/r),w=h*r;
+    return {width:Math.round(w),height:Math.round(h)};
+  }
+  function getTrackingCandidates(follower){
+    /* v339: a clip can follow a clip from ANY section — Background, Layer/Media, Text, Effects and
+       the Animation (character) rows — as long as the two overlap in time. */
+    const followerKey=trackingFollowerKey(follower);
+    const anims=allAnimClips();
+    const followerAnim=anims.find(e=>e.clip===follower)||null;
+    const chars=Array.isArray(characters)?characters:[];
+    const fxChar=o=>(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character')?(chars.find(c=>c&&String(c.id)===String(o.ethvelleEffectCharId))||null):null;
+    const followerFxChar=fxChar(follower);
+    const backgroundsList=Array.isArray(backgrounds)?backgrounds:[];
+    const overlaysList=Array.isArray(overlays)?overlays:[];
+    const byTimeline=(a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0)||String(a.id).localeCompare(String(b.id));
+    const isFx=o=>!!(o&&o.ethvelleEffectClip);
+    const notSelf=o=>o&&o.id!=null&&('ov:'+String(o.id))!==followerKey;
+    const bgItems=backgroundsList
+      .filter(b=>b&&b.id!=null&&b!==follower&&trackingRangesOverlap(b,follower))
+      .sort(byTimeline)
+      .map((b,i)=>({value:'bg:'+String(b.id),kind:'background',thumb:trackingThumbForBackground(b),ratio:trackingAspectRatio(b),label:'Background row clip '+(i+1),clipId:String(b.id)}));
+    const overlayClips=overlaysList
+      .filter(o=>notSelf(o)&&['image','video'].includes(o.type)&&!isFx(o)&&trackingRangesOverlap(o,follower))
+      .sort(byTimeline);
+    const textClips=overlaysList
+      .filter(o=>notSelf(o)&&o.type==='text'&&trackingRangesOverlap(o,follower))
+      .sort(byTimeline);
+    const fxClips=overlaysList
+      .filter(o=>notSelf(o)&&isFx(o)&&trackingRangesOverlap(o,follower)&&!(followerAnim&&fxChar(o)===followerAnim.ch))
+      .sort(byTimeline);
+    const animClips=anims
+      .filter(e=>e.clip!==follower&&!(followerAnim&&e.ch===followerAnim.ch)&&!(followerFxChar&&e.ch===followerFxChar)&&trackingRangesOverlap(e.clip,follower))
+      .sort((a,b)=>(Number(a.clip.trimStart)||0)-(Number(b.clip.trimStart)||0)||a.key.localeCompare(b.key));
+    const overlayItems=overlayClips.map((o,i)=>({value:'ov:'+String(o.id),kind:o.type,thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:'Layer row clip '+(i+1),clipId:String(o.id)}));
+    const textItems=textClips.map((o,i)=>({value:'ov:'+String(o.id),kind:o.type,thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:'Text row clip '+(i+1),clipId:String(o.id)}));
+    const fxItems=fxClips.map((o,i)=>({value:'ov:'+String(o.id),kind:'effect',thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:(o.ethvelleEffectKind==='character'?'Character effect ':'Effect ')+(i+1),clipId:String(o.id)}));
+    const animItems=animClips.map((e,i)=>({value:e.key,kind:'animation',thumb:trackingThumbForAnim(e.ch,e.clip),ratio:16/9,label:'Animation row clip '+(i+1),clipId:String(e.clip.evTrackId)}));
+    return [
+      {label:'Background',items:bgItems},
+      {label:'Layer',items:overlayItems},
+      {label:'Text',items:textItems},
+      {label:'Animation',items:animItems},
+      {label:'Effects',items:fxItems}
+    ].map(group=>({...group,items:group.items.filter(item=>!!item.thumb&&!trackingDependsOn(item.value,followerKey))})).filter(group=>group.items.length);
+  }
+  function getTrackingSourceTransform(ref,time,seen){
+    const key=String(ref||''),t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const visited=seen||new Set();
+    if(key.indexOf('bg:')===0){
+      const id=key.slice(3),clip=(Array.isArray(backgrounds)?backgrounds:[]).find(b=>b&&String(b.id)===id);
+      if(!clip)return null;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',t):null;
+      return trackingSnapshot(keyed||clip.transform||{});
+    }
+    if(key.indexOf('char:')===0){
+      const id=key.slice(5),idx=(Array.isArray(characters)?characters:[]).findIndex((ch,i)=>charKey(ch,i)===id);
+      const ch=idx>=0?characters[idx]:null;
+      if(!ch)return null;
+      // modelTransform is the live evaluated transform: renderFrame/animateAllCharacters
+      // update it from the character's own clip keyframes before overlay media is painted.
+      return trackingSnapshot(ch.modelTransform||ch.restTransform||{});
+    }
+    if(key.indexOf('anim:')===0){
+      // An animation clip drives its character's live transform (already tracked, if that clip
+      // itself follows something) — read it exactly like the legacy 'char:' source below.
+      const hit=allAnimClips().find(e=>e.key===key);
+      if(!hit)return null;
+      return trackingSnapshot(hit.ch.modelTransform||hit.ch.restTransform||{});
+    }
+    if(key.indexOf('ov:')===0){
+      const id=key.slice(3),clip=(Array.isArray(overlays)?overlays:[]).find(o=>o&&String(o.id)===id&&['image','video','text','shape','color'].includes(o.type));
+      if(!clip)return null;
+      const marker='ov:'+id;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',t):null;
+      let tr=trackingSnapshot(keyed||clip.transform||{});
+      if(visited.has(marker))return tr; // break accidental A→B→A tracking loops safely
+      visited.add(marker);
+      const cfg=clip.clipTracking;
+      if(cfg&&cfg.enabled&&cfg.targetId&&cfg.targetBaseTransform){
+        const source=getTrackingSourceTransform(cfg.targetId,t,visited);
+        if(source)tr=combineTrackingDelta(tr,source,cfg.targetBaseTransform,cfg);
+      }
+      visited.delete(marker);
+      const motion=typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(clip,t):null;
+      if(motion){
+        tr.offsetX+=safeNum(motion.x,0);tr.offsetY+=safeNum(motion.y,0);
+        tr.rotation+=safeNum(motion.rotation,0);tr.scale*=Math.max(.0001,safeNum(motion.scale,1));
+      }
+      // v339: a character-effect clip is drawn relative to its character, so its on-screen motion
+      // is the character's own transform plus the effect's offset/scale/rotation.
+      if(clip.ethvelleEffectClip&&clip.ethvelleEffectKind==='character'){
+        const fxCh=(Array.isArray(characters)?characters:[]).find(c=>c&&String(c.id)===String(clip.ethvelleEffectCharId));
+        if(fxCh&&fxCh.modelTransform){
+          const cm=trackingSnapshot(fxCh.modelTransform);
+          tr={scale:tr.scale*cm.scale,offsetX:tr.offsetX+cm.offsetX,offsetY:tr.offsetY+cm.offsetY,rotation:tr.rotation+cm.rotation};
+        }
+      }
+      return tr;
+    }
+    return null;
+  }
+  function ensureTrackingConfig(ov){
+    if(!ov)return null;
+    if(!ov.clipTracking||typeof ov.clipTracking!=='object')ov.clipTracking={enabled:false,targetId:'',targetBaseTransform:null,offsetX:0,offsetY:0,followScale:true,followRotation:true};
+    const cfg=ov.clipTracking;
+    if(typeof cfg.enabled!=='boolean')cfg.enabled=false;
+    if(typeof cfg.targetId!=='string')cfg.targetId='';
+    if(!Number.isFinite(Number(cfg.offsetX)))cfg.offsetX=0;
+    if(!Number.isFinite(Number(cfg.offsetY)))cfg.offsetY=0;
+    if(typeof cfg.followScale!=='boolean')cfg.followScale=true;
+    if(typeof cfg.followRotation!=='boolean')cfg.followRotation=true;
+    if(cfg.targetBaseTransform&&typeof cfg.targetBaseTransform==='object')cfg.targetBaseTransform=trackingSnapshot(cfg.targetBaseTransform);
+    return cfg;
+  }
+  function captureTrackingBase(cfg,targetId){
+    const tr=getTrackingSourceTransform(targetId,trackingNow(),new Set());
+    cfg.targetBaseTransform=tr?trackingSnapshot(tr):null;
+  }
+  window.ethvelleGetTrackedOverlayTransform=function(ov,time,localBase){
+    const t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const keyed=localBase||(typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',t):null);
+    const base=trackingSnapshot(keyed||ov&&ov.transform||{});
+    const cfg=ov&&ov.clipTracking;
+    if(cfg&&cfg.enabled&&cfg.targetId){
+      const seen=new Set(['ov:'+String(ov.id)]);
+      const source=getTrackingSourceTransform(cfg.targetId,t,seen);
+      if(source){
+        const rest=cfg.targetBaseTransform||source;
+        return combineTrackingDelta(base,source,rest,cfg);
+      }
+      return base;
+    }
+    // Backward compatibility: projects made before v235 may still contain characterTracking.
+    const legacy=ov&&ov.characterTracking;
+    if(!legacy||!legacy.enabled||!Array.isArray(characters)||!characters.length)return base;
+    const idx=characters.findIndex((ch,i)=>charKey(ch,i)===String(legacy.characterId));
+    if(idx<0)return base;
+    const ch=characters[idx],mt=ch.modelTransform||{},rest=ch.restTransform||mt;
+    const baseScale=Math.max(.0001,safeNum(rest.scale,1)),currentScale=Math.max(.0001,safeNum(mt.scale,baseScale));
+    const dx=safeNum(mt.offsetX)-safeNum(rest.offsetX),dy=safeNum(mt.offsetY)-safeNum(rest.offsetY);
+    const hipY=ch.bones&&ch.bones.hip?safeNum(ch.bones.hip.y,safeNum(ch.hipRestY)):safeNum(ch.hipRestY);
+    const hipShift=Number.isFinite(Number(ch.hipRestY))?hipY-safeNum(ch.hipRestY):0;
+    const dr=safeNum(mt.rotation)-safeNum(rest.rotation);
+    return {
+      scale:base.scale*(legacy.followScale===false?1:currentScale/baseScale),
+      offsetX:base.offsetX+dx+safeNum(legacy.offsetX),
+      offsetY:base.offsetY+dy+hipShift+safeNum(legacy.offsetY),
+      rotation:base.rotation+(legacy.followRotation?dr:0)
+    };
+  };
+  window.ethvelleRefreshTrackingFollowersForSource=function(sourceRef,time){
+    const ref=String(sourceRef||''),t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const list=Array.isArray(overlays)?overlays:[];
+    const layer=$('overlayMediaLayer');
+    list.forEach(follower=>{
+      const cfg=follower&&follower.clipTracking;
+      if(!cfg||!cfg.enabled||!trackingTargetMatches(cfg.targetId,ref))return;
+      const id=String(follower.id),live=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[id]:null;
+      if(live&&live.isConnected&&typeof window.ethvelleApplyOverlayVisualStyle==='function'){
+        window.ethvelleApplyOverlayVisualStyle(live,follower,t,live,false);
+        const chroma=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases)?overlayChromaCanvases[id]:null;
+        if(chroma&&chroma.isConnected)window.ethvelleApplyOverlayVisualStyle(chroma,follower,t,live,false);
+        const hold=live.__evScrubHoldCanvas;
+        if(hold&&hold.isConnected){hold.dataset.evMaskOwnerTime=String(t);window.ethvelleApplyOverlayVisualStyle(hold,follower,t,live,false);}
+      }
+      if(layer){
+        layer.querySelectorAll('[data-ev-mask-owner-id]').forEach(node=>{
+          if(String(node.dataset.evMaskOwnerId||'')!==id||node===live)return;
+          node.dataset.evMaskOwnerTime=String(t);
+          if(typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(node,follower,t,live&&live.isConnected?live:node,false);
+        });
+      }
+    });
+  };
+  /* v339: animation clips that follow a clip. Runs once per rendered frame from animateAllCharacters(),
+     after every character has its authored transform and before anything is painted, so preview,
+     scrubbing and export all share it. */
+  window.ethvelleApplyCharacterTracking=function(time){
+    const chars=Array.isArray(characters)?characters:[];
+    const t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const wants=c=>!!(c&&c.clipTracking&&c.clipTracking.enabled&&c.clipTracking.targetId);
+    const jobs=[];
+    chars.forEach((ch,idx)=>{
+      if(!ch||!ch.modelTransform)return;
+      ch.__evTrackDelta=null;ch.__evTrackJob=null;
+      const segs=Array.isArray(ch.segments)?ch.segments:[];
+      if(!(wants(ch.clip)||segs.some(wants)))return;
+      let entry=null;
+      try{entry=stickmanClipAt(t,ch.clip||null,segs);}catch(_e){}
+      const clip=entry&&entry.clip,cfg=clip&&clip.clipTracking;
+      if(!wants(clip)||!cfg.targetBaseTransform)return;
+      if(!(t>=Number(clip.trimStart)&&t<Number(clip.trimEnd)))return;
+      const job={ch,idx,cfg,clip,base:trackingSnapshot(ch.modelTransform)};
+      ch.__evTrackJob=job;jobs.push(job);
+    });
+    if(!jobs.length)return;
+    // Several followers can depend on one another (A follows B follows C): re-evaluate from the
+    // untouched base a few times so every link settles. A single follower needs only one pass.
+    const rounds=jobs.length>1?3:1;
+    for(let r=0;r<rounds;r++){
+      jobs.forEach(job=>{
+        const seen=new Set(['anim:'+charKey(job.ch,job.idx)]);
+        const source=getTrackingSourceTransform(job.cfg.targetId,t,seen);
+        if(!source)return;
+        applyCharJob(job,source);
+      });
+    }
+  };
+  function applyCharJob(job,source){
+    const next=combineTrackingDelta(job.base,source,job.cfg.targetBaseTransform,job.cfg);
+    const mt=job.ch.modelTransform;
+    mt.scale=next.scale;mt.offsetX=next.offsetX;mt.offsetY=next.offsetY;mt.rotation=next.rotation;
+    job.ch.__evTrackDelta={ds:next.scale/Math.max(.0001,job.base.scale),dx:next.offsetX-job.base.offsetX,dy:next.offsetY-job.base.offsetY,dr:next.rotation-job.base.rotation};
+  }
+  // Live repaint of animation-clip followers while their source is being dragged.
+  const refreshOverlayFollowers=window.ethvelleRefreshTrackingFollowersForSource;
+  window.ethvelleRefreshTrackingFollowersForSource=function(sourceRef,time){
+    refreshOverlayFollowers.apply(this,arguments);
+    try{
+      const ref=String(sourceRef||''),t=Number.isFinite(Number(time))?Number(time):trackingNow();
+      let touched=false;
+      (Array.isArray(characters)?characters:[]).forEach((ch,idx)=>{
+        const job=ch&&ch.__evTrackJob;
+        if(!job||!job.cfg||!job.cfg.enabled||!trackingTargetMatches(job.cfg.targetId,ref))return;
+        const source=getTrackingSourceTransform(job.cfg.targetId,t,new Set(['anim:'+charKey(ch,idx)]));
+        if(!source)return;
+        applyCharJob(job,source);touched=true;
+      });
+      if(touched&&typeof drawStick==='function')drawStick();
+    }catch(_e){}
+  };
+  // How far tracking moves a clip away from its authored transform (used by selection frames).
+  window.ethvelleTrackingDelta=function(ov,time){
+    const cfg=ov&&ov.clipTracking;
+    if(!cfg||!cfg.enabled||!cfg.targetId||typeof window.ethvelleGetTrackedOverlayTransform!=='function')return null;
+    const t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',t):null;
+    const base=trackingSnapshot(keyed||ov.transform||{});
+    const tr=window.ethvelleGetTrackedOverlayTransform(ov,t,keyed);
+    if(!tr)return null;
+    return {ds:safeNum(tr.scale,1)/Math.max(.0001,base.scale),dx:safeNum(tr.offsetX)-base.offsetX,dy:safeNum(tr.offsetY)-base.offsetY,dr:safeNum(tr.rotation)-base.rotation};
+  };
+  function renderTrackingPanel(){
+    const host=$('panelBody');if(!host)return;
+    const ov=getTrackingOverlay();
+    if(!ov){host.innerHTML='';return;}
+    const cfg=ensureTrackingConfig(ov),groups=getTrackingCandidates(ov);
+    const candidateList=groups.flatMap(g=>g.items);
+    if(cfg.targetId&&!candidateList.some(x=>String(x.value)===String(cfg.targetId))){
+      cfg.targetId='';cfg.targetBaseTransform=null;cfg.enabled=false;
+    }
+    if(!cfg.targetId)cfg.enabled=false;
+    const rows=groups.map(group=>group.items.map(item=>{
+      const selected=String(cfg.targetId)===String(item.value);
+      const safeValue=esc(item.value),safeLabel=esc(item.label),safeThumb=esc(item.thumb);
+      const box=trackingThumbBox(item.ratio),ratio=Number(item.ratio)||16/9;
+      return `<button type="button" class="evv-track-source-card ${selected?'selected':''}" data-track-source="${safeValue}" data-track-source-id="${esc(item.clipId)}" data-track-source-kind="${esc(item.kind)}" aria-label="${safeLabel}" aria-pressed="${selected?'true':'false'}"><span class="evv-track-source-thumb" style="width:${box.width}px;height:${box.height}px;aspect-ratio:${ratio.toFixed(5)}"><img src="${safeThumb}" alt="" loading="lazy" decoding="async"></span><span class="evv-track-source-label">${safeLabel}</span></button>`;
+    }).join('')).join('');
+    host.innerHTML=`<div class="evv-panel evv-tracking-compact">
+      <div class="evv-track-enable-row"><span>Enable tracking</span><button type="button" class="evv-track-enable-switch ${cfg.enabled?'on':''}" role="switch" aria-checked="${cfg.enabled?'true':'false'}" aria-label="Enable tracking"><i></i></button></div>
+      <div class="evv-track-source-list">${rows}</div>
+    </div>`;
+    host.querySelectorAll('.evv-track-source-thumb img').forEach(img=>{
+      const applyNaturalRatio=()=>{
+        const w=Number(img.naturalWidth)||0,h=Number(img.naturalHeight)||0;
+        if(!w||!h)return;
+        const box=trackingThumbBox(w/h),wrap=img.parentElement;
+        if(!wrap)return;
+        wrap.style.width=box.width+'px';wrap.style.height=box.height+'px';
+        wrap.style.aspectRatio=w+' / '+h;
+      };
+      if(img.complete)applyNaturalRatio();else img.addEventListener('load',applyNaturalRatio,{once:true});
+    });
+    const enable=host.querySelector('.evv-track-enable-switch');
+    if(enable)enable.addEventListener('click',()=>{
+      if(!candidateList.length){
+        const msg='Tracking is unavailable: no other clip (background, layer, text, animation or effect) overlaps this clip in time. Add or move a clip so they overlap first.';
+        if(typeof window.showToast==='function')window.showToast(msg,{icon:typeof toastIcons!=='undefined'?toastIcons.info:undefined,duration:3200});
+        else if(typeof showToast==='function')showToast(msg,{duration:3200});
+        return;
+      }
+      if(!cfg.targetId||!candidateList.some(item=>String(item.value)===String(cfg.targetId))){
+        const msg='Choose a clip thumbnail above before enabling tracking.';
+        if(typeof window.showToast==='function')window.showToast(msg,{icon:typeof toastIcons!=='undefined'?toastIcons.info:undefined,duration:2600});
+        else if(typeof showToast==='function')showToast(msg,{duration:2600});
+        return;
+      }
+      cfg.enabled=!cfg.enabled;
+      if(cfg.enabled&&!cfg.targetBaseTransform)captureTrackingBase(cfg,cfg.targetId);
+      if(typeof renderFrame==='function')renderFrame();
+      if(typeof persistProjectState==='function')persistProjectState();
+      renderTrackingPanel();
+    });
+    host.querySelectorAll('[data-track-source]').forEach(card=>card.addEventListener('click',()=>{
+      const value=String(card.getAttribute('data-track-source')||'');
+      const item=candidateList.find(candidate=>String(candidate.value)===value);
+      if(!item)return;
+      // Store the exact source ID carried by this thumbnail; display order/labels never
+      // participate in tracking identity, so row reordering cannot mismatch the selection.
+      cfg.targetId=item.value;captureTrackingBase(cfg,item.value);
+      if(typeof renderFrame==='function')renderFrame();
+      if(typeof persistProjectState==='function')persistProjectState();
+      renderTrackingPanel();
+    }));
+  }
+  window.ethvelleRenderCharacterTrackingPanel=renderTrackingPanel;
+  window.ethvelleSetCharacterTracking=function(field,value,live){
+    const ov=getTrackingOverlay();if(!ov)return;
+    const cfg=ensureTrackingConfig(ov);
+    if(field==='enabled'){
+      cfg.enabled=!!value;
+      if(cfg.enabled&&cfg.targetId&&!cfg.targetBaseTransform)captureTrackingBase(cfg,cfg.targetId);
+    }else if(field==='followScale'||field==='followRotation')cfg[field]=!!value;
+    else if(field==='targetId'){
+      const valid=getTrackingCandidates(ov).some(g=>g.items.some(item=>item.value===String(value)));
+      if(!valid)return;
+      cfg.targetId=String(value);captureTrackingBase(cfg,cfg.targetId);
+    }else if(field==='offsetX'||field==='offsetY')cfg[field]=clamp(value,-500,500);
+    if(typeof renderFrame==='function')renderFrame();
+    if(!live&&typeof persistProjectState==='function')persistProjectState();
+    if(!live)renderTrackingPanel();
+  };
+  window.ethvellePersistCharacterTracking=function(){if(typeof persistProjectState==='function')persistProjectState();};
+  try{if(typeof panelContent!=='undefined')panelContent.characterTracking={title:'Clip Tracking',body:'<div class="evv-panel"></div>'};}catch(_e){}
+
+  // Canvas transforms applied to a background are a source event too. Repaint its attached
+  // media followers immediately rather than waiting for the next playback/render tick.
+  const priorBgTrackingApply=window.applyBgTransform;
+  if(typeof priorBgTrackingApply==='function'&&!priorBgTrackingApply.__evv71ClipTracking){
+    const wrappedBgTrackingApply=function(){
+      const result=priorBgTrackingApply.apply(this,arguments);
+      try{
+        const id=typeof selectedClip==='string'&&selectedClip.indexOf('bg')===0?selectedClip:'';
+        if(id&&typeof window.ethvelleRefreshTrackingFollowersForSource==='function')window.ethvelleRefreshTrackingFollowersForSource('bg:'+id,trackingNow());
+      }catch(_e){}
+      return result;
+    };
+    wrappedBgTrackingApply.__evv71ClipTracking=true;window.applyBgTransform=wrappedBgTrackingApply;
+  }
+
+  function syncTrackingTool(){
+    const row=$('bottomToolsClip');if(!row)return;
+    let btn=$('clipTrackingTool');
+    if(!btn){
+      btn=document.createElement('div');btn.id='clipTrackingTool';btn.className='tool-item evv-context-tool';
+      btn.setAttribute('role','button');btn.tabIndex=0;btn.title='Clip Tracking';
+      btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><circle cx="8" cy="8" r="3"/><circle cx="17" cy="16" r="3"/><path d="M10.5 9.5l4 5M3 19c0-2.5 2-4 5-4m8-10c2.6 0 5 2 5 4"/></svg><span>Track</span>';
+      btn.addEventListener('click',()=>{if(getTrackingOverlay())window.openPanel('characterTracking');});
+      btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();btn.click();}});
+      const before=$('clipForwardTool')||$('clipDuplicateTool')||null;
+      if(before&&before.parentNode===row)row.insertBefore(btn,before);else row.appendChild(btn);
+    }
+    const ov=getTrackingOverlay();
+    btn.classList.toggle('ev-v71-track-visible',!!ov);
+    btn.setAttribute('aria-hidden',ov?'false':'true');
+  }
+  const priorOpenPanel=window.openPanel;
+  if(typeof priorOpenPanel==='function'&&!priorOpenPanel.__evv71){
+    const openWrapped=function(key){const r=priorOpenPanel.apply(this,arguments);if(key==='characterTracking')renderTrackingPanel();syncTrackingTool();return r;};
+    openWrapped.__evv71=true;window.openPanel=openWrapped;
+  }
+  const priorSyncTools=window.syncBottomToolsMode;
+  if(typeof priorSyncTools==='function'&&!priorSyncTools.__evv71){
+    const syncWrapped=function(){const r=priorSyncTools.apply(this,arguments);syncTrackingTool();return r;};
+    syncWrapped.__evv71=true;window.syncBottomToolsMode=syncWrapped;
+  }
+  const priorSelect=window.selectClipForChrome;
+  if(typeof priorSelect==='function'&&!priorSelect.__evv71){
+    const selectWrapped=function(){const r=priorSelect.apply(this,arguments);syncTrackingTool();return r;};
+    selectWrapped.__evv71=true;window.selectClipForChrome=selectWrapped;
+  }
+
+  /* ---------- Render one editor frame for image download or a new image clip ---------- */
+  function frameCanvas(opts){
+    const safeCapture=!!(opts&&opts.safe);
+    const taintRisk=src=>{try{if(!src||(src.tagName!=='IMG'&&src.tagName!=='VIDEO'))return false;const u=String(src.currentSrc||src.src||'');return !src.crossOrigin&&/^https?:/i.test(u)&&u.indexOf(location.origin)!==0;}catch(_e){return false;}};
+    if(typeof renderFrame==='function')renderFrame();
+    const stage=$('canvasStage'),stick=$('stickCanvas');
+    const width=Math.max(1,Math.round(safeNum(typeof stageW!=='undefined'?stageW:0,0)||safeNum(stick&&stick.width,0)||640));
+    const height=Math.max(1,Math.round(safeNum(typeof stageH!=='undefined'?stageH:0,0)||safeNum(stick&&stick.height,0)||360));
+    const canvas=document.createElement('canvas');canvas.width=width;canvas.height=height;
+    const ctx=canvas.getContext('2d');if(!ctx)throw new Error('Canvas is not available');
+    const bgModel=typeof currentBackgroundClip==='function'?currentBackgroundClip(safeNum(currentAbsoluteTimeSec)):null;
+    ctx.fillStyle=stage?getComputedStyle(stage).backgroundColor:'#FFFFFF';ctx.fillRect(0,0,width,height);
+    const bgImage=$('bgImgLayer');
+    function drawContained(source,transform,mirrorX,mirrorY,adjustment,mask,enhanceAmount){
+      if(!source)return false;
+      if(safeCapture&&taintRisk(source))return false;
+      const iw=source.videoWidth||source.naturalWidth||source.width||0;
+      const ih=source.videoHeight||source.naturalHeight||source.height||0;
+      if(!iw||!ih)return false;
+      const fit=Math.min(width/iw,height/ih),dw=iw*fit,dh=ih*fit;
+      const tr=Object.assign({scale:1,offsetX:0,offsetY:0,rotation:0},transform||{});
+      ctx.save();
+      try{
+        if(window.ethvelleAdjustmentFilter)ctx.filter=window.ethvelleAdjustmentFilter(adjustment,enhanceAmount||0)||'none';
+        ctx.translate(width/2+safeNum(tr.offsetX),height/2+safeNum(tr.offsetY));
+        if(safeNum(tr.rotation))ctx.rotate(safeNum(tr.rotation)*Math.PI/180);
+        const scale=safeNum(tr.scale,1)||1;
+        ctx.scale(scale*(mirrorX?-1:1),scale*(mirrorY?-1:1));
+        ctx.translate(-width/2,-height/2);
+        if(mask&&window.ethvelleApplyCanvasMaskClip)window.ethvelleApplyCanvasMaskClip(ctx,mask,width,height);
+        ctx.drawImage(source,(width-dw)/2,(height-dh)/2,dw,dh);
+        return true;
+      }finally{ctx.restore();ctx.filter='none';}
+    }
+    if(bgImage&&bgImage.complete&&bgImage.naturalWidth){
+      const bt=bgModel&&bgModel.transform?bgModel.transform:(typeof bgTransform!=='undefined'?bgTransform:null);
+      drawContained(bgImage,bt,bgModel&&bgModel.mirrorX,bgModel&&bgModel.mirrorY,bgModel&&bgModel.adjustments,bgModel&&bgModel.visualMask,bgModel&&bgModel.enhanceAmount);
+    }
+    const now=safeNum(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0);
+    const active=(Array.isArray(overlays)?overlays:[]).filter(o=>o&&(o.type==='image'||o.type==='video'||o.type==='text')&&now>=safeNum(o.trimStart)&&now<safeNum(o.trimEnd));
+    active.forEach(ov=>{
+      if(ov.type==='text'){
+        const tr=Object.assign({scale:1,offsetX:0,offsetY:0,rotation:0},(window.ethvelleGetTrackedOverlayTransform?window.ethvelleGetTrackedOverlayTransform(ov):null)||ov.transform||{});
+        const size=Math.max(8,safeNum(ov.fontSize,36));
+        ctx.save();
+        try{
+          ctx.translate(width/2+safeNum(tr.offsetX),height/2+safeNum(tr.offsetY));
+          if(safeNum(tr.rotation))ctx.rotate(safeNum(tr.rotation)*Math.PI/180);
+          ctx.scale(safeNum(tr.scale,1)||1,safeNum(tr.scale,1)||1);
+          ctx.font=`${ov.fontStyle==='italic'?'italic ':''}${safeNum(ov.fontWeight,800)} ${size}px "${String(ov.fontFamily||'Inter').replace(/["\\]/g,'')}", sans-serif`;
+          ctx.textAlign=ov.textAlign||'center';ctx.textBaseline='middle';
+          ctx.fillStyle=ov.textColor||'#FFFFFF';
+          ctx.globalAlpha=(clamp(ov.textOverallOpacity==null?100:ov.textOverallOpacity,0,100)/100)*(clamp(ov.textOpacity==null?100:ov.textOpacity,0,100)/100);
+          const maxWidth=width*.82,lines=[];
+          String(ov.textContent||'').split('\n').forEach(par=>{let line='';String(par).split(/\s+/).forEach(word=>{const test=line?line+' '+word:word;if(line&&ctx.measureText(test).width>maxWidth){lines.push(line);line=word;}else line=test;});lines.push(line);});
+          const lh=size*1.2,total=lines.length*lh,strokeWidth=Math.max(0,safeNum(ov.strokeWidth));
+          const pad=Math.max(0,safeNum(ov.textBackgroundPadding,7));
+          const bgColor=ov.textBackgroundEnabled?ov.textBackgroundColor||'#182A66':null;
+          const bgShape=String(ov.textBackgroundShape||'rounded');
+          if(bgColor&&bgShape!=='rounded'&&typeof window.ethvelleDrawTextBackplate==='function'){
+            const widest=Math.max(1,...lines.map(line=>Math.min(maxWidth,ctx.measureText(line).width)));
+            const bx=(ov.textAlign||'center')==='left'?-maxWidth/2-pad:(ov.textAlign==='right'?maxWidth/2-widest-pad:-widest/2-pad);
+            ctx.save();ctx.fillStyle=bgColor;ctx.globalAlpha=(clamp(ov.textOverallOpacity==null?100:ov.textOverallOpacity,0,100)/100)*(clamp(ov.textBackgroundOpacity==null?78:ov.textBackgroundOpacity,0,100)/100);
+            window.ethvelleDrawTextBackplate(ctx,bx,-total/2-pad,widest+pad*2,total+pad*2,Number(ov.textBackgroundRadius)||8,bgShape);ctx.restore();
+          }
+          lines.forEach((line,i)=>{
+            const y=-total/2+lh*(i+.5),lineWidth=Math.min(maxWidth,ctx.measureText(line).width);
+            let x=0;if((ov.textAlign||'center')==='left')x=-maxWidth/2;else if(ov.textAlign==='right')x=maxWidth/2;
+            if(bgColor&&bgShape==='rounded'){ctx.save();ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.fillStyle=bgColor;ctx.globalAlpha=(clamp(ov.textOverallOpacity==null?100:ov.textOverallOpacity,0,100)/100)*(clamp(ov.textBackgroundOpacity==null?78:ov.textBackgroundOpacity,0,100)/100);const bx=ov.textAlign==='left'?x-pad:ov.textAlign==='right'?x-lineWidth-pad:x-lineWidth/2-pad;ctx.fillRect(bx,y-lh/2-pad,lineWidth+pad*2,lh+pad*2);ctx.restore();ctx.globalAlpha=(clamp(ov.textOverallOpacity==null?100:ov.textOverallOpacity,0,100)/100)*(clamp(ov.textOpacity==null?100:ov.textOpacity,0,100)/100);ctx.fillStyle=ov.textColor||'#FFFFFF';}
+            if(ov.shadowEnabled){ctx.shadowColor=ov.shadowColor||'#000000';ctx.shadowBlur=Math.max(0,safeNum(ov.shadowBlur));ctx.shadowOffsetX=safeNum(ov.shadowX);ctx.shadowOffsetY=Math.max(4,safeNum(ov.shadowY,6));}
+            if(strokeWidth>0){ctx.lineWidth=strokeWidth*2;ctx.lineJoin='round';ctx.strokeStyle=(typeof ethvelleHexToRgba==='function')?ethvelleHexToRgba(ov.strokeColor||'#17172B',Math.max(0,Math.min(100,Number(ov.strokeOpacity==null?100:ov.strokeOpacity)))/100):(ov.strokeColor||'#17172B');if(window.ethvelleDrawStrokeDepth)window.ethvelleDrawStrokeDepth(ctx,line,x,y,maxWidth,strokeWidth,1);ctx.strokeText(line,x,y,maxWidth);}
+            ctx.fillText(line,x,y,maxWidth);
+          });
+        }finally{ctx.restore();}
+        return;
+      }
+      const el=(typeof overlayMediaEls!=='undefined')?overlayMediaEls[ov.id]:null;
+      let source=el;
+      if(ov.type==='video'&&ov.chromaKey&&ov.chromaKey.enabled){
+        const keyCanvas=(typeof overlayChromaCanvases!=='undefined')?overlayChromaCanvases[ov.id]:null;
+        if(keyCanvas&&keyCanvas.width)source=keyCanvas;
+      }
+      if(!source)return;
+      if(source.tagName==='VIDEO'&&source.readyState<2)return;
+      const tr=window.ethvelleGetTrackedOverlayTransform?window.ethvelleGetTrackedOverlayTransform(ov):ov.transform;
+      drawContained(source,tr,!!ov.mirrorX,!!ov.mirrorY,ov.adjustments,ov.visualMask,ov.enhanceAmount);
+    });
+    if(stick&&stick.width&&stick.height){try{ctx.drawImage(stick,0,0,width,height);}catch(_e){}}
+    const fx=$('evcaV70FxCanvas');if(fx&&fx.width&&fx.height){try{ctx.drawImage(fx,0,0,width,height);}catch(_e){}}
+    return canvas;
+  }
+  window.ethvelleFrameCanvas=frameCanvas;
+  function captureDataUrl(){const canvas=frameCanvas();return canvas.toDataURL('image/png');}
+  window.ethvelleSaveCanvasFrame=function(){
+    try{
+      const canvas=frameCanvas();
+      const data=canvas.toDataURL('image/png');
+      const a=document.createElement('a');
+      a.href=data;a.download='Ethvelle-Frame-'+Math.max(0,safeNum(currentAbsoluteTimeSec)).toFixed(2).replace('.','-')+'s.png';
+      document.body.appendChild(a);a.click();a.remove();
+      if(typeof showToast==='function')showToast('Frame saved to device',{icon:typeof toastIcons!=='undefined'?toastIcons.check:undefined,duration:1500});
+    }catch(err){console.error('Ethvelle frame capture failed',err);if(typeof showToast==='function')showToast('Could not save this frame. A source image or video may block canvas capture.',{duration:2800});}
+  };
+  // v299: capture the current canvas frame and add it to the timeline as a new Background clip.
+  window.ethvelleAddCanvasFrameAsBackground=function(){
+    try{
+      const data=captureDataUrl();
+      if(typeof addBackgroundClip!=='function')throw new Error('Background function is unavailable');
+      addBackgroundClip('url('+data+')');
+      if(typeof showToast==='function')showToast('Current frame added as Background',{icon:typeof toastIcons!=='undefined'?toastIcons.check:undefined,duration:1600});
+    }catch(err){console.error('Ethvelle frame background failed',err);if(typeof showToast==='function')showToast('Could not add this frame as a Background. A source image or video may block canvas capture.',{duration:2800});}
+  };
+  window.ethvelleAddCanvasFrameAsLayer=function(){
+    try{
+      const data=captureDataUrl();
+      if(typeof addMediaOverlay!=='function')throw new Error('Image layer function is unavailable');
+      addMediaOverlay({type:'image',src:data,name:'Captured Frame',duration:3,thumbs:[data]});
+      if(typeof showToast==='function')showToast('Current frame added as a new image layer',{duration:1600});
+    }catch(err){console.error('Ethvelle frame layer failed',err);if(typeof showToast==='function')showToast('Could not add this frame as a layer. A source image or video may block canvas capture.',{duration:2800});}
+  };
+
+  /* ---------- Zoom overlay controls ---------- */
+  function installZoomFrameButtons(){
+    const hud=$('evcaInlineZoomHud');if(!hud)return;
+    const out=$('evcaZoomOut');
+    if(out){
+      if(out.dataset.evV72BackIcon!=='1'){
+        out.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M14 5 7 12l7 7M20 5l-7 7 7 7"/></svg>';
+        out.dataset.evV72BackIcon='1';
+      }
+      out.setAttribute('aria-label','Back to normal canvas');out.title='Back to canvas';
+    }
+    if(!$('evcaZoomSave')){
+      const b=document.createElement('button');b.type='button';b.id='evcaZoomSave';b.className='evca-v71-frame-btn';b.title='Save current frame to device';b.setAttribute('aria-label','Save current frame to device');b.textContent='↓';
+      b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.ethvelleSaveCanvasFrame();});hud.appendChild(b);
+    }
+    if(!$('evcaZoomLayer')){
+      const b=document.createElement('button');b.type='button';b.id='evcaZoomLayer';b.className='evca-v71-frame-btn';b.title='Add current frame as a new layer';b.setAttribute('aria-label','Add current frame as a new layer');b.textContent='＋';
+      b.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();window.ethvelleAddCanvasFrameAsLayer();});hud.appendChild(b);
+    }
+  }
+  const priorZoomToggle=window.toggleCanvasZoomView;
+  if(typeof priorZoomToggle==='function'&&!priorZoomToggle.__evv71){
+    const zoomWrapped=function(){const r=priorZoomToggle.apply(this,arguments);requestAnimationFrame(installZoomFrameButtons);return r;};
+    zoomWrapped.__evv71=true;window.toggleCanvasZoomView=zoomWrapped;
+  }
+  /* No subtree MutationObserver here: installZoomFrameButtons mutates the HUD itself,
+     so observing the whole editor made its own writes trigger an endless observer loop. */
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{syncTrackingTool();installZoomFrameButtons();},{once:true});
+  else{syncTrackingTool();installZoomFrameButtons();}
+})();
+</script>
+
+
+
+<!-- Ethvelle v72: deep fixes for clip follow-selection, transport alignment, zoom,
+     video gesture playback, frame capture access, text swatches and square timeline rows. -->
+<style id="ethvelle-v72-deep-fixes-css">
+
+
+  #timelineInner .anim-clip,
+  #timelineInner .track-clip,
+  #timelineInner .overlay-clip{
+    box-sizing:border-box!important;border-width:1.5px!important;border-style:solid!important;
+    border-color:transparent!important;outline:0!important;box-shadow:none!important;
+  }
+
+
+
+  #timelineInner .anim-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip.selected{
+    box-sizing:border-box!important;
+    
+  }
+  #timelineInner .anim-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip.selected{
+    padding:0!important;
+  }
+  #timelineInner .overlay-clip,#timelineInner .overlay-clip.selected{height:30px!important;min-height:30px!important;max-height:30px!important;}
+  #timelineInner .track-clip,#timelineInner .track-clip.selected{height:36px!important;min-height:36px!important;max-height:36px!important;}
+  #timelineInner .anim-clip,#timelineInner .anim-clip.selected{height:31px!important;min-height:31px!important;max-height:31px!important;}
+
+  /* Character/model timeline rows need straight square edges at every nested level. */
+  #timelineInner .layer-row.char-row,
+  #timelineInner .layer-row.char-row::before,
+  #timelineInner .layer-row.char-row::after,
+  #timelineInner .layer-row.char-row .char-row-track,
+  #timelineInner .layer-row.char-row .layer-track,
+  #timelineInner .layer-row.char-row .anim-clip,
+  #timelineInner .layer-row.char-row .anim-clip::before,
+  #timelineInner .layer-row.char-row .anim-clip::after{border-radius:0!important;}
+
+  /* Font-tab colours use reparented swatches, so target those rows explicitly rather than
+     relying only on the generic #evpaPalette .evpa-swatch selector. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row>.evpa-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools>.evpa-transparent,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row>.evpa-transparent{
+    box-sizing:border-box!important;outline:none!important;outline-offset:0!important;
+    box-shadow:none!important;transition:border-color .12s ease!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools>.evpa-transparent.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-row>.evpa-swatch.active{
+    border:2px solid #2F5CE8!important;border-width:2px!important;
+    outline:none!important;outline-offset:0!important;
+    box-shadow:0 0 0 1px rgba(15,15,18,.9)!important;z-index:10!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools>.evpa-swatch:active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row>.evpa-swatch:active{outline:none!important;}
+
+  /* Frame-capture toolbar tools: compact enough for Android and visible in each tool mode. */
+  #bottomToolsDefault .evv72-frame-tool,
+  #bottomToolsClip .evv72-frame-tool,
+  #bottomToolsKeyframe .evv72-frame-tool{
+    display:flex!important;flex:0 0 68px!important;width:68px!important;min-width:68px!important;
+    max-width:68px!important;align-items:center!important;justify-content:center!important;
+  }
+  .evv72-frame-tool svg{width:20px!important;height:20px!important;flex:0 0 20px!important;}
+  .evv72-frame-tool span{font-size:9px!important;white-space:nowrap!important;line-height:1.1!important;}
+</style>
+
+<script id="ethvelle-v72-deep-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const n=(v,f=0)=>{const x=Number(v);return Number.isFinite(x)?x:f;};
+
+  /* ---------- Gesture-safe video preview ---------- */
+  function attemptVideoPlay(video,allowMutedFallback=true){
+    if(!video||video.tagName!=='VIDEO')return Promise.resolve(false);
+    const ov=(Array.isArray(overlays)?overlays:[]).find(item=>item&&String(item.id)===String(video.dataset.evV72OverlayId||''));
+    if(typeof window.evSafePlayOverlayVideo==='function')return window.evSafePlayOverlayVideo(video,ov);
+    return Promise.resolve(false);
+  }
+  window.ethvelleV72PlayVideo=attemptVideoPlay;
+
+  function primeActiveVideosFromGesture(){
+    if(typeof isPlaying!=='undefined'&&isPlaying)return;
+    let now=n(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0);
+    // If a video clip is selected but the playhead is outside that clip, begin at its start.
+    // This prevents a selected video later on the timeline from appearing frozen/blank when
+    // the user presses Play without first scrubbing into the clip.
+    const selectedVideo=(Array.isArray(overlays)?overlays:[]).find(o=>o&&o.type==='video'&&String(o.id)===String(typeof selectedClip!=='undefined'?selectedClip:''));
+    if(selectedVideo&&(now<n(selectedVideo.trimStart)||now>=n(selectedVideo.trimEnd))){
+      try{setCurrentAbsoluteTime(n(selectedVideo.trimStart));now=n(selectedVideo.trimStart);}catch(_e){}
+    }
+    try{if(typeof renderFrame==='function')renderFrame();}catch(err){console.warn('Ethvelle video pre-render failed',err);}
+    // Ensure the video overlay layer has synchronously created the active <video> elements
+    // before calling play() in the trusted button gesture.
+    try{if(typeof renderOverlayMedia==='function')renderOverlayMedia(now);}catch(_e){}
+    const active=(Array.isArray(overlays)?overlays:[]).filter(o=>o&&o.type==='video'&&now>=n(o.trimStart)&&now<n(o.trimEnd));
+    active.forEach(ov=>{
+      let el=null;try{el=typeof overlayMediaEls!=='undefined'?overlayMediaEls[ov.id]:null;}catch(_e){}
+      if(!el||el.tagName!=='VIDEO')return;
+      const speed=n(ov.speed,1)||1;
+      const max=Math.max(.05,n(ov.sourceDuration,el.duration||n(ov.trimEnd)-n(ov.trimStart))-.02);
+      const local=Math.max(0,Math.min(max,n(ov.sourceOffset)+(now-n(ov.trimStart))*speed));
+      try{if(el.readyState>=1&&Number.isFinite(local)&&Math.abs(el.currentTime-local)>.04){el.muted=true;el.pause();el.currentTime=local;}}catch(_e){}
+      el.playsInline=true;el.autoplay=false;el.setAttribute('playsinline','');el.setAttribute('webkit-playsinline','');el.removeAttribute('autoplay');el.preload='auto';
+      const retryWhenReady=()=>{if(typeof isPlaying!=='undefined'&&isPlaying)attemptVideoPlay(el,true);};
+      el.addEventListener('loadedmetadata',retryWhenReady,{once:true});
+      el.addEventListener('loadeddata',retryWhenReady,{once:true});
+      el.addEventListener('canplay',retryWhenReady,{once:true});
+      // The trusted gesture may pre-roll muted; evSafePlayVideo will not unmute until
+      // playback is active, the cut gate is clear and source position is within 40ms.
+      attemptVideoPlay(el,true);
+    });
+  }
+  window.ethvelleV72PrimeVideoPlayback=primeActiveVideosFromGesture;
+  const originalTogglePlayback=window.togglePlayback;
+  if(typeof originalTogglePlayback==='function'&&!originalTogglePlayback.__evv73VideoGesture){
+    const gestureToggle=function(){if(!isPlaying)primeActiveVideosFromGesture();return originalTogglePlayback.apply(this,arguments);};
+    gestureToggle.__evv73VideoGesture=true;window.togglePlayback=gestureToggle;
+  }
+  const playButton=$('playBtn');
+  if(playButton&&!playButton.dataset.evV72PrimeBound){
+    playButton.dataset.evV72PrimeBound='1';
+    playButton.addEventListener('pointerdown',primeActiveVideosFromGesture,{capture:true,passive:true});
+    playButton.addEventListener('click',primeActiveVideosFromGesture,{capture:true});
+  }
+  // Retry when a newly created media element finishes decoding after playback has started.
+  const mediaLayer=$('overlayMediaLayer');
+  if(mediaLayer&&!mediaLayer.dataset.evV72CanplayObserver){
+    mediaLayer.dataset.evV72CanplayObserver='1';
+    const retryActiveVideo=e=>{
+      const v=e.target;
+      if(v&&v.tagName==='VIDEO'&&v.dataset.evWarmElement!=='1'&&typeof isPlaying!=='undefined'&&isPlaying)attemptVideoPlay(v,true);
+    };
+    mediaLayer.addEventListener('loadeddata',retryActiveVideo,true);
+    mediaLayer.addEventListener('canplay',retryActiveVideo,true);
+  }
+
+  /* ---------- Frame capture directly in the bottom options row ---------- */
+  function makeFrameTool(id,label,title,icon,handler){
+    const item=document.createElement('div');item.id=id;item.className='tool-item evv72-frame-tool';
+    item.setAttribute('role','button');item.tabIndex=0;item.title=title;item.setAttribute('aria-label',title);
+    item.innerHTML=icon+'<span>'+label+'</span>';
+    const run=e=>{e.preventDefault();e.stopPropagation();try{handler();}catch(err){console.error('Frame toolbar action failed',err);}};
+    item.addEventListener('click',run);item.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){run(e);}});
+    return item;
+  }
+  const downloadIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m-5-5 5 5 5-5M4 20h16"/></svg>';
+  const layerIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3.5" y="3.5" width="17" height="17" rx="2"/><path d="M12 7.5v9M7.5 12h9"/></svg>';
+  function ensureFrameToolbarButtons(){
+    [['bottomToolsDefault','default'],['bottomToolsClip','clip'],['bottomToolsKeyframe','keyframe']].forEach(([hostId,suffix])=>{
+      const row=$(hostId);if(!row)return;
+      const saveId='evv72SaveFrame-'+suffix,layerId='evv72AddFrame-'+suffix;
+      const anchor=suffix==='default'?row.querySelector('[data-tool=\"model\"]'):suffix==='clip'?$('clipSplitTool'):row.children[1];
+      let save=$(saveId),layer=$(layerId);
+      if(!save)save=makeFrameTool(saveId,'Save PNG','Save current canvas frame as a PNG file',downloadIcon,()=>window.ethvelleSaveCanvasFrame&&window.ethvelleSaveCanvasFrame());
+      if(!layer)layer=makeFrameTool(layerId,'Add Layer','Add the current canvas frame as a new image layer',layerIcon,()=>window.ethvelleAddCanvasFrameAsLayer&&window.ethvelleAddCanvasFrameAsLayer());
+      if(anchor&&anchor.parentNode===row){row.insertBefore(save,anchor);row.insertBefore(layer,anchor);}
+      else{if(save.parentNode!==row)row.appendChild(save);if(layer.parentNode!==row)row.appendChild(layer);}
+    });
+  }
+  const priorSync=window.syncBottomToolsMode;
+  if(typeof priorSync==='function'&&!priorSync.__evv72FrameTools){
+    const wrapped=function(){const r=priorSync.apply(this,arguments);ensureFrameToolbarButtons();return r;};
+    wrapped.__evv72FrameTools=true;window.syncBottomToolsMode=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',ensureFrameToolbarButtons,{once:true});
+  else ensureFrameToolbarButtons();
+
+})();
+</script>
+
+\n<!-- Ethvelle v73: corrective interaction and selection pass -->
+<style id="ethvelle-v73-final-corrections-css">
+
+
+  #timelineInner .anim-clip,
+  #timelineInner .track-clip,
+  #timelineInner .overlay-clip{
+    box-sizing:border-box!important;border-width:1.5px!important;border-style:solid!important;
+    border-color:transparent!important;outline:none!important;box-shadow:none!important;
+    margin:0!important;
+  }
+
+
+
+  #timelineInner .anim-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip.selected{
+    box-sizing:border-box!important;
+    
+    margin:0!important;
+  }
+  #timelineInner .anim-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip.selected{
+    position:absolute!important;
+    padding:0!important;min-width:0!important;
+  }
+
+  /* Character/model rows: square outer row, track, nested chips and generated pseudo-elements. */
+  #timelineInner .layer-row.char-row,
+  #timelineInner .layer-row.char-row::before,
+  #timelineInner .layer-row.char-row::after,
+  #timelineInner .layer-row.char-row *:not(.layer-badge),
+  #timelineInner .layer-row.char-row *::before,
+  #timelineInner .layer-row.char-row *::after{border-radius:0!important;}
+
+  /* Match the exact two-pixel blue selection outline used by the other text swatch panels.
+     The Font palette is rebuilt/reparented dynamically, so scope the final rules to the
+     actual v25 Font and Color DOM trees (including cloned swatches and transparent chips). */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-tools>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-row>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid>.evpa-transparent.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode #evpaPalette .evpa-font-color-row>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-color-grid-mode #evpaPalette .evpa-color-grid>.evpa-swatch.active{
+    box-sizing:border-box!important;border:2px solid #2F5CE8!important;
+    outline:2px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 1px #111218!important;position:relative!important;z-index:20!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built>.evpa-font-color-row>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid>.evpa-swatch{
+    box-sizing:border-box!important;outline-offset:1px!important;
+  }
+
+  /* Zoom controls remain touchable without blocking direct manipulation on the canvas. */
+  #screen-editor .canvas-wrap.evca-inline-zoom{touch-action:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #evcaInlineZoomHud{pointer-events:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #evcaInlineZoomHud .evca-zoom-control-bar,
+  #screen-editor .canvas-wrap.evca-inline-zoom #evcaInlineZoomHud .evca-zoom-control-bar *{pointer-events:auto!important;}
+</style>
+
+
+<!-- Ethvelle v76: recording-driven read-only selection handoff and final single border -->
+<style id="ethvelle-v76-recording-fixes-css">
+  /* One stable centered transport cluster. The time readout is kept in its own left slot;
+     transport buttons are not individually positioned, so flex layout cannot drift off-screen. */
+  #screen-editor > .transport-row{
+    position:relative!important;display:flex!important;align-items:center!important;
+    justify-content:center!important;flex:0 0 50px!important;height:50px!important;
+    min-height:50px!important;max-height:50px!important;
+    padding:5px 8px!important;margin:0!important;overflow:visible!important;
+    box-sizing:border-box!important;
+  }
+  #screen-editor > .transport-row > .time-readout{
+    position:absolute!important;left:8px!important;right:auto!important;top:50%!important;
+    transform:translateY(-50%)!important;display:block!important;
+    width:auto!important;min-width:0!important;max-width:66px!important;
+    margin:0!important;padding:0!important;white-space:nowrap!important;
+    overflow:hidden!important;text-overflow:ellipsis!important;
+    font-size:9px!important;line-height:1.1!important;text-align:left!important;
+  }
+  #screen-editor > .transport-row > .transport-cluster{
+    position:absolute!important;left:50%!important;right:auto!important;top:50%!important;
+    bottom:auto!important;transform:translate(-50%,-50%)!important;
+    display:flex!important;flex-flow:row nowrap!important;align-items:center!important;
+    justify-content:center!important;gap:7px!important;
+    width:max-content!important;min-width:0!important;max-width:calc(100% - 84px)!important;
+    margin:0!important;padding:0!important;float:none!important;overflow:visible!important;
+    box-sizing:border-box!important;
+  }
+  #screen-editor > .transport-row > .transport-cluster > .transport-btn:first-child,
+  #screen-editor > .transport-row > .transport-cluster > #playBtn.play-btn,
+  #screen-editor > .transport-row > .transport-cluster > .transport-btn:nth-of-type(3){
+    position:relative!important;left:auto!important;right:auto!important;top:auto!important;
+    bottom:auto!important;inset:auto!important;transform:none!important;
+    flex:0 0 auto!important;margin:0!important;float:none!important;
+    box-sizing:border-box!important;
+  }
+  /* All five controls stay in one centered flex row: Previous, Play, Next, Key, Zoom. */
+  #screen-editor > .transport-row > .transport-cluster > #transportKeyBtn,
+  #screen-editor > .transport-row > .transport-cluster > #transportZoomBtn{
+    position:relative!important;left:auto!important;right:auto!important;top:auto!important;
+    bottom:auto!important;inset:auto!important;transform:none!important;
+    display:flex!important;flex:0 0 auto!important;margin:0!important;float:none!important;
+  }
+  #screen-editor > .transport-row > .transport-cluster > #transportKeyBtn{
+    width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;
+    max-width:28px!important;max-height:28px!important;border-radius:50%!important;
+    align-items:center!important;justify-content:center!important;
+  }
+  #screen-editor > .transport-row > .transport-cluster > #transportZoomBtn{
+    width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;
+    max-width:30px!important;max-height:30px!important;border-radius:50%!important;
+    align-items:center!important;justify-content:center!important;
+  }
+  #screen-editor > .transport-row .transport-btn{
+    display:flex!important;width:30px!important;height:30px!important;
+    min-width:30px!important;min-height:30px!important;max-width:30px!important;max-height:30px!important;
+    border-radius:50%!important;background:#09090D!important;
+    border:1px solid #454550!important;box-shadow:none!important;
+    align-items:center!important;justify-content:center!important;
+  }
+  #screen-editor > .transport-row #playBtn.play-btn{
+    display:flex!important;flex:0 0 38px!important;width:38px!important;height:38px!important;
+    min-width:38px!important;min-height:38px!important;max-width:38px!important;max-height:38px!important;
+    border-radius:50%!important;background:#09090D!important;
+    border:1px solid #454550!important;outline:none!important;box-shadow:none!important;
+    align-items:center!important;justify-content:center!important;
+  }
+  #screen-editor > .transport-row .transport-btn svg{
+    width:13px!important;height:13px!important;fill:#BFC2CC!important;stroke:#BFC2CC!important;
+  }
+  #screen-editor > .transport-row #playBtn.play-btn svg{
+    width:16px!important;height:16px!important;display:block!important;
+    fill:#D8DAE2!important;stroke:none!important;
+  }
+  #screen-editor > .transport-row #playBtn.play-btn:active,
+  #screen-editor > .transport-row .transport-btn:active{
+    background:#17171E!important;border-color:#666A77!important;transform:none!important;
+  }
+  @media(max-width:360px){
+    #screen-editor > .transport-row{height:48px!important;min-height:48px!important;flex-basis:48px!important;}
+    #screen-editor > .transport-row > .time-readout{max-width:54px!important;left:6px!important;font-size:8px!important;}
+    #screen-editor > .transport-row > .transport-cluster{gap:5px!important;max-width:calc(100% - 66px)!important;}
+    #screen-editor > .transport-row .transport-btn{width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;}
+    #screen-editor > .transport-row #playBtn.play-btn{width:36px!important;height:36px!important;min-width:36px!important;min-height:36px!important;}
+  }
+
+  #screen-editor #timelineInner .anim-clip.selected,
+  #screen-editor #timelineInner .track-clip.selected,
+  #screen-editor #timelineInner .overlay-clip.selected{
+    box-sizing:border-box!important;
+    
+    
+    
+  }
+  #screen-editor #timelineInner .anim-clip:not(.selected),
+  #screen-editor #timelineInner .track-clip:not(.selected),
+  #screen-editor #timelineInner .overlay-clip:not(.selected){
+    outline:none!important;box-shadow:none!important;
+  }
+
+  /* Undo the v73 selected-only min-width/padding changes. They were not part of the base
+     clip geometry and could make some media chips look compressed. Preserve each clip's
+     existing inline left/width/height and the type-specific base box model. */
+  #screen-editor #timelineInner .anim-clip.selected,
+  #screen-editor #timelineInner .overlay-clip.selected,
+  #screen-editor #timelineInner .track-clip.selected{
+    position:absolute!important;min-width:initial!important;max-width:none!important;
+    padding:initial!important;margin:0!important;
+  }
+  #screen-editor #timelineInner .track-clip-empty.selected{padding:0 12px!important;}
+
+  /* Character/model row corners: this selector is deliberately more specific than the later
+     v67/v68 4px rounding rules and targets the generated row under #characterRows directly. */
+  #screen-editor #timelineInner #characterRows .layer-row.char-row,
+  #screen-editor #timelineInner #characterRows .layer-row.char-row::before,
+  #screen-editor #timelineInner #characterRows .layer-row.char-row::after,
+  #screen-editor #timelineInner #characterRows .layer-row.char-row *:not(.layer-badge),
+  #screen-editor #timelineInner #characterRows .layer-row.char-row *::before,
+  #screen-editor #timelineInner #characterRows .layer-row.char-row *::after,
+  #screen-editor #timelineInner .char-add-row,
+  #screen-editor #timelineInner .char-add-row *:not(.layer-badge),
+  #screen-editor #timelineInner .char-add-row *::before,
+  #screen-editor #timelineInner .char-add-row *::after{
+    border-radius:0!important;
+  }
+
+  /* Font and Color palettes use one blue border only. Remove the previous outline + dark halo,
+     which produced two blue rings and an extra black hairline on touch. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-color-grid .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent.active,
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvelleTextComposer #evtcColorStrip .evtc-transparent-swatch.active{
+    box-sizing:border-box!important;border:2px solid #2F5CE8!important;
+    outline:0!important;outline-width:0!important;outline-offset:0!important;
+    box-shadow:none!important;filter:none!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active::before,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active::after,
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent.active::before,
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent.active::after,
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active::before,
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active::after,
+  #ethvelleTextComposer #evtcColorStrip .evtc-transparent-swatch.active::before,
+  #ethvelleTextComposer #evtcColorStrip .evtc-transparent-swatch.active::after{
+    content:none!important;display:none!important;outline:0!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvelleTextComposer #evtcColorStrip .evtc-swatch-action.active{
+    border:2px solid #2F5CE8!important;outline:none!important;outline-offset:0!important;
+    box-shadow:none!important;filter:none!important;
+  }
+
+  /* One Frame Capture toolbar item replaces the old Save PNG + Add Layer pair. */
+  #bottomToolsDefault .evca-frame-capture-tool,
+  #bottomToolsClip .evca-frame-capture-tool,
+  #bottomToolsKeyframe .evca-frame-capture-tool{
+    display:flex!important;flex:0 0 68px!important;width:68px!important;
+    min-width:68px!important;max-width:68px!important;
+    align-items:center!important;justify-content:center!important;
+  }
+  .evca-frame-capture-tool svg{width:20px!important;height:20px!important;flex:0 0 20px!important;}
+  .evca-frame-capture-tool span{font-size:9px!important;white-space:nowrap!important;line-height:1.1!important;}
+  #evcaFrameCaptureSheet{
+    position:absolute;inset:0;z-index:100500;display:none;
+    align-items:flex-end;justify-content:center;background:rgba(0,0,0,.32);
+    padding:0;box-sizing:border-box;
+  }
+  #evcaFrameCaptureSheet.active{display:flex;}
+  #evcaFrameCaptureSheet .evca-frame-sheet{
+    width:100%;max-width:520px;height:auto;max-height:min(86dvh,760px);min-height:min(46dvh,460px);overflow-y:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+    background:#191A22;border:1px solid #363846;border-bottom:0;

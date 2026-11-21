@@ -1,0 +1,1000 @@
+})();
+</script>
+
+<style id="ethvelle-v142-smooth-transition-character-ui-css">
+  /* Keep the two hand selectors visually independent, with a real gap between them. */
+  #screen-editor .evpa-props-sheet .evpa-action-side{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;
+    align-items:stretch!important;margin:8px 0 13px!important;padding:0!important;
+    border:0!important;border-radius:0!important;background:transparent!important;overflow:visible!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button{
+    appearance:none!important;-webkit-appearance:none!important;min-width:0!important;min-height:44px!important;
+    flex:none!important;padding:0 10px!important;border:1px solid #394157!important;border-radius:12px!important;
+    background:linear-gradient(160deg,#242632,#191A21)!important;color:#D6D8E0!important;
+    font-size:12px!important;font-weight:800!important;letter-spacing:.01em!important;box-shadow:none!important;
+    outline:0!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active{
+    border:1.5px solid #4F7CFF!important;background:linear-gradient(160deg,rgba(47,92,232,.30),#1B1C25)!important;
+    color:#fff!important;box-shadow:inset 0 0 0 1px rgba(79,124,255,.18)!important;
+  }
+
+  /* Held-item controls use the same filled blue rail and white-ring thumb as Text > Shadow. */
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range{
+    display:block!important;margin:7px 0 8px!important;padding:0 8px!important;
+    border-left:1px solid rgba(47,92,232,.72)!important;border-right:1px solid rgba(47,92,232,.72)!important;
+    border-radius:7px!important;color:#D7DBF1!important;font-size:11px!important;font-weight:700!important;
+    touch-action:none!important;user-select:none!important;-webkit-user-select:none!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range>span{
+    display:flex!important;align-items:center!important;justify-content:space-between!important;gap:8px!important;margin-bottom:4px!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range output{
+    color:#AAB3FF!important;font-size:11px!important;font-variant-numeric:tabular-nums!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]{
+    -webkit-appearance:none!important;appearance:none!important;display:block!important;width:100%!important;
+    height:20px!important;min-height:20px!important;margin:0!important;padding:0!important;
+    accent-color:#2F5CE8!important;background:transparent!important;outline:none!important;
+    touch-action:none!important;cursor:ew-resize!important;pointer-events:auto!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]::-moz-range-track{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#45495D!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]::-moz-range-progress{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#2F5CE8!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]::-webkit-slider-thumb{
+    -webkit-appearance:none!important;appearance:none!important;width:14px!important;height:14px!important;
+    margin-top:-5px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]::-moz-range-thumb{
+    width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+
+  /* Keep the high-resolution full-body portrait legible inside the mobile sheet. */
+  #screen-editor .evpa-props-sheet .evpa-prop-stage-wrap{overflow:hidden!important;}
+  #screen-editor .evpa-props-sheet #evpaPropStagePreview{
+    display:block!important;width:100%!important;height:auto!important;max-height:52vh!important;max-height:min(52dvh,460px)!important;
+    aspect-ratio:5/7!important;object-fit:contain!important;margin:0 auto!important;
+    image-rendering:auto!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-stage-wrap,
+  #screen-editor .evpa-props-sheet #evpaPropStagePreview{overscroll-behavior:contain!important;}
+
+  /* Add-art controls are ordinary choice tiles appended to the last cell in each body-part row. */
+  #screen-editor .evpa-choice.evpa-choice-add{
+    min-width:0!important;border:1px solid #343746!important;border-radius:12px!important;
+    background:linear-gradient(160deg,#242632,#191A21)!important;color:#D6D8E0!important;
+    padding:7px 5px 8px!important;gap:6px!important;
+  }
+  #screen-editor .evpa-choice-add .evpa-choice-preview{
+    background:rgba(0,0,0,.14)!important;border-radius:7px!important;
+  }
+  #screen-editor .evpa-choice-add-icon{
+    width:36px;height:36px;flex:0 0 36px;border-radius:50%;display:grid;place-items:center;
+    background:#2149C4;border:1px solid #7597FF;color:#fff;
+  }
+  #screen-editor .evpa-choice-add-icon svg{display:block;width:21px;height:21px;}
+  #screen-editor .evpa-choice-add:active .evpa-choice-add-icon{background:#3159D5;transform:scale(.95);}
+</style>
+
+<script id="ethvelle-v142-smooth-transition-character-ui-fix">
+(function(){
+  'use strict';
+  if(window.__ethvelleV142SmoothTransitionCharacterUI)return;
+  window.__ethvelleV142SmoothTransitionCharacterUI=true;
+
+  /* ----------------------------------------------------------------------
+     1) Smooth video cuts.
+     v141 rewound each gesture-primed incoming decoder in its pause listener.
+     That discarded the decoded first frame and forced Android WebView to seek
+     and decode it again at the clip boundary. Keep the already-decoded parked
+     frame instead. While the element is paused and still carries this marker,
+     treat its parked currentTime as its prepared start frame. This skips only
+     the redundant boundary seek; once the incoming video actually starts,
+     normal timeline-time sync/rate correction resumes immediately.
+     ---------------------------------------------------------------------- */
+  const V142_WARM_ROLE='v142-gesture-prime';
+
+  function markGesturePrimedVideo(el){
+    if(!el||el.tagName!=='VIDEO'||el.dataset.evWarmElement!=='1')return;
+    el.dataset.evWarmRole=V142_WARM_ROLE; // v141's pause handler only rewinds the old role.
+    el.dataset.evV142GestureFrame='1';
+  }
+  const priorSetupVideo=window.setupOverlayVideoEl;
+  if(typeof priorSetupVideo==='function'&&!priorSetupVideo.__ethvelleV142KeepDecodedFrame){
+    const wrappedSetupVideo=function(el,ov){
+      const result=priorSetupVideo.apply(this,arguments);
+      if(el&&el.tagName==='VIDEO'&&el.dataset.evWarmRole==='v140-gesture-prime')markGesturePrimedVideo(el);
+      return result;
+    };
+    wrappedSetupVideo.__ethvelleV142KeepDecodedFrame=true;
+    window.setupOverlayVideoEl=wrappedSetupVideo;
+  }
+
+  const priorExpected=window.evOverlayVideoExpectedLocalTime;
+  if(typeof priorExpected==='function'&&!priorExpected.__ethvelleV142ParkedFrame){
+    const wrappedExpected=function(ov,timeSec,el){
+      const real=priorExpected.apply(this,arguments);
+      // BUGFIX v150: this used to trust el.currentTime unconditionally for ANY paused
+      // gesture-primed element, so a clip whose priming play() ran a little long before
+      // being paused again reported itself "on time" at the WRONG source frame — it then
+      // opened on that wrong frame and had to be dragged back into sync by the rate servo
+      // after it went live (visible as a jump/offset start on every clip). Only skip the
+      // redundant seek when the parked frame is already within one frame of the real
+      // expected position; otherwise defer to the real value so the normal alignment/seek
+      // path corrects it before the clip is ever shown.
+      if(el&&el.tagName==='VIDEO'&&el.dataset.evV142GestureFrame==='1'&&
+         el.paused&&!el.seeking&&Number.isFinite(Number(el.currentTime))&&Number.isFinite(real)&&
+         Math.abs((Number(el.currentTime)||0)-real)<=(1/Math.max(1,Number(FPS)||30))){
+        // The priming play has already decoded this frame, and it's genuinely where the
+        // timeline expects it. Do not ask the boundary gate or v141's adoption wrapper to
+        // re-seek back to the same source start.
+        if(window.__evVideoDebug)try{console.log('[evVideo] keep-parked-frame',el.dataset.evV72OverlayId,'parked',el.currentTime,'expected',real);}catch(_e){}
+        return Math.max(0,Number(el.currentTime)||0);
+      }
+      if(window.__evVideoDebug&&el&&el.dataset&&el.dataset.evV142GestureFrame==='1'&&el.paused&&!el.seeking&&Number.isFinite(real))try{console.log('[evVideo] discard-parked-frame (drifted)',el.dataset.evV72OverlayId,'parked',el.currentTime,'expected',real);}catch(_e){}
+      return real;
+    };
+    wrappedExpected.__ethvelleV142ParkedFrame=true;
+    window.evOverlayVideoExpectedLocalTime=wrappedExpected;
+  }
+
+  const priorTakeWarm=window.takeWarmOverlayVideo;
+  if(typeof priorTakeWarm==='function'&&!priorTakeWarm.__ethvelleV142AdoptFrame){
+    const wrappedTakeWarm=function(ov){
+      const id=String(ov&&ov.id!=null?ov.id:'');
+      const candidate=typeof overlayWarmEls!=='undefined'&&overlayWarmEls?overlayWarmEls[id]:null;
+      const wasGesturePrimed=!!(candidate&&candidate.dataset.evV142GestureFrame==='1');
+      const el=priorTakeWarm.apply(this,arguments);
+      if(el&&wasGesturePrimed){
+        // Keep the marker through adoption. The actual 'playing' event clears it;
+        // that lets the parked frame pass readiness checks without masking later sync.
+        el.dataset.evV142GestureFrame='1';
+        if(!el.__evV142ClearPrimeOnLivePlay){
+          el.addEventListener('playing',function(){
+            if(el.dataset.evWarmElement!=='1')delete el.dataset.evV142GestureFrame;
+          });
+          el.__evV142ClearPrimeOnLivePlay=true;
+        }
+      }
+      return el;
+    };
+    wrappedTakeWarm.__ethvelleV142AdoptFrame=true;
+    window.takeWarmOverlayVideo=wrappedTakeWarm;
+  }
+
+  // The v140 wrapper primes every video synchronously inside the trusted Play gesture.
+  // Existing warm elements (created before Play) also need the v142 role before their
+  // asynchronous play() promise pauses them, so v141 cannot rewind them on that pause.
+  const priorStartPlayback=window.startPlayback;
+  if(typeof priorStartPlayback==='function'&&!priorStartPlayback.__ethvelleV142KeepPrimed){
+    const wrappedStartPlayback=function(){
+      const markExistingWarmVideos=()=>{
+        if(typeof overlayWarmEls!=='undefined'&&overlayWarmEls){
+          Object.keys(overlayWarmEls).forEach(id=>markGesturePrimedVideo(overlayWarmEls[id]));
+        }
+      };
+      // Mark already-created warm elements before v140 calls play(). This also covers
+      // legacy WebViews whose play() returns no Promise and whose fallback pauses inline.
+      markExistingWarmVideos();
+      const result=priorStartPlayback.apply(this,arguments);
+      if(typeof isPlaying!=='undefined'&&isPlaying)markExistingWarmVideos();
+      return result;
+    };
+    wrappedStartPlayback.__ethvelleV142KeepPrimed=true;
+    window.startPlayback=wrappedStartPlayback;
+  }
+
+  /* ----------------------------------------------------------------------
+     2) Character held-object preview: retain the full-body crop and 1080px-wide
+     backing bitmap across panel re-renders, and prevent touch drags on the preview
+     or its sliders from scrolling the sheet. The actual hand/object drag logic is
+     unchanged and continues to use the original pointer handlers.
+     ---------------------------------------------------------------------- */
+  const propsBackdrop=document.getElementById('ethvelleCharacterPropsBackdrop');
+  let lastPreviewCanvas=null;
+  function rangeProgress(input){
+    if(!input||input.type!=='range')return;
+    const min=Number(input.min||0),max=Number(input.max||100),value=Number(input.value||0);
+    const percent=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
+    input.style.setProperty('--ev-range-progress',percent+'%');
+  }
+  function tuneHeldPropsPanel(){
+    const back=document.getElementById('ethvelleCharacterPropsBackdrop');
+    if(!back||!back.classList.contains('active'))return;
+    const canvas=back.querySelector('#evpaPropStagePreview');
+    if(canvas&&canvas!==lastPreviewCanvas){
+      lastPreviewCanvas=canvas;
+      if(canvas.width!==1080)canvas.width=1080;
+      if(canvas.height!==1512)canvas.height=1512;
+      canvas.style.touchAction='pan-y';
+      canvas.style.userSelect='none';
+      canvas.style.webkitUserSelect='none';
+      // Do not cancel touch on the whole preview. The sheet must remain vertically
+      // scrollable when a finger starts on the character; the existing object-hit
+      // pointer handler below only captures gestures that begin on the held object.
+      canvas.__evV142NoSheetScroll=true;
+    }
+    back.querySelectorAll('.evpa-props-sheet .evpa-prop-field input[type="range"]').forEach(rangeProgress);
+  }
+  if(typeof MutationObserver==='function'&&document.body){
+    const observer=new MutationObserver(()=>{
+      const canvas=document.querySelector('#ethvelleCharacterPropsBackdrop #evpaPropStagePreview');
+      if(canvas!==lastPreviewCanvas)tuneHeldPropsPanel();
+    });
+    observer.observe(document.body,{subtree:true,childList:true});
+  }
+  document.addEventListener('input',function(e){
+    if(e.target&&e.target.matches&&e.target.matches('#ethvelleCharacterPropsBackdrop .evpa-props-sheet input[type="range"]'))rangeProgress(e.target);
+  },true);
+  ['openCharacterPropsPanel','setCharacterPropSide','toggleCharacterHeldProp','removeCharacterHeldProp'].forEach(name=>{
+    const prior=window[name];
+    if(typeof prior!=='function'||prior.__ethvelleV142PanelTune)return;
+    const wrapped=function(){const result=prior.apply(this,arguments);tuneHeldPropsPanel();return result;};
+    wrapped.__ethvelleV142PanelTune=true;window[name]=wrapped;
+  });
+  // FileReader completion rebuilds the panel asynchronously, so MutationObserver above
+  // also catches that canvas replacement and restores its high-resolution backing store.
+
+  /* ----------------------------------------------------------------------
+     3) Put each custom-part '+' action inside the choice grid as its final tile.
+     Existing model editor navigation and upload handling are reused unchanged.
+     ---------------------------------------------------------------------- */
+  function placePartAddTiles(){
+    const back=document.getElementById('ethvelleClipFaceActionsBackdrop');
+    if(!back||!back.classList.contains('active'))return;
+    back.querySelectorAll('.evpa-section').forEach(section=>{
+      const headingRow=section.querySelector(':scope > .evpa-section-heading');
+      let heading=section.querySelector(':scope > .evpa-section-title');
+      let oldAdd=null;
+      if(headingRow){
+        if(!heading)heading=headingRow.querySelector('.evpa-section-title');
+        oldAdd=headingRow.querySelector('.evpa-section-add');
+        if(oldAdd)oldAdd.remove();
+        if(heading)section.insertBefore(heading,headingRow);
+        headingRow.remove();
+      }
+      if(!heading)return;
+      const label=String(heading.textContent||'').trim();
+      if(/^blink\s+mode$/i.test(label))return;
+      const grid=section.querySelector(':scope > .evpa-choice-grid');
+      if(!grid||grid.querySelector(':scope > .evpa-choice-add'))return;
+      const add=document.createElement('button');
+      add.type='button';add.className='evpa-choice evpa-choice-add';
+      add.title='Add custom '+label.toLowerCase()+' artwork';
+      add.setAttribute('aria-label','Add custom '+label.toLowerCase()+' artwork');
+      add.innerHTML='<span class="evpa-choice-preview"><span class="evpa-choice-add-icon" aria-hidden="true"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></span></span><span class="evpa-choice-label">Add part</span>';
+      add.addEventListener('click',function(e){
+        e.preventDefault();e.stopPropagation();
+        if(typeof window.openCustomPartEditorFromAction==='function')window.openCustomPartEditorFromAction();
+        else if(typeof window.openSelectedCharacterModelEditor==='function'){window.closeClipCharacterActions();window.openSelectedCharacterModelEditor();}
+      });
+      grid.appendChild(add);
+    });
+  }
+  const priorOpenCharacterActions=window.openClipCharacterActions;
+  if(typeof priorOpenCharacterActions==='function'&&!priorOpenCharacterActions.__ethvelleV142GridAddTiles){
+    const wrappedOpenCharacterActions=function(){
+      const result=priorOpenCharacterActions.apply(this,arguments);
+      placePartAddTiles();
+      requestAnimationFrame(placePartAddTiles);
+      return result;
+    };
+    wrappedOpenCharacterActions.__ethvelleV142GridAddTiles=true;
+    window.openClipCharacterActions=wrappedOpenCharacterActions;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',tuneHeldPropsPanel,{once:true});
+  else tuneHeldPropsPanel();
+})();
+</script>
+
+
+<style id="ethvelle-v143-held-items-ui-polish-css">
+  /* Restore the v141 shared, segmented Left Hand / Right Hand selector. */
+  #screen-editor .evpa-props-sheet .evpa-action-side{
+    display:flex!important;align-items:stretch!important;gap:0!important;
+    margin:8px 0 13px!important;padding:3px!important;
+    border:1px solid #30313B!important;border-radius:12px!important;
+    background:#101116!important;overflow:hidden!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button{
+    appearance:none!important;-webkit-appearance:none!important;flex:1 1 50%!important;
+    min-width:0!important;min-height:39px!important;padding:0 10px!important;
+    border:1px solid transparent!important;border-radius:9px!important;
+    background:transparent!important;color:#F5F5F7!important;
+    font-size:12px!important;font-weight:800!important;letter-spacing:.01em!important;
+    box-shadow:none!important;outline:0!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active{
+    background:#173CA9!important;border-color:#315FDE!important;color:#fff!important;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button:focus,
+  #screen-editor .evpa-props-sheet .evpa-action-side button:focus-visible{outline:0!important;}
+
+  /* Keep model-part section headings in the established Ethvelle blue. */
+  #screen-editor .evca-char-actions-sheet .evpa-section-title,
+  #screen-editor .evca-char-actions-sheet .evpa-section-heading .evpa-section-title{
+    color:#8EAFFF!important;
+  }
+
+  /* Let the entire Held Items sheet scroll vertically, including a swipe beginning
+     directly over the character preview. Slider and actual object-drag controls remain usable. */
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-props-sheet{
+    overflow-x:hidden!important;overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;overscroll-behavior-y:contain!important;
+    touch-action:pan-y!important;min-height:0!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-stage-wrap,
+  #screen-editor .evpa-props-sheet #evpaPropStagePreview{
+    touch-action:pan-y!important;overscroll-behavior-y:contain!important;
+  }
+
+  /* Remove only the square native/focus frame around the animation-search text input.
+     The rounded search-bar container itself keeps its existing border and focus styling. */
+  #screen-editor #evcaAnimSearchInput,
+  #screen-editor #evcaAnimSearchInput:focus,
+  #screen-editor #evcaAnimSearchInput:focus-visible,
+  #screen-editor #evcaAnimSearchBar input.tutorial-search-input,
+  #screen-editor #evcaAnimSearchBar input.tutorial-search-input:focus,
+  #screen-editor #evcaAnimSearchBar input.tutorial-search-input:focus-visible{
+    appearance:none!important;-webkit-appearance:none!important;
+    border:0!important;outline:0!important;box-shadow:none!important;
+    -webkit-box-shadow:none!important;background:transparent!important;border-radius:0!important;
+  }
+</style>
+
+
+<style id="ethvelle-v144-requested-visual-corrections">
+  /* Custom body-part Add tile: change the blue circular badge to a compact square badge. */
+  #screen-editor .evca-char-actions-sheet .evpa-choice-add-icon,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice-add-icon{
+    width:36px!important;height:36px!important;min-width:36px!important;min-height:36px!important;
+    flex:0 0 36px!important;border-radius:8px!important;
+    display:grid!important;place-items:center!important;
+    background:#2149C4!important;border:1px solid #7597FF!important;color:#fff!important;
+    box-shadow:none!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice-add-icon svg,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice-add-icon svg{
+    display:block!important;width:21px!important;height:21px!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice-add:active .evpa-choice-add-icon,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice-add:active .evpa-choice-add-icon{
+    border-radius:8px!important;background:#3159D5!important;
+  }
+
+  /* Body-part section names should be white, not the previous blue. */
+  #screen-editor .evca-char-actions-sheet .evpa-section-title,
+  #screen-editor .evca-char-actions-sheet .evpa-section-heading .evpa-section-title,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-section-title{
+    color:#FFFFFF!important;
+  }
+
+  /* Slightly enlarge only the Held Items toolbar glyph; neighboring controls stay unchanged. */
+  #screen-editor #clipHeldItemsTool svg{
+    width:23px!important;height:23px!important;flex:0 0 23px!important;
+  }
+</style>
+
+
+<!-- Ethvelle v145: login mark cleanup, brighter project labels, held-panel swipe routing,
+     and stronger selected face/hand tiles. All changes are isolated overrides. -->
+<style id="ethvelle-v145-login-project-character-css">
+  /* Login: show only the centered brand mark above the auth controls; remove the
+     route-specific "Sign in for Export" heading as well as the already-hidden subtitle. */
+  #screen-login .admin-login-card h1#loginTitle,
+  #screen-login .admin-login-card .admin-login-sub{
+    display:none!important;
+  }
+  #screen-login .admin-login-mark{
+    width:118px!important;height:94px!important;min-width:118px!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    margin:0 auto 24px!important;padding:0!important;
+    border:0!important;border-radius:0!important;background:transparent!important;
+    overflow:visible!important;
+  }
+  #screen-login .admin-login-mark .admin-login-logo{
+    display:block!important;width:100%!important;height:100%!important;
+    max-width:100%!important;max-height:100%!important;object-fit:contain!important;
+    object-position:center!important;
+  }
+
+  /* Project creation sheet: brighten the title, helper copy, field labels and ratio captions. */
+  #ratioModalBackdrop .sheet-title{color:#F5F5F7!important;}
+  #ratioModalBackdrop .sheet-sub{color:#C4C4CE!important;}
+  #ratioModalBackdrop .field-label{color:#D0D0D8!important;}
+  #ratioModalBackdrop .ratio-label,
+  #ratioModalBackdrop .ratio-opt.selected .ratio-label{color:#E0E2EA!important;}
+  #ratioModalBackdrop .ratio-plat,
+  #ratioModalBackdrop .ratio-opt.selected .ratio-plat{color:#C4C7D1!important;}
+  #ratioModalBackdrop .name-input{color:#F5F5F7!important;}
+  #ratioModalBackdrop .name-input::placeholder{color:#AEB3C2!important;opacity:1!important;}
+
+  /* Project list: make the count, saved project titles and format/duration details readable. */
+  #screen-projects .projects-count{color:#C4C4CE!important;}
+  #screen-projects .project-name{color:#F2F3F7!important;}
+  #screen-projects .project-meta{color:#C4C7D1!important;}
+
+  /* Face/hand selected option cards were too transparent. Keep the normal cards unchanged,
+     but give the active selection a visibly solid Ethvelle-blue fill. */
+  #screen-editor .evca-char-actions-sheet .evpa-choice.active,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.active{
+    background:linear-gradient(155deg,#315FD8 0%,#2149B8 56%,#193C9F 100%)!important;
+    border:1.5px solid #79A0FF!important;color:#FFFFFF!important;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.14)!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice.active .evpa-choice-preview,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.active .evpa-choice-preview{
+    background:rgba(7,17,49,.28)!important;
+  }
+
+  /* Let vertical touch gestures begun on the character preview scroll the Held Items sheet.
+     Horizontal gestures remain available for moving a held object. */
+  #screen-editor #ethvelleCharacterPropsBackdrop{
+    touch-action:pan-y!important;overscroll-behavior-y:contain!important;
+  }
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-props-sheet{
+    max-height:min(88dvh,760px)!important;min-height:0!important;
+    overflow-x:hidden!important;overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;overscroll-behavior-y:contain!important;
+    touch-action:pan-y!important;
+  }
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-prop-stage-wrap,
+  #screen-editor #ethvelleCharacterPropsBackdrop #evpaPropStagePreview{
+    touch-action:pan-y!important;overscroll-behavior-y:contain!important;
+  }
+</style>
+
+<script id="ethvelle-v146-held-preview-full-scroll">
+(function(){
+  'use strict';
+  if(window.__ethvelleV146HeldPreviewFullScrollInstalled)return;
+  window.__ethvelleV146HeldPreviewFullScrollInstalled=true;
+
+  let gesture=null;
+  const ROOT='#ethvelleCharacterPropsBackdrop';
+  const STAGE='.evpa-prop-stage-wrap';
+
+  function getPreviewSheet(e){
+    const back=document.querySelector(ROOT+'.active');
+    if(!back)return null;
+    const stage=back.querySelector(STAGE);
+    const sheet=back.querySelector('.evpa-props-sheet');
+    if(!stage||!sheet||!(e.target===stage||stage.contains(e.target)))return null;
+    return {stage,sheet};
+  }
+
+  // Intercept the preview gesture before the canvas's held-object drag listener.
+  // A vertical gesture scrolls the complete sheet; a horizontal gesture is left
+  // to the existing object-positioning handler.
+  document.addEventListener('pointerdown',function(e){
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    const target=getPreviewSheet(e);
+    if(!target)return;
+    gesture={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,lastX:e.clientX,
+      lastY:e.clientY,mode:'pending',sheet:target.sheet};
+  },{capture:true,passive:true});
+
+  document.addEventListener('pointermove',function(e){
+    const g=gesture;
+    if(!g||g.pointerId!==e.pointerId)return;
+    const totalX=e.clientX-g.startX;
+    const totalY=e.clientY-(g.startY===undefined?e.clientY:g.startY);
+    if(g.mode==='pending'&&Math.max(Math.abs(totalX),Math.abs(totalY))>6){
+      if(Math.abs(totalY)>=Math.abs(totalX)*0.9)g.mode='scroll';
+      else if(Math.abs(totalX)>Math.abs(totalY)*0.9)g.mode='object';
+    }
+    if(g.mode==='scroll'){
+      const max=Math.max(0,g.sheet.scrollHeight-g.sheet.clientHeight);
+      if(max>0){
+        // Incremental scrolling avoids the short travel/clamping seen with the old
+        // fixed startScroll calculation and continues correctly across long swipes.
+        const delta=g.lastY-e.clientY;
+        g.sheet.scrollTop=Math.max(0,Math.min(max,g.sheet.scrollTop+delta));
+        if(e.cancelable)e.preventDefault();
+        e.stopPropagation();
+        if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+      }
+    }
+    g.lastX=e.clientX;
+    g.lastY=e.clientY;
+  },{capture:true,passive:false});
+
+  function finish(e){
+    if(gesture&&(!e||gesture.pointerId===e.pointerId))gesture=null;
+  }
+  document.addEventListener('pointerup',finish,true);
+  document.addEventListener('pointercancel',finish,true);
+  document.addEventListener('lostpointercapture',finish,true);
+})();
+</script>
+
+
+<style id="ethvelle-v146-held-preview-scroll-plus-opacity">
+  /* Only the blue square behind the custom-part plus is translucent. The white
+     plus glyph stays fully opaque and crisp. Apply this to every Add Part tile. */
+  #screen-editor .evca-char-actions-sheet .evpa-choice.evpa-choice-add .evpa-choice-add-icon,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.evpa-choice-add .evpa-choice-add-icon{
+    opacity:1!important;filter:none!important;mix-blend-mode:normal!important;
+    background:rgba(33,73,196,.38)!important;
+    background-color:rgba(33,73,196,.38)!important;
+    border:1px solid rgba(117,151,255,.95)!important;
+    color:#FFFFFF!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice.evpa-choice-add .evpa-choice-add-icon svg,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.evpa-choice-add .evpa-choice-add-icon svg{
+    opacity:1!important;filter:none!important;stroke:#FFFFFF!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice.evpa-choice-add:active .evpa-choice-add-icon,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.evpa-choice-add:active .evpa-choice-add-icon{
+    background:rgba(49,89,213,.48)!important;
+    background-color:rgba(49,89,213,.48)!important;
+  }
+
+  /* Give the Held Items sheet the full usable viewport and make the sheet itself
+     the one scroll container, including its final controls and bottom safe-area gap. */
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-props-sheet{
+    box-sizing:border-box!important;
+    height:auto!important;
+    max-height:calc(100vh - 10px - env(safe-area-inset-top))!important;
+    max-height:calc(100dvh - 10px - env(safe-area-inset-top))!important;
+    min-height:0!important;flex:0 1 auto!important;
+    overflow-x:hidden!important;overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior-y:contain!important;
+    padding-bottom:calc(28px + env(safe-area-inset-bottom))!important;
+    touch-action:pan-y!important;
+    scrollbar-width:none!important;
+  }
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-props-sheet::-webkit-scrollbar{display:none!important;}
+  /* Disable native gesture capture only on the preview surface: v146 routes vertical
+     pointer movement into the sheet and leaves horizontal object drags unchanged. */
+  #screen-editor #ethvelleCharacterPropsBackdrop .evpa-prop-stage-wrap,
+  #screen-editor #ethvelleCharacterPropsBackdrop #evpaPropStagePreview{
+    touch-action:none!important;
+    overscroll-behavior:contain!important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v147: projects polish, face/hand selection correction and Held Items controls. -->
+<style id="ethvelle-v147-project-face-held-controls-css">
+  /* Project filter keeps its original data key; only the visible label changes. */
+  #screen-projects #projectsSearchToggle svg,
+  #screen-projects #projectsToolsToggle svg{stroke:#D0D3DD!important;}
+  #screen-projects #projectsSearchToggle,
+  #screen-projects #projectsToolsToggle{color:#D0D3DD!important;}
+
+  /* The bottom Create Projects button uses a blue edge instead of the old white rim. */
+  .home-nav-create-btn{border:1.5px solid #2F5CE8!important;}
+
+  /* Face/hand choices stay dark when selected: selection is indicated by the blue border only. */
+  #screen-editor .evca-char-actions-sheet .evpa-choice.active,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.active{
+    background:linear-gradient(160deg,#242632,#191A21)!important;
+    border:1.5px solid #4F7CFF!important;color:#FFFFFF!important;
+    box-shadow:inset 0 0 0 1px rgba(79,124,255,.18)!important;
+  }
+  #screen-editor .evca-char-actions-sheet .evpa-choice.active .evpa-choice-preview,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.active .evpa-choice-preview{background:rgba(0,0,0,.14)!important;}
+  /* Keep the blue Add Part square, but remove its pale outline. */
+  #screen-editor .evca-char-actions-sheet .evpa-choice-add .evpa-choice-add-icon,
+  #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice-add .evpa-choice-add-icon{
+    border:0!important;outline:0!important;box-shadow:none!important;
+  }
+
+  /* Each transform control is its own readable card, including the single Flip control. */
+  #screen-editor .evpa-props-sheet .evpa-prop-controls{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;margin:13px 0!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field{
+    min-width:0!important;padding:10px 10px 9px!important;border:1px solid #343B50!important;
+    border-radius:12px!important;background:linear-gradient(155deg,#202433,#171A23)!important;
+    box-sizing:border-box!important;overflow:hidden!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range{margin:0!important;padding:0!important;border:0!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range>span{margin-bottom:8px!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-field .evpa-range input[type=range]{touch-action:pan-x!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-flip-button{
+    display:flex!important;align-items:center!important;justify-content:center!important;width:100%!important;min-height:34px!important;
+    padding:6px 8px!important;border:1px solid #40527E!important;border-radius:9px!important;
+    background:rgba(47,92,232,.16)!important;color:#DCE5FF!important;font-size:11px!important;font-weight:800!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-flip-button.active{
+    border-color:#4F7CFF!important;background:#2149B8!important;color:#FFFFFF!important;
+  }
+  /* Remove-object action lives inside the object preview at the upper-right corner. */
+  #screen-editor .evpa-props-sheet .evpa-prop-preview{position:relative!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-remove-icon{
+    position:absolute!important;top:7px!important;right:7px!important;z-index:3!important;
+    width:34px!important;height:34px!important;display:grid!important;place-items:center!important;
+    padding:0!important;border:1px solid rgba(255,107,107,.6)!important;border-radius:10px!important;
+    background:rgba(35,20,26,.88)!important;color:#FF9B9B!important;box-shadow:0 2px 8px rgba(0,0,0,.28)!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-prop-remove-icon svg{width:19px!important;height:19px!important;display:block!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-remove-icon:active{background:#572A36!important;transform:scale(.95)!important;}
+</style>
+
+
+
+<!-- Ethvelle v148: mirrored held object, reordered controls, right-hand default,
+     single Flip control, and custom-part plus icon border cleanup. -->
+<style id="ethvelle-v148-held-items-and-custom-part-css">
+  /* Use the newer single four-state Flip control. Hide only the legacy pair of
+     separate Flip Horizontal / Flip Vertical buttons from the older panel. */
+  #screen-editor .evpa-props-sheet .evpa-prop-toggle-row{display:none!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-flip-field{display:block!important;}
+
+  /* Remove the pale blue/white rim on the blue custom-part plus tile itself.
+     The white plus glyph remains fully visible; the parent part tile is unchanged. */
+  html body #screen-editor .evca-char-actions-sheet .evpa-choice.evpa-choice-add .evpa-choice-preview .evpa-choice-add-icon,
+  html body #screen-editor #ethvelleClipFaceActionsBackdrop .evpa-choice.evpa-choice-add .evpa-choice-preview .evpa-choice-add-icon{
+    border:0!important;outline:0!important;box-shadow:none!important;
+    -webkit-box-shadow:none!important;
+  }
+</style>
+<script id="ethvelle-v148-held-items-both-hands-layout-fix">
+(function(){
+  'use strict';
+  if(window.__ethvelleV148HeldItemsInstalled)return;
+  window.__ethvelleV148HeldItemsInstalled=true;
+
+  const BACKDROP_ID='ethvelleCharacterPropsBackdrop';
+  const deliberatelyCleared=typeof WeakSet==='function'?new WeakSet():null;
+  let selectedSide='R';
+  let pendingMirror=null;
+  let observe=null;
+  let arrangeRaf=0;
+
+  function activeChar(){
+    try{return typeof activeCharacter==='function'?activeCharacter():null;}catch(_e){return null;}
+  }
+  function getProps(char){
+    if(!char)return null;
+    if(!char.handProps||typeof char.handProps!=='object')char.handProps={L:null,R:null};
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'L'))char.handProps.L=null;
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'R'))char.handProps.R=null;
+    return char.handProps;
+  }
+  function copyItem(item){
+    if(!item||typeof item!=='object')return null;
+    return Object.assign({},item);
+  }
+  function isCleared(char){return !!(deliberatelyCleared&&deliberatelyCleared.has(char));}
+  /* Hand records are independent. Never populate the opposite hand automatically;
+     the user must deliberately upload an object while that hand is selected. */
+  function mirrorIfMissing(char){ return false; }
+  function finalizePendingMirror(char){ pendingMirror=null; return false; }
+  function updateSideButtons(side){
+    const back=document.getElementById(BACKDROP_ID);
+    if(!back)return;
+    const row=back.querySelector('.evpa-action-side');
+    if(!row)return;
+    row.querySelectorAll('button').forEach(button=>{
+      const label=String(button.textContent||'').toLowerCase();
+      const isLeft=/left/.test(label),isRight=/right/.test(label);
+      const active=side==='L'?isLeft:isRight;
+      button.classList.toggle('active',active);
+      button.setAttribute('aria-pressed',active?'true':'false');
+    });
+  }
+  function arrangePanel(){
+    const back=document.getElementById(BACKDROP_ID);
+    if(!back||!back.classList.contains('active'))return;
+    const sheet=back.querySelector('.evpa-props-sheet');
+    if(!sheet)return;
+    const handle=Array.from(sheet.children).find(el=>el.classList&&el.classList.contains('sheet-handle'))||null;
+    const upload=sheet.querySelector('.evpa-prop-upload');
+    const file=sheet.querySelector('#evpaPropFile');
+    const preview=sheet.querySelector('.evpa-prop-preview');
+    const sides=sheet.querySelector('.evpa-action-side');
+    /* Desired order: Add Object -> object tile -> Left/Right Hand selectors.
+       Move existing nodes; do not rebuild the panel or replace the live canvas. */
+    let cursor=handle;
+    [upload,file,preview,sides].forEach(node=>{
+      if(!node||node.parentNode!==sheet)return;
+      const ref=cursor?cursor.nextSibling:sheet.firstChild;
+      if(ref!==node)sheet.insertBefore(node,ref||null);
+      cursor=node;
+    });
+    selectedSide=selectedSide==='L'?'L':'R';
+    updateSideButtons(selectedSide);
+  }
+  function scheduleArrange(){
+    if(arrangeRaf)return;
+    arrangeRaf=requestAnimationFrame(()=>{arrangeRaf=0;arrangePanel();});
+  }
+  function watchBackdrop(){
+    const back=document.getElementById(BACKDROP_ID);
+    if(!back||typeof MutationObserver!=='function')return;
+    if(!observe){
+      observe=new MutationObserver(scheduleArrange);
+      observe.observe(back,{childList:true,subtree:true});
+    }
+  }
+
+  /* Mirror a legacy one-sided object before opening so Right Hand is populated
+     immediately when that side is the default. */
+  const oldOpen=window.openCharacterPropsPanel;
+  if(typeof oldOpen==='function'&&!oldOpen.__ethvelleV148){
+    const wrappedOpen=function(){
+      const char=activeChar();
+      if(char)mirrorIfMissing(char);
+      selectedSide='R';
+      const result=oldOpen.apply(this,arguments);
+      watchBackdrop();
+      scheduleArrange();
+      updateSideButtons('R');
+      return result;
+    };
+    wrappedOpen.__ethvelleV148=true;
+    window.openCharacterPropsPanel=wrappedOpen;
+  }
+
+  /* Before switching hands, copy the available object if the destination is empty.
+     The v147 handler updates the UI in place, so no panel/canvas rebuild is introduced. */
+  const oldSetSide=window.setCharacterPropSide;
+  if(typeof oldSetSide==='function'&&!oldSetSide.__ethvelleV148){
+    const wrappedSetSide=function(side){
+      if(side!=='L'&&side!=='R')return;
+      const char=activeChar();
+      if(char)mirrorIfMissing(char);
+      selectedSide=side;
+      const result=oldSetSide.apply(this,arguments);
+      updateSideButtons(side);
+      scheduleArrange();
+      return result;
+    };
+    wrappedSetSide.__ethvelleV148=true;
+    window.setCharacterPropSide=wrappedSetSide;
+  }
+
+  /* The existing uploader always writes the new file to Right Hand. Remember the
+     previous record identity; the drawing/persistence hooks mirror only after the
+     uploader has actually replaced it, including when the same file is uploaded again. */
+  const oldUpload=window.setCharacterHeldPropFile;
+  if(typeof oldUpload==='function'&&!oldUpload.__ethvelleV148){
+    const wrappedUpload=function(input){
+      const char=activeChar(),props=getProps(char);
+      if(char&&props){
+        if(deliberatelyCleared)deliberatelyCleared.delete(char);
+        pendingMirror={char:char,oldRight:props.R||null};
+      }
+      selectedSide='R';
+      const result=oldUpload.apply(this,arguments);
+      return result;
+    };
+    wrappedUpload.__ethvelleV148=true;
+    window.setCharacterHeldPropFile=wrappedUpload;
+  }
+
+  /* Keep both hand records populated with the same uploaded image and starting
+     transform. Each side remains independently adjustable after that copy. */
+  const oldDrawProps=window.ethvelleDrawCharacterProps;
+  if(typeof oldDrawProps==='function'&&!oldDrawProps.__ethvelleV148){
+    const wrappedDrawProps=function(ctx,char,boneStart,boneEnd){
+      if(char){
+        if(!finalizePendingMirror(char))mirrorIfMissing(char);
+      }
+      return oldDrawProps.apply(this,arguments);
+    };
+    wrappedDrawProps.__ethvelleV148=true;
+    window.ethvelleDrawCharacterProps=wrappedDrawProps;
+  }
+
+  /* Fallback for builds where drawStick does not paint a frame before persisting. */
+  const oldPersist=window.persistProjectState;
+  if(typeof oldPersist==='function'&&!oldPersist.__ethvelleV148){
+    const wrappedPersist=function(){
+      const char=pendingMirror&&pendingMirror.char;
+      if(char)finalizePendingMirror(char);
+      return oldPersist.apply(this,arguments);
+    };
+    wrappedPersist.__ethvelleV148=true;
+    window.persistProjectState=wrappedPersist;
+  }
+
+  /* Explicit Remove clears both mirrored copies. Ordinary hand switching never removes
+     anything; this is the only action that intentionally clears the object from both. */
+  const oldRemove=window.removeCharacterHeldProp;
+  if(typeof oldRemove==='function'&&!oldRemove.__ethvelleV148){
+    const wrappedRemove=function(){
+      const char=activeChar(),props=getProps(char);
+      if(char&&props){
+        props.L=null;props.R=null;
+        if(deliberatelyCleared)deliberatelyCleared.add(char);
+        if(pendingMirror&&pendingMirror.char===char)pendingMirror=null;
+      }
+      return oldRemove.apply(this,arguments);
+    };
+    wrappedRemove.__ethvelleV148=true;
+    window.removeCharacterHeldProp=wrappedRemove;
+  }
+
+  /* If the app was already open when this block runs, keep its visible controls ordered. */
+  watchBackdrop();
+  scheduleArrange();
+})();
+</script>
+
+
+<!-- Ethvelle v149: category-specific custom parts + Held Items two-way flip controls. -->
+<style id="ethvelle-v149-custom-variant-and-held-controls-css">
+  /* The model editor no longer offers the generic, untyped "Add part" uploader.
+     Saved category-specific variants are displayed in the read-only list below. */
+  #sheetEd #edLayers > .ed-chip-custom,
+  #sheetEd .ed-extra-add-card,
+  #sheetEd .ed-extra-help{display:none!important;}
+
+  /* Show saved custom variants in the Model Lab without another generic upload area. */
+  #sheetEd .ev149-saved-variants{margin:10px 12px 12px;padding:10px 0 4px;border-top:1px solid var(--line);}
+  #sheetEd .ev149-saved-variants[hidden]{display:none!important;}
+  #sheetEd .ev149-saved-variants-title{font-size:11px;font-weight:800;letter-spacing:.045em;color:#E9EDFA;margin:0 0 9px;}
+  #sheetEd .ev149-saved-variant-group{margin:0 0 10px;}
+  #sheetEd .ev149-saved-variant-label{font-size:10px;font-weight:800;color:#9EB7F7;margin:0 0 6px;}
+  #sheetEd .ev149-saved-variant-list{display:flex;gap:7px;overflow-x:auto;overflow-y:hidden;padding:1px 1px 5px;-webkit-overflow-scrolling:touch;}
+  #sheetEd .ev149-saved-variant{flex:0 0 72px;min-width:0;min-height:76px;border:1px solid #343746;border-radius:10px;background:#1B1D26;padding:6px 4px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:5px;text-align:center;}
+  #sheetEd .ev149-saved-variant img{width:100%;height:40px;object-fit:contain;border-radius:6px;background:rgba(0,0,0,.16);}
+  #sheetEd .ev149-saved-variant b{max-width:100%;font-size:9px;line-height:1.15;color:#F1F3FB;white-space:normal;overflow-wrap:anywhere;}
+
+  /* Held Items: solid blue upload control, two independent flip blocks, hand selector below. */
+  #screen-editor .evpa-props-sheet{display:flex!important;flex-direction:column!important;}
+  #screen-editor .evpa-props-sheet>.sheet-handle{order:0!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-upload{order:1!important;flex:0 0 auto!important;
+    background:#2F5CE8!important;border:1px solid #2F5CE8!important;color:#fff!important;
+    box-shadow:none!important;
+  }
+  #screen-editor .evpa-props-sheet #evpaPropFile{order:2!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-preview{order:3!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-stage-wrap{order:4!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-controls{order:5!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row{order:6!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-action-side{order:7!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet>.evpa-close-btn{order:8!important;flex:0 0 auto!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-upload:active{background:#244BCB!important;border-color:#244BCB!important;}
+  #screen-editor .evpa-props-sheet .evpa-prop-flip-field{display:none!important;}
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;margin:12px 0 10px;}
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button{
+    min-width:0;min-height:42px;padding:8px 6px;border:1px solid #343746;border-radius:11px;
+    background:#20212A;color:#D4D8E5;font-size:11px;font-weight:800;line-height:1.15;
+  }
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button.active{
+    border-color:#4F7CFF;background:#173CA9;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side{margin-top:8px!important;}
+  #screen-editor .evpa-props-sheet .evpa-action-side button{color:#F5F5F7!important;}
+</style>
+<script id="ethvelle-v149-category-specific-parts-and-held-flips">
+(function(){
+  'use strict';
+  if(window.__ethvelleV149Installed)return;
+  window.__ethvelleV149Installed=true;
+  const $=id=>document.getElementById(id);
+  const safe=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  let pendingPart=null, partInput=null, actionWireRaf=0, heldLayoutRaf=0, heldObserver=null;
+
+  function activeChar(){try{return typeof activeCharacter==='function'?activeCharacter():null;}catch(_e){return null;}}
+  function currentClip(){try{return typeof selectedClip!=='undefined'&&typeof getClipByRef==='function'?getClipByRef(selectedClip):null;}catch(_e){return null;}}
+  function ensureVariants(char){
+    if(!char||!char.sheet)return null;
+    if(!char.sheet.customVariants||typeof char.sheet.customVariants!=='object')char.sheet.customVariants={headParts:[],expressions:[],gestures:[]};
+    ['headParts','expressions','gestures'].forEach(k=>{if(!Array.isArray(char.sheet.customVariants[k]))char.sheet.customVariants[k]=[];});
+    return char.sheet.customVariants;
+  }
+  function routeForSection(section){
+    const heading=section&&section.querySelector('.evpa-section-title');
+    const label=String(heading&&heading.textContent||'').trim().toLowerCase();
+    if(label==='face expression'||label==='facial expression')return {category:'expressions',kind:'custom-expression',field:'customExpressionId',display:'Face expression'};
+    if(label==='eyes'||label==='eye')return {category:'headParts',kind:'custom-eyes',field:'customEyeId',display:'Eye variant'};
+    if(label==='mouth'||label==='mouth movement')return {category:'headParts',kind:'mouth-open',field:'customMouthOpenId',display:'Mouth artwork'};
+    if(label==='left hand'||label==='left hand gesture')return {category:'gestures',kind:'left-hand-gesture',side:'L',field:'customGestureLId',display:'Left hand gesture'};
+    if(label==='right hand'||label==='right hand gesture')return {category:'gestures',kind:'right-hand-gesture',side:'R',field:'customGestureRId',display:'Right hand gesture'};
+    return null;
+  }
+  function ensurePartInput(){
+    if(partInput&&partInput.isConnected)return partInput;
+    partInput=document.createElement('input');partInput.type='file';partInput.accept='image/png,image/webp,image/jpeg,image/*';
+    partInput.id='ethvelleV149SectionPartFile';partInput.hidden=true;
+    partInput.addEventListener('change',handlePartFile);
+    ( $('screen-editor')||document.body ).appendChild(partInput);
+    return partInput;
+  }
+  function openSectionPicker(route){
+    const char=activeChar();
+    if(!char||!char.sheet){if(typeof showToast==='function')showToast('This character needs a Model Lab sheet before adding custom parts',{icon:toastIcons.info,duration:2200});return;}
+    pendingPart={route,charId:char.id};
+    const input=ensurePartInput();input.value='';input.click();
+  }
+  function cleanPartName(name,route){
+    const cleaned=String(name||'').replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').replace(/\s+/g,' ').trim().slice(0,36);
+    if(cleaned)return cleaned;
+    return route.side==='L'?'Left hand gesture':route.side==='R'?'Right hand gesture':route.display;
+  }
+  function handlePartFile(){
+    const file=partInput&&partInput.files&&partInput.files[0],pending=pendingPart;
+    if(partInput)partInput.value='';pendingPart=null;
+    if(!file||!pending||!pending.route)return;
+    const char=activeChar();if(!char||char.id!==pending.charId||!char.sheet){if(typeof showToast==='function')showToast('The selected character changed. Please try again.',{icon:toastIcons.info});return;}
+    if(file.type&&!/^image\/(png|jpeg|webp|gif|avif)/i.test(file.type)){if(typeof showToast==='function')showToast('Choose a PNG, JPG or WebP image',{icon:toastIcons.info});return;}
+    const reader=new FileReader();
+    reader.onerror=()=>{if(typeof showToast==='function')showToast('Could not read this image',{icon:toastIcons.info});};
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>{if(typeof showToast==='function')showToast('Could not open this image',{icon:toastIcons.info});};
+      img.onload=()=>{
+        try{
+          const max=1024,ratio=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+          const w=Math.max(1,Math.round(img.naturalWidth*ratio)),h=Math.max(1,Math.round(img.naturalHeight*ratio));
+          const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+          const ctx=canvas.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Canvas unavailable');
+          ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+          if(typeof edVariantRemoveFlatBackground==='function')edVariantRemoveFlatBackground(canvas);
+          const variants=ensureVariants(char);if(!variants)throw new Error('Model sheet unavailable');
+          const route=pending.route,id='extra_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7);
+          const uploadedName=String(file.name||'Custom part').trim()||'Custom part';
+          const item={id,name:uploadedName,fileName:uploadedName,originalFileName:uploadedName,kind:route.kind,src:canvas.toDataURL('image/png'),w,h,createdAt:Date.now()};
+          if(route.side)item.side=route.side;
+          variants[route.category].push(item);
+          if(typeof updateModelAssetFromChar==='function')updateModelAssetFromChar(char);
+          if(typeof persistProjectState==='function')persistProjectState();
+          if(typeof window.closeClipCharacterActions==='function')window.closeClipCharacterActions();
+          const idx=Array.isArray(characters)?characters.indexOf(char):-1;
+          if(idx>=0&&typeof window.edOpenFromChar==='function'){
+            const opened=window.edOpenFromChar(idx);
+            if(opened&&typeof opened.catch==='function')opened.catch(err=>console.error('Could not open Model Lab after custom part upload',err));
+          }else if(typeof showToast==='function')showToast('Custom part saved, but the Model Lab could not be opened',{icon:toastIcons.info,duration:2200});
+        }catch(err){console.error('Ethvelle custom section upload failed',err);if(typeof showToast==='function')showToast('Could not save this custom part',{icon:toastIcons.info,duration:2200});}
+      };
+      img.src=String(reader.result||'');
+    };
+    reader.readAsDataURL(file);
+  }
+
+  /* Replace the old generic editor-navigation click handler with a section-aware file picker. */
+  function wirePartAddButtons(){
+    const back=$('ethvelleClipFaceActionsBackdrop');if(!back||!back.classList.contains('active'))return;
+    back.querySelectorAll('.evpa-section').forEach(section=>{
+      const route=routeForSection(section),grid=section.querySelector(':scope > .evpa-choice-grid');
+      if(!route||!grid)return;
+      const old=grid.querySelector(':scope > .evpa-choice-add');if(!old)return;
+      if(old.dataset.evV149Route===route.field)return;
+      const replacement=old.cloneNode(true);replacement.dataset.evV149Route=route.field;
+      replacement.title='Upload '+route.display.toLowerCase();replacement.setAttribute('aria-label','Upload '+route.display.toLowerCase());
+      replacement.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();openSectionPicker(route);});
+      old.replaceWith(replacement);
+    });
+  }
+
+  function variantsFor(char,category){const v=char&&char.sheet&&char.sheet.customVariants&&char.sheet.customVariants[category];return Array.isArray(v)?v:[];}
+  function currentActions(){const clip=currentClip();return clip&&clip.faceActions&&typeof clip.faceActions==='object'?clip.faceActions:{};}
+  function insertCustomChoice(section,item,field){
+    const grid=section&&section.querySelector(':scope > .evpa-choice-grid');if(!grid||!item||!item.id)return;
+    const button=document.createElement('button');button.type='button';
+    const active=String(currentActions()[field]||'')===String(item.id);
+    button.className='evpa-choice evpa-custom-variant-choice'+(active?' active':'');
+    button.setAttribute('aria-pressed',active?'true':'false');
+    button.title=item.name||'Custom part';
+    button.innerHTML='<span class="evpa-choice-preview"><img src="'+safe(item.src)+'" alt=""></span><span class="evpa-choice-label">'+safe(item.name||'Custom part')+'</span>';
+    button.addEventListener('click',e=>{e.preventDefault();e.stopPropagation();if(typeof window.updateClipCustomVariant==='function')window.updateClipCustomVariant(field,item.id);});
+    const add=grid.querySelector(':scope > .evpa-choice-add');if(add)grid.insertBefore(button,add);else grid.appendChild(button);
+  }
+  function renderCustomChoices(){
+    const back=$('ethvelleClipFaceActionsBackdrop'),char=activeChar();if(!back||!back.classList.contains('active')||!char)return;
+    back.querySelectorAll('.evpa-custom-variant-choice').forEach(el=>el.remove());
+    back.querySelectorAll('.evpa-section').forEach(section=>{
+      const route=routeForSection(section);if(!route)return;
+      if(route.field==='customExpressionId')variantsFor(char,'expressions').filter(v=>v.kind==='custom-expression').forEach(v=>insertCustomChoice(section,v,'customExpressionId'));
+      else if(route.field==='customEyeId')variantsFor(char,'headParts').filter(v=>v.kind==='custom-eyes').forEach(v=>insertCustomChoice(section,v,'customEyeId'));
+      else if(route.field==='customMouthOpenId')variantsFor(char,'headParts').filter(v=>v.kind==='mouth-open').forEach(v=>insertCustomChoice(section,v,'customMouthOpenId'));
+      else if(route.field==='customGestureLId')variantsFor(char,'gestures').filter(v=>v.side==='L'||(!v.side&&v.kind!=='right-hand-gesture')).forEach(v=>insertCustomChoice(section,v,'customGestureLId'));

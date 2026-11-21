@@ -1,0 +1,1000 @@
+
+  /* The bottom tool strips use direct pointer tracking, not a long-press gate. */
+  
+  #screen-editor #bottomToolsDefault .tool-item,
+  #screen-editor #bottomToolsClip .tool-item,
+  #screen-editor #bottomToolsKeyframe .tool-item,
+  #screen-editor #bottomToolsDefault .tool-item *,
+  #screen-editor #bottomToolsClip .tool-item *,
+  #screen-editor #bottomToolsKeyframe .tool-item *{
+    touch-action:pan-y!important;user-select:none!important;-webkit-user-select:none!important;
+    -webkit-touch-callout:none!important;
+  }
+  #screen-editor #bottomToolsDefault .tool-item svg,
+  #screen-editor #bottomToolsClip .tool-item svg,
+  #screen-editor #bottomToolsKeyframe .tool-item svg,
+  #screen-editor #bottomToolsDefault .tool-item span,
+  #screen-editor #bottomToolsClip .tool-item span,
+  #screen-editor #bottomToolsKeyframe .tool-item span{pointer-events:none!important;}
+  #screen-editor #bottomToolsDefault::-webkit-scrollbar,
+  #screen-editor #bottomToolsClip::-webkit-scrollbar,
+  #screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+
+  /* Character-keyframe toolbar: exactly the four actions visible in the reference screenshot. */
+  
+  #screen-editor #bottomToolsKeyframe>:not(#keyframeMediaAccessTool):not(#evcaFrameCaptureTool-keyframe):not(#keyframeDoneTool):not(#keyframeDeleteTool):not(.evv-kf-mirror){
+    display:none!important;
+  }
+  #screen-editor #bottomToolsKeyframe>.tool-item:not(#keyframeMediaAccessTool):not(#evcaFrameCaptureTool-keyframe):not(#keyframeDoneTool):not(#keyframeDeleteTool):not(.evv-kf-mirror){
+    display:none!important;
+  }
+  #screen-editor #bottomToolsKeyframe #evv72SaveFrame-keyframe,
+  #screen-editor #bottomToolsKeyframe #evv72AddFrame-keyframe{display:none!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{
+    display:flex!important;flex:1 1 25%!important;flex-shrink:1!important;
+    width:25%!important;min-width:0!important;max-width:25%!important;
+    align-items:center!important;justify-content:center!important;text-align:center!important;
+    padding:10px 2px 8px!important;gap:5px!important;
+  }
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool{order:0!important;}
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe{order:1!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool{order:2!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{order:3!important;}
+  #screen-editor #bottomToolsKeyframe .evca-frame-capture-tool{flex-basis:25%!important;}
+
+  /* No native range value changes from a rail tap. The visible thumb remains draggable. */
+  #screen-editor input[type="range"]{
+    touch-action:pan-y!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  #screen-editor #toolPanel .evtr-ruler{touch-action:none!important;}
+</style>
+<script id="ethvelle-v110-instant-touch-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const clock=()=>((window.performance&&performance.now)?performance.now():Date.now());
+
+  /* 1. Native-feeling bottom toolbar swipe: begin after a normal 6px move, never a long press. */
+  const toolbarStates=new WeakMap();
+  function bindToolbar(row){
+    if(!row||row.dataset.evv110TouchScroll==='1')return;
+    row.dataset.evv110TouchScroll='1';
+    row.style.setProperty('touch-action','pan-y','important');
+    const state={id:null,mode:'idle',x:0,y:0,lastX:0,lastAt:0,startScroll:0,targetScroll:0,maxScroll:0,velocity:0,moveRaf:0,glideRaf:0,suppressUntil:0};
+    toolbarStates.set(row,state);
+    const stopGlide=()=>{if(state.glideRaf){cancelAnimationFrame(state.glideRaf);state.glideRaf=0;}state.velocity=0;};
+    const flush=()=>{
+      state.moveRaf=0;
+      if(state.mode==='drag')row.scrollLeft=clamp(state.targetScroll,0,state.maxScroll);
+    };
+    const glide=()=>{
+      if(Math.abs(state.velocity)<0.07)return;
+      let previous=clock();
+      const tick=()=>{
+        const t=clock(),dt=Math.min(32,Math.max(1,t-previous));previous=t;
+        const next=clamp(row.scrollLeft+state.velocity*dt,0,state.maxScroll);
+        row.scrollLeft=next;
+        state.velocity*=Math.pow(0.925,dt/16.667);
+        if(next<=0||next>=state.maxScroll||Math.abs(state.velocity)<0.035){state.glideRaf=0;state.velocity=0;return;}
+        state.glideRaf=requestAnimationFrame(tick);
+      };
+      state.glideRaf=requestAnimationFrame(tick);
+    };
+    row.addEventListener('pointerdown',e=>{
+      if(e.isPrimary===false||(e.pointerType==='mouse'&&e.button!==0))return;
+      // Geometry is stable for the duration of one swipe. Read the scroll range once here,
+      // instead of asking layout for scrollWidth/clientWidth on every RAF flush and glide tick.
+      state.maxScroll=Math.max(0,row.scrollWidth-row.clientWidth);
+      if(state.maxScroll<=2)return;
+      stopGlide();
+      state.id=e.pointerId;state.mode='pending';state.x=state.lastX=e.clientX;state.y=e.clientY;
+      state.lastAt=clock();state.startScroll=row.scrollLeft;state.targetScroll=row.scrollLeft;state.velocity=0;
+    },{capture:true,passive:true});
+    row.addEventListener('pointermove',e=>{
+      if(state.id!==e.pointerId)return;
+      const dx=e.clientX-state.x,dy=e.clientY-state.y;
+      if(state.mode==='pending'){
+        if(Math.max(Math.abs(dx),Math.abs(dy))<6)return;
+        if(Math.abs(dy)>Math.abs(dx)*1.12){
+          // Keep the pointer identity until pointerup so the generated click from a vertical
+          // swipe that starts on a tool cannot activate that tool. Clearing state.id here
+          // made pointerup invisible to this controller and let the synthetic click through.
+          state.mode='cancelled';
+          state.suppressUntil=clock()+500;
+          return;
+        }
+        if(Math.abs(dx)<6)return;
+        state.mode='drag';
+        state.suppressUntil=clock()+260;
+        try{row.setPointerCapture(e.pointerId);}catch(_e){}
+      }
+      if(state.mode!=='drag')return;
+      const t=clock(),dt=Math.max(1,t-state.lastAt),deltaX=e.clientX-state.lastX;
+      const instant=-deltaX/dt;
+      state.velocity=clamp(state.velocity*.32+instant*.68,-2.4,2.4);
+      state.lastX=e.clientX;state.lastAt=t;
+      state.targetScroll=state.startScroll-dx;
+      if(!state.moveRaf)state.moveRaf=requestAnimationFrame(flush);
+      if(e.cancelable)e.preventDefault();
+      e.stopPropagation();
+    },{passive:false});
+    row.addEventListener('pointerup',e=>{
+      if(state.id!==e.pointerId)return;
+      const dragged=state.mode==='drag';
+      if(state.moveRaf){cancelAnimationFrame(state.moveRaf);state.moveRaf=0;flush();}
+      state.id=null;state.mode='idle';
+      if(dragged){state.suppressUntil=clock()+260;try{row.releasePointerCapture(e.pointerId);}catch(_e){}glide();}
+    },{passive:true});
+    row.addEventListener('pointercancel',e=>{
+      if(state.id!==e.pointerId)return;
+      state.id=null;state.mode='idle';state.velocity=0;state.suppressUntil=0;
+      if(state.moveRaf){cancelAnimationFrame(state.moveRaf);state.moveRaf=0;}
+    },{passive:true});
+    row.addEventListener('click',e=>{
+      if(!state.suppressUntil)return;
+      if(clock()>state.suppressUntil){state.suppressUntil=0;return;}
+      state.suppressUntil=0;e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    },true);
+  }
+  ['bottomToolsDefault','bottomToolsClip','bottomToolsKeyframe'].forEach(id=>bindToolbar($(id)));
+
+  /* 2. Hidden Transform ruler: require a grab on its centre marker, not a random rail tap. */
+  document.addEventListener('pointerdown',e=>{
+    const target=e.target;
+    const ruler=target&&target.closest?target.closest('#screen-editor #toolPanel .evtr-ruler'):null;
+    if(ruler){
+      const r=ruler.getBoundingClientRect();
+      // The transform ruler has a fixed blue centre marker; only that marker can start a drag.
+      if(Math.abs(e.clientX-(r.left+r.width/2))>13||Math.abs(e.clientY-(r.top+r.height/2))>Math.min(24,r.height/2+1)){
+        if(e.cancelable)e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      }
+    }
+  },{capture:true,passive:false});
+
+  /* 3. Finish clip-row scrolling with gentle inertia after the direct RAF handoff. */
+  let clipGlideRaf=0,clipGlideGeneration=0;
+  function stopClipGlide(){clipGlideGeneration++;if(clipGlideRaf){cancelAnimationFrame(clipGlideRaf);clipGlideRaf=0;}}
+  function startClipGlide(){
+    const generation=++clipGlideGeneration;
+    const motion=window.__ethvelleV110ClipScrollMotion;
+    if(!motion||!motion.scroller||!motion.scroller.isConnected)return;
+    motion.active=false;
+    let velocity=clamp(Number(motion.velocity)||0,-2.4,2.4);
+    const scroller=motion.scroller;
+    // Flush the last finger position first; the original helper may have one RAF queued.
+    requestAnimationFrame(()=>{
+      if(generation!==clipGlideGeneration)return;
+      if(Number.isFinite(motion.targetTop))scroller.scrollTop=clamp(motion.targetTop,0,Math.max(0,scroller.scrollHeight-scroller.clientHeight));
+      if(Math.abs(velocity)<0.07)return;
+      let previous=clock();
+      const tick=()=>{
+        const t=clock(),dt=Math.min(32,Math.max(1,t-previous));previous=t;
+        const max=Math.max(0,scroller.scrollHeight-scroller.clientHeight);
+        const next=clamp(scroller.scrollTop+velocity*dt,0,max);
+        scroller.scrollTop=next;
+        velocity*=Math.pow(0.93,dt/16.667);
+        if(next<=0||next>=max||Math.abs(velocity)<0.035){clipGlideRaf=0;return;}
+        clipGlideRaf=requestAnimationFrame(tick);
+      };
+      clipGlideRaf=requestAnimationFrame(tick);
+    });
+  }
+  document.addEventListener('pointerdown',e=>{
+    if(e.target?.closest?.('#screen-editor #timelineScroll')){
+      stopClipGlide();
+      const m=window.__ethvelleV110ClipScrollMotion;if(m)m.active=false;
+    }
+  },{capture:true,passive:true});
+  document.addEventListener('pointerup',()=>{
+    const m=window.__ethvelleV110ClipScrollMotion;
+    if(m&&m.active)startClipGlide();
+  },{capture:true,passive:true});
+  document.addEventListener('pointercancel',()=>{
+    const m=window.__ethvelleV110ClipScrollMotion;if(m)m.active=false;
+    stopClipGlide();
+  },{capture:true,passive:true});
+
+  /* 4. Selection-outline X: block the legacy pointer/click delete handlers, then deselect. */
+  const closeButton=$('sbDelete');
+  if(closeButton){
+    closeButton.title='Deselect layer';closeButton.setAttribute('aria-label','Deselect layer');
+    closeButton.setAttribute('role','button');closeButton.tabIndex=0;
+    closeButton.addEventListener('pointerdown',e=>{e.stopPropagation();e.stopImmediatePropagation();},true);
+    const deselect=e=>{
+      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      if(typeof window.deselectAllClips==='function')window.deselectAllClips();
+      else if(typeof deselectAllClips==='function')deselectAllClips();
+    };
+    closeButton.addEventListener('click',deselect,true);
+    closeButton.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){deselect(e);}},true);
+  }
+})();
+</script>
+
+<style id="ethvelle-v110-keyframe-toolbar-options-css">
+  
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{
+    flex:0 0 25%!important;width:25%!important;min-width:0!important;max-width:25%!important;
+  }
+  #screen-editor #bottomToolsKeyframe .evv-kf-mirror{
+    display:flex!important;flex:0 0 auto!important;flex-shrink:0!important;
+    min-width:68px!important;max-width:none!important;width:auto!important;
+    align-items:center!important;justify-content:center!important;text-align:center!important;
+    padding:10px 7px 8px!important;gap:5px!important;cursor:pointer!important;
+  }
+  #screen-editor #bottomToolsKeyframe .evv-kf-mirror *{pointer-events:none!important;}
+</style>
+<script id="ethvelle-v110-keyframe-toolbar-options-js">
+(function(){
+  'use strict';
+  const clipRow=document.getElementById('bottomToolsClip');
+  const keyRow=document.getElementById('bottomToolsKeyframe');
+  if(!clipRow||!keyRow)return;
+  const duplicateControls=new Set([
+    'clipMediaAccessTool','evcaFrameCaptureTool-clip','evv72SaveFrame-clip','evv72AddFrame-clip'
+  ]);
+  let lastSignature='';
+
+  function removeMirrors(){
+    keyRow.querySelectorAll('.evv-kf-mirror').forEach(el=>el.remove());
+    lastSignature='';
+  }
+  function sourceTools(){
+    return Array.from(clipRow.children).filter(el=>{
+      if(!el.classList?.contains('tool-item'))return false;
+      if(duplicateControls.has(el.id))return false;
+      if(el.id==='clipDeleteCharacterTool')return false; // No whole-character Delete in keyframe mode.
+      const label=(el.querySelector('span:last-child')?.textContent||'').trim().toLowerCase();
+      if(label==='delete')return false;                 // No normal selected-layer/clip Delete in keyframe mode.
+      if(label==='done')return false;
+      return getComputedStyle(el).display!=='none';
+    });
+  }
+  function buildMirrors(){
+    const selected=typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null;
+    const ref=typeof selectedClip==='undefined'?'':String(selectedClip||'');
+    const isCharacterKeyframe=selected&&(ref==='main'||/^seg\d+$/.test(ref));
+    if(!isCharacterKeyframe){removeMirrors();return;}
+
+    // Recompute the normal character-row visibility using the app's existing sync logic,
+    // then immediately restore the selected-keyframe row before the browser paints.
+    if(typeof oldSync==='function'){
+      const savedKfIndex=selectedKfIdx;
+      selectedKfIdx=null;
+      try{oldSync.apply(window,[]);}finally{selectedKfIdx=savedKfIndex;}
+      const defaultRow=document.getElementById('bottomToolsDefault');
+      [defaultRow,clipRow].forEach(row=>row?.style.setProperty('display','none','important'));
+      keyRow.style.setProperty('display','flex','important');
+    }
+
+    const sources=sourceTools();
+    // Keep the existing Add model action available while the two Delete actions are hidden.
+    const addCharacterTool=document.querySelector('#bottomToolsDefault [data-tool="model"]');
+    if(addCharacterTool)sources.unshift(addCharacterTool);
+    const signature=sources.map(el=>(el.id||'')+':'+(el.textContent||'').trim()).join('|');
+    if(signature===lastSignature&&keyRow.querySelectorAll('.evv-kf-mirror').length===sources.length)return;
+    removeMirrors();
+    sources.forEach(source=>{
+      const proxy=source.cloneNode(true);
+      proxy.removeAttribute('id');
+      proxy.classList.add('evv-kf-mirror');
+      proxy.setAttribute('role','button');
+      proxy.setAttribute('tabindex','0');
+      proxy.setAttribute('aria-label',(source.getAttribute('aria-label')||(source.textContent||'').trim()||'Character tool').trim());
+      Array.from(proxy.attributes||[]).forEach(attr=>{if(/^on/i.test(attr.name))proxy.removeAttribute(attr.name);});
+      proxy.querySelectorAll('[id]').forEach(node=>node.removeAttribute('id'));
+      proxy.querySelectorAll('*').forEach(node=>{
+        Array.from(node.attributes||[]).forEach(attr=>{if(/^on/i.test(attr.name))node.removeAttribute(attr.name);});
+      });
+      proxy.style.setProperty('display','flex','important');
+      const activate=e=>{
+        if(e){e.preventDefault();e.stopPropagation();}
+        source.click();
+      };
+      proxy.addEventListener('click',activate);
+      proxy.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){activate(e);}});
+      keyRow.appendChild(proxy);
+    });
+    lastSignature=signature;
+  }
+
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__ethvelleV110KeyframeTools){
+    const wrapped=function(){
+      const result=oldSync.apply(this,arguments);
+      buildMirrors();
+      return result;
+    };
+    wrapped.__ethvelleV110KeyframeTools=true;
+    window.syncBottomToolsMode=wrapped;
+  }
+  // This is an initialization-only fallback; later keyframe selections flow through the wrapper above.
+  buildMirrors();
+})();
+</script>
+
+
+<style id="ethvelle-v112-character-live-lanes-css">
+  /* Character rows now grow to fit their actual number of overlap lanes. CSS custom
+     properties are set by the renderer so the existing fixed-height !important rules
+     elsewhere in the file cannot clamp a multi-lane row back to one lane. */
+  #timelineInner .layer-row.char-row {
+    height:var(--ev-char-row-height,46px)!important;
+    min-height:var(--ev-char-row-height,46px)!important;
+    max-height:var(--ev-char-row-height,46px)!important;
+    align-items:center!important;
+    overflow:hidden!important;
+  }
+  #timelineInner .layer-row.char-row .char-row-track {
+    height:var(--ev-char-track-height,42px)!important;
+    min-height:var(--ev-char-track-height,42px)!important;
+    max-height:var(--ev-char-track-height,42px)!important;
+    margin:0!important;
+    align-self:center!important;
+    overflow:hidden!important;
+  }
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip,
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip.selected,
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip.dragging,
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip.anim-clip-readonly {
+    top:var(--ev-char-lane-top,3px)!important;
+    height:36px!important;min-height:36px!important;max-height:36px!important;
+    box-sizing:border-box!important;
+    transition:none!important;
+  }
+</style>
+
+
+<style id="ethvelle-v113-targeted-performance-and-billing-css">
+/* Consolidated selected-clip relational selectors: one pass instead of repeated version blocks. */
+#timelineInner .layer-row:has(.anim-clip.selected),
+#timelineInner .layer-row:has(.overlay-clip.selected),
+#timelineInner .layer-row:has(.track-clip.selected),
+#timelineInner .layer-track:has(.anim-clip.selected),
+#timelineInner .layer-track:has(.overlay-clip.selected),
+#timelineInner .layer-track:has(.track-clip.selected),
+#timelineInner #track-background:has(.track-clip.selected),
+#timelineInner .layer-row:has(#track-background .track-clip.selected){
+  overflow:visible!important;
+}
+#timelineInner .layer-row:has(.anim-clip.selected),
+#timelineInner .layer-row:has(.overlay-clip.selected),
+#timelineInner .layer-row:has(.track-clip.selected){z-index:10!important;}
+/* Layer rows already have isolation:isolate permanently; only the tracks need this hint. */
+#timelineInner .layer-track:has(.anim-clip.selected),
+#timelineInner .layer-track:has(.overlay-clip.selected),
+#timelineInner .layer-track:has(.track-clip.selected){isolation:isolate!important;}
+/* Preserve the current badge position/transition cascade for regular and shifted rows. */
+html body #screen-editor #timelineInner .layer-row:has(.anim-clip.selected) .layer-badge,
+html body #screen-editor #timelineInner .layer-row:has(.track-clip.selected) .layer-badge,
+html body #screen-editor #timelineInner .layer-row:has(.overlay-clip.selected) .layer-badge{
+  transform:none!important;transition:transform .13s cubic-bezier(.2,.7,.2,1)!important;
+}
+html body #screen-editor #timelineInner .layer-row.evv99-icon-shift:has(.anim-clip.selected) .layer-badge,
+html body #screen-editor #timelineInner .layer-row.evv99-icon-shift:has(.track-clip.selected) .layer-badge,
+html body #screen-editor #timelineInner .layer-row.evv99-icon-shift:has(.overlay-clip.selected) .layer-badge{
+  transform:translateX(-21px)!important;transition:transform .13s cubic-bezier(.2,.7,.2,1)!important;
+}
+html body #screen-editor #timelineInner .layer-row[data-layer="background"]:has(#track-background .track-clip.selected) .layer-badge{
+  transform:translateX(-21px)!important;transition:none!important;
+}
+#screen-editor #timelineInner #characterRows .layer-row.char-row:has(.anim-clip.selected) .layer-badge{transform:translateY(-2px)!important;}
+#screen-editor #timelineInner #characterRows .layer-row.char-row.evv99-icon-shift:has(.anim-clip.selected) .layer-badge{transform:translateX(-21px) translateY(-2px)!important;}
+
+/* Single source of truth for the three horizontally scrollable bottom tool rows. */
+#screen-editor #bottomToolsDefault,
+#screen-editor #bottomToolsClip{
+  overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;white-space:nowrap!important;
+  scroll-behavior:auto!important;scroll-snap-type:none!important;-webkit-overflow-scrolling:auto!important;
+  overscroll-behavior-x:contain!important;overscroll-behavior:contain!important;
+  touch-action:pan-y!important;scrollbar-width:none!important;
+  will-change:scroll-position!important;contain:layout paint style!important;
+  backface-visibility:visible!important;transform:none!important;
+}
+#screen-editor #bottomToolsKeyframe{
+  overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;white-space:nowrap!important;
+  scroll-behavior:auto!important;scroll-snap-type:none!important;-webkit-overflow-scrolling:auto!important;
+  overscroll-behavior-x:contain!important;overscroll-behavior:contain!important;
+  touch-action:pan-y!important;scrollbar-width:none!important;
+  will-change:scroll-position!important;contain:layout paint style!important;
+  backface-visibility:visible!important;transform:none!important;
+  justify-content:flex-start!important;gap:0!important;
+}
+#screen-editor #bottomToolsDefault::-webkit-scrollbar,
+#screen-editor #bottomToolsClip::-webkit-scrollbar,
+#screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+
+/* Show Rig uses its blue active text state without the generic active underline. */
+.evpa-rig-tool.active::before{display:none!important;content:none!important;}
+
+/* Home credit balance popover. */
+.home-credit-wrap{position:relative;flex:0 0 auto;z-index:30;}
+.home-credit-trigger{position:relative;}
+.home-credit-trigger svg{width:22px;height:22px;}
+.home-credit-popup{
+  position:absolute;right:0;top:calc(100% + 10px);width:min(290px,calc(100vw - 40px));
+  padding:16px;border:1px solid var(--line);border-radius:16px;background:#19191f;color:var(--text);
+  box-shadow:0 14px 38px rgba(0,0,0,.42);opacity:0;visibility:hidden;pointer-events:none;
+  transform:translateY(-5px);transition:opacity .16s ease,transform .16s ease,visibility .16s ease;
+}
+.home-credit-popup.open{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0);}
+.home-credit-popup-label{font-size:12px;font-weight:700;color:var(--text-dim);margin-bottom:6px;}
+.home-credit-popup-amount{font-size:24px;font-weight:800;letter-spacing:-.03em;font-variant-numeric:tabular-nums;}
+.home-credit-popup-track{height:6px;margin:12px 0 8px;background:#303039;border-radius:99px;overflow:hidden;}
+.home-credit-popup-track span{display:block;width:0;height:100%;background:#34D399;border-radius:inherit;transition:width .2s ease;}
+.home-credit-popup-caption{font-size:11px;line-height:1.45;color:#92929d;}
+.home-credit-popup-link{display:flex;align-items:center;justify-content:space-between;width:100%;margin-top:12px;padding:10px 0 0;border-top:1px solid var(--line);font-size:12px;font-weight:700;color:#AFC5FF;text-align:left;}
+
+/* Billing & plan visual updates: flat neutral cards, removed credit microcopy/rate pills. */
+.myplan-card,.myplan-credits-card{background:var(--panel)!important;border:1px solid var(--line)!important;}
+.myplan-credit-badge{background:#F5B942!important;color:#2B1B00!important;border-color:transparent!important;}
+.myplan-combined-features{margin-top:14px;}
+.myplan-combined-features .plan-feature{padding:7px 0;border-bottom:1px solid var(--line);}
+.myplan-combined-features .plan-feature:last-child{border-bottom:0;}
+.myplan-available-plans{display:flex;flex-direction:column;gap:10px;margin:0 0 28px;}
+.myplan-available-plan{min-height:0;margin:0;cursor:default;}
+.myplan-available-plan .plan-card-top{justify-content:space-between;}
+.myplan-available-plan .plan-desc{margin-bottom:14px;}
+.myplan-available-plan .plan-feature-list{margin-bottom:16px;}
+.myplan-available-tag{font-size:10px;font-weight:800;color:#AFC5FF;background:rgba(47,92,232,.14);padding:5px 9px;border-radius:99px;}
+.myplan-plan-pending{padding:11px 12px;border-radius:10px;background:var(--elevated);color:var(--text-dim);font-size:12px;font-weight:700;text-align:center;}
+.myplan-available-empty{padding:16px;border:1px solid var(--line);border-radius:14px;background:var(--panel);font-size:13px;color:var(--text-dim);}
+</style>
+
+
+<style id="ethvelle-v114-free-plan-profile-billing-css">
+  /* Sharp, high-resolution brand artwork on Login and Home. */
+  .admin-login-mark{width:82px;height:82px;border-radius:0;background:transparent;overflow:visible;margin:0 auto 18px;}
+  .admin-login-mark .admin-login-logo{display:block;width:100%;height:100%;object-fit:contain;image-rendering:auto;transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;}
+  .home-topbar .home-brand-logo-only{image-rendering:auto;transform:translateZ(0);-webkit-transform:translateZ(0);backface-visibility:hidden;-webkit-backface-visibility:hidden;}
+
+  /* Home account capsule and direct Profile shortcut. */
+  .home-account-actions{display:flex;align-items:center;gap:8px;flex:0 0 auto;min-width:0;}
+  .home-account-summary{width:clamp(116px,36vw,154px);min-width:0;height:42px;padding:6px 11px;border:1px solid #34343D;border-radius:999px;background:linear-gradient(160deg,#202027,#151519);display:flex;flex-direction:column;align-items:flex-start;justify-content:center;gap:3px;text-align:left;overflow:hidden;flex:0 1 auto;}
+  .home-account-plan{display:block;max-width:100%;font-size:10.5px;font-weight:800;line-height:1.05;color:#F5F5F7;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  .home-account-balance{display:block;max-width:100%;font-size:9.5px;font-weight:700;line-height:1.05;color:#B8B8C5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-variant-numeric:tabular-nums;}
+  .home-profile-trigger{width:42px;height:42px;flex:0 0 42px;border-radius:50%;border:1px solid #34343D;background:#25252D;color:#F5F5F7;display:flex;align-items:center;justify-content:center;}
+  .home-profile-trigger svg{width:21px;height:21px;display:block;}
+  .home-account-summary:active,.home-profile-trigger:active{transform:scale(.97);}
+  @media(max-width:380px){
+    .home-topbar{padding-left:14px;padding-right:14px;gap:8px;}
+    .home-topbar .home-brand-logo-only{height:38px;max-width:122px;}
+    .home-account-actions{gap:6px;}
+    .home-account-summary{width:112px;padding-left:9px;padding-right:9px;}
+    .home-profile-trigger{width:39px;height:39px;flex-basis:39px;}
+  }
+
+  /* Billing labels and metric names should read clearly on the dark page. */
+  #screen-myplan .settings-group-label{color:#D5D5DE!important;}
+  #screen-myplan .myplan-stat-label{color:#D0D0D9!important;}
+  #screen-myplan .myplan-stat-value{color:#F7F7FA!important;}
+  #screen-myplan .myplan-available-plan .plan-cta{background:linear-gradient(165deg,#4E7CFF,#1E46C4)!important;color:#FFFFFF!important;border:0!important;}
+  #screen-myplan .myplan-available-plan .plan-cta:active{background:#264CCB!important;color:#FFFFFF!important;}
+
+  /* Help/support message composer: neutral dark gray instead of a warm tinted field. */
+  #screen-help #supportMsgInput{background:#19191F!important;color:#F5F5F7!important;border-color:#34343D!important;box-shadow:none!important;}
+  #screen-help #supportMsgInput::placeholder{color:#8F8F9B!important;opacity:1;}
+  #screen-help #supportMsgInput:focus{background:#19191F!important;border-color:#526FC0!important;box-shadow:0 0 0 2px rgba(47,92,232,.14)!important;}
+</style>
+
+
+<style id="ethvelle-v114-requested-ui-updates-css">
+  /* Billing: soften only the four usage/remaining metric titles; leave other billing labels alone. */
+  #screen-myplan .myplan-stats-grid .myplan-stat-label{color:#B8B8C2!important;}
+  #screen-myplan .myplan-badge.guest{background:#2F5CE8!important;color:#FFFFFF!important;border:1px solid rgba(117,153,255,.45)!important;}
+  #screen-myplan .myplan-available-plan .plan-card-top{justify-content:flex-end!important;}
+
+  /* Project search: the magnifier is intentionally white for contrast on the dark search field. */
+  #screen-projects .projects-search-field>svg{color:#FFFFFF!important;stroke:#FFFFFF!important;}
+
+  /* The delete confirmation sheets have a raised surface and pressed depth, without changing
+     the appearance of any other modal or sheet in the editor. */
+  #deleteConfirmBackdrop .modal-sheet,
+  #bulkDeleteBackdrop .modal-sheet{
+    background:linear-gradient(180deg,#282832 0%,#19191F 100%)!important;
+    border-top:1px solid rgba(255,255,255,.18)!important;
+    box-shadow:0 -12px 34px rgba(0,0,0,.58),inset 0 1px 0 rgba(255,255,255,.08)!important;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn{
+    background:linear-gradient(180deg,#FF8989 0%,#E6535F 100%)!important;
+    color:#25090C!important;border:1px solid rgba(255,255,255,.3)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.42),0 4px 0 #A72F3C,0 7px 13px rgba(0,0,0,.32)!important;
+    transform:translateY(0);transition:transform .12s ease,box-shadow .12s ease,filter .12s ease;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn:active,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn:active{
+    transform:translateY(3px)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 1px 0 #A72F3C,0 2px 5px rgba(0,0,0,.25)!important;
+    filter:brightness(.97);
+  }
+  #deleteConfirmBackdrop .sheet-btn-secondary,
+  #bulkDeleteBackdrop .sheet-btn-secondary{
+    background:linear-gradient(180deg,#3A3A46 0%,#25252D 100%)!important;
+    border:1px solid #555562!important;color:#F0F0F5!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.16),0 3px 0 #111115,0 6px 10px rgba(0,0,0,.28)!important;
+    transform:translateY(0);transition:transform .12s ease,box-shadow .12s ease;
+  }
+  #deleteConfirmBackdrop .sheet-btn-secondary:active,
+  #bulkDeleteBackdrop .sheet-btn-secondary:active{
+    transform:translateY(2px)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.1),0 1px 0 #111115,0 2px 4px rgba(0,0,0,.22)!important;
+  }
+
+  /* Prompts & Templates search bar, matching the rounded search treatment used elsewhere. */
+  #screen-keyframeInfo .prompt-search-wrap{padding:0 20px 12px;flex:0 0 auto;}
+  #screen-keyframeInfo .prompt-search-box{
+    height:44px;display:flex;align-items:center;gap:10px;padding:0 13px;
+    background:var(--panel);border:1px solid var(--line);border-radius:12px;
+    color:#FFFFFF;transition:border-color .18s ease,background .18s ease;
+  }
+  #screen-keyframeInfo .prompt-search-box:focus-within{border-color:var(--accent);background:rgba(47,92,232,.07);}
+  #screen-keyframeInfo .prompt-search-box>svg{width:18px;height:18px;flex:0 0 18px;stroke:#FFFFFF;}
+  #screen-keyframeInfo .prompt-search-box input{
+    min-width:0;flex:1;background:transparent;border:0;outline:0;color:var(--text);
+    font-size:13px;font-weight:500;line-height:1.2;font-family:inherit;
+  }
+  #screen-keyframeInfo .prompt-search-box input::placeholder{color:var(--text-faint);opacity:1;}
+  #screen-keyframeInfo .prompt-search-box input::-webkit-search-cancel-button{-webkit-appearance:none;}
+  #screen-keyframeInfo .prompt-search-box>button{
+    display:none;width:26px;height:26px;flex:0 0 26px;align-items:center;justify-content:center;
+    border-radius:50%;background:var(--elevated-2);color:#FFFFFF;font-size:19px;line-height:1;
+  }
+  #screen-keyframeInfo .prompt-search-box.has-query>button{display:flex;}
+
+  /* Assets panel: only its category chips get the blue outline/tint treatment. */
+  #screen-editor .editor-asset-filter{
+    border:1.5px solid rgba(47,92,232,.72)!important;
+    background:rgba(47,92,232,.08)!important;color:#CFD9FF!important;
+    box-shadow:inset 0 0 0 1px rgba(47,92,232,.06)!important;
+    transition:background .16s ease,border-color .16s ease,box-shadow .16s ease;
+  }
+  #screen-editor .editor-asset-filter.active{
+    border-color:#4E7CFF!important;
+    background:linear-gradient(180deg,rgba(47,92,232,.34),rgba(47,92,232,.19))!important;
+    color:#FFFFFF!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.10),0 0 0 1px rgba(47,92,232,.18)!important;
+  }
+
+  /* Do not leave the closed tool drawer's rounded edge/shadow peeking out below the toolbar. */
+  #screen-editor #toolPanel.tool-panel{
+    visibility:hidden;pointer-events:none;
+    transition:transform .28s cubic-bezier(.4,0,.2,1),visibility 0s linear .28s;
+  }
+  #screen-editor #toolPanel.tool-panel.open{
+    visibility:visible;pointer-events:auto;
+    transition:transform .28s cubic-bezier(.4,0,.2,1),visibility 0s;
+  }
+  /* When Assets is open, start the drawer immediately below the canvas. This covers the
+     transport/play controls and timeline but never covers the canvas itself. */
+  #screen-editor #toolPanel.tool-panel.ev-v114-assets-fit{
+    top:var(--ev-v114-assets-top,42%)!important;bottom:auto!important;
+    height:var(--ev-v114-assets-height,58%)!important;max-height:none!important;min-height:0!important;
+    border-radius:18px 18px 0 0!important;
+  }
+  #screen-editor #toolPanel.ev-v114-assets-fit .tool-panel-body{
+    flex:1 1 auto;min-height:0;overflow-y:auto;padding-bottom:calc(24px + env(safe-area-inset-bottom));
+  }
+
+  /* Login: concise title, no subtitle, deep-blue recovery link, and a single thin blue input edge. */
+  #screen-login .admin-login-card .admin-login-sub{display:none!important;}
+  #screen-login .login-password-header a{color:#2F5CE8!important;}
+  #screen-login #loginEmailInput,
+  #screen-login #loginPasswordInput{
+    border:1px solid rgba(47,92,232,.72)!important;box-shadow:none!important;
+  }
+  #screen-login #loginEmailInput:focus,
+  #screen-login #loginPasswordInput:focus{
+    border-color:#2F5CE8!important;box-shadow:none!important;outline:none!important;
+  }
+
+  /* Support: make both contact methods brighter gray. The message field has one thicker blue
+     perimeter only; remove the surrounding card border and every focus halo/shadow. */
+  #screen-help .help-contact-card .hc-text span{color:#C4C4CE!important;}
+  #screen-help #helpComposeWrap .settings-card{
+    background:transparent!important;border:0!important;box-shadow:none!important;overflow:visible!important;
+  }
+  #screen-help #helpComposeWrap .settings-field{padding:0!important;border:0!important;}
+  #screen-help #supportMsgInput{
+    border:1.5px solid #2F5CE8!important;box-shadow:none!important;outline:none!important;
+  }
+  #screen-help #supportMsgInput:focus{
+    border-color:#4E7CFF!important;box-shadow:none!important;outline:none!important;
+  }
+</style>
+
+<script id="ethvelle-v114-requested-ui-updates-js">
+(function(){
+  'use strict';
+  const panel=document.getElementById('toolPanel');
+  const editor=document.getElementById('screen-editor');
+  if(!panel||!editor)return;
+
+  function fitAssetsPanel(){
+    if(!panel.classList.contains('open')||!panel.classList.contains('ev-v114-assets-fit'))return;
+    const canvas=editor.querySelector('.canvas-wrap');
+    if(!canvas)return;
+    const screenRect=editor.getBoundingClientRect();
+    const canvasRect=canvas.getBoundingClientRect();
+    const top=Math.max(0,Math.min(screenRect.height-150,canvasRect.bottom-screenRect.top+1));
+    const height=Math.max(150,screenRect.height-top);
+    panel.style.setProperty('--ev-v114-assets-top',top+'px');
+    panel.style.setProperty('--ev-v114-assets-height',height+'px');
+  }
+
+  const originalOpen=window.openPanel;
+  if(typeof originalOpen==='function'&&!originalOpen.__evV114AssetsFit){
+    const wrappedOpen=function(key){
+      const result=originalOpen.apply(this,arguments);
+      panel.classList.toggle('ev-v114-assets-fit',key==='assets');
+      if(key==='assets'){
+        requestAnimationFrame(()=>requestAnimationFrame(fitAssetsPanel));
+      }else{
+        panel.style.removeProperty('--ev-v114-assets-top');
+        panel.style.removeProperty('--ev-v114-assets-height');
+      }
+      return result;
+    };
+    wrappedOpen.__evV114AssetsFit=true;
+    window.openPanel=wrappedOpen;
+  }
+
+  const originalClose=window.closePanel;
+  if(typeof originalClose==='function'&&!originalClose.__evV114AssetsFit){
+    const wrappedClose=function(){
+      const result=originalClose.apply(this,arguments);
+      panel.classList.remove('ev-v114-assets-fit');
+      panel.style.removeProperty('--ev-v114-assets-top');
+      panel.style.removeProperty('--ev-v114-assets-height');
+      return result;
+    };
+    wrappedClose.__evV114AssetsFit=true;
+    window.closePanel=wrappedClose;
+  }
+
+  window.addEventListener('resize',()=>requestAnimationFrame(fitAssetsPanel),{passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',()=>requestAnimationFrame(fitAssetsPanel),{passive:true});
+  }
+})();
+</script>
+
+
+
+<style id="ethvelle-v115-requested-refinements-css">
+  /* Prompts & Templates: white placeholder, thicker deep-blue focus ring, no blue-tinted fill. */
+  #screen-keyframeInfo .prompt-search-box{
+    border:1px solid var(--line)!important;background:var(--panel)!important;
+    transition:border-color .16s ease,border-width .16s ease!important;
+  }
+  #screen-keyframeInfo .prompt-search-box:focus-within{
+    border:2px solid #173A9E!important;background:var(--panel)!important;
+    box-shadow:none!important;
+  }
+  #screen-keyframeInfo .prompt-search-box input::placeholder{color:#FFFFFF!important;opacity:1!important;}
+  #screen-keyframeInfo .prompt-search-box>button{
+    display:none;align-items:center;justify-content:center;place-items:center;
+    padding:0!important;margin:0!important;line-height:1!important;font-family:Arial,sans-serif!important;
+    font-size:19px!important;text-align:center!important;vertical-align:middle!important;
+    box-sizing:border-box!important;
+  }
+  #screen-keyframeInfo .prompt-search-box.has-query>button{display:grid!important;}
+
+  /* Projects: white placeholder and a focus-only deep-blue border. Hide the browser's
+     native search clear glyph; retain the app's single custom clear button. */
+  #screen-projects .projects-search-field{
+    border:1px solid #30384D!important;transition:border-color .16s ease,border-width .16s ease!important;
+    box-shadow:none!important;
+  }
+  #screen-projects .projects-search-field:focus-within{
+    border:2px solid #173A9E!important;box-shadow:none!important;background:#171B26!important;
+  }
+  #screen-projects .projects-search-field input::placeholder{color:#FFFFFF!important;opacity:1!important;}
+  #projectsSearchInput::-webkit-search-cancel-button,
+  #projectsSearchInput::-webkit-search-decoration{-webkit-appearance:none!important;appearance:none!important;display:none!important;}
+  #projectsSearchInput::-ms-clear{display:none!important;width:0!important;height:0!important;}
+
+  /* Assets search: no permanent border tint; a thicker dark-blue edge only while focused. */
+  #screen-editor .editor-asset-search{border:1px solid var(--line)!important;box-shadow:none!important;}
+  #screen-editor .editor-asset-search::placeholder{color:#FFFFFF!important;opacity:1!important;}
+  #screen-editor .editor-asset-search:focus,
+  #screen-editor .editor-asset-search:focus-visible{
+    border:2px solid #173A9E!important;outline:none!important;box-shadow:none!important;
+  }
+
+  /* Asset filters: neutral by default; blue tint/outline only for the currently selected chip. */
+  #screen-editor .editor-asset-filter{
+    border:1px solid var(--line)!important;background:var(--panel)!important;color:#FFFFFF!important;
+    box-shadow:none!important;transition:background .16s ease,border-color .16s ease,box-shadow .16s ease!important;
+  }
+  #screen-editor .editor-asset-filter.active{
+    border:1px solid var(--line)!important;background:var(--panel)!important;
+    color:#FFFFFF!important;box-shadow:none!important;
+  }
+  #screen-editor .editor-asset-filter.user-selected{
+    border:1.5px solid #3159C8!important;background:rgba(47,92,232,.16)!important;
+    color:#FFFFFF!important;box-shadow:inset 0 0 0 1px rgba(47,92,232,.12)!important;
+  }
+
+  /* The thumbnail follows each image/video's real aspect ratio. 4:3 remains only a
+     temporary fallback while a remote file's intrinsic dimensions are loading. */
+  #screen-editor .editor-asset-card{min-height:0!important;}
+  #screen-editor .editor-asset-thumb{aspect-ratio:4 / 3;min-height:0;height:auto;}
+  #screen-editor .editor-asset-thumb img,
+  #screen-editor .editor-asset-thumb video{width:100%;height:100%;object-fit:cover;display:block;}
+
+  /* Login: neutral borders at rest, a thicker deep-blue edge only on focus. */
+  #screen-login .admin-login-mark{margin-bottom:8px!important;}
+  #screen-login .admin-login-card h1{
+    margin:0 0 5px!important;font-size:15.5px!important;line-height:1.25!important;
+    font-weight:700!important;color:#D0D0D8!important;letter-spacing:0!important;
+  }
+  #screen-login #loginEmailInput,
+  #screen-login #loginPasswordInput{
+    border:1.5px solid var(--line)!important;box-shadow:none!important;outline:none!important;
+    transition:border-color .16s ease,border-width .16s ease!important;
+  }
+  #screen-login #loginEmailInput:focus,
+  #screen-login #loginPasswordInput:focus{
+    border:2px solid #173A9E!important;box-shadow:none!important;outline:none!important;
+  }
+
+  /* Help & Support: both contact values are white, not blue or muted gray. */
+  #screen-help .help-contact-card .hc-text span{color:#FFFFFF!important;}
+
+  /* Raised 3D surfaces for the Project 3-dot sheets and the delete confirmation sheets. */
+  #projectMenuBackdrop .modal-sheet,
+  #projectToolsBackdrop .modal-sheet,
+  #deleteConfirmBackdrop .modal-sheet,
+  #bulkDeleteBackdrop .modal-sheet{
+    background:linear-gradient(180deg,#30303B 0%,#23232C 42%,#17171D 100%)!important;
+    border-top:1px solid rgba(255,255,255,.25)!important;
+    box-shadow:0 -2px 0 rgba(255,255,255,.07),0 -15px 38px rgba(0,0,0,.68),
+      inset 0 1px 0 rgba(255,255,255,.13),inset 0 -1px 0 rgba(0,0,0,.42)!important;
+  }
+  #projectMenuBackdrop .action-row,
+  #projectToolsBackdrop .action-row{
+    min-height:49px!important;padding:10px 10px!important;border:1px solid #3A3A47!important;
+    background:linear-gradient(180deg,#30303B 0%,#25252F 100%)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 2px 0 #111116,0 4px 7px rgba(0,0,0,.22)!important;
+    transition:transform .12s ease,box-shadow .12s ease,filter .12s ease!important;
+  }
+  #projectMenuBackdrop .action-row:active,
+  #projectToolsBackdrop .action-row:active{
+    transform:translateY(2px)!important;background:linear-gradient(180deg,#25252F 0%,#202027 100%)!important;
+    box-shadow:inset 0 1px 2px rgba(0,0,0,.3),0 1px 0 #111116!important;
+  }
+  #projectMenuBackdrop .sheet-btn-secondary,
+  #projectToolsBackdrop .sheet-btn-secondary,
+  #deleteConfirmBackdrop .sheet-btn-secondary,
+  #bulkDeleteBackdrop .sheet-btn-secondary{
+    min-height:48px!important;padding:13px 16px!important;
+    background:linear-gradient(180deg,#50505D 0%,#34343F 55%,#25252D 100%)!important;
+    border:1px solid #696977!important;color:#FFFFFF!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.30),0 4px 0 #111115,0 7px 12px rgba(0,0,0,.38)!important;
+    transform:translateY(0);transition:transform .12s ease,box-shadow .12s ease!important;
+  }
+  #projectMenuBackdrop .sheet-btn-secondary:active,
+  #projectToolsBackdrop .sheet-btn-secondary:active,
+  #deleteConfirmBackdrop .sheet-btn-secondary:active,
+  #bulkDeleteBackdrop .sheet-btn-secondary:active{
+    transform:translateY(3px)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.12),0 1px 0 #111115,0 2px 4px rgba(0,0,0,.28)!important;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn{
+    min-height:48px!important;padding:13px 16px!important;
+    background:linear-gradient(180deg,#FF9A9A 0%,#F06470 48%,#D94252 100%)!important;
+    border:1px solid rgba(255,255,255,.42)!important;color:#26090D!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.55),0 5px 0 #982B39,0 8px 14px rgba(0,0,0,.42)!important;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn:active,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn:active{
+    transform:translateY(4px)!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.28),0 1px 0 #982B39,0 2px 5px rgba(0,0,0,.28)!important;
+  }
+</style>
+
+
+<script id="ethvelle-v115-filter-click-state-js">
+(function(){
+  'use strict';
+  const original=window.setEditorAssetCategory;
+  if(typeof original==='function'&&!original.__evV115ClickState){
+    const wrapped=function(category){
+      const result=original.apply(this,arguments);
+      document.querySelectorAll('#editorAssetFilters .editor-asset-filter').forEach(btn=>{
+        btn.classList.toggle('user-selected',btn.dataset.filter===String(category));
+      });
+      return result;
+    };
+    wrapped.__evV115ClickState=true;
+    window.setEditorAssetCategory=wrapped;
+  }
+})();
+</script>
+
+
+<style id="ethvelle-v116-color-and-flat-panels-css">
+  /* All main search fields: readable neutral-gray placeholder copy. */
+  #screen-keyframeInfo .prompt-search-box input::placeholder,
+  #screen-projects .projects-search-field input::placeholder,
+  #screen-editor .editor-asset-search::placeholder{
+    color:#A8A8B3!important;-webkit-text-fill-color:#A8A8B3!important;opacity:1!important;
+  }
+
+  /* Brighter blue focus edges, without a dark navy tint or permanent border. */
+  #screen-keyframeInfo .prompt-search-box:focus-within{
+    border:2px solid #4F7FFF!important;background:var(--panel)!important;box-shadow:none!important;
+  }
+  #screen-projects .projects-search-field:focus-within{
+    border:2px solid #4F7FFF!important;background:var(--panel)!important;box-shadow:none!important;
+  }
+  #screen-editor .editor-asset-search:focus,
+  #screen-editor .editor-asset-search:focus-visible{
+    border:2px solid #4F7FFF!important;outline:none!important;box-shadow:none!important;
+  }
+  #screen-login #loginEmailInput:focus,
+  #screen-login #loginPasswordInput:focus{
+    border:2px solid #4F7FFF!important;outline:none!important;box-shadow:none!important;
+  }
+
+  /* Selected asset category: saturated deep blue matching the Support message border. */
+  #screen-editor .editor-asset-filter.user-selected{
+    border:1.5px solid #2F5CE8!important;
+    background:rgba(47,92,232,.14)!important;
+    color:#FFFFFF!important;
+    box-shadow:inset 0 0 0 1px rgba(47,92,232,.18)!important;
+  }
+
+  /* Help & Support contact cards: white method labels, softly bright-gray details. */
+  #screen-help .help-contact-card .hc-text b{
+    color:#FFFFFF!important;
+  }
+  #screen-help .help-contact-card .hc-text span{
+    color:#C4C4CE!important;
+  }
+
+  /* Return the 3-dot and delete sheets to the original flat 2D surface treatment. */
+  #projectMenuBackdrop .modal-sheet,
+  #projectToolsBackdrop .modal-sheet,
+  #deleteConfirmBackdrop .modal-sheet,
+  #bulkDeleteBackdrop .modal-sheet{
+    background:var(--panel)!important;
+    border-top:1px solid var(--line)!important;
+    box-shadow:0 -10px 40px rgba(0,0,0,.5)!important;
+  }
+  #projectMenuBackdrop .action-row,
+  #projectToolsBackdrop .action-row{
+    border:0!important;background:transparent!important;box-shadow:none!important;
+    transform:none!important;transition:background .15s ease!important;
+  }
+  #projectMenuBackdrop .action-row:active,
+  #projectToolsBackdrop .action-row:active{
+    background:var(--elevated)!important;box-shadow:none!important;transform:none!important;
+  }
+  #projectMenuBackdrop .sheet-btn-secondary,
+  #projectToolsBackdrop .sheet-btn-secondary,
+  #deleteConfirmBackdrop .sheet-btn-secondary,
+  #bulkDeleteBackdrop .sheet-btn-secondary{
+    background:var(--elevated)!important;color:var(--text-dim)!important;
+    border:1px solid var(--line)!important;box-shadow:none!important;
+    transform:none!important;transition:transform .12s ease!important;
+  }
+  #projectMenuBackdrop .sheet-btn-secondary:active,
+  #projectToolsBackdrop .sheet-btn-secondary:active,
+  #deleteConfirmBackdrop .sheet-btn-secondary:active,
+  #bulkDeleteBackdrop .sheet-btn-secondary:active{
+    transform:scale(.98)!important;box-shadow:none!important;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn{
+    background:var(--danger)!important;color:#2A0A0A!important;
+    border:0!important;box-shadow:none!important;transform:none!important;
+    transition:transform .12s ease!important;
+  }
+  #deleteConfirmBackdrop .sheet-btn.danger-btn:active,
+  #bulkDeleteBackdrop .sheet-btn.danger-btn:active{
+    transform:scale(.98)!important;box-shadow:none!important;filter:none!important;
+  }
+</style>
+
+<style id="ethvelle-v118-unified-blue-focus-css">
+  /* Use the requested Ethvelle blue for all main search-field focus borders. */
+  #screen-keyframeInfo .prompt-search-box:focus-within,
+  #screen-projects .projects-search-field:focus-within,
+  #screen-editor .editor-asset-search:focus,
+  #screen-editor .editor-asset-search:focus-visible,
+  #screen-login #loginEmailInput:focus,
+  #screen-login #loginPasswordInput:focus{
+    border:2px solid #2F5CE8!important;
+    border-color:#2F5CE8!important;
+    outline:none!important;
+    box-shadow:none!important;
+  }
+  /* Asset category labels: slightly softened bright gray in every state. */
+  #screen-editor .editor-asset-filter,
+  #screen-editor .editor-asset-filter.active,
+  #screen-editor .editor-asset-filter.user-selected{
+    color:#C4C4CE!important;
+    -webkit-text-fill-color:#C4C4CE!important;
+  }
+
+<style id="ethvelle-v127-clean-model-panels-css">
+  /* Keep the model/parts panels focused on choices and controls rather than tutorial copy. */
+  #screen-editor #edHint, #screen-editor #edSubtitle, #screen-editor #customBuilderSub,
+  #screen-editor #autoRigPreviewTitle + .sheet-sub, #screen-editor #pivotEditorBackdrop .sheet-sub,
+  #screen-editor .two-sheet-card-sub, #screen-editor .evca-face-actions-note,
+  #screen-editor .evca-char-actions-sheet>.sheet-sub{display:none!important;}
+  #screen-editor .two-sheet-card-head{margin-bottom:10px!important;}
+</style>
+
+<script id="ethvelle-v119-face-gesture-runtime">
+(function ethvelleV119Enhancements(){
+  'use strict';
+
+  // All legacy presets are upgraded to the 21-bone pose contract used by the newer
+  // cut-out renderer. applyPoseToBones converts these poses back for older legacy rigs.
+  try{
+    if(typeof animPresets==='object' && typeof ethvelleNormalizeLegacyPoseTo21==='function'){
+      Object.keys(animPresets).forEach(key=>{
+        const preset=animPresets[key];
+        if(!preset || preset._ethvelleRigVersion===21 || !Array.isArray(preset.keyframes))return;
+        preset.keyframes=preset.keyframes.map(kf=>({...kf,pose:ethvelleNormalizeLegacyPoseTo21(kf.pose||{})}));
+        preset._ethvelleRigVersion=21;
+      });
+    }
+  }catch(err){console.warn('Ethvelle: legacy preset compatibility pass skipped',err);}
+
+  const validMood=new Set(['sad','angry','shock','laugh']);
+  const validHand=new Set(['none','point','thumb','palm','fist','hold']);
+  function selectedStickmanClip(){
+    if(typeof getClipByRef!=='function')return null;
+    if(selectedClip==='main' || (typeof selectedClip==='string' && /^seg\d+$/.test(selectedClip)))return getClipByRef(selectedClip);
+    return null;
+  }
+  function activeActionCharacter(){return typeof activeCharacter==='function'?activeCharacter():null;}
+  function actionDefaults(){return {expression:'none',mouth:'preset',blink:'auto',eyes:'auto',leftHand:'none',rightHand:'none',wings:'natural'};}
+  function normalizeActions(input){
+    const d=actionDefaults(),a={...d,...(input&&typeof input==='object'?input:{})};
+    if(!['none',...validMood].includes(a.expression))a.expression='none';
+    if(!['preset','talk','closed','hold'].includes(a.mouth))a.mouth='preset';
+    if(!['auto','ambient','off'].includes(a.blink))a.blink='auto';
+    if(!['auto','open','closed'].includes(a.eyes))a.eyes='auto';
+    if(!validHand.has(a.leftHand))a.leftHand='none';
+    if(!validHand.has(a.rightHand))a.rightHand='none';
+    if(!['natural','fly'].includes(a.wings))a.wings='natural';
+    return a;
+  }
+  function actionOption(value,label,current){return `<option value="${value}"${value===current?' selected':''}>${label}</option>`;}
+  function handOptions(side,current,parts){
+    let html=actionOption('none','Natural hand',current);
+    [['point','Pointing'],['thumb','Thumbs up'],['palm','Open palm'],['fist','Fist'],['hold','Holding grip']].forEach(([key,label])=>{
+      if(parts && parts['hand'+side+'_'+key])html+=actionOption(key,label,current);
+    });
+    return html;
+  }
+  function ensureActionsBackdrop(){
+    let el=document.getElementById('ethvelleClipFaceActionsBackdrop');
+    if(el)return el;
+    const host=document.getElementById('screen-editor')||document.getElementById('app')||document.body;
+    el=document.createElement('div');el.id='ethvelleClipFaceActionsBackdrop';el.className='modal-backdrop evca-char-actions-backdrop';
+    el.addEventListener('click',e=>{if(e.target===el)closeClipCharacterActions();});
+    host.appendChild(el);return el;
+  }
+  function openClipCharacterActions(){
+    const clip=selectedStickmanClip();
+    if(!clip){if(typeof showToast==='function')showToast('Select an animation clip first',{icon:toastIcons.info,duration:1700});return;}
+    const character=activeActionCharacter(),parts=character&&character.sheet&&character.sheet.parts||{};
+    if(!character){if(typeof showToast==='function')showToast('Select a character first',{duration:1600});return;}
+    clip.faceActions=normalizeActions(clip.faceActions);
+    const a=clip.faceActions,modelType=String(character.modelType||(character.sheet&&character.sheet.modelType)||'humanoid');
+    const isBirdKit=modelType==='bird'&&!!(parts.bird_eye&&parts.bird_brow&&parts.beak_closed&&parts.beak_open);
+    const isHumanoidKit=modelType==='humanoid'&&!!(parts.mouth_inner&&parts.eye_L&&parts.eye_R&&parts.brow_L&&parts.brow_R);

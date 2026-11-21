@@ -1,0 +1,1000 @@
+  const upper=parts.filter(b=>!used.has(b) && M.yr(b)>.12 && M.yr(b)<.42 && M.dx(b)>.18).sort(leftOf);
+  if(upper.length!==2) return null;
+  upper.forEach(b=>used.add(b));
+  const shoes=parts.filter(b=>!used.has(b) && M.yr(b)>.89 && b.y0>M.y0+M.h*.83).sort(leftOf);
+  if(shoes.length!==2) return null; shoes.forEach(b=>used.add(b));
+  const shins=parts.filter(b=>!used.has(b) && M.yr(b)>.66 && M.yr(b)<.91 && M.dx(b)<.31 && b.y0>M.y0+M.h*.58).sort(leftOf);
+  if(shins.length!==2) return null; shins.forEach(b=>used.add(b));
+  const thighs=parts.filter(b=>!used.has(b) && M.yr(b)>.42 && M.yr(b)<.70 && M.dx(b)<.25 && b.y0>M.y0+M.h*.35).sort(leftOf);
+  if(thighs.length!==2) return null; thighs.forEach(b=>used.add(b));
+  const lower=parts.filter(b=>!used.has(b) && M.yr(b)>.31 && M.yr(b)<.68 && M.dx(b)>.17);
+  if(lower.length!==4) return null;
+  const l=lower.filter(b=>M.cx(b)<M.mid).sort((a,b)=>M.cy(a)-M.cy(b));
+  const r=lower.filter(b=>M.cx(b)>=M.mid).sort((a,b)=>M.cy(a)-M.cy(b));
+  if(l.length!==2 || r.length!==2) return null;
+  // Key order is deliberately the same as SHEET_KEYS_14; L/R means viewer-left/viewer-right.
+  return [head,torso,upper[0],upper[1],l[0],l[1],r[0],r[1],thighs[0],thighs[1],shins[0],shins[1],shoes[0],shoes[1]];
+}
+// Fairy and Devil sheets add exactly two detached back wings to the normal 14-part humanoid anatomy.
+// Find the balanced left/right wing pair whose removal leaves a valid 14-part humanoid layout.
+function sheetOrderWingedHumanoid16(parts,w,h){
+  if(!parts||parts.length!==16)return null;
+  const M=sheetFigureMetrics(parts);
+  if(M.h<M.w*.78)return null;
+  let best=null,bestScore=Infinity;
+  for(let i=0;i<parts.length;i++)for(let j=i+1;j<parts.length;j++){
+    const a=parts[i],b=parts[j],left=M.cx(a)<M.mid?a:b,right=left===a?b:a;
+    if(!(M.cx(left)<M.mid&&M.cx(right)>M.mid))continue;
+    const yGap=Math.abs(M.cy(left)-M.cy(right))/M.h;
+    const mirrorGap=Math.abs((M.mid-M.cx(left))-(M.cx(right)-M.mid))/M.w;
+    const level=(M.yr(left)+M.yr(right))*.5;
+    const areaA=Math.max(1,M.bw(left)*M.bh(left)),areaB=Math.max(1,M.bw(right)*M.bh(right));
+    const areaGap=Math.abs(Math.log(areaA/areaB));
+    if(yGap>.16||mirrorGap>.19||level<.15||level>.68||areaGap>1.25)continue;
+    const rest=parts.filter((_,idx)=>idx!==i&&idx!==j);
+    const body=sheetOrderAnatomy14(rest,w,h)||sheetOrderAnatomy14ByPosition(rest,w,h);
+    if(!body)continue;
+    const outer=(M.dx(left)+M.dx(right))/2,size=Math.sqrt(areaA*areaB)/Math.max(1,M.w*M.h);const score=mirrorGap*2+yGap+areaGap*.035+Math.abs(level-.39)*.12-outer*.3-Math.min(.12,size)*2.2;   // v347: wings = outermost, largest mirrored pair
+    if(score<bestScore){bestScore=score;best=[...body,left,right];}
+  }
+  return best;
+}
+
+// Positional fallback for anatomy-position sheets generated with slightly different spacing.
+// The six central/lower pieces are ranked into thighs, shins and shoes; the remaining six are
+// grouped by viewer-left/viewer-right and ordered from shoulder to hand. This avoids assigning a
+// forearm or sleeve to Head/Hand merely because an AI placed it a little lower than the template.
+function sheetOrderAnatomy14ByPosition(parts,w,h){
+  if(!parts || parts.length!==14) return null;
+  const M=sheetFigureMetrics(parts);
+  if(M.h < M.w*.82) return null;
+  const scoreHead=b=>M.yr(b)*1.0 + M.dx(b)*1.15 + Math.max(0,M.bh(b)/M.h-.22)*.15;
+  const headPool=parts.filter(b=>M.yr(b)<.36 && M.dx(b)<.28);
+  if(!headPool.length) return null;
+  const head=headPool.slice().sort((a,b)=>scoreHead(a)-scoreHead(b))[0];
+  const torsoPool=parts.filter(b=>b!==head && M.yr(b)>.12 && M.yr(b)<.68 && M.dx(b)<.25 && M.bw(b)>M.bh(b)*.38);
+  if(!torsoPool.length) return null;
+  const torso=torsoPool.slice().sort((a,b)=>{
+    const sc=x=>Math.sqrt(Math.max(1,x.n))*2 + M.bw(x)*.6 + M.bh(x)*.15 - M.dx(x)*M.w*.8 - Math.abs(M.yr(x)-.43)*M.h*.08;
+    return sc(b)-sc(a);
+  })[0];
+  const rest=parts.filter(b=>b!==head && b!==torso);
+  const lower=rest.filter(b=>M.yr(b)>.34);
+  if(lower.length<6) return null;
+  // Leg parts sit closer to the centre line; the y bias separates them from hands which hang farther out.
+  const legScore=b=>M.dx(b) + Math.max(0,.55-M.yr(b))*.42;
+  let legs=lower.slice().sort((a,b)=>legScore(a)-legScore(b)).slice(0,6);
+  if(legs.length!==6) return null;
+  const orderedLegs=legs.slice().sort((a,b)=>M.cy(a)-M.cy(b));
+  const legsLeftToRight=(pair)=>pair.slice().sort((a,b)=>M.cx(a)-M.cx(b));
+  const thighs=legsLeftToRight(orderedLegs.slice(0,2));
+  const shins=legsLeftToRight(orderedLegs.slice(2,4));
+  const shoes=legsLeftToRight(orderedLegs.slice(4,6));
+  const armParts=rest.filter(b=>!legs.includes(b));
+  if(armParts.length!==6) return null;
+  let left=armParts.filter(b=>M.cx(b)<M.mid), right=armParts.filter(b=>M.cx(b)>=M.mid);
+  if(left.length!==3 || right.length!==3) return null;
+  left=left.sort((a,b)=>M.cy(a)-M.cy(b)); right=right.sort((a,b)=>M.cy(a)-M.cy(b));
+  return [head,torso,left[0],right[0],left[1],left[2],right[1],right[2],thighs[0],thighs[1],shins[0],shins[1],shoes[0],shoes[1]];
+}
+
+// Positional fallback for older 12-piece anatomical sheets with no separate shoes.
+function sheetOrderAnatomy12ByPosition(parts,w,h){
+  if(!parts || parts.length!==12) return null;
+  const M=sheetFigureMetrics(parts);
+  if(M.h < M.w*.72) return null;
+  const headPool=parts.filter(b=>M.yr(b)<.36 && M.dx(b)<.28);
+  if(!headPool.length) return null;
+  const head=headPool.slice().sort((a,b)=>(M.yr(a)+M.dx(a)*1.1)-(M.yr(b)+M.dx(b)*1.1))[0];
+  const torsoPool=parts.filter(b=>b!==head && M.yr(b)>.12 && M.yr(b)<.67 && M.dx(b)<.25 && M.bw(b)>M.bh(b)*.34);
+  if(!torsoPool.length) return null;
+  const torso=torsoPool.slice().sort((a,b)=>(Math.sqrt(Math.max(1,b.n))*2+M.bw(b)*.5-M.dx(b)*M.w*.8)-(Math.sqrt(Math.max(1,a.n))*2+M.bw(a)*.5-M.dx(a)*M.w*.8))[0];
+  const rest=parts.filter(b=>b!==head && b!==torso), lower=rest.filter(b=>M.yr(b)>.34);
+  if(lower.length<4) return null;
+  const legScore=b=>M.dx(b)+Math.max(0,.55-M.yr(b))*.42;
+  const legs=lower.slice().sort((a,b)=>legScore(a)-legScore(b)).slice(0,4);
+  const arms=rest.filter(b=>!legs.includes(b));
+  if(arms.length!==6) return null;
+  let left=arms.filter(b=>M.cx(b)<M.mid), right=arms.filter(b=>M.cx(b)>=M.mid);
+  if(left.length!==3||right.length!==3) return null;
+  left.sort((a,b)=>M.cy(a)-M.cy(b)); right.sort((a,b)=>M.cy(a)-M.cy(b));
+  const orderedLegs=legs.slice().sort((a,b)=>M.cy(a)-M.cy(b));
+  const thigh=orderedLegs.slice(0,2).sort((a,b)=>M.cx(a)-M.cx(b));
+  const shin=orderedLegs.slice(2,4).sort((a,b)=>M.cx(a)-M.cx(b));
+  return [head,torso,left[0],left[1],left[2],right[0],right[1],right[2],thigh[0],shin[0],thigh[1],shin[1]];
+}
+
+// New side-profile species sheets use the same 14 independent structural pieces as humanoids,
+// but their natural silhouette is horizontal: head/front on the right, torso across the centre,
+// six front-leg/wing pieces forward of the body centre, and six hind-leg/foot pieces toward the rear.
+// The prompts intentionally place each limb chain in three vertical tiers (upper, lower, tip),
+// which lets this geometric sorter map anatomy-position sheets without requiring a 27-cell grid.
+function sheetOrderSpeciesAnatomy14(parts,w,h,modelType){
+  if(!parts || parts.length!==14 || (modelType!=='animal' && modelType!=='bird')) return null;
+  const M=sheetFigureMetrics(parts), cx=M.cx, cy=M.cy;
+  const horizontal=parts.filter(b=>M.bw(b)>=M.w*.24 && M.bw(b)>M.bh(b)*1.25 && M.yr(b)>.16 && M.yr(b)<.78);
+  if(!horizontal.length) return null;
+  const torso=horizontal.slice().sort((a,b)=>{
+    const score=x=>x.n*1.0 + M.bw(x)*.15 - Math.abs(cx(x)-(M.x0+M.w*.49))*.12 - Math.abs(cy(x)-(M.y0+M.h*.42))*.05;
+    return score(b)-score(a);
+  })[0];
+  // The neutral head is deliberately positioned above and forward (right) of the body.
+  // Prefer a compact right-side component just above the torso, rather than a wing/leg component.
+  let headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.08 && cy(b)<cy(torso)+M.h*.10 && M.yr(b)<.63);
+  if(!headPool.length) headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.10).sort((a,b)=>cy(a)-cy(b)).slice(0,3);
+  if(!headPool.length) return null;
+  const head=headPool.sort((a,b)=>{
+    const score=x=> (cx(x)-cx(torso))*.75 + (cy(torso)-cy(x))*.35 + Math.sqrt(Math.max(1,x.n))*.025;
+    return score(b)-score(a);
+  })[0];
+  const remaining=parts.filter(b=>b!==torso && b!==head);
+  if(remaining.length!==12) return null;
+  const byX=remaining.slice().sort((a,b)=>cx(a)-cx(b));
+  const rear=byX.slice(0,6), forward=byX.slice(6);
+  const tierPairs=group=>{
+    const a=group.slice().sort((x,y)=>cy(x)-cy(y));
+    if(a.length!==6) return null;
+    const pair=i=>a.slice(i,i+2).sort((x,y)=>cx(x)-cx(y));
+    return [pair(0),pair(2),pair(4)];
+  };
+  const rearTiers=tierPairs(rear), forwardTiers=tierPairs(forward);
+  if(!rearTiers || !forwardTiers) return null;
+  // Prompt convention: far-side pieces are slightly left; near-side pieces slightly right.
+  // Pair arrays are sorted left-to-right, so reverse them into near (L) then far (R) slots.
+  const [frontUpper,frontLower,frontTips]=forwardTiers;
+  const [hindUpper,hindLower,hindFeet]=rearTiers;
+  const validPairs=[...forwardTiers,...rearTiers];
+  if(validPairs.some(p=>p.length!==2)) return null;
+  return [
+    head, torso,
+    frontUpper[1], frontUpper[0],
+    frontLower[1], frontTips[1], frontLower[0], frontTips[0],
+    hindUpper[1], hindUpper[0],
+    hindLower[1], hindLower[0],
+    hindFeet[1], hindFeet[0]
+  ];
+}
+
+// Current BIRD base sheet: 13 pieces = head, wing-less body, one independent tail, six wing pieces (three tiers of
+// near/far pairs) and four leg pieces (upper leg + lower-leg-with-foot, near/far pairs). The leg cluster sits on the
+// rear (left) side and the wing column on the forward (right) side, so after the head/body/tail are found the
+// remaining ten pieces split by x position: four left-most = legs, six right-most = wings.
+function sheetOrderBirdAnatomy13(parts,w,h){
+  if(!parts || parts.length!==13) return null;
+  const M=sheetFigureMetrics(parts), cx=M.cx, cy=M.cy;
+  const horizontal=parts.filter(b=>M.bw(b)>=M.w*.22 && M.bw(b)>M.bh(b)*1.18 && M.yr(b)>.12 && M.yr(b)<.82);
+  if(!horizontal.length) return null;
+  const torso=horizontal.slice().sort((a,b)=>{
+    const score=x=>x.n*1.0 + M.bw(x)*.15 - Math.abs(cx(x)-(M.x0+M.w*.49))*.12 - Math.abs(cy(x)-(M.y0+M.h*.42))*.05;
+    return score(b)-score(a);
+  })[0];
+  let headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.05 && cy(b)<cy(torso)+M.h*.10 && M.yr(b)<.65);
+  if(!headPool.length) headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.08).sort((a,b)=>cy(a)-cy(b)).slice(0,3);
+  if(!headPool.length) return null;
+  // The head is the highest of the large pieces on the forward (right) side; the six wing pieces sit in a column below it.
+  const maxHeadN=Math.max(...headPool.map(b=>b.n));
+  const head=headPool.filter(b=>b.n>=maxHeadN*.55).sort((a,b)=>(cy(a)-cy(b))||(b.n-a.n))[0];
+  const tailPool=parts.filter(b=>b!==torso && b!==head).filter(b=>{
+    const aspect=M.bw(b)/Math.max(1,M.bh(b));
+    return cx(torso)-cx(b)>M.w*.08 && M.bw(b)>M.w*.055 && aspect>1.02 && Math.abs(cy(b)-cy(torso))<M.h*.36 && M.yr(b)>.08 && M.yr(b)<.9;
+  });
+  if(!tailPool.length) return null;
+  const tail=tailPool.sort((a,b)=>{
+    const score=x=>Math.log(1+Math.max(1,x.n))*.35 + M.bw(x)/M.w*.8 + Math.min(3,M.bw(x)/Math.max(1,M.bh(x)))*.12 + (cx(torso)-cx(x))/M.w*.45 - Math.abs(cy(x)-cy(torso))/M.h*.55;
+    return score(b)-score(a);
+  })[0];
+  const rest=parts.filter(b=>b!==torso && b!==head && b!==tail);
+  if(rest.length!==10) return null;
+  const byX=rest.slice().sort((a,b)=>cx(a)-cx(b));
+  const legs=byX.slice(0,4), wings=byX.slice(4);
+  // Pairs: sort a group top-to-bottom, take rows of two, then left-to-right inside a row (left = far side, right = near side).
+  const tiers=(group,count)=>{
+    const a=group.slice().sort((x,y)=>cy(x)-cy(y)), out=[];
+    for(let i=0;i<count;i++) out.push(a.slice(i*2,i*2+2).sort((x,y)=>cx(x)-cx(y)));
+    return out.every(p=>p.length===2)?out:null;
+  };
+  const wingTiers=tiers(wings,3), legTiers=tiers(legs,2);
+  if(!wingTiers || !legTiers) return null;
+  const [wUpper,wLower,wTip]=wingTiers, [lUpper,lLower]=legTiers;
+  return [head,torso,tail,wUpper[1],wUpper[0],wLower[1],wTip[1],wLower[0],wTip[0],lUpper[1],lUpper[0],lLower[1],lLower[0]];
+}
+
+// v344 BEAST MAN base sheet = the 14 anatomy-position pieces + ONE separate tail piece (15 pieces).
+// The tail can sit anywhere free on the sheet, so every plausible tail candidate is removed in turn and the
+// remaining 14 pieces must read as a valid anatomy-position sheet. Pieces without a left/right twin (the head,
+// the body and the tail are the only unpaired pieces) are tried first; the head-like and body-like ones go last.
+function sheetOrderBeastAnatomy15(parts,w,h){
+  if(!parts || parts.length!==15) return null;
+  const M=sheetFigureMetrics(parts), area=b=>Math.max(1,b.n), maxN=Math.max(...parts.map(area)), cx=M.cx, cy=M.cy;
+  const twin=b=>parts.some(o=>o!==b && Math.abs(cx(o)-(2*M.mid-cx(b)))<M.w*.10 && Math.abs(cy(o)-cy(b))<M.h*.09 && area(o)/area(b)>.35 && area(o)/area(b)<2.85);
+  const unpaired=parts.filter(b=>!twin(b));
+  const torsoLike=unpaired.slice().sort((a,b)=>area(b)-area(a))[0];
+  const headLike=unpaired.filter(b=>b!==torsoLike && M.yr(b)<.25).sort((a,b)=>cy(a)-cy(b))[0];
+  const rank=b=>(twin(b)?0:100)-((b===torsoLike||b===headLike)?90:0)+Math.min(3,M.bh(b)/Math.max(1,M.bw(b)))*8-Math.sqrt(area(b)/maxN)*6;
+  // The looser positional matcher can accept a wrong tail choice, so every result must also look like a real figure:
+  // each left/right pair level with each other, left piece left of right piece, and head > body > thighs > shins > shoes top to bottom.
+  const sane=base=>{
+    if(!base || base.length!==14) return false;
+    const tol=M.h*.075, [hd,tr,uL,uR,fL,hL,fR,hR,tL,tR,sL,sR,oL,oR]=base;
+    if(![[uL,uR],[fL,fR],[hL,hR],[tL,tR],[sL,sR],[oL,oR]].every(([l,r])=>Math.abs(cy(l)-cy(r))<tol && cx(l)<cx(r))) return false;
+    return cy(hd)<cy(tr) && cy(tr)<cy(tL) && cy(tL)<cy(sL) && cy(sL)<cy(oL) && area(hd)<area(tr)*1.3;
+  };
+  const cands=parts.slice().sort((a,b)=>rank(b)-rank(a));
+  for(const strict of [true,false]){
+    for(const tail of cands){
+      const rest=parts.filter(b=>b!==tail);
+      const base=strict?sheetOrderAnatomy14(rest,w,h):sheetOrderAnatomy14ByPosition(rest,w,h);
+      if(sane(base)) return [base[0],base[1],tail,...base.slice(2)];
+    }
+  }
+  return null;
+}
+// New 15-part species sheets add one isolated, single-piece tail behind the rump.
+// Detect the rump and head first, identify the horizontal rear appendage, then reuse the established
+// front-wing/front-leg and hind-leg pairing logic for the remaining 14 anatomical pieces.
+function sheetOrderSpeciesAnatomy15(parts,w,h,modelType){
+  if(!parts || parts.length!==15 || (modelType!=='animal' && modelType!=='bird')) return null;
+  const M=sheetFigureMetrics(parts), cx=M.cx, cy=M.cy;
+  const horizontal=parts.filter(b=>M.bw(b)>=M.w*.24 && M.bw(b)>M.bh(b)*1.18 && M.yr(b)>.12 && M.yr(b)<.82);
+  if(!horizontal.length) return null;
+  const torso=horizontal.slice().sort((a,b)=>{
+    const score=x=>x.n*1.0 + M.bw(x)*.15 - Math.abs(cx(x)-(M.x0+M.w*.49))*.12 - Math.abs(cy(x)-(M.y0+M.h*.42))*.05;
+    return score(b)-score(a);
+  })[0];
+  let headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.08 && cy(b)<cy(torso)+M.h*.10 && M.yr(b)<.65);
+  if(!headPool.length) headPool=parts.filter(b=>b!==torso && cx(b)>cx(torso)+M.w*.10).sort((a,b)=>cy(a)-cy(b)).slice(0,3);
+  if(!headPool.length) return null;
+  const head=headPool.sort((a,b)=>{
+    const score=x=>(cx(x)-cx(torso))*.75+(cy(torso)-cy(x))*.35+Math.sqrt(Math.max(1,x.n))*.025;
+    return score(b)-score(a);
+  })[0];
+  const tailPool=parts.filter(b=>b!==torso && b!==head).filter(b=>{
+    const aspect=M.bw(b)/Math.max(1,M.bh(b));
+    const rear=cx(torso)-cx(b);
+    const yOffset=Math.abs(cy(b)-cy(torso));
+    return rear>M.w*.12 && M.bw(b)>M.w*.055 && aspect>1.02 && yOffset<M.h*.34 && M.yr(b)>.10 && M.yr(b)<.88;
+  });
+  if(!tailPool.length) return null;
+  const tail=tailPool.sort((a,b)=>{
+    const score=x=>{
+      const rear=(cx(torso)-cx(x))/M.w;
+      const aspect=M.bw(x)/Math.max(1,M.bh(x));
+      const yPenalty=Math.abs(cy(x)-cy(torso))/M.h;
+      return Math.log(1+Math.max(1,x.n))*.35 + M.bw(x)/M.w*.8 + Math.min(3,aspect)*.12 + rear*.45 - yPenalty*.55;
+    };
+    return score(b)-score(a);
+  })[0];
+  const base=sheetOrderSpeciesAnatomy14(parts.filter(b=>b!==tail),w,h,modelType);
+  if(!base || base.length!==14 || base[0]===tail || base[1]===tail) return null;
+  return [base[0],base[1],tail,...base.slice(2)];
+}
+
+// A fused forearm+hand should be split at the narrow wrist transition, not at an arbitrary
+// fixed percentage. Use the source alpha mask to find the narrowest stable row around the likely
+// wrist band; this preserves the wrist cuff/base when generated sheets have different proportions.
+function sheetFindWristCut(mask,w,part){
+  const partH=part.y1-part.y0+1;
+  if(!mask || !mask.length || !w || !partH) return Math.round(part.y0+partH*.68);
+  const fullH=Math.floor(mask.length/w);
+  if(fullH<=0) return Math.round(part.y0+partH*.68);
+  const lo=Math.max(part.y0+1,part.y0+Math.round(partH*.50));
+  const hi=Math.min(part.y1-1,part.y0+Math.round(partH*.82));
+  if(hi<=lo) return Math.round(part.y0+partH*.68);
+  const widths=[];
+  for(let y=Math.max(0,lo-2);y<=Math.min(fullH-1,hi+2);y++){
+    let n=0;
+    for(let x=Math.max(0,part.x0);x<=Math.min(w-1,part.x1);x++) if(mask[y*w+x]) n++;
+    widths.push({y,n});
+  }
+  const widthAt=y=>{const a=widths.filter(v=>Math.abs(v.y-y)<=1);return a.length?a.reduce((sum,v)=>sum+v.n,0)/a.length:Infinity;};
+  let bestY=Math.round(part.y0+partH*.68),bestScore=Infinity;
+  for(let y=lo;y<=hi;y++){
+    const here=widthAt(y),before=widthAt(y-3),after=widthAt(y+3);
+    // Prefer a real local pinch (forearm narrows into the wrist before the hand widens).
+    const pinch=(here<=before && here<=after)?0:Math.max(1,Math.min(before,after)-here+1)*.35;
+    const target=Math.abs(y-(part.y0+partH*.68))*0.12;
+    const score=here+pinch+target;
+    if(score<bestScore){bestScore=score;bestY=y;}
+  }
+  return Math.max(part.y0+1,Math.min(part.y1,bestY));
+}
+
+// IMPORTANT: Do not trim or recolour the recovered torso/waist automatically.
+// The dark-blue triangular waistband/upper-trouser section is real character artwork
+// and must be preserved exactly as it appears on the uploaded model sheet.
+
+function sheetRecoverAnatomy14From12(parts,w,h,mask){
+  if(!parts || parts.length!==12) return null;
+  const M=sheetFigureMetrics(parts);
+  if(M.h < M.w*1.2) return null;
+  // A top-centre component spanning the head, neck and torso is the tell-tale merged piece.
+  const corePool=parts.filter(b=>b.y0<=M.y0+M.h*.035 && M.bh(b)>M.h*.36 && M.dx(b)<.20 && M.bw(b)>M.w*.22);
+  if(!corePool.length) return null;
+  const core=corePool.sort((a,b)=>M.bh(b)-M.bh(a))[0];
+  const upper=parts.filter(b=>b!==core && M.yr(b)>.12 && M.yr(b)<.42 && M.dx(b)>.18).sort((a,b)=>M.cx(a)-M.cx(b));
+  if(upper.length!==2) return null;
+  const shoes=parts.filter(b=>b!==core && !upper.includes(b) && M.yr(b)>.89 && b.y0>M.y0+M.h*.83).sort((a,b)=>M.cx(a)-M.cx(b));
+  if(shoes.length!==2) return null;
+  const excluded=new Set([core,...upper,...shoes]);
+  const shins=parts.filter(b=>!excluded.has(b) && M.yr(b)>.66 && M.yr(b)<.91 && M.dx(b)<.31 && b.y0>M.y0+M.h*.58).sort((a,b)=>M.cx(a)-M.cx(b));
+  if(shins.length!==2) return null; shins.forEach(b=>excluded.add(b));
+  const thighs=parts.filter(b=>!excluded.has(b) && M.yr(b)>.42 && M.yr(b)<.70 && M.dx(b)<.25 && b.y0>M.y0+M.h*.35).sort((a,b)=>M.cx(a)-M.cx(b));
+  if(thighs.length!==2) return null; thighs.forEach(b=>excluded.add(b));
+  const lower=parts.filter(b=>!excluded.has(b) && M.yr(b)>.31 && M.yr(b)<.68 && M.dx(b)>.17);
+  if(lower.length!==3) return null;
+  const left=lower.filter(b=>M.cx(b)<M.mid).sort((a,b)=>M.cy(a)-M.cy(b));
+  const right=lower.filter(b=>M.cx(b)>=M.mid).sort((a,b)=>M.cy(a)-M.cy(b));
+  if(!((left.length===2&&right.length===1)||(left.length===1&&right.length===2))) return null;
+
+  // Split at the jaw/neck root, not halfway through the head+torso blob. In the 14-part
+  // anatomical sheet, hair/face occupies about the upper third of this merged central region;
+  // the throat, shirt and the original pants-start/waist section all belong to Body.
+  // Prefer the narrowest occupied row around the lower face, which is a useful jaw-to-neck cue,
+  // with a 35% fallback for sheets whose antialiasing obscures that contour.
+  const coreH=M.bh(core);
+  let coreCut=Math.round(core.y0+coreH*.35);
+  if(mask && mask.length===w*h){
+    const lo=Math.max(core.y0+1,Math.round(core.y0+coreH*.27));
+    const hi=Math.min(core.y1-1,Math.round(core.y0+coreH*.41));
+    let bestScore=Infinity, bestY=coreCut;
+    for(let yy=lo;yy<=hi;yy++){
+      let occupied=0;
+      for(let xx=core.x0;xx<=core.x1;xx++) if(mask[yy*w+xx]) occupied++;
+      if(!occupied) continue; // never cut in an entirely transparent gap above the neck
+      // Light bias toward the jaw/neck boundary around 35%, while favouring the narrowest row.
+      const score=occupied + Math.abs(yy-(core.y0+coreH*.35))*.18;
+      if(score<bestScore){ bestScore=score; bestY=yy; }
+    }
+    coreCut=bestY;
+  }
+  coreCut=Math.max(core.y0+Math.round(coreH*.29),Math.min(core.y0+Math.round(coreH*.40),coreCut));
+  coreCut=Math.max(core.y0+1,Math.min(core.y1,coreCut));
+  const head={...core,y1:coreCut-1,cropClipY1:coreCut-1,cropExcludeBlueFrom:Math.max(core.y0,coreCut-Math.round(coreH*.035)),n:Math.max(1,core.n*.35),recoveredSplit:true};
+  const torso={...core,y0:coreCut,cropClipY0:coreCut,n:Math.max(1,core.n*.65),recoveredSplit:true};
+  let forearmL,handL,forearmR,handR;
+  if(left.length===2){ forearmL=left[0]; handL=left[1]; const fused=right[0]; const cut=sheetFindWristCut(mask,w,fused); forearmR={...fused,y1:cut,cropClipY1:cut,n:fused.n*.60,recoveredSplit:true}; handR={...fused,y0:cut,cropClipY0:cut,n:fused.n*.40,recoveredSplit:true}; }
+  else { forearmR=right[0]; handR=right[1]; const fused=left[0]; const cut=sheetFindWristCut(mask,w,fused); forearmL={...fused,y1:cut,cropClipY1:cut,n:fused.n*.60,recoveredSplit:true}; handL={...fused,y0:cut,cropClipY0:cut,n:fused.n*.40,recoveredSplit:true}; }
+  return [head,torso,upper[0],upper[1],forearmL,handL,forearmR,handR,thighs[0],thighs[1],shins[0],shins[1],shoes[0],shoes[1]];
+}
+
+// Animal face kit (11 locked pieces): map strictly by five horizontal rows and fixed left-to-right positions.
+// No area ranking or legacy 3x3 fallback is permitted: the new animal kit has four heads, one inner mouth,
+// two open eyes, two closed-eye lids and two brows in its exact 3×5 layout.
+function sheetOrderAnimalFaceKit11(parts,d,W,H,lab,w,h,cxf,cyf){
+  if(!parts || parts.length!==11 || !w || !h) return null;
+  const stat=new Map(parts.map(b=>[b.id,{n:0,white:0}]));
+  for(let y=0;y<H;y+=2){
+    const gy=cyf(y);
+    for(let x=0;x<W;x+=2){
+      const si=(y*W+x)*4;
+      if(d[si+3]<200) continue;
+      const st=stat.get(lab[gy*w+cxf(x)]);
+      if(!st) continue;
+      st.n++;
+      if(d[si]>212 && d[si+1]>212 && d[si+2]>212) st.white++;
+    }
+  }
+  const items=parts.map(b=>{
+    const st=stat.get(b.id);
+    return {b,cx:(b.x0+b.x1)/2,cy:(b.y0+b.y1)/2,bw:b.x1-b.x0+1,bh:b.y1-b.y0+1,area:st.n,whiteFrac:st.n?st.white/st.n:0};
+  }).sort((a,b)=>a.cy-b.cy || a.cx-b.cx);
+  // Exact row populations: 3 heads / (happy head + inner mouth) / 2 open eyes / 2 closed eyes / 2 brows.
+  const sizes=[3,2,2,2,2],rows=[];let at=0;
+  sizes.forEach(n=>{rows.push(items.slice(at,at+n));at+=n;});
+  if(rows.some((r,i)=>r.length!==sizes[i]))return null;
+  const rowCenter=rows.map(r=>r.reduce((sum,v)=>sum+v.cy,0)/r.length);
+  // Reject interleaved rows and rows whose pieces have drifted into another band.
+  for(let i=0;i<rows.length;i++){
+    const ys=rows[i].map(v=>v.cy),spread=Math.max(...ys)-Math.min(...ys);
+    if(spread>h*.105)return null;
+    if(i>0 && rowCenter[i]-rowCenter[i-1]<h*.085)return null;
+  }
+  // Row 1: three heads in left / centre / right cells.
+  const heads=rows[0].slice().sort((a,b)=>a.cx-b.cx);
+  if(!(heads[0].cx<w*.37 && heads[1].cx>w*.34 && heads[1].cx<w*.68 && heads[2].cx>w*.63))return null;
+  // Row 2: happy head in left cell, inner-mouth piece in centre cell.
+  const row2=rows[1].slice().sort((a,b)=>a.cx-b.cx);
+  if(!(row2[0].cx<w*.40 && row2[1].cx>w*.34 && row2[1].cx<w*.72))return null;
+  // Rows 3–5: left and right/centre feature pairs, in their own dedicated rows.
+  const pair=(r)=>r.slice().sort((a,b)=>a.cx-b.cx);
+  const openEyes=pair(rows[2]),closedEyes=pair(rows[3]),brows=pair(rows[4]);
+  for(const r of [openEyes,closedEyes,brows]){
+    if(!(r[0].cx<w*.40 && r[1].cx>w*.34 && r[1].cx<w*.72))return null;
+  }
+  // Open-eye assets should visibly contain sclera; this catches a common row swap without
+  // making the whole importer depend on the size or colour of the other artwork.
+  if(openEyes.some(i=>i.whiteFrac<.025))return null;
+  const mouth=row2[1];
+  if(!heads.every(i=>i.area>0) || !mouth.area || !openEyes.every(i=>i.area>0) || !closedEyes.every(i=>i.area>0) || !brows.every(i=>i.area>0))return null;
+  return [
+    heads[0].b,heads[1].b,heads[2].b,row2[0].b,mouth.b,
+    openEyes[0].b,openEyes[1].b,closedEyes[0].b,closedEyes[1].b,brows[0].b,brows[1].b
+  ];
+}
+
+// v347 MERMAID / NAGA-LAMIA / GHOST base sheets are read by BODY POSITION, exactly like the humanoid, animal and bird sheets
+// (no rigid grid). Layout: a centre column (head, body, then the lower-body/tail pieces from top to bottom) and a left and a right
+// arm column (upper arm, forearm, hand from top to bottom). The lower body may be drawn as 1, 2 or 3 stacked pieces (9, 10 or 11
+// pieces in total): it is always normalised to the three rig segments (tail, tail_mid, tail_tip) by slicing at clean cross-cuts, so
+// an AI that merges or skips a tail section no longer breaks the import.
+// Returns the 11 blobs in SHEET_KEYS_MYTHIC_BASE order, or null when the pieces do not form this layout.
+function sheetSplitBlobRows(b,fracs){
+  const H=b.y1-b.y0+1, cuts=[b.y0,...fracs.map(f=>b.y0+Math.max(1,Math.round(H*f))),b.y1+1], out=[];
+  for(let i=0;i<cuts.length-1;i++){
+    const y0=cuts[i], y1=cuts[i+1]-1;
+    out.push({...b,y0,y1,cropClipY0:y0,cropClipY1:y1,n:Math.max(1,b.n*(y1-y0+1)/H),mythicSplit:true,splitGroup:b.id});
+  }
+  return out;
+}
+function sheetOrderMythicAnatomy(parts,w,h){
+  if(!parts) return null;
+  const n=parts.length, k=n-8;                 // k = number of lower-body pieces the AI drew (1, 2 or 3)
+  if(n<9 || n>11) return null;
+  const M=sheetFigureMetrics(parts), cx=M.cx, cy=M.cy, area=b=>Math.max(1,b.n);
+  if(M.h<M.w*.80) return null;                // an upright figure sheet is clearly taller than wide
+  const need=2+k, idx=parts.map((_,i)=>i);
+  let best=null, bestScore=Infinity;
+  const orderSide=arr=>{
+    const ys=arr.map(cy), spread=Math.max(...ys)-Math.min(...ys);
+    // normal case: top-to-bottom. If the three pieces sit level (arm laid out sideways) order them outward from the body.
+    return arr.slice().sort(spread<M.h*.06?((a,b)=>Math.abs(cx(a)-M.mid)-Math.abs(cx(b)-M.mid)):((a,b)=>cy(a)-cy(b)));
+  };
+  const evalSubset=sel=>{
+    const set=new Set(sel);
+    const central=sel.map(i=>parts[i]).sort((a,b)=>cy(a)-cy(b));
+    const sides=idx.filter(i=>!set.has(i)).map(i=>parts[i]);
+    if(central.some(b=>M.dx(b)>.24) || sides.some(b=>M.dx(b)<.12)) return;
+    const left=sides.filter(b=>cx(b)<M.mid), right=sides.filter(b=>cx(b)>=M.mid);
+    if(left.length!==3 || right.length!==3) return;
+    const head=central[0], torso=central[1], tails=central.slice(2);
+    for(let i=1;i<central.length;i++) if(cy(central[i])-cy(central[i-1])<M.h*.05) return;   // a true vertical stack
+    if(M.yr(head)>.30 || M.yr(torso)<.12 || M.yr(torso)>.55 || M.bh(head)>M.h*.32) return;
+    if(tails.some(t=>M.yr(t)<.28)) return;                                                    // lower body sits in the lower part of the figure
+    const L=orderSide(left), R=orderSide(right);
+    let score=0;
+    for(let t=0;t<3;t++) score+=Math.abs(cy(L[t])-cy(R[t]))/M.h*3;                           // left/right pieces level with each other
+    if(score>.9) return;
+    score+=central.reduce((s,b)=>s+M.dx(b),0)*1.2 - sides.reduce((s,b)=>s+M.dx(b),0)*.35;   // centre column really central, arms really outside
+    [[L[1],L[2]],[R[1],R[2]]].forEach(([fore,hand])=>{ if(area(hand)>area(fore)*1.7) score+=.4; });   // hands are the smaller pieces
+    if(area(head)>area(torso)*3.2) score+=.4;
+    if(score<bestScore){ bestScore=score; best={head,torso,tails,L,R}; }
+  };
+  const walk=(start,sel)=>{
+    if(sel.length===need){ evalSubset(sel); return; }
+    for(let i=start;i<=n-(need-sel.length);i++){ sel.push(i); walk(i+1,sel); sel.pop(); }
+  };
+  walk(0,[]);
+  if(!best) return null;
+  let tails=best.tails;
+  if(k===1) tails=sheetSplitBlobRows(tails[0],[.34,.67]);                                     // one piece: root / middle / tip
+  else if(k===2) tails=[...sheetSplitBlobRows(tails[0],[.5]),tails[1]];                      // two pieces: split the upper one, the second keeps the tip/fin
+  return [best.head,best.torso,best.L[0],best.R[0],best.L[1],best.L[2],best.R[1],best.R[2],...tails];
+}
+
+function sheetParse(img, modelType, beastFlag){
+  const sc = Math.min(1, 2200/Math.max(img.naturalWidth, img.naturalHeight)), W = Math.round(img.naturalWidth*sc), H = Math.round(img.naturalHeight*sc), N = W*H;
+  const cv = document.createElement('canvas'); cv.width = W; cv.height = H;
+  const g = cv.getContext('2d', {willReadFrequently:true}); g.drawImage(img, 0, 0, W, H);
+  const id = g.getImageData(0,0,W,H), d = id.data;
+  // opaque sheet (JPG / flat background): flood-remove the border-connected background colour.
+  // Real transparent PNGs (which already have plenty of see-through pixels) skip this whole step,
+  // so the safest fix for the "background eats part of the model" problem is just exporting a true
+  // alpha PNG in the first place -- this heuristic is only a fallback for flat-colour uploads.
+  let clear = 0; for(let i=3;i<d.length;i+=4) if(d[i]<200) clear++;
+  if(clear < N*0.01){
+    // Robust background estimate: sample many points along the border (not just the 4 corners --
+    // a single corner can land on an arm/leg that was drawn too close to the edge) and take the
+    // median of each channel, which shrugs off a handful of corner/edge samples that are actually
+    // character pixels rather than true background.
+    const samples = [], step = Math.max(1, Math.floor((2*W+2*H)/400));
+    for(let x=0;x<W;x+=step){ samples.push((x)*4, ((H-1)*W+x)*4); }
+    for(let y=0;y<H;y+=step){ samples.push((y*W)*4, (y*W+W-1)*4); }
+    const median = k=>{ const v = samples.map(i=>d[i+k]).sort((a,b)=>a-b); return v[Math.floor(v.length/2)]; };
+    const bg = [0,1,2].map(median);
+    // Tighter tolerance than before: wide enough to clear anti-aliased edge pixels blending into the
+    // background, tight enough that dark-but-not-black clothing/hair (navy, charcoal) doesn't read as
+    // "background" just because it's also dark.
+    const near = p=>Math.abs(d[p*4]-bg[0])<24 && Math.abs(d[p*4+1]-bg[1])<24 && Math.abs(d[p*4+2]-bg[2])<24;
+    const seen = new Uint8Array(N), st = [], push = p=>{ if(!seen[p] && near(p)){ seen[p]=1; st.push(p); } };
+    for(let x=0;x<W;x++){ push(x); push((H-1)*W+x); } for(let y=0;y<H;y++){ push(y*W); push(y*W+W-1); }
+    while(st.length){ const p = st.pop(), x = p%W; d[p*4+3] = 0; if(x>0) push(p-1); if(x<W-1) push(p+1); if(p>=W) push(p-W); if(p<N-W) push(p+W); }
+  }
+  // split into separate parts: label connected blobs on a small, slightly dilated mask
+  const s = Math.min(1, 600/Math.max(W,H)), w = Math.max(1, Math.round(W*s)), h = Math.max(1, Math.round(H*s)), R = 0; // no dilation: preserve narrow transparent gaps so neighbouring parts never merge
+  const cx = x=>Math.min(w-1, Math.floor(x*s)), cy = y=>Math.min(h-1, Math.floor(y*s)), m = new Uint8Array(w*h), dm = new Uint8Array(w*h);
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++) if(d[(y*W+x)*4+3]>30) m[cy(y)*w+cx(x)] = 1;
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) if(m[y*w+x]) for(let j=-R;j<=R;j++) for(let i=-R;i<=R;i++){ const X=x+i, Y=y+j; if(X>=0&&X<w&&Y>=0&&Y<h) dm[Y*w+X] = 1; }
+  const lab = new Int32Array(w*h), blobs = [];
+  for(let p=0;p<w*h;p++){
+    if(!dm[p] || lab[p]) continue;
+    const b = { id:blobs.length+1, x0:w, y0:h, x1:0, y1:0, n:0 }, st = [p]; lab[p] = b.id;
+    while(st.length){
+      const q = st.pop(), x = q%w, y = (q-x)/w; b.n++; b.x0 = Math.min(b.x0,x); b.x1 = Math.max(b.x1,x); b.y0 = Math.min(b.y0,y); b.y1 = Math.max(b.y1,y);
+      [x>0&&q-1, x<w-1&&q+1, y>0&&q-w, y<h-1&&q+w].forEach(r=>{ if(r!==false && dm[r] && !lab[r]){ lab[r] = b.id; st.push(r); } });
+    }
+    blobs.push(b);
+  }
+  let sorted = blobs.filter(b=>b.n >= w*h*0.00035).sort((a,b)=>b.n-a.n); // retain small mouth/gesture parts
+  // Some generators let the three neighbouring expression heads touch at their hair outlines. They
+  // then become ONE connected blob even though the sheet still contains all 27 intended pieces.
+  // Recover those side-by-side heads only when the total is short and a tall, unusually-wide blob
+  // clearly has room for multiple head-sized pieces. Each recovered slice keeps the original label,
+  // but cropClipX restricts its pixels so the same merged blob is not copied into every slice.
+  let nParts = sorted.length;
+  // v350: the 19-part face kit has four complete expression heads in one horizontal row.
+  // Some image generators let the neighbouring hair/jaw outlines touch, so the four heads
+  // become ONE connected component. That makes a valid 19-piece sheet look like a legacy
+  // 16-piece sheet and shifts every key after the expression row (eyes/brows then disappear
+  // or are assigned to the wrong part). Recover only a wide row-2 blob whose split count
+  // explains the exact missing number of parts; genuine legacy 16/17/18-part sheets keep
+  // their old parser path.
+  if(modelType==='humanoid-variants' && nParts>=16 && nParts<19){
+    const missing=19-nParts;
+    const candidates=sorted.map(b=>{
+      const bw=b.x1-b.x0+1,bh=b.y1-b.y0+1,aspect=bw/Math.max(1,bh);
+      const cy=(b.y0+b.y1)/2/Math.max(1,h);
+      const guess=missing+1; // the sheet must gain exactly the number of merged heads reported missing
+      return {b,bw,bh,aspect,cy,guess};
+    }).filter(c=>c.guess-1===missing && c.bw>w*.28 && c.bh>h*.075 &&
+                  c.aspect>1.35 && c.cy>.17 && c.cy<.64)
+      .sort((a,b)=>b.aspect-a.aspect);
+    if(candidates.length){
+      const c=candidates[0],b=c.b,partsCount=c.guess;
+      const cuts=[b.x0-1];
+      // Find the clearest vertical transparent valleys near the expected cell boundaries.
+      // This preserves each head better than blindly dividing the whole row into equal widths.
+      for(let j=1;j<partsCount;j++){
+        const nominal=b.x0+c.bw*j/partsCount;
+        const radius=Math.max(2,Math.floor(c.bw*.10/partsCount));
+        const lo=Math.max(b.x0+1,Math.floor(nominal-radius));
+        const hi=Math.min(b.x1-1,Math.ceil(nominal+radius));
+        const y0=Math.max(b.y0,Math.floor(b.y0+c.bh*.08));
+        const y1=Math.min(b.y1,Math.ceil(b.y1-c.bh*.08));
+        let bestX=Math.max(lo,Math.min(hi,Math.round(nominal))),bestScore=Infinity;
+        for(let x=lo;x<=hi;x++){
+          let occupied=0;
+          for(let y=y0;y<=y1;y++)if(lab[y*w+x]===b.id)occupied++;
+          const score=occupied/Math.max(1,y1-y0+1);
+          if(score<bestScore){bestScore=score;bestX=x;}
+        }
+        cuts.push(bestX);
+      }
+      cuts.push(b.x1+1);
+      const slices=[];
+      for(let j=0;j<partsCount;j++){
+        const x0=cuts[j]+1,x1=cuts[j+1];
+        if(x1-x0+1<c.bw*.11){slices.length=0;break;}
+        slices.push({...b,x0,x1,cropClipX0:x0,cropClipX1:x1,n:b.n/partsCount,recoveredExpressionSplit:true,splitGroup:'humanoid-expression-row'});
+      }
+      if(slices.length===partsCount){
+        sorted=sorted.flatMap(item=>item.id===b.id?slices:[item]);
+        nParts=sorted.length;
+      }
+    }
+  }
+  if(nParts >= 22 && nParts < 27){
+    const missing = 27-nParts;
+    const wideCandidates = sorted.map(b=>{
+      const bw=b.x1-b.x0+1, bh=b.y1-b.y0+1;
+      return { b, bw, bh, aspect:bw/Math.max(1,bh) };
+    }).filter(c=>c.bw > c.bh*1.55 && c.bh >= h*0.07)
+      .sort((a,b)=>b.aspect-a.aspect);
+    for(const c of wideCandidates){
+      const currentMissing = 27-sorted.length;
+      if(currentMissing<=0) break;
+      const guess = Math.max(2, Math.min(4, Math.round(c.bw/(c.bh*0.72))));
+      // Do not over-count: the split must explain exactly the remaining missing items.
+      if(guess-1 !== currentMissing) continue;
+      const parts=[];
+      for(let j=0;j<guess;j++){
+        const x0=Math.floor(c.b.x0+j*c.bw/guess);
+        const x1=j===guess-1?c.b.x1:Math.floor(c.b.x0+(j+1)*c.bw/guess)-1;
+        if(x1<x0) continue;
+        parts.push({...c.b, x0, x1, cropClipX0:x0, cropClipX1:x1, n:c.b.n/guess, recoveredSplit:true});
+      }
+      if(parts.length===guess){
+        sorted=sorted.flatMap(b=>b.id===c.b.id?parts:[b]);
+      }
+    }
+    nParts=sorted.length;
+  }
+  // New humanoid uploads use the anatomy-position 14-part layout (with legacy 12/27 formats kept
+  // for compatibility). New animal and bird uploads use the corresponding species-specific 14-part layout.
+  const type = modelType || 'humanoid';
+  let layout, COLS, layoutMode = 'legacy27', ordered = null;
+  const top = sorted.slice(0, nParts);
+  if(isWingedHumanoidType(type) && nParts===16){
+    layout=SHEET_KEYS_WINGED_HUMANOID_16;
+    ordered=sheetOrderWingedHumanoid16(top,w,h);
+    if(ordered)layoutMode='winged16';
+    else return {error:'Could not recognise the 16-part '+twoSheetTypeName(type)+' sheet. Keep the standard 14 humanoid body parts and add only two separate, balanced back wings at shoulder-blade height.',detectedRegions:nParts};
+  }
+  else if(isMythicModelType(type) && nParts >= 9 && nParts <= 11){
+    // v347: read by body position (centre column = head, body, tail pieces; left/right columns = arm pieces). A tail drawn in
+    // 1 or 2 pieces (9 or 10 sheet pieces) is sliced into the three rig segments. Legacy 4x3 grid sheets (11 pieces) still work.
+    layout = SHEET_KEYS_MYTHIC_BASE; COLS = 4; layoutMode = 'mythic11';
+    ordered = sheetOrderMythicAnatomy(top, w, h);
+    if(!ordered && !(nParts === 11 && sheetLooksLikeRegularPartGrid(top,w,h))){
+      return { error:'Found '+nParts+' pieces but could not match them to the '+twoSheetTypeName(type)+' layout. Use the '+twoSheetTypeName(type)+' prompt: the head and body in the centre, the three tail pieces stacked under the body, and the left and right arms (upper arm, forearm, hand from top to bottom) in the outer columns, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if(type === 'humanoid' && nParts === 12){
+    layout = SHEET_KEYS_12;
+    const isGrid = sheetLooksLikeRegularPartGrid(top,w,h);
+    // Only run the anatomy/merged-region heuristics on a genuine standing-character layout.
+    // A grid with 12 components must keep its row-major part order.
+    const recovered14 = !isGrid ? sheetRecoverAnatomy14From12(top, w, h, m) : null;
+    if(recovered14){ layout = SHEET_KEYS_14; ordered = recovered14; layoutMode = 'anatomy14'; }
+    else {
+      const strictAnatomy = !isGrid && sheetIsAnatomy12(top, w, h) ? sheetOrderAnatomy12(top, w, h) : null;
+      const anatomy = !isGrid ? (strictAnatomy || sheetOrderAnatomy12ByPosition(top,w,h)) : null;
+      if(anatomy){ ordered = anatomy; layoutMode = 'anatomy12'; }
+      else { COLS = 6; layoutMode = 'legacy12'; }
+    }
+  }else if(type === 'humanoid' && nParts === 14){
+    layout = SHEET_KEYS_14;
+    const isGrid = sheetLooksLikeRegularPartGrid(top,w,h);
+    const strictAnatomy = !isGrid ? sheetOrderAnatomy14(top, w, h) : null;
+    const anatomy = !isGrid ? (strictAnatomy || sheetOrderAnatomy14ByPosition(top,w,h)) : null;
+    if(anatomy){ ordered = anatomy; layoutMode = 'anatomy14'; }
+    else { COLS = 4; layoutMode = 'base14'; }
+  }
+  else if(type === 'humanoid' && beastFlag && nParts === 15){
+    layout = SHEET_KEYS_BEAST_15;
+    ordered = sheetOrderBeastAnatomy15(top, w, h);
+    if(ordered) layoutMode = 'beast15';
+    else return { error:'Could not recognise the 15-piece beast-man layout. Use the beast-man prompt: head at the top centre, the jacket body below it, two upper arms at the sides, forearms and hands, thighs, shins and shoes, plus ONE separate tail piece in an empty area, all separated by transparent gaps.', detectedRegions:nParts };
+  }
+  else if(type === 'bird' && nParts === 7){
+    layout = SHEET_KEYS_BIRD_7; COLS = 4; layoutMode = 'bird7';
+  }
+  else if(type === 'bird' && nParts === 13){
+    layout = SHEET_KEYS_BIRD_13;
+    ordered = sheetOrderBirdAnatomy13(top, w, h);
+    if(ordered) layoutMode = 'bird13';
+    else {
+      return { error:'Could not recognise the 13-piece bird layout. Use the bird prompt: head and wing-less body in the centre, one separate tail at the rear/left, four leg pieces on the left, six wing pieces on the right, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if((type === 'animal' || type === 'bird') && nParts === 15){
+    layout = SHEET_KEYS_SPECIES_15;
+    ordered = sheetOrderSpeciesAnatomy15(top, w, h, type);
+    if(ordered) layoutMode = 'species15';
+    else {
+      return { error:'Could not recognise the 15-piece '+type+' anatomy layout. Use the matching prompt: head/front at the right, horizontal body in the centre, one separate tail at the rear/left, six front-leg/wing pieces and six hind-leg/foot pieces, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if((type === 'animal' || type === 'bird') && nParts === 14){
+    layout = SHEET_KEYS_14;
+    ordered = sheetOrderSpeciesAnatomy14(top, w, h, type);
+    if(ordered) layoutMode = 'species14';
+    else {
+      return { error:'Could not recognise the 14-piece legacy '+type+' anatomy layout. Existing 14-piece uploads are supported; new sheets should use the 15-piece prompt with a separate tail.', detectedRegions:nParts };
+    }
+  }
+  else if(type === 'bird-variants' && nParts === 7){
+    layout = SHEET_KEYS_BIRD_VARIANTS_7; COLS = 3; layoutMode = 'birdVariants7';
+  }
+  else if(type === 'bird-variants' && nParts === 6){
+    layout = SHEET_KEYS_BIRD_VARIANTS_6; COLS = 3; layoutMode = 'birdVariants6';
+  }
+  else if(type === 'humanoid-variants' && nParts === 19){
+    layout = SHEET_KEYS_HUMANOID_VARIANTS_19; COLS = 4; layoutMode = 'humanoidVariants19';
+  }
+  else if(type === 'humanoid-variants' && nParts === 17){
+    layout = SHEET_KEYS_HUMANOID_VARIANTS_17; COLS = 4; layoutMode = 'humanoidVariants17';
+  }
+  else if(type === 'humanoid-variants' && nParts === 16){
+    layout = SHEET_KEYS_VARIANTS_16; COLS = 4; layoutMode = 'variants16';
+  }
+  else if(type === 'humanoid-variants' && nParts === 13){
+    layout = SHEET_KEYS_VARIANTS_13; COLS = 3; layoutMode = 'variants13';
+  }
+  else if(type === 'animal-variants' && nParts === 11){
+    layout = SHEET_KEYS_ANIMAL_VARIANTS; COLS = 3; layoutMode = 'animalVariants11';
+    ordered = sheetOrderAnimalFaceKit11(top, d, W, H, lab, w, h, cx, cy);
+    if(!ordered) return {error:'Found 11 regions, but they do not match the locked animal face-kit structure. Use exactly 3 columns × 5 rows: 3 expression heads; happy head + inner mouth; 2 open eyes; 2 closed eyes; 2 eyebrows. Keep all four designated empty cells empty.', detectedRegions:nParts};
+  }
+  else if(type === 'species-variants' && nParts === 9){
+    layout = SHEET_KEYS_SPECIES_VARIANTS; COLS = 3; layoutMode = 'speciesVariants9';
+  }
+  else if(nParts === 27){ layout = SHEET_KEYS_27; COLS = 6; layoutMode = 'legacy27'; }
+  else {
+    const err = { error: isWingedHumanoidType(type)
+      ? 'Found '+nParts+' separate regions. A '+twoSheetTypeName(type)+' base sheet must contain exactly 16 isolated pieces: the standard 14-part humanoid body plus two complete back wings.'
+      : isMythicModelType(type)
+      ? 'Found '+nParts+' separate regions. A '+twoSheetTypeName(type)+' base sheet needs 11 isolated pieces: head, body, two upper arms, two forearms, two hands and a 3-piece tail (a tail drawn in 1 or 2 pieces is also accepted), laid out around one upright figure with a clear transparent gap around every piece. Copy the new '+twoSheetTypeName(type)+' prompt and make the sheet again.'
+      : (type === 'humanoid' && beastFlag)
+      ? 'Found '+nParts+' separate regions. The beast-man base sheet must contain exactly 15 isolated pieces: head, jacket/outfit body, ONE separate tail, two upper arms, two forearms, two hands, two thighs, two shins and two shoes. Use a real transparent background and leave a clear gap around every piece, especially the tail.'
+      : type === 'humanoid-variants'
+      ? 'Found '+nParts+' separate regions. The humanoid face/hand sheet must contain exactly 19 pieces: two open eyes, two eyebrows, four hollow-mouth expression heads, one inner-mouth layer, two closed eyes and eight paired hand gestures. Legacy 17/16/13-part sheets remain supported.'
+      : type === 'animal-variants'
+        ? 'Found '+nParts+' separate regions. The animal face-kit sheet must contain exactly 11 isolated pieces in a locked 3-column by 5-row layout: four eye-free expression heads, one inner mouth, two open eyes, two closed-eye parts and two eyebrows.'
+      : type === 'species-variants'
+        ? 'Found '+nParts+' separate regions. The animal/bird face sheet must contain exactly 9 isolated pieces in a 3-column by 3-row layout: blink head, open-eye head, closed mouth, open mouth, four emotion heads, and a mouth/beak holding-grip pose.'
+        : 'Found '+nParts+' separate regions. The current humanoid workflow expects exactly 27 isolated parts (four rows of six plus a final row of three), including facial expressions and hand gestures. Use a real transparent background and leave clear gaps between every part. Older 12/14-part uploads remain supported for compatibility.', detectedRegions:nParts };
+    const bx0 = sorted.length ? Math.min(...sorted.map(b=>b.x0)) : 0;
+    const by0 = sorted.length ? Math.min(...sorted.map(b=>b.y0)) : 0;
+    const bx1 = sorted.length ? Math.max(...sorted.map(b=>b.x1)) : 0;
+    const by1 = sorted.length ? Math.max(...sorted.map(b=>b.y1)) : 0;
+    const looksLikeUprightHumanoid = sorted.length > 0 && (by1-by0+1) > (bx1-bx0+1)*1.18;
+    if(type === 'humanoid' && !beastFlag && nParts > 0 && nParts < 14 && looksLikeUprightHumanoid){
+      // Keep the background-removed pixels. In upright cut-out images, sleeves, wrists or the hip
+      // seam may touch, so connected-component counting under-counts the intended parts. Switch to
+      // the whole-image rig preview rather than rejecting the upload; wide/legacy grids still use
+      // the regular 12/14/27-part parser paths above.
+      g.putImageData(id,0,0);
+      err.fallbackAutoRig = true;
+      err.cleanedCanvas = cv;
+    }
+    return err;
+  }
+  const need = layout.length;
+  if(!ordered){
+    const byTop = top.slice().sort((a,b)=>(((a.y0+a.y1)-(b.y0+b.y1)) || a.x0-b.x0));
+    ordered = [];
+    if(layoutMode==='humanoidVariants17' || layoutMode==='humanoidVariants19'){
+      // Its 4×5 sheet is NOT a uniform grid: row 3 holds only the inner mouth (17-part) or the inner mouth + two closed eyes (19-part).
+      // Sort by the component's top edge for this layout so the unusually tall mouth crop cannot
+      // drift into the following hand row merely because its centre is lower.
+      const byRowTop=top.slice().sort((a,b)=>(a.y0-b.y0)||(a.x0-b.x0));
+      let offset=0; (layoutMode==='humanoidVariants19'?[4,4,3,4,4]:[4,4,1,4,4]).forEach(count=>{
+        ordered.push(...byRowTop.slice(offset,offset+count).sort((a,b)=>a.x0-b.x0)); offset+=count;
+      });
+    }else{
+      const rows = Math.ceil(layout.length/COLS);
+      for(let r=0;r<rows;r++) ordered.push(...byTop.slice(r*COLS,(r+1)*COLS).sort((a,b)=>a.x0-b.x0));
+    }
+  }
+  const arts = {};
+  ordered.forEach((b,i)=>{
+    const key = layout[i], pad = Math.ceil(R/s)+1;
+    const x0 = Math.max(0, Math.floor(b.x0/s)-pad), y0 = Math.max(0, Math.floor(b.y0/s)-pad), x1 = Math.min(W-1, Math.ceil((b.x1+1)/s)+pad), y1 = Math.min(H-1, Math.ceil((b.y1+1)/s)+pad);
+    const cw = x1-x0+1, ch = y1-y0+1, out = g.createImageData(cw, ch); let mnx = cw, mny = ch, mxx = -1, mxy = -1;
+    for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+      const si = ((y0+y)*W+x0+x)*4, gx=cx(x0+x), gy=cy(y0+y);
+      if(d[si+3]<=30 || lab[gy*w+gx]!==b.id ||
+         (b.cropClipX0!=null && (gx<b.cropClipX0 || gx>b.cropClipX1)) ||
+         (b.cropClipY0!=null && gy<b.cropClipY0) || (b.cropClipY1!=null && gy>b.cropClipY1)) continue;
+      // In a fused head/torso crop, shoulder-blue pixels can extend slightly above the neckline.
+      // Keep skin/neck pixels with the head, but leave those blue shirt pixels to the Body part.
+      if(b.cropExcludeBlueFrom!=null && gy>=b.cropExcludeBlueFrom){
+        const rr=d[si], gg=d[si+1], bb=d[si+2];
+        if(bb>rr*1.08 && bb>=gg*.99 && bb-gg>8) continue;
+      }
+      const di = (y*cw+x)*4; out.data[di]=d[si]; out.data[di+1]=d[si+1]; out.data[di+2]=d[si+2]; out.data[di+3]=d[si+3];
+      mnx = Math.min(mnx,x); mxx = Math.max(mxx,x); mny = Math.min(mny,y); mxy = Math.max(mxy,y);
+    }
+    let c = document.createElement('canvas'); c.width = mxx-mnx+1; c.height = mxy-mny+1; c.getContext('2d').putImageData(out, -mnx, -mny);
+    // Preserve every source pixel in recovered torso art, including the original waist/pants-start shape.
+    const artModelType=modelType==='animal-variants' ? 'animal' : modelType==='species-variants' ? ((twoSheetUploadState&&twoSheetUploadState.type==='bird')?'bird':'animal') : (modelType||'humanoid');
+    const art=edMakeArt(c, key, artModelType);
+    // v347: a lower-body piece that was sliced from one drawn tail is cut exactly at its joint, so its pivot sits on the top edge
+    // and its parent attaches at the matching bottom edge with no overlap (see edDefaultLayout).
+    if(b.mythicSplit){ art.mythicSplit=true; art.splitGroup=b.splitGroup; art.dpx=art.topEdgeX; art.dpy=0; }
+    // The fused 14-part recovery intentionally assigns the complete throat + shirt + original
+    // pants-start section to Body, while Head contains only hair/face. Preserve that meaning for
+    // the initial assembly proportions below without changing the artwork itself.
+    if(b.recoveredSplit && (modelType || 'humanoid') === 'humanoid'){
+      if(key==='head') art.recoveredHeadWithoutNeck = true;
+      if(key==='torso') art.bodyIncludesNeckAndWaist = true;
+    }
+    arts[key] = art;
+  });
+  return { arts, layout: layoutMode };
+}
+// Down-samples a part's alpha silhouette onto a small fixed grid so two parts of slightly different
+// pixel sizes can still be compared shape-for-shape.
+function edSiloGrid(art, gw, gh){
+  const g = new Float32Array(gw*gh);
+  for(let gy=0; gy<gh; gy++) for(let gx=0; gx<gw; gx++){
+    const x0 = Math.floor(gx*art.w/gw), x1 = Math.max(x0+1, Math.floor((gx+1)*art.w/gw));
+    const y0 = Math.floor(gy*art.h/gh), y1 = Math.max(y0+1, Math.floor((gy+1)*art.h/gh));
+    let s = 0, n = 0;
+    for(let y=y0; y<y1; y++) for(let x=x0; x<x1; x++){ s += art.alpha[y*art.w+x]; n++; }
+    g[gy*gw+gx] = n ? s/n : 0;
+  }
+  return g;
+}
+// True when the RIGHT-side piece looks like the same drawing as the LEFT-side piece just pasted
+// again (same orientation) rather than a genuine mirror image of it -- the classic "both hands drawn
+// with the thumb on the same side" mistake that makes one arm look anatomically backwards. Compares
+// silhouettes only (not colour/shading), both as-is and with the right side flipped; if flipping would
+// clearly line the two shapes up better, the art was never mirrored to begin with.
+function edLooksUnmirrored(artL, artR){
+  const gw = 16, gh = 28, gL = edSiloGrid(artL, gw, gh), gR = edSiloGrid(artR, gw, gh), gRf = new Float32Array(gw*gh);
+  for(let y=0; y<gh; y++) for(let x=0; x<gw; x++) gRf[y*gw+x] = gR[y*gw+(gw-1-x)];
+  const diff = (a,b)=>{ let s = 0; for(let i=0;i<gw*gh;i++) s += Math.abs(a[i]-b[i]); return s; };
+  const direct = diff(gL, gR), flipped = diff(gL, gRf);
+  // Only act when the pair is clearly a near-duplicate in the first place, and mirroring it would
+  // unambiguously line the shapes up better -- avoids "fixing" two legitimately different poses.
+  return direct < gw*gh*0.06 && direct < flipped*0.7;
+}
+// Default rest layout: pelvis at the origin, every part attached to its parent at a natural joint,
+// with the forearm's sleeve tucked under the upper arm's cuff so the two pieces read as one arm.
+function edDefaultLayout(A, view, modelType){
+  const side = view === 'side', species = modelType === 'animal' || modelType === 'bird', mythic=isMythicModelType(modelType);
+  const T = A.torso, base = a=>({ pvx:a.dpx, pvy:a.dpy, s:1, wx:1, hy:1, fx:1, fy:1, rot:0 }), st = {};
+  st.torso = { ax:0, ay:0, ...base(T) };
+  if(isWingedHumanoidType(modelType)&&A.wingL&&A.wingR){
+    st.wingL={ax:T.w*.29,ay:T.h*.20,pvx:A.wingL.w*.94,pvy:A.wingL.h*.52,s:1,wx:1,hy:1,fx:1,fy:1,rot:0};
+    st.wingR={ax:T.w*.71,ay:T.h*.20,pvx:A.wingR.w*.06,pvy:A.wingR.h*.52,s:1,wx:1,hy:1,fx:1,fy:1,rot:0};
+  }
+  if(mythic && A.tail && A.tail_mid && A.tail_tip){
+    st.tail={ax:T.w*.5,ay:T.h*.9,...base(A.tail)};
+    // v347: attach each segment where the previous one REALLY ends (measured edge centre) instead of assuming a straight, centred
+    // tail; segments sliced from one drawn tail meet exactly at the cut line (no overlap).
+    const tailLink=(P,C)=>{const exact=!!(C.mythicSplit&&P.mythicSplit&&C.splitGroup!=null&&C.splitGroup===P.splitGroup);return {ax:exact?P.botEdgeX:(Number.isFinite(P.botCx)?P.botCx:P.w*.5),ay:exact?P.h:P.h*.94};};
+    st.tail_mid={...tailLink(A.tail,A.tail_mid),...base(A.tail_mid)};
+    st.tail_tip={...tailLink(A.tail_mid,A.tail_tip),...base(A.tail_tip)};
+  }else if(species && A.tail) st.tail = { ax:T.w*0.035, ay:T.h*0.52, ...base(A.tail) };
+  else if(!species && A.tail) st.tail = { ax:T.w*0.44, ay:T.h*0.84, ...base(A.tail) };   // v344 beast man: tail root at the lower back, hanging down behind the legs
+  st.head = { ax:species ? T.w*0.86 : T.dpx, ay:species ? T.h*0.9 : (T.bodyIncludesNeckAndWaist ? 0.025*T.h : 0.10*T.h), ...base(A.head) };
+  const headFix = A.head.h > 0 ? (species ? Math.max(0.72, Math.min(1.35, T.h/A.head.h)) : T.bodyIncludesNeckAndWaist ? Math.max(0.85, Math.min(1.15, (T.h/1.85)/A.head.h)) : Math.max(0.6, Math.min(1.6, (T.h/1.2)/A.head.h))) : 1;
+  st.head.s = headFix;
+  const birdCompact = modelType==='bird' && SHEET_KEYS_BIRD_7.every(k=>!!A[k]) && !A.armL_lower && !A.armR_lower && !A.legL_lower && !A.legR_lower;
+  const mouthFitScale = part => part ? Math.max(0.12,Math.min(1,
+    (A.head.w*(modelType==='animal'?0.46:modelType==='bird'?0.44:0.34))/Math.max(1,part.w),
+    (A.head.h*(modelType==='animal'?0.28:modelType==='bird'?0.26:0.18))/Math.max(1,part.h))) : 1;
+  const mouthAx = modelType === 'bird' ? A.head.w*0.82 : modelType === 'animal' ? A.head.w*0.70 : A.head.w*0.5;
+  const mouthAy = modelType === 'bird' ? A.head.h*0.64 : modelType === 'animal' ? A.head.h*0.82 : A.head.h*0.88;
+  if(A.mouth_closed) st.mouth_closed = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_closed), s:mouthFitScale(A.mouth_closed) };
+  if(A.mouth_open) st.mouth_open = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_open), s:mouthFitScale(A.mouth_open) };
+  if(A.mouth_hold) st.mouth_hold = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_hold), s:mouthFitScale(A.mouth_hold) };
+  if(modelType === 'animal' && SHEET_FACE_KIT_KEYS.some(k=>A[k])){
+    const emoK = ['head_sad','head_angry','head_shock','head_laugh'].filter(k=>A[k] && A[k].h > 0);
+    const vr = emoK.length ? Math.max(.65,Math.min(1.7,emoK.reduce((t,k)=>t+A.head.h/A[k].h,0)/emoK.length)) : 1;
+    const put = (k,fx,fy)=>{ if(A[k]) st[k] = { ax:A.head.w*fx, ay:A.head.h*fy, ...base(A[k]), s:headFix*vr }; };
+    put('mouth_inner',.66,.86); put('eye_L',.46,.63); put('eye_R',.77,.63); put('eye_closed_L',.46,.63); put('eye_closed_R',.77,.63); put('brow_L',.46,.50); put('brow_R',.77,.50);
+  }
+  if((modelType==='humanoid'||mythic||isWingedHumanoidType(modelType)) && SHEET_HUMANOID_FACE_KIT_KEYS.some(k=>A[k])){
+    const emoK=['head_sad','head_angry','head_shock','head_laugh'].filter(k=>A[k]&&A[k].h>0);
+    const vr=emoK.length?Math.max(.72,Math.min(1.35,emoK.reduce((t,k)=>t+A.head.h/A[k].h,0)/emoK.length)):1;
+    const put=(k,fx,fy,scale=vr)=>{if(A[k])st[k]={ax:A.head.w*fx,ay:A.head.h*fy,...base(A[k]),s:headFix*scale};};
+    put('eye_L',.365,.455);put('eye_R',.655,.455);put('eye_closed_L',.365,.455);put('eye_closed_R',.655,.455);put('brow_L',.365,.315);put('brow_R',.655,.315);put('mouth_inner',.51,.77,vr);
+  }
+  if(modelType==='bird' && A.bird_eye && A.beak_closed && A.bird_brow){
+    const put=(key,fx,fy,maxW,maxH)=>{const a=A[key];if(!a)return;const fit=Math.min(1,(A.head.w*maxW)/Math.max(1,a.w),(A.head.h*maxH)/Math.max(1,a.h));st[key]={ax:A.head.w*fx,ay:A.head.h*fy,...base(a),s:headFix*fit};};
+    put('bird_eye',.69,.43,.25,.24);put('bird_eye_closed',.69,.43,.25,.24);put('bird_brow',.68,.29,.27,.13);put('beak_closed',.86,.66,.48,.32);
+    if(A.beak_open){const a=A.beak_open, b=st.beak_closed;st.beak_open={ax:b.ax,ay:b.ay,...base(a),s:b.s};}
+  }
+  [['L',-1],['R',1]].forEach(([S,sg])=>{
+    const U=A['arm'+S+'_upper'],F=A['arm'+S+'_lower'],Ha=A['hand'+S],Th=A['leg'+S+'_upper'],Sh=A['leg'+S+'_lower'];
+    const armX=modelType==='animal'?T.w*(S==='L'?.75:.70):modelType==='bird'?T.w*(S==='L'?.56:.48):(side?T.w/2+sg*.18*T.w:T.w/2+sg*(T.w/2-(U?U.w*.42:0)+T.w*.045));
+    const armY=modelType==='animal'?T.h*.78:modelType==='bird'?T.h*.24:.17*T.h;
+    if(U)st['arm'+S+'_upper']={ax:armX,ay:armY,...base(U)};
+    if(F&&U){const overlap=Number(F.skinTop)>=.12?F.skinTop*F.h:(Number(F.skinTop)>=0?.03*F.h:.25*F.h);st['arm'+S+'_lower']={ax:U.botCx,ay:U.h-overlap,...base(F)};}
+    if(Ha&&F)st['hand'+S]={ax:F.botCx,ay:F.h-.08*F.h,...base(Ha)};
+    const legX=modelType==='animal'?T.w*(S==='L'?.28:.23):modelType==='bird'?T.w*(S==='L'?.54:.46):(side?T.w/2-sg*.14*(Th?Th.w:0):T.w/2+sg*(Th?Th.w:0)*.49);
+    const legY=species?T.h*.82:.87*T.h;
+    if(Th)st['leg'+S+'_upper']={ax:legX,ay:legY,...base(Th)};
+    if(Sh&&Th){const longTrouser=Th.h>T.h*1.15;st['leg'+S+'_lower']={ax:Th.botCx,ay:(longTrouser?.94:.86)*Th.h,...base(Sh)};}
+    const shoe=A['shoe'+S];
+    if(shoe&&Sh)st['shoe'+S]={ax:Sh.botCx,ay:Sh.h*.94,...base(shoe)};
+  });
+  Object.keys(SHEET_ALT_OF).forEach(a=>{
+    const b=SHEET_ALT_OF[a];
+    if(A[a]&&st[b]&&!st[a]&&b!=='mouth_closed'){
+      st[a]={ax:st[b].ax,ay:st[b].ay,...base(A[a])};
+      if(b==='head'){const variantRatio=A[a].h>0?A.head.h/A[a].h:1;st[a].s=headFix*Math.max(.65,Math.min(1.7,variantRatio));}
+    }
+  });
+  if(modelType==='bird'){
+    [['L','wingL_fly','armL_upper'],['R','wingR_fly','armR_upper']].forEach(([sideKey,variant,baseKey])=>{
+      if(st[variant]&&st[baseKey]){st[variant]={...st[variant],ax:st[baseKey].ax,ay:st[baseKey].ay,s:st[baseKey].s,wx:st[baseKey].wx,hy:st[baseKey].hy,fx:st[baseKey].fx,fy:st[baseKey].fy,rot:st[baseKey].rot};}
+    });
+  }
+  ['handL','handR','handL_fist','handR_fist','handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'].forEach(k=>{if(st[k])st[k].s*=.92;});
+  if(!species){if(st.handL_point)st.handL_point.rot+=90;if(st.handR_point)st.handR_point.rot-=90;}
+  if(!side)SHEET_FLIP_PAIRS.forEach(([lk,rk])=>{if(A[lk]&&A[rk]&&st[lk]&&st[rk]&&edLooksUnmirrored(A[lk],A[rk]))st[rk].fx=-1;});
+  return st;
+}
+
+/* ---------- 2) editor state + geometry ---------- */
+/* EDIT STANCE: every model opens in the editor with the same T-pose shown in the joint-overlay reference
+   (arms straight out to the sides, legs a little apart). The stance is an offset over each limb's own rotation
+   (st.rot stays 0 = "no change"). When Done is pressed, edCompile() keeps this stance as the saved default rig pose
+   so the model lines up with the visible joints in the main video editor as well. Values are degrees; L parts are on the viewer's left. */
+const ED_STANCE = { armL_upper:90, armR_upper:-90, legL_upper:8, legR_upper:-8 };
+// The T-pose display stance is for front-facing sheets only. In side view every limb is shown hanging straight down.
+function edStanceOf(k){ return ED.view === 'side' ? 0 : (ED_STANCE[k]||0); }
+const ED = { view:'front', facing:1, modelType:'humanoid', open:false, arts:{}, assign:{}, st:{}, order:[], sel:'torso', cam:{z:1,x:0,y:0}, undo:[], redo:[], bones:true, lock:false, mode:'size', kind:'new', editIdx:null, name:'Model', init:null, cv:null, g:null, dpr:1, ready:false, extraVariants:{headParts:[],expressions:[],gestures:[]}, pendingVariantType:null };
+const edArt = k=>ED.arts[ED.assign[k]];
+// World (figure-space) placement of every part: { x, y (pivot), rot (rad, incl. parents), sx, sy (signed scale) }.
+function edWorld(rest){
+  const W = {};
+  const go = k=>{
+    if(W[k] !== undefined) return W[k];
+    const st = ED.st[k];
+    if(!st) return W[k] = null;   // this model doesn't have this (optional) part -- skip it, don't crash
+    const p = SHEET_PARENT[k], sx = st.s*st.wx*st.fx, sy = st.s*st.hy*st.fy;
+    let x, y, rot = (st.rot + (rest ? 0 : edStanceOf(k)))*Math.PI/180;
+    if(!p){ x = st.ax; y = st.ay; }
+    else {
+      const P = go(p); if(!P) return W[k] = null;
+      const ps = ED.st[p], c = Math.cos(P.rot), s = Math.sin(P.rot), vx = (st.ax-ps.pvx)*P.sx, vy = (st.ay-ps.pvy)*P.sy;
+      x = P.x + vx*c - vy*s; y = P.y + vx*s + vy*c; rot += P.rot;
+    }
+    return W[k] = { x, y, rot, sx, sy };
+  };
+  SHEET_KEYS.forEach(go);
+  return W;
+}
+function edL2W(W, k, lx, ly){ const w = W[k], st = ED.st[k], vx = (lx-st.pvx)*w.sx, vy = (ly-st.pvy)*w.sy, c = Math.cos(w.rot), s = Math.sin(w.rot); return { x:w.x+vx*c-vy*s, y:w.y+vx*s+vy*c }; }
+function edW2L(W, k, px, py){ const w = W[k], st = ED.st[k], dx = px-w.x, dy = py-w.y, c = Math.cos(w.rot), s = Math.sin(w.rot); return { x:st.pvx + (dx*c+dy*s)/w.sx, y:st.pvy + (-dx*s+dy*c)/w.sy }; }
+// Moves part k so its pivot lands on world point (x,y) by rewriting its attach point (children follow automatically).
+function edSetPos(k, x, y){
+  const st = ED.st[k], p = SHEET_PARENT[k];
+  if(!p){ st.ax = x; st.ay = y; return; }
+  const W = edWorld(), P = W[p], ps = ED.st[p], c = Math.cos(P.rot), s = Math.sin(P.rot), dx = x-P.x, dy = y-P.y;
+  st.ax = ps.pvx + (dx*c+dy*s)/P.sx; st.ay = ps.pvy + (-dx*s+dy*c)/P.sy;
+}
+// LOCK MODE helper: the bone that ends at joint `k` belongs to k's parent part. Rotates + stretches that parent part so the
+// joint lands on world point (tx,ty); k and everything below it are carried along by the hierarchy.
+function edBoneDrive(k, tx, ty){
+  if(edIsLocked(SHEET_PARENT[k]) || edIsLocked(k)) return;   // v328: never rotate/stretch a locked part
+  const p = SHEET_PARENT[k], ps = ED.st[p], cs = ED.st[k], stance = edStanceOf(p), P = edWorld()[p];
+  const dx = cs.ax-ps.pvx, dy = cs.ay-ps.pvy, Tx = tx-P.x, Ty = ty-P.y, sxv = dx*P.sx;
+  let sy = P.sy;
+  if(Math.abs(dy) > 1){
+    const d2 = Tx*Tx+Ty*Ty-sxv*sxv;
+    if(d2 > 0){ ps.hy = Math.max(0.2, Math.min(4, Math.sqrt(d2)/(Math.abs(dy)*ps.s))); sy = ps.s*ps.hy*ps.fy; }
+  }
+  const world = Math.atan2(Ty,Tx) - Math.atan2(dy*sy, sxv), inherited = P.rot - (ps.rot+stance)*Math.PI/180;
+  let r = (world-inherited)*180/Math.PI - stance; ps.rot = ((r+180)%360+360)%360-180;
+}
+// The tail bone runs from the tail root (the pivot dot) to the far end of the tail piece. Its tip is a real,
+// draggable joint: dragging it swings the tail around the root and stretches/shrinks it to follow the finger.
+// v344: animals/birds have a sideways tail (tip at the left-middle edge); a beast man has an upright tail (tip at the bottom).
+function edHasTail(){ return isMythicModelType(ED.modelType) || ED.modelType==='animal' || ED.modelType==='bird' || (ED.modelType==='humanoid' && !!ED.beast && !!edArt('tail')); }
+function edTailTipLocal(a){ return isMythicModelType(ED.modelType) ? {x:(Number.isFinite(a.botCx)?a.botCx:a.w*.5),y:a.h*.96} : ED.modelType==='humanoid' ? { x:(Number.isFinite(a.botCx)?a.botCx:a.w/2), y:a.h*0.96 } : { x:0, y:a.h*0.5 }; }
+function edTailTip(W){
+  if(!edHasTail()) return null;
+  if(isMythicModelType(ED.modelType)){if(!W||!W.tail_tip||!ED.st.tail_tip||!edArt('tail_tip')||!edKeyVisible('tail_tip'))return null;const tl=edTailTipLocal(edArt('tail_tip'));return edL2W(W,'tail_tip',tl.x,tl.y);}
+  if(!W || !W.tail || !ED.st.tail || !edArt('tail') || !edKeyVisible('tail')) return null;
+  const tl=edTailTipLocal(edArt('tail'));
+  return edL2W(W,'tail',tl.x,tl.y);
+}
+function edBoneSegs(W){
+  const pv=k=>W[k]?({x:W[k].x,y:W[k].y}):null;
+  const far=(k,lx,ly)=>W[k]&&ED.st[k]?edL2W(W,k,lx,ly):null;
+  const segs=[],st=ED.st,add=(a,b)=>{if(a&&b&&Number.isFinite(a.x)&&Number.isFinite(a.y)&&Number.isFinite(b.x)&&Number.isFinite(b.y))segs.push([a,b]);};
+  if(W.torso&&W.head){
+    const pelvis=pv('torso'),neck=pv('head'),chest={x:pelvis.x+(neck.x-pelvis.x)*.86,y:pelvis.y+(neck.y-pelvis.y)*.86};
+    add(pelvis,neck);add(neck,far('head',st.head.pvx,0));
+    if(isMythicModelType(ED.modelType)&&W.tail&&W.tail_mid&&W.tail_tip&&st.tail&&st.tail_mid&&st.tail_tip){
+      const a=edArt('tail_tip'),tl=edTailTipLocal(a);add(pv('tail'),pv('tail_mid'));add(pv('tail_mid'),pv('tail_tip'));add(pv('tail_tip'),far('tail_tip',tl.x,tl.y));
+    }else if(W.tail&&st.tail&&edArt('tail')){const tl=edTailTipLocal(edArt('tail'));add(pv('tail'),far('tail',tl.x,tl.y));}
+    if(isWingedHumanoidType(ED.modelType)){
+      if(W.wingL&&st.wingL&&edArt('wingL'))add(pv('wingL'),far('wingL',0,st.wingL.pvy));
+      if(W.wingR&&st.wingR&&edArt('wingR'))add(pv('wingR'),far('wingR',edArt('wingR').w,st.wingR.pvy));
+    }
+    ['L','R'].forEach(S=>{
+      const up='arm'+S+'_upper',lo='arm'+S+'_lower',hand='hand'+S,th='leg'+S+'_upper',sh='leg'+S+'_lower',shoe='shoe'+S;
+      add(chest,pv(up));
+      if(W[lo]){add(pv(up),pv(lo));if(W[hand]){add(pv(lo),pv(hand));add(pv(hand),far(hand,st[hand].pvx,edArt(hand).h));}else add(pv(lo),far(lo,st[lo].pvx,edArt(lo).h));}
+      else if(W[up])add(pv(up),far(up,st[up].pvx,edArt(up).h));
+      if(W[sh]){add(pv(th),pv(sh));if(W[shoe]){add(pv(sh),pv(shoe));add(pv(shoe),far(shoe,st[shoe].pvx,edArt(shoe).h));}else add(pv(sh),far(sh,st[sh].pvx,edArt(sh).h));}
+      else if(W[th])add(pv(th),far(th,st[th].pvx,edArt(th).h));
+    });
+  }
+  return segs;
+}
+// Selection handles of part k, in SCREEN pixels: rot = bottom-right corner (scale + rotate), len = stretch length, wid = stretch width.
+function edHandles(k, W){
+  const a = edArt(k), st = ED.st[k], Z = ED.cam.z, S = p=>({ x:ED.cam.x+p.x*Z, y:ED.cam.y+p.y*Z }), L = (x,y)=>S(edL2W(W,k,x,y));
+  // handles sit on the side / end FARTHEST from the joint (stable ratios) and are pushed a little outside the box (never stacked on each other)
+  const farY = st.pvy < a.h/2 ? a.h : 0, sideX = st.pvx <= a.w/2 ? a.w : 0, ctr = L(a.w/2, a.h/2);
+  const out = (p, d)=>{ const dx = p.x-ctr.x, dy = p.y-ctr.y, l = Math.hypot(dx,dy) || 1; return { x:p.x+dx/l*d, y:p.y+dy/l*d }; };
+  return { corners:[L(0,0),L(a.w,0),L(a.w,a.h),L(0,a.h)], rot:out(L(sideX,farY),15), len:out(L(st.pvx,farY),19), wid:out(L(sideX,a.h/2),19) };
+}
+// True when key k should actually be shown/tappable right now. An alt expression texture (head_blink,
+// mouth_open, handL_fist, handR_fist) is invisible unless it's the one currently selected for editing;
+// its base hides right back while that's happening, so the two never draw stacked on each other.
+const ED_FACE_OVERLAY_KEYS = new Set(['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R']);
+function edIsFaceOverlayKey(k){return ED_FACE_OVERLAY_KEYS.has(String(k||''));}
+function edKeyVisible(k){
+  // Facial overlays never replace the base head. Selecting an eye, lid, brow or inner mouth
+  // must leave the complete head visible under the selected feature's white bounds.
+  if(k==='head' && ED.sel && edIsFaceOverlayKey(ED.sel))return true;
+  if(SHEET_ALT_OF[k]) return k === ED.sel;

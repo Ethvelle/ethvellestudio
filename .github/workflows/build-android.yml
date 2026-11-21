@@ -1,9 +1,9 @@
 name: Build Ethvelle Android APK
 
 on:
+  workflow_dispatch:
   push:
     branches: [ main, master ]
-  workflow_dispatch:
 
 permissions:
   contents: read
@@ -27,39 +27,39 @@ jobs:
           gradle-version: '8.13'
 
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v4.0.4
+        uses: android-actions/setup-android@v3
 
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Assemble v365 editor and inject Android media bridge
+      - name: Rebuild the current v365 HTML asset
         shell: bash
         run: |
-          mkdir -p android-apk/app/src/main/assets
-          cat android-apk/source-parts/part-*.txt > android-apk/app/src/main/assets/index.html
-          python3 - <<'PY'
-          from pathlib import Path
-          target = Path("android-apk/app/src/main/assets/index.html")
-          bridge = Path("android-apk/native-bridge.patch.html").read_text(encoding="utf-8")
-          html = target.read_text(encoding="utf-8")
-          close = html.lower().rfind("</body>")
-          if close < 0:
-              raise SystemExit("Could not find the closing body tag in the v365 editor HTML.")
-          if "__ethvelleNativePickerResolve" in html:
-              raise SystemExit("Native media bridge is already present; refusing duplicate injection.")
-          target.write_text(html[:close] + bridge + "\n" + html[close:], encoding="utf-8")
-          PY
-          test "$(wc -c < android-apk/app/src/main/assets/index.html)" -gt 9000000
-          grep -q "__ethvelleNativePickerResolve" android-apk/app/src/main/assets/index.html
-          grep -q "ethvelle-android-native-media-bridge" android-apk/app/src/main/assets/index.html
+          mkdir -p android/app/src/main/assets
+          shopt -s nullglob
+          source_parts=(android-source-v365/part-*.txt)
+          test "${#source_parts[@]}" -eq 102
+          output="android/app/src/main/assets/index.html"
+          : > "$output"
+          for part in "${source_parts[@]}"; do
+            case "$part" in
+              *part-063001-*.txt) cat "$part" >> "$output" ;;
+              *part-070001.txt) cat "$part" >> "$output" ;;
+              *) cat "$part" >> "$output"; printf '\n' >> "$output" ;;
+            esac
+          done
+          test -s "$output"
+          echo "Bundled HTML bytes: $(wc -c < "$output")"
+          grep -q 'ethvelle-android-native-media-bridge' "$output"
+          grep -q '</html>' "$output"
 
       - name: Build debug APK
-        run: gradle --no-daemon -p android-apk assembleDebug
+        run: gradle --no-daemon -p android assembleDebug
 
-      - name: Upload installable APK
+      - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
           name: Ethvelle-Android-APK
-          path: android-apk/app/build/outputs/apk/debug/app-debug.apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
-          retention-days: 30
+          retention-days: 14

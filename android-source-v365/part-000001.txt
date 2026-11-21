@@ -1,0 +1,1000 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<script id="ethvelle-v283-handle-tap-forwarder">
+/* v283 FIX ("tapping a clip's EDGE selects it but the scrubber does not move"): the trim handles
+   (the ~20px grips at both ends of a clip) were excluded from the directional clip seek, and the
+   overlay handle also swallows its pointer events in a window-capture listener. This tiny listener
+   is registered FIRST (head), so it sees every handle tap before anything can stop it, and hands
+   the gesture to the same seek logic a tap on the clip body uses (window.__ethvelleV283HandleSeek,
+   defined by the v264 script). It never stops propagation, so trimming / long-press are untouched. */
+(function(){
+  'use strict';
+  if(window.__ethvelleV283HandleTapForwarder)return;
+  window.__ethvelleV283HandleTapForwarder=true;
+  var HANDLE='.anim-clip-handle,[data-ov-handle],[data-seg-handle],[data-bg-handle]';
+  var activeId=null;
+  function api(){return window.__ethvelleV283HandleSeek||null;}
+  function mark(e){try{e.__evV283Forwarded=true;}catch(_e){}}
+  window.addEventListener('pointerdown',function(e){
+    activeId=null;
+    var a=api();
+    if(!a||e.button>0||!e.target||!e.target.closest)return;
+    if(!e.target.closest('#timelineScroll')||!e.target.closest(HANDLE))return;
+    activeId=e.pointerId;mark(e);
+    try{a.pointerdown(e);}catch(err){console.warn('Ethvelle v283 handle tap:',err);}
+  },true);
+  ['pointermove','pointerup','pointercancel'].forEach(function(type){
+    window.addEventListener(type,function(e){
+      if(activeId===null||e.pointerId!==activeId)return;
+      var a=api();mark(e);
+      if(type!=='pointermove')activeId=null;
+      if(!a)return;
+      try{a[type](e);}catch(err){console.warn('Ethvelle v283 handle tap:',err);}
+    },true);
+  });
+})();
+</script>
+<script id="ethvelle-v203-playback-diagnostics-core">
+/* v203 diagnostics counters. Inert unless the page URL contains ?evdebug=1. */
+(function(){
+  'use strict';
+  var enabled=false;
+  try{enabled=new URLSearchParams(window.location.search||'').get('evdebug')==='1';}catch(_e){}
+  window.__evPlaybackDiagnostics={
+    enabled:enabled,
+    startedAt:(window.performance&&performance.now)?performance.now():Date.now(),
+    stopCounts:{drift:0,pause:0,start:0,edit:0,other:0,total:0},
+    sourceNodeTimes:[],anchorRecreations:0,rebufferCount:0,kickCount:0,
+    recordStop:function(reason){
+      if(!enabled)return;
+      var key=Object.prototype.hasOwnProperty.call(this.stopCounts,reason)?reason:'other';
+      this.stopCounts[key]++;this.stopCounts.total++;
+    },
+    recordSourceNode:function(){
+      if(!enabled)return;
+      var playing=false;try{playing=typeof isPlaying!=='undefined'&&!!isPlaying;}catch(_e){}
+      if(!playing)return;
+      var now=(window.performance&&performance.now)?performance.now():Date.now();
+      this.sourceNodeTimes.push(now);
+      while(this.sourceNodeTimes.length&&now-this.sourceNodeTimes[0]>60000)this.sourceNodeTimes.shift();
+    },
+    recordAnchor:function(){if(enabled)this.anchorRecreations++;},
+    recordRebuffer:function(){if(enabled)this.rebufferCount++;},
+    recordKick:function(){if(enabled)this.kickCount++;}
+  };
+})();
+</script>
+<!-- ===== Ethvelle v189: early boot guard + main-thread budget (must stay first in <head>) ===== -->
+<style id="ethvelle-v189-boot-guard-css">
+  /* 1) Login-consent dialog + its logo are defined by CSS that sits at the very END of this
+        3.7 MB file. While the browser was still parsing, the dialog was an unstyled block and
+        its logo drew at natural (huge) size behind the fading splash. Define the essentials
+        here so it can never show before its real styles arrive. */
+  .ev-login-consent-backdrop{display:none;position:fixed;inset:0;z-index:2147483000;align-items:center;justify-content:center;}
+  .ev-login-consent-backdrop.active{display:flex!important;}
+  .ev-login-consent-mark{width:82px;height:62px;overflow:hidden;}
+  .ev-login-consent-mark img{display:block;width:82px;height:62px;max-width:100%;object-fit:contain;}
+  /* 2) Until the whole document (and therefore every <style> block) has been parsed, only the
+        splash is allowed to paint. Removed on DOMContentLoaded (with a safety timeout). */
+  html.ev-booting #app>*:not(#screen-splash){visibility:hidden!important;}
+  html.ev-booting body>:not(#app):not(script):not(style):not(link):not(meta){visibility:hidden!important;}
+  /* Any large brand image can never exceed its slot while booting. */
+  html.ev-booting .admin-login-logo,html.ev-booting .home-brand-logo-only{max-width:180px;max-height:96px;}
+</style>
+<script id="ethvelle-v199-decoder-budget">
+/* v203: mobile defaults to three decoders (two warm slots). The opt-in URL flag
+   ?evdecoders=4 raises the pool for devices that can sustain extra prewarming. */
+(function(){
+  try{
+    var mem=Number(navigator.deviceMemory)||4,cores=Number(navigator.hardwareConcurrency)||4;
+    var mobile=/Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent||'');
+    var pool=3;
+    if(!mobile){if(mem>=4&&cores>=4)pool=4;if(mem>=8&&cores>=8)pool=5;}
+    var forceFour=false;
+    try{forceFour=new URLSearchParams(window.location.search||'').get('evdecoders')==='4';}catch(_e){}
+    if(forceFour)pool=4;
+    window.__evDecoderBudget={pool:pool,warm:pool-1};
+  }catch(_e){window.__evDecoderBudget={pool:3,warm:2};}
+})();
+</script>
+<script id="ethvelle-v189-boot-guard-js">
+(function(){
+  'use strict';
+  var root=document.documentElement;
+  root.classList.add('ev-booting');
+  var done=false;
+  function reveal(){
+    if(done)return;done=true;
+    // One frame later so the last parsed <style> has been applied before anything is shown.
+    var go=function(){root.classList.remove('ev-booting');};
+    if(window.requestAnimationFrame)requestAnimationFrame(function(){requestAnimationFrame(go);});else go();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',reveal,{once:true});else reveal();
+  window.addEventListener('load',reveal,{once:true});
+  setTimeout(function(){done=false;reveal();},4000); // fail-safe: never leave the app hidden
+})();
+</script>
+<script id="ethvelle-v189-observer-budget-js">
+/* The editor registers ~100 MutationObservers (many on document.body with subtree:true).
+   Selecting a text/audio layer toggles classes in several places, so every one of them ran in
+   the same task and froze the UI. This wrapper keeps their behaviour, but:
+     - merges all records that arrive within a frame into ONE callback per observer,
+     - delivers them just before the next paint (so fix-ups never flash on screen),
+     - spends at most ~6 ms per frame on observer callbacks; the rest roll to the next frame.  */
+(function(){
+  'use strict';
+  var Native=window.MutationObserver;
+  if(!Native||Native.__ev189)return;
+  var queue=[],scheduled=false,BUDGET=6;
+  function now(){return (window.performance&&performance.now)?performance.now():Date.now();}
+  function schedule(){
+    if(scheduled)return;scheduled=true;
+    var run=function(){if(!scheduled)return;scheduled=false;pump();};
+    if(window.requestAnimationFrame)requestAnimationFrame(run);
+    setTimeout(run,100); // background tabs don't fire rAF
+  }
+  /* v220: while the playhead is being scrubbed, every DOM change the scrub itself causes used to
+     wake all text-panel observers each frame (slider/palette/toolbar re-scans), which made sliding
+     laggy with a text layer selected. During a scrub each observer now gets at most one merged
+     delivery per SCRUB_GAP ms; whatever is still held is delivered right after the scrub ends. */
+  var SCRUB_GAP=260,held=[],holdTimer=0;
+  function releaseHeld(){
+    holdTimer=0;
+    var list=held;held=[];
+    for(var i=0;i<list.length;i++){var h=list[i];h._held=false;if(!h._off&&h._pending.length&&!h._q){h._q=true;queue.push(h);}}
+    if(queue.length)schedule();
+  }
+  function pump(){
+    var t0=now();
+    while(queue.length){
+      var w=queue.shift();w._q=false;
+      if(window.__ethvelleTimelineScrubbing&&now()-(w._last||0)<SCRUB_GAP){
+        if(w._pending.length>2000)w._pending=w._pending.slice(-2000);
+        if(!w._held){w._held=true;held.push(w);}
+        if(!holdTimer)holdTimer=setTimeout(releaseHeld,SCRUB_GAP/2);
+        continue;
+      }
+      w._last=now();w._deliver();
+      if(queue.length&&now()-t0>BUDGET){schedule();return;}
+    }
+  }
+  function Wrapped(cb){
+    var self=this;
+    this._cb=cb;this._pending=[];this._q=false;this._off=false;
+    this._inner=new Native(function(records){
+      if(self._off)return;
+      for(var i=0;i<records.length;i++)self._pending.push(records[i]);
+      if(!self._q&&!self._held){self._q=true;queue.push(self);schedule();}
+    });
+  }
+  Wrapped.prototype._deliver=function(){
+    if(this._off||!this._pending.length)return;
+    var recs=this._pending;this._pending=[];
+    try{this._cb.call(this,recs,this);}catch(e){try{console.error(e);}catch(_e){}}
+  };
+  Wrapped.prototype.observe=function(target,options){this._off=false;return this._inner.observe(target,options);};
+  Wrapped.prototype.disconnect=function(){this._off=true;this._pending=[];return this._inner.disconnect();};
+  Wrapped.prototype.takeRecords=function(){var r=this._pending.concat(this._inner.takeRecords());this._pending=[];return r;};
+  Wrapped.__ev189=true;
+  try{window.MutationObserver=Wrapped;}catch(_e){}
+})();
+</script>
+<!-- ===== Ethvelle v191: text-panel sliders. Registered before every other window listener so a
+     swipe that starts anywhere on a slider row (not only on the 14px thumb) drags the value in ONE
+     touch; a vertical swipe on the same row scrolls the panel natively. ===== -->
+<script id="ethvelle-v191-text-slider-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV191TextSliders)return;
+  window.__ethvelleV191TextSliders=true;
+
+  /* Text-editing panels only. Every other slider in the app keeps its existing behaviour. */
+  var SCOPE='#ethvellePicsartTextDock,#ethvelleTextStylePanel,#ethvelleTextComposer,#evpaCustomEffectEditor,#ethvelleColorPicker,#textPanelBody';
+  /* One "row" = caption + slider. The whole row is the grab area, not just the 14px thumb. */
+  var ROWS='.evpa-range,.evts-field,.evtc-opacity-line,.evce-field,.evcp-field,.evpa-picker-range,.evce-stop,.text-range-line';
+  /* Things that own their own touches (buttons, scrolling chip rows, colour wheel...). */
+  var BLOCK='button,select,textarea,a,input:not([type="range"]),[contenteditable="true"],#evpaTabs,'+
+            '.evpa-font-gallery,.evpa-style-presets,.evpa-gradient-presets,.evpa-choice-row,.evpa-swatches,'+
+            '.evcp-wheel,.evpa-hue-ring,.evpa-sat-square,canvas';
+  var THUMB=14;          // visible thumb width in the text-panel CSS
+  var SLOP_X=5;          // px of sideways travel that starts a value drag
+  var SLOP_Y=8;          // px of vertical travel that hands the gesture to native scrolling
+  var st=null;           // active gesture
+
+  function num(v,d){var n=parseFloat(v);return isFinite(n)?n:d;}
+  function usable(input){
+    var r=input.getBoundingClientRect();
+    return {r:r,w:Math.max(24,r.width-THUMB)};
+  }
+  function okInput(i){
+    if(!i||i.disabled)return false;
+    var r=i.getBoundingClientRect();
+    return r.width>24&&r.height>0;
+  }
+  /* Which slider does a touch at (x,y) on element t belong to? */
+  function pickRange(t,x,y){
+    if(t.matches&&t.matches('input[type="range"]'))return okInput(t)?t:null;
+    var scope=t.closest(SCOPE);if(!scope)return null;
+    var list=[],row=t.closest(ROWS);
+    if(row&&scope.contains(row))list=[].slice.call(row.querySelectorAll('input[type="range"]'));
+    if(!list.length){
+      /* No known row wrapper: fall back to a finger-sized band around each slider. */
+      list=[].slice.call(scope.querySelectorAll('input[type="range"]')).filter(function(i){
+        var r=i.getBoundingClientRect();
+        return x>=r.left-10&&x<=r.right+10&&Math.abs(y-(r.top+r.height/2))<=Math.max(18,r.height/2+10);
+      });
+    }
+    var best=null,bd=1e9;
+    for(var k=0;k<list.length;k++){
+      var i=list[k];if(!okInput(i))continue;
+      var r=i.getBoundingClientRect(),d=Math.abs(y-(r.top+r.height/2));
+      if(d<bd){bd=d;best=i;}
+    }
+    return best;
+  }
+  function valueAt(s,x){
+    var min=s.min,max=s.max,v=s.startVal+((x-s.x0)/s.w)*(max-min);
+    if(s.step>0)v=min+Math.round((v-min)/s.step)*s.step;
+    v=Math.max(min,Math.min(max,v));
+    var dec=(String(s.input.step||'1').split('.')[1]||'').length;
+    return String(Number(v.toFixed(Math.min(7,dec))));
+  }
+  function push(s,x,type){
+    var inp=s.input;if(!inp.isConnected)return;
+    var next=valueAt(s,x);
+    if(inp.value!==next){inp.value=next;inp.dispatchEvent(new Event(type||'input',{bubbles:true}));}
+  }
+  function finish(s,x){
+    if(s.raf){cancelAnimationFrame(s.raf);s.raf=0;}
+    if(s.mode!=='value')return;
+    push(s,x==null?s.lastX:x,'input');
+    if(s.input.isConnected)s.input.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  function stopAll(e){
+    if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    else if(e.stopPropagation)e.stopPropagation();
+  }
+
+  function onDown(e){
+    if(st){
+      if(e.pointerId!==st.id)return;      // ignore a second finger
+      st=null;                             // stale gesture with the same id
+    }
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    var t=e.target;if(!t||t.nodeType!==1||!t.closest)return;
+    if(!t.closest(SCOPE))return;
+    if(t.closest(BLOCK))return;
+    var input=pickRange(t,e.clientX,e.clientY);
+    if(!input)return;
+    var g=usable(input);
+    var min=num(input.min,0),max=num(input.max,100);
+    if(!(max>min))return;
+    var stepAttr=input.step,step=stepAttr==='any'?0:(num(stepAttr,1)||1);
+    /* Self-heal: if some other script re-enabled native input on this slider, switch it off again. */
+    try{input.style.setProperty('pointer-events','none','important');input.style.setProperty('touch-action','pan-y','important');}catch(_e){}
+    st={id:e.pointerId,input:input,x0:e.clientX,y0:e.clientY,lastX:e.clientX,
+        startVal:num(input.value,min),min:min,max:max,step:step,w:g.w,
+        mode:'pending',raf:0,down:e};
+    /* Keep the canvas / sheet gesture engines out of a slider touch (same isolation as before). */
+    stopAll(e);
+  }
+  function onMove(e){
+    var s=st;if(!s||e.pointerId!==s.id)return;
+    var dx=e.clientX-s.x0,dy=e.clientY-s.y0,ax=Math.abs(dx),ay=Math.abs(dy);
+    if(s.mode==='pending'){
+      if(ax>=SLOP_X&&ax>ay*1.25){
+        s.mode='value';
+        /* Legacy "slider started" hook (e.g. inline onpointerdown on some sliders). */
+        try{if(typeof s.input.onpointerdown==='function')s.input.onpointerdown.call(s.input,s.down);}catch(err){}
+      }else if(ay>=SLOP_Y&&ay>=ax*0.8){
+        st=null;                            // vertical swipe: let the panel scroll, value untouched
+        return;
+      }else return;
+    }
+    s.lastX=e.clientX;
+    stopAll(e);
+    if(e.cancelable)e.preventDefault();
+    if(!s.raf)s.raf=requestAnimationFrame(function(){s.raf=0;if(st===s)push(s,s.lastX,'input');});
+  }
+  function onUp(e){
+    var s=st;if(!s||e.pointerId!==s.id)return;
+    st=null;
+    if(s.mode==='value'){
+      if(isFinite(e.clientX))s.lastX=e.clientX;
+      stopAll(e);
+      finish(s,s.lastX);
+    }
+    /* mode==='pending' is a plain tap: nothing changes (no track-jump). */
+  }
+  function onCancel(e){
+    var s=st;if(!s||e.pointerId!==s.id)return;
+    st=null;
+    if(s.mode==='value')finish(s,s.lastX);   // keep what the user dragged to
+  }
+
+  window.addEventListener('pointerdown',onDown,{capture:true,passive:false});
+  window.addEventListener('pointermove',onMove,{capture:true,passive:false});
+  window.addEventListener('pointerup',onUp,{capture:true,passive:false});
+  window.addEventListener('pointercancel',onCancel,{capture:true,passive:false});
+  window.addEventListener('blur',function(){var s=st;st=null;if(s&&s.mode==='value')finish(s,s.lastX);});
+  window.__ethvelleV191TextSlidersDebug=function(){return st;};
+})();
+</script>
+<!-- ============================================================================
+     Ethvelle v176 — thumb-only sliders everywhere in the clip editor, a professional
+     crop frame, and a lag-free crop gesture engine.
+
+     Why this block lives at the very top of <head>:
+     window capture listeners fire in registration order. Registering first lets the
+     slider and crop engines claim their gestures BEFORE the many older document/window
+     handlers (character drag, selection box, canvas gestures, older slider engines)
+     get a chance to run heavy work on every pointer event.
+     ============================================================================ -->
+<style id="ethvelle-v176-pro-crop-css">
+  /* ---- Dim layer: one tiny SVG, replaces the old 9999px box-shadow scrim ---- */
+  #evProCropLayer{position:absolute;inset:0;z-index:2147482999;pointer-events:none;overflow:hidden;contain:strict;}
+  #evProCropLayer svg{position:absolute;left:0;top:0;width:100%;height:100%;display:block;}
+  #evProCropLayer path{fill:rgba(7,9,15,.66);fill-rule:evenodd;}
+  #evProCropBadge{
+    position:absolute;left:0;top:0;padding:5px 10px;border-radius:99px;white-space:nowrap;
+    background:rgba(15,17,26,.88);border:1px solid rgba(255,255,255,.16);color:#fff;
+    font:700 11px/1 Inter,system-ui,-apple-system,"Segoe UI",sans-serif;letter-spacing:.02em;
+    font-variant-numeric:tabular-nums;opacity:0;transition:opacity .14s ease;will-change:transform;
+  }
+  #evProCropLayer.evpc-drag #evProCropBadge{opacity:1;}
+
+  /* ---- Frame: hairline white border, no blue slab, no giant shadow ---- */
+  html body #screen-editor #canvasStage #evV89CropRoot.ev-v89-crop-root{--evpc-inv:1;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame.ev-v89-crop-frame{
+    border:calc(1px * var(--evpc-inv,1)) solid rgba(255,255,255,.96)!important;
+    border-radius:0!important;background:transparent!important;
+    box-shadow:0 0 0 calc(1px * var(--evpc-inv,1)) rgba(0,0,0,.30)!important;
+    min-width:1px!important;min-height:1px!important;
+    pointer-events:none!important;cursor:default!important;transition:none!important;
+  }
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame.ev-v89-crop-frame{
+    border-color:#2F5CE8!important;
+  }
+  /* Rule-of-thirds grid: hidden until the user is dragging, then fades in. */
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame.ev-v89-crop-frame::before{
+    content:""!important;position:absolute!important;left:0!important;right:0!important;top:0!important;bottom:0!important;
+    width:auto!important;height:auto!important;margin:0!important;pointer-events:none!important;
+    opacity:0;transition:opacity .16s ease;
+    background:
+      linear-gradient(to right,transparent calc(33.333% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(33.333% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(33.333% + .5px * var(--evpc-inv,1)),transparent calc(33.333% + .5px * var(--evpc-inv,1))),
+      linear-gradient(to right,transparent calc(66.666% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(66.666% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(66.666% + .5px * var(--evpc-inv,1)),transparent calc(66.666% + .5px * var(--evpc-inv,1))),
+      linear-gradient(to bottom,transparent calc(33.333% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(33.333% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(33.333% + .5px * var(--evpc-inv,1)),transparent calc(33.333% + .5px * var(--evpc-inv,1))),
+      linear-gradient(to bottom,transparent calc(66.666% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(66.666% - .5px * var(--evpc-inv,1)),rgba(255,255,255,.62) calc(66.666% + .5px * var(--evpc-inv,1)),transparent calc(66.666% + .5px * var(--evpc-inv,1)))!important;
+  }
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame.ev-v89-crop-frame::before{opacity:1;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame.ev-v89-crop-frame::after{content:none!important;display:none!important;}
+
+  /* ---- Handles: L-shaped corner brackets + short edge bars (pure CSS, scale-compensated) ---- */
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle{
+    position:absolute!important;width:0!important;height:0!important;min-width:0!important;min-height:0!important;
+    margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;
+    box-shadow:none!important;transform:none!important;pointer-events:none!important;z-index:3!important;
+  }
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle::after{content:none!important;display:none!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle::before{
+    content:"";position:absolute;display:block;box-sizing:border-box;background:transparent;
+  }
+  /* anchor points */
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="nw"]{left:0!important;top:0!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="ne"]{left:100%!important;top:0!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="se"]{left:100%!important;top:100%!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="sw"]{left:0!important;top:100%!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="n"]{left:50%!important;top:0!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="s"]{left:50%!important;top:100%!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="w"]{left:0!important;top:50%!important;right:auto!important;bottom:auto!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="e"]{left:100%!important;top:50%!important;right:auto!important;bottom:auto!important;}
+  /* corner brackets */
+  .ev-v89-crop-handle[data-handle="nw"]::before{left:calc(-1.5px * var(--evpc-inv,1));top:calc(-1.5px * var(--evpc-inv,1));width:calc(22px * var(--evpc-inv,1));height:calc(22px * var(--evpc-inv,1));border-top:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-left:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-top-left-radius:calc(3px * var(--evpc-inv,1));}
+  .ev-v89-crop-handle[data-handle="ne"]::before{left:calc(-20.5px * var(--evpc-inv,1));top:calc(-1.5px * var(--evpc-inv,1));width:calc(22px * var(--evpc-inv,1));height:calc(22px * var(--evpc-inv,1));border-top:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-right:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-top-right-radius:calc(3px * var(--evpc-inv,1));}
+  .ev-v89-crop-handle[data-handle="se"]::before{left:calc(-20.5px * var(--evpc-inv,1));top:calc(-20.5px * var(--evpc-inv,1));width:calc(22px * var(--evpc-inv,1));height:calc(22px * var(--evpc-inv,1));border-bottom:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-right:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-bottom-right-radius:calc(3px * var(--evpc-inv,1));}
+  .ev-v89-crop-handle[data-handle="sw"]::before{left:calc(-1.5px * var(--evpc-inv,1));top:calc(-20.5px * var(--evpc-inv,1));width:calc(22px * var(--evpc-inv,1));height:calc(22px * var(--evpc-inv,1));border-bottom:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-left:calc(3.5px * var(--evpc-inv,1)) solid #fff;border-bottom-left-radius:calc(3px * var(--evpc-inv,1));}
+  /* edge bars */
+  .ev-v89-crop-handle[data-handle="n"]::before,.ev-v89-crop-handle[data-handle="s"]::before{left:calc(-15px * var(--evpc-inv,1));top:calc(-2px * var(--evpc-inv,1));width:calc(30px * var(--evpc-inv,1));height:calc(4px * var(--evpc-inv,1));background:#fff;border-radius:calc(2px * var(--evpc-inv,1));box-shadow:0 0 0 calc(.75px * var(--evpc-inv,1)) rgba(0,0,0,.35);}
+  .ev-v89-crop-handle[data-handle="w"]::before,.ev-v89-crop-handle[data-handle="e"]::before{left:calc(-2px * var(--evpc-inv,1));top:calc(-15px * var(--evpc-inv,1));width:calc(4px * var(--evpc-inv,1));height:calc(30px * var(--evpc-inv,1));background:#fff;border-radius:calc(2px * var(--evpc-inv,1));box-shadow:0 0 0 calc(.75px * var(--evpc-inv,1)) rgba(0,0,0,.35);}
+  /* Only the handle being touched turns (deep) blue, and only while the finger is down. */
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="nw"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="ne"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="se"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="sw"]::before{border-color:#2F5CE8;}
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="n"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="s"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="w"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="e"]::before{background:#2F5CE8;}
+  /* v178: crop corner brackets + edge bars are PERMANENTLY blue from the moment Crop opens (no touch needed). */
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="nw"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="ne"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="se"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="sw"]::before{border-color:#2F5CE8!important;}
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="n"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="s"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="w"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot #evV89CropFrame .ev-v89-crop-handle[data-handle="e"]::before{background:#2F5CE8!important;}
+  /* The "753 x 753" size pill under the crop border is removed. */
+  #evProCropBadge{display:none!important;}
+  /* The old full-stage shadow scrim is gone; the SVG layer above dims the outside instead. */
+  #screen-editor.ev-v89-crop-active #canvasStage{touch-action:none!important;}
+</style>
+<script id="ethvelle-v176-input-gate">
+(function(){
+  'use strict';
+  if(window.__ev176Gate)return;
+  const G=window.__ev176Gate={};
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const $=id=>document.getElementById(id);
+  const num=(v,d)=>{const n=parseFloat(v);return Number.isFinite(n)?n:d;};
+  const now=()=>(window.performance&&performance.now)?performance.now():Date.now();
+  let internal=0; // >0 while WE dispatch input/change so our own events pass through the value guard
+
+  /* =====================================================================
+     A. THUMB-ONLY SLIDERS
+        A slider value changes ONLY while the finger/mouse is dragging the round
+        thumb. Tapping or touching the rail does nothing. The text-editing, Transform,
+        Speed, Volume and Audio sliders already behave this way and are left alone.
+     ===================================================================== */
+  const SKIP=[
+    '#ethvellePicsartTextDock','#ethvelleTextStylePanel','#ethvelleTextComposer','#evpaCustomEffectEditor',
+    '#ethvelleColorPicker','#textPanelBody',                       // text editing (already done)
+    '.evtr-ruler','.transform-slider',                             // transform
+    '#speedPanelBody','#volumePanelBody',                          // speed / volume
+    '#evcaAudioPanel','.evca-audio-panel',                         // audio
+    '#evcaInlineZoomHud'                                           // canvas zoom HUD
+  ].join(',');
+  function eligible(el){
+    if(!el||el.nodeType!==1||el.tagName!=='INPUT'||el.type!=='range'||el.disabled)return false;
+    try{return !el.closest(SKIP);}catch(_e){return false;}
+  }
+  let guard=null,guardTimer=0,drag=null;
+  function setGuard(input){clearTimeout(guardTimer);guard={input,value:String(input.value)};}
+  function releaseGuardSoon(){clearTimeout(guardTimer);guardTimer=setTimeout(()=>{guard=null;},180);}
+
+  function geo(input){
+    const r=input.getBoundingClientRect(),cs=getComputedStyle(input);
+    let tw=0;
+    try{
+      const t=getComputedStyle(input,'::-webkit-slider-thumb');
+      tw=parseFloat(t.width)||0;
+      if(tw&&t.boxSizing!=='border-box')tw+=(parseFloat(t.borderLeftWidth)||0)+(parseFloat(t.borderRightWidth)||0)+(parseFloat(t.paddingLeft)||0)+(parseFloat(t.paddingRight)||0);
+    }catch(_e){}
+    if(!tw)try{tw=parseFloat(getComputedStyle(input,'::-moz-range-thumb').width)||0;}catch(_e){}
+    // Chrome / Android WebView do NOT resolve getComputedStyle(input,'::-webkit-slider-thumb') and
+    // return the WHOLE input width (e.g. "304px"). Trusting it collapsed the usable track to ~1px,
+    // so any 2px touch jumped straight to min / max (100 -> 200). Accept only a plausible thumb
+    // width, otherwise use the real thumb size (10px dot + 2x2px ring).
+    if(!(tw>=8&&tw<=36&&tw<=r.width/4))tw=12;
+    const half=tw/2;
+    const pl=parseFloat(cs.paddingLeft)||0,pr=parseFloat(cs.paddingRight)||0;
+    const left=r.left+pl+half,right=Math.max(left+1,r.right-pr-half);
+    const min=num(input.min,0),max=num(input.max,100),val=num(input.value,min);
+    const rtl=cs.direction==='rtl';
+    let f=max===min?0:clamp((val-min)/(max-min),0,1);
+    if(rtl)f=1-f;
+    return {r,left,right,min,max,rtl,half,step:input.step==='any'?0:(Number(input.step)||1),x:left+f*(right-left),y:r.top+r.height/2};
+  }
+  // Finger-friendly circle around the visible thumb. Grabbing anywhere inside it keeps the
+  // value unchanged until you actually drag (no jump), so a generous radius is safe.
+  function near(g,x,y){
+    return Math.abs(x-g.x)<=Math.max(20,g.half+12)&&Math.abs(y-g.y)<=Math.max(20,g.r.height/2+9);
+  }
+  function setX(input,x,g){
+    let f=clamp((x-g.left)/(g.right-g.left),0,1);
+    if(g.rtl)f=1-f;
+    let v=g.min+f*(g.max-g.min);
+    if(g.step>0)v=g.min+Math.round((v-g.min)/g.step)*g.step;
+    v=clamp(v,g.min,g.max);
+    const dec=(String(input.step||'1').split('.')[1]||'').length;
+    const next=String(Number(v.toFixed(Math.min(7,dec))));
+    if(input.value!==next){
+      internal++;
+      try{input.value=next;if(guard&&guard.input===input)guard.value=String(input.value);input.dispatchEvent(new Event('input',{bubbles:true}));}
+      finally{internal--;}
+    }
+  }
+  function finishSlider(){
+    const d=drag;if(!d)return;drag=null;
+    if(d.raf){cancelAnimationFrame(d.raf);d.raf=0;}
+    if(d.moved&&d.input.isConnected){
+      setX(d.input,d.x-d.offset,d.g);
+      internal++;try{d.input.dispatchEvent(new Event('change',{bubbles:true}));}finally{internal--;}
+    }
+    try{d.input.releasePointerCapture(d.id);}catch(_e){}
+    releaseGuardSoon();
+  }
+  function sliderPointer(e){
+    const t=e.type;
+    if(t==='pointerdown'){
+      const input=e.target;
+      if(!eligible(input))return false;
+      if(e.pointerType==='mouse'&&e.button!==0)return false;
+      setGuard(input);
+      if(e.cancelable)e.preventDefault();
+      const g=geo(input);
+      if(!near(g,e.clientX,e.clientY))return true;            // rail tap: swallow, value untouched
+      drag={id:e.pointerId,input,g,offset:e.clientX-g.x,startX:e.clientX,x:e.clientX,moved:false,raf:0,down:e};
+      try{input.setPointerCapture(e.pointerId);}catch(_e){}
+      return true;
+    }
+    if((t==='pointerup'||t==='pointercancel')&&guard&&!drag)releaseGuardSoon();
+    const d=drag;
+    if(!d||d.id!==e.pointerId)return false;
+    if(t==='pointermove'){
+      d.x=e.clientX;
+      if(!d.moved){
+        if(Math.abs(d.x-d.startX)<2)return true;
+        d.moved=true;d.offset=d.x-d.g.x;   // continue from the current value: no hop after the dead-zone
+        // Keep legacy "slider started" hooks (e.g. character Position slider) working.
+        try{if(typeof d.input.onpointerdown==='function')d.input.onpointerdown.call(d.input,d.down);}catch(err){console.warn('Slider start hook:',err);}
+      }
+      if(!d.raf)d.raf=requestAnimationFrame(()=>{d.raf=0;if(drag===d&&d.input.isConnected)setX(d.input,d.x-d.offset,d.g);});
+      if(e.cancelable)e.preventDefault();
+      return true;
+    }
+    if(t==='pointerup'||t==='pointercancel'||t==='lostpointercapture'){
+      if(Number.isFinite(e.clientX)&&t==='pointerup')d.x=e.clientX;
+      finishSlider();
+      return true;
+    }
+    return false;
+  }
+  function sliderTouch(e){
+    const t=e.target,type=e.type;
+    if(type==='touchstart'){
+      if(!eligible(t))return false;
+      setGuard(t);
+      if(e.cancelable)e.preventDefault();   // stops the browser's native "tap the rail to jump"
+      return true;
+    }
+    if(type==='touchmove'){
+      if(drag&&eligible(t)){if(e.cancelable)e.preventDefault();return true;}
+      return false;
+    }
+    if((type==='touchend'||type==='touchcancel')&&guard&&eligible(t))releaseGuardSoon();
+    return false;
+  }
+  function sliderMouse(e){
+    if(!eligible(e.target))return false;
+    if(e.type==='mousedown')setGuard(e.target);
+    if(e.cancelable)e.preventDefault();
+    return true;
+  }
+  // Safety net: if a native value change still sneaks through during a pointer sequence that
+  // was not our own thumb drag, put the old value back and hide the event from the app.
+  function sliderValue(e){
+    if(internal>0)return false;
+    const t=e.target;
+    if(!guard||guard.input!==t||!eligible(t))return false;
+    if(String(t.value)!==guard.value)t.value=guard.value;
+    return true;
+  }
+
+  /* =====================================================================
+     B. PRO CROP ENGINE
+        Owns every touch on the stage while Crop is open. Work per pointer event is a
+        couple of multiplications; DOM writes are batched to one per animation frame; the
+        heavy character/held-object renderer is paused for the duration of the drag.
+     ===================================================================== */
+  let cdrag=null,layer=null,lastCropEnd=0,refreshRaf=0;
+  window.__ev176CropBusy=false;
+
+  function cropActive(){
+    const scr=$('screen-editor'),root=$('evV89CropRoot');
+    return !!(scr&&scr.classList.contains('ev-v89-crop-active')&&root&&$('evV89CropFrame')&&root.style.display!=='none');
+  }
+  function cropCtx(){
+    const id=String(window.__ethvelleCropEditingId||((typeof selectedClip!=='undefined'&&selectedClip!=null)?selectedClip:''));
+    if(!id)return null;
+    let clip=null;
+    try{clip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;}catch(_e){}
+    if(!clip)return null;
+    const ovs=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:[];
+    const bgs=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds:[];
+    let el=null,kind='';
+    if(ovs.includes(clip)){
+      kind='overlay';
+      el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[id]:null;
+      if(!el){
+        const node=document.querySelector('.overlay-media-item[data-overlay-id="'+id.replace(/\\/g,'\\\\').replace(/"/g,'\\"')+'"]');
+        el=node?(node.querySelector('img,video,canvas')||node):null;
+      }
+    }else if(bgs.includes(clip)){kind='background';el=$('bgImgLayer');}
+    if(!kind)return null;
+    const stage=$('canvasStage');if(!stage)return null;
+    const sw=Math.max(1,stage.clientWidth),sh=Math.max(1,stage.clientHeight);
+    const iw=Math.max(1,(el&&(el.videoWidth||el.naturalWidth||el.width))||Number(clip.sourceWidth)||sw);
+    const ih=Math.max(1,(el&&(el.videoHeight||el.naturalHeight||el.height))||Number(clip.sourceHeight)||sh);
+    const scale=Math.min(sw/iw,sh/ih),w=iw*scale,h=ih*scale;
+    return {id,clip,kind,el,stage,sw,sh,iw,ih,m:{x:(sw-w)/2,y:(sh-h)/2,w,h,aspect:iw/ih}};
+  }
+  function cropValues(clip){
+    const raw=typeof window.ethvelleCropFractions==='function'?window.ethvelleCropFractions(clip.crop):(clip.crop||{});
+    const c=v=>clamp(Number(v)||0,0,.92);
+    return {left:c(raw.left),right:c(raw.right),top:c(raw.top),bottom:c(raw.bottom)};
+  }
+  function normalizeCrop(c){
+    let left=clamp(c.left,0,.92),right=clamp(c.right,0,.92),top=clamp(c.top,0,.92),bottom=clamp(c.bottom,0,.92);
+    if(left+right>.92){const f=.92/(left+right);left*=f;right*=f;}
+    if(top+bottom>.92){const f=.92/(top+bottom);top*=f;bottom*=f;}
+    return {left,right,top,bottom};
+  }
+  // Layer (scale / rotation / zoom) transform of the crop root, resolved once per gesture.
+  function rootMatrix(root,W,H){
+    const cs=getComputedStyle(root);
+    let a=1,b=0,c=0,d=1,e=0,f=0;
+    const raw=cs.transform;
+    if(raw&&raw!=='none'){try{const m=new DOMMatrixReadOnly(raw);a=m.a;b=m.b;c=m.c;d=m.d;e=m.e;f=m.f;}catch(_e){}}
+    let ox=W/2,oy=H/2;
+    const o=String(cs.transformOrigin||'').split(' ').map(parseFloat);
+    if(Number.isFinite(o[0]))ox=o[0];if(Number.isFinite(o[1]))oy=o[1];
+    return {a,b,c,d,e,f,ox,oy,det:a*d-b*c};
+  }
+  const toStage=(M,x,y)=>({x:M.ox+M.a*(x-M.ox)+M.c*(y-M.oy)+M.e,y:M.oy+M.b*(x-M.ox)+M.d*(y-M.oy)+M.f});
+  function fromStage(M,X,Y){
+    if(Math.abs(M.det)<1e-9)return null;
+    const dx=X-M.ox-M.e,dy=Y-M.oy-M.f;
+    return {x:M.ox+(M.d*dx-M.c*dy)/M.det,y:M.oy+(-M.b*dx+M.a*dy)/M.det};
+  }
+  function ensureLayer(stage){
+    if(layer&&layer.isConnected&&layer.parentNode===stage)return layer;
+    if(layer&&layer.parentNode)layer.remove();
+    layer=document.createElement('div');layer.id='evProCropLayer';
+    layer.innerHTML='<svg xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"><path d=""/></svg><div id="evProCropBadge"></div>';
+    stage.appendChild(layer);
+    return layer;
+  }
+  function removeLayer(){if(layer&&layer.parentNode)layer.remove();layer=null;}
+  function frameRect(ctx,c){
+    const m=ctx.m;
+    return {L:m.x+c.left*m.w,T:m.y+c.top*m.h,w:Math.max(1,m.w*(1-c.left-c.right)),h:Math.max(1,m.h*(1-c.top-c.bottom))};
+  }
+  function paintOverlay(ctx,r,c,M,k,showBadge,ratioLabel){
+    const root=$('evV89CropRoot');if(!root)return;
+    const lay=ensureLayer(ctx.stage),svg=lay.firstChild,path=svg.firstChild,badge=lay.lastChild;
+    const W=ctx.sw,H=ctx.sh;
+    const vb='0 0 '+W+' '+H;
+    if(svg.getAttribute('viewBox')!==vb)svg.setAttribute('viewBox',vb);
+    const P=[toStage(M,r.L,r.T),toStage(M,r.L+r.w,r.T),toStage(M,r.L+r.w,r.T+r.h),toStage(M,r.L,r.T+r.h)];
+    let d='M0 0H'+W+'V'+H+'H0Z M';
+    d+=P[0].x.toFixed(2)+' '+P[0].y.toFixed(2);
+    for(let i=1;i<4;i++)d+='L'+P[i].x.toFixed(2)+' '+P[i].y.toFixed(2);
+    d+='Z';
+    path.setAttribute('d',d);
+    root.style.setProperty('--evpc-inv',clamp(1/k,.05,40).toFixed(4));
+    if(showBadge){
+      const xs=P.map(p=>p.x),ys=P.map(p=>p.y);
+      const cx=clamp((Math.min(...xs)+Math.max(...xs))/2,46,Math.max(46,W-46));
+      let top=Math.min(...ys)-10,anchor='-100%';
+      if(top<30){top=Math.max(...ys)+10;anchor='0%';}
+      const text=Math.round(ctx.iw*(1-c.left-c.right))+' × '+Math.round(ctx.ih*(1-c.top-c.bottom))+(ratioLabel&&ratioLabel!=='free'?'  ·  '+ratioLabel:'');
+      if(badge.textContent!==text)badge.textContent=text;
+      badge.style.transform='translate('+cx.toFixed(1)+'px,'+clamp(top,4,H-4).toFixed(1)+'px) translate(-50%,'+anchor+')';
+    }
+  }
+  function writeFrame(ctx,r){
+    const frame=$('evV89CropFrame');if(!frame)return;
+    const s=frame.style;
+    s.left=r.L+'px';s.top=r.T+'px';s.width=r.w+'px';s.height=r.h+'px';
+  }
+  // Re-sync the dim layer / handle scale after anything else moves the frame (ratio chips, Reset…).
+  function refreshOverlay(){
+    refreshRaf=0;
+    if(cdrag)return;
+    clearHot();
+    if(!cropActive())return;
+    const ctx=cropCtx();if(!ctx)return;
+    const root=$('evV89CropRoot');
+    const M=rootMatrix(root,ctx.sw,ctx.sh),sr=ctx.stage.getBoundingClientRect();
+    const sx=sr.width/ctx.sw||1,sy=sr.height/ctx.sh||1;
+    const k=(Math.sqrt(Math.abs(M.det))||1)*(sx+sy)/2;
+    const c=cropValues(ctx.clip);
+    paintOverlay(ctx,frameRect(ctx,c),c,M,k,false);
+  }
+  function scheduleRefresh(){if(!refreshRaf)refreshRaf=requestAnimationFrame(refreshOverlay);}
+
+  function interactive(el){
+    try{return !!(el&&el.closest&&el.closest('button,input,select,textarea,a,[role="button"],#evcaInlineZoomHud'));}catch(_e){return false;}
+  }
+  function pickHandle(p,r,k){
+    // p, r in crop-root local px. Tolerances are defined in SCREEN px so they feel identical at any zoom/scale.
+    const L=r.L,T=r.T,R=r.L+r.w,B=r.T+r.h;
+    const small=Math.min(r.w,r.h)*k;
+    const cTol=clamp(small/2.6,16,30),eTol=clamp(small/3.6,10,22);
+    const corners={nw:[L,T],ne:[R,T],se:[R,B],sw:[L,B]};
+    let best='',bd=Infinity;
+    for(const n in corners){const dd=Math.hypot(p.x-corners[n][0],p.y-corners[n][1])*k;if(dd<bd){bd=dd;best=n;}}
+    if(bd<=cTol)return best;
+    const tolL=eTol/k;
+    const inX=p.x>=L-tolL&&p.x<=R+tolL,inY=p.y>=T-tolL&&p.y<=B+tolL;
+    const cand=[];
+    if(inY)cand.push(['w',Math.abs(p.x-L)],['e',Math.abs(p.x-R)]);
+    if(inX)cand.push(['n',Math.abs(p.y-T)],['s',Math.abs(p.y-B)]);
+    let edge='',ed=Infinity;
+    cand.forEach(([n,dd])=>{if(dd<ed){ed=dd;edge=n;}});
+    if(edge&&ed*k<=eTol)return edge;
+    if(p.x>=L&&p.x<=R&&p.y>=T&&p.y<=B)return 'move';
+    return '';
+  }
+  function cropStart(e){
+    const ctx=cropCtx();if(!ctx)return false;
+    const root=$('evV89CropRoot');
+    const sr=ctx.stage.getBoundingClientRect();
+    const sx=sr.width/ctx.sw||1,sy=sr.height/ctx.sh||1;
+    const M=rootMatrix(root,ctx.sw,ctx.sh);
+    const k=(Math.sqrt(Math.abs(M.det))||1)*(sx+sy)/2;
+    const p=fromStage(M,(e.clientX-sr.left)/sx,(e.clientY-sr.top)/sy);
+    if(!p){if(e.cancelable)e.preventDefault();return true;}
+    const startCrop=cropValues(ctx.clip);
+    const handle=pickHandle(p,frameRect(ctx,startCrop),k);
+    if(e.cancelable)e.preventDefault();
+    if(!handle)return true;                       // touch outside the frame is swallowed, nothing moves
+    const ratio=(document.querySelector('.ev-v89-ratio.active')||{dataset:{}}).dataset.ratio||'free';
+    cdrag={id:e.pointerId,ctx,M,sx,sy,k,handle,ratio,startCrop,x0:e.clientX,y0:e.clientY,cx:e.clientX,cy:e.clientY,raf:0,moved:false};
+    window.__ev176CropBusy=true;                 // pause the heavy stage renderer while dragging
+    root.classList.add('evpc-active');
+    if(handle!=='move'){try{const hot=root.querySelector('.ev-v89-crop-handle[data-handle="'+handle+'"]');if(hot)hot.classList.add('evpc-hot');}catch(_e){}}
+    if(layer)layer.classList.add('evpc-drag');
+    try{ctx.stage.setPointerCapture(e.pointerId);}catch(_e){}
+    return true;
+  }
+  // Remove every "touched" highlight (frame border + the touched handle). Called on release and
+  // from several safety nets, so the blue can never get stuck on after the finger is lifted.
+  function clearHot(){
+    const root=$('evV89CropRoot');
+    if(root){root.classList.remove('evpc-active');root.querySelectorAll('.evpc-hot').forEach(n=>n.classList.remove('evpc-hot'));}
+    if(layer)layer.classList.remove('evpc-drag');
+  }
+  function cropCompute(d){
+    const ctx=d.ctx,M=d.M;
+    const ux=(d.cx-d.x0)/d.sx,uy=(d.cy-d.y0)/d.sy;                 // finger delta in stage px
+    const lx=(M.d*ux-M.c*uy)/M.det,ly=(-M.b*ux+M.a*uy)/M.det;      // → crop-root local px
+    const dx=lx/Math.max(1,ctx.m.w),dy=ly/Math.max(1,ctx.m.h);
+    const s=d.startCrop,c={left:s.left,right:s.right,top:s.top,bottom:s.bottom},h=d.handle;
+    const w0=1-s.left-s.right,hh0=1-s.top-s.bottom,min=.04;
+    if(h==='move'){
+      c.left=clamp(s.left+dx,0,1-w0);c.right=1-w0-c.left;
+      c.top=clamp(s.top+dy,0,1-hh0);c.bottom=1-hh0-c.top;
+    }else if(d.ratio==='free'){
+      if(h.includes('w'))c.left=clamp(s.left+dx,0,1-s.right-min);
+      if(h.includes('e'))c.right=clamp(s.right-dx,0,1-s.left-min);
+      if(h.includes('n'))c.top=clamp(s.top+dy,0,1-s.bottom-min);
+      if(h.includes('s'))c.bottom=clamp(s.bottom-dy,0,1-s.top-min);
+    }else{
+      const parts=String(d.ratio).split(':').map(Number);
+      const wanted=(parts[0]/parts[1])/ctx.m.aspect;
+      if(!Number.isFinite(wanted)||wanted<=0)return s;
+      if(h==='e'||h==='w'){
+        let w=clamp(w0+(h==='e'?dx:-dx),min,1),height=clamp(w/wanted,min,1);w=height*wanted;
+        if(h==='e')c.right=1-s.left-w;else c.left=1-s.right-w;
+        c.top=(1-height)/2;c.bottom=1-height-c.top;
+      }else if(h==='n'||h==='s'){
+        let height=clamp(hh0+(h==='s'?dy:-dy),min,1),w=clamp(height*wanted,min,1);height=w/wanted;
+        if(h==='s')c.bottom=1-s.top-height;else c.top=1-s.bottom-height;
+        c.left=(1-w)/2;c.right=1-w-c.left;
+      }else{
+        const dirX=h.includes('w')?-1:1,dirY=h.includes('n')?-1:1;
+        const wC=clamp(w0+dirX*dx,min,1),hC=clamp(hh0+dirY*dy,min,1);
+        let w=Math.abs(wC-w0)/Math.max(min,w0)>=Math.abs(hC-hh0)/Math.max(min,hh0)?wC:hC*wanted;
+        let height=w/wanted;
+        if(height>1){height=1;w=height*wanted;}if(w>1){w=1;height=w/wanted;}
+        if(dirX<0)c.left=1-s.right-w;else c.right=1-s.left-w;
+        if(dirY<0)c.top=1-s.bottom-height;else c.bottom=1-s.top-height;
+      }
+    }
+    return normalizeCrop(c);
+  }
+  function cropPaint(){
+    const d=cdrag;if(!d)return;
+    d.raf=0;
+    const next=cropCompute(d);
+    d.ctx.clip.crop=next;
+    const r=frameRect(d.ctx,next);
+    writeFrame(d.ctx,r);
+    paintOverlay(d.ctx,r,next,d.M,d.k,false,d.ratio);
+  }
+  function cropEnd(e){
+    const d=cdrag;if(!d)return;
+    cdrag=null;
+    if(d.raf){cancelAnimationFrame(d.raf);d.raf=0;}
+    if(e&&e.type==='pointerup'&&Number.isFinite(e.clientX)){d.cx=e.clientX;d.cy=e.clientY;}
+    try{
+      const next=cropCompute(d);d.ctx.clip.crop=next;
+      const r=frameRect(d.ctx,next);writeFrame(d.ctx,r);
+      paintOverlay(d.ctx,r,next,d.M,d.k,false,d.ratio);
+    }catch(_e){}
+    clearHot();
+    window.__ev176CropBusy=false;
+    lastCropEnd=now();
+    try{d.ctx.stage.releasePointerCapture(d.id);}catch(_e){}
+    try{if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});}catch(_e){}
+  }
+  function cropPointer(e){
+    const t=e.type;
+    if(cdrag){
+      if(e.pointerId!==cdrag.id)return true;                      // ignore extra fingers during a crop drag
+      if(t==='pointermove'){
+        cdrag.cx=e.clientX;cdrag.cy=e.clientY;
+        if(!cdrag.moved){if(Math.hypot(cdrag.cx-cdrag.x0,cdrag.cy-cdrag.y0)<1)return true;cdrag.moved=true;}
+        if(!cdrag.raf)cdrag.raf=requestAnimationFrame(cropPaint);
+        if(e.cancelable)e.preventDefault();
+        return true;
+      }
+      if(t==='pointerup'||t==='pointercancel'||t==='lostpointercapture'){cropEnd(e);return true;}
+      return true;
+    }
+    if(t!=='pointerdown'||!cropActive())return false;
+    if(e.pointerType==='mouse'&&e.button!==0)return false;
+    const stage=$('canvasStage');if(!stage)return false;
+    const sr=stage.getBoundingClientRect();
+    if(e.clientX<sr.left||e.clientX>sr.right||e.clientY<sr.top||e.clientY>sr.bottom)return false;
+    if(interactive(e.target))return false;
+    return cropStart(e);
+  }
+  function cropTouch(e){
+    const type=e.type;
+    if(cdrag){if(type==='touchmove'||type==='touchstart'){if(e.cancelable)e.preventDefault();return true;}return false;}
+    if(type!=='touchstart'||!cropActive())return false;
+    const stage=$('canvasStage');if(!stage||!stage.contains(e.target)||interactive(e.target))return false;
+    if(e.cancelable)e.preventDefault();
+    return true;
+  }
+  function cropClick(e){
+    if(!lastCropEnd||now()-lastCropEnd>400)return false;
+    const stage=$('canvasStage');
+    return !!(stage&&stage.contains(e.target)&&!interactive(e.target));
+  }
+  // Safety: never leave the renderer paused.
+  window.addEventListener('blur',()=>{if(cdrag)cropEnd(null);if(drag)finishSlider();});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden){if(cdrag)cropEnd(null);if(drag)finishSlider();}});
+
+  /* =====================================================================
+     C. ONE REGISTRATION POINT (runs before every older handler)
+     ===================================================================== */
+  const opt={capture:true,passive:false};
+  function claim(fn,e){let r=false;try{r=fn(e);}catch(err){console.warn('Ethvelle v176 gate:',err);}if(r)e.stopImmediatePropagation();return r;}
+  ['pointerdown','pointermove','pointerup','pointercancel','lostpointercapture'].forEach(type=>{
+    window.addEventListener(type,e=>{if(!claim(cropPointer,e))claim(sliderPointer,e);},opt);
+  });
+  ['touchstart','touchmove','touchend','touchcancel'].forEach(type=>{
+    window.addEventListener(type,e=>{if(!claim(cropTouch,e))claim(sliderTouch,e);},opt);
+  });
+  window.addEventListener('mousedown',e=>{claim(sliderMouse,e);},opt);
+  window.addEventListener('click',e=>{if(!claim(cropClick,e))claim(sliderMouse,e);},opt);
+  window.addEventListener('input',e=>{claim(sliderValue,e);},opt);
+  window.addEventListener('change',e=>{claim(sliderValue,e);},opt);
+  // Safety net: whenever a touch ends / is cancelled and no crop drag is running, nothing may stay blue.
+  ['pointerup','pointercancel','touchend','touchcancel','lostpointercapture'].forEach(type=>{
+    window.addEventListener(type,()=>{if(!cdrag)clearHot();},{capture:true,passive:true});
+  });
+
+  /* =====================================================================
+     D. HOUSEKEEPING (needs the DOM / the app's globals, so it runs later)
+     ===================================================================== */
+  function installRenderGuard(){
+    const f=window.renderFrame;
+    if(typeof f!=='function'||f.__ev176Guard)return;
+    const guarded=function(){if(window.__ev176CropBusy)return;return f.apply(this,arguments);};
+    try{Object.keys(f).forEach(key=>{guarded[key]=f[key];});}catch(_e){}
+    guarded.__ev176Guard=true;
+    window.renderFrame=guarded;
+  }
+  function watchCrop(){
+    const scr=$('screen-editor');if(!scr)return;
+    let frameObs=null,sizeObs=null,active=false,tries=0;
+    const attach=()=>{
+      const frame=$('evV89CropFrame'),stage=$('canvasStage');
+      if(!frame){if(++tries<40)requestAnimationFrame(attach);return;}
+      if(frameObs)frameObs.disconnect();
+      frameObs=new MutationObserver(scheduleRefresh);
+      frameObs.observe(frame,{attributes:true,attributeFilter:['style']});
+      if(sizeObs)sizeObs.disconnect();
+      if(stage&&typeof ResizeObserver!=='undefined'){sizeObs=new ResizeObserver(scheduleRefresh);sizeObs.observe(stage);}
+      scheduleRefresh();
+    };
+    new MutationObserver(()=>{
+      const on=scr.classList.contains('ev-v89-crop-active');
+      if(on===active)return;
+      active=on;
+      if(on){tries=0;requestAnimationFrame(attach);}
+      else{
+        if(frameObs){frameObs.disconnect();frameObs=null;}
+        if(sizeObs){sizeObs.disconnect();sizeObs=null;}
+        clearHot();removeLayer();window.__ev176CropBusy=false;cdrag=null;
+      }
+    }).observe(scr,{attributes:true,attributeFilter:['class']});
+  }
+  function boot(){installRenderGuard();watchCrop();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  window.addEventListener('load',installRenderGuard,{once:true});
+  setTimeout(installRenderGuard,1500);
+
+  G.eligible=eligible;
+})();
+</script>
+
+<title>Ethvelle — 2D Animation &amp; Video Editor</title>
+<meta name="description" content="Create 2D character animations and edit video clips with Ethvelle, a browser-based animation and video editing studio.">
+<link rel="icon" type="image/png" href="https://i.ibb.co.com/4RKB6tzY/Picsart-26-11-18-20-36-10-772.png">
+<link rel="shortcut icon" type="image/png" href="https://i.ibb.co.com/4RKB6tzY/Picsart-26-11-18-20-36-10-772.png">
+<link rel="apple-touch-icon" href="https://i.ibb.co.com/4RKB6tzY/Picsart-26-11-18-20-36-10-772.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Hind+Siliguri:wght@400;500;600;700&family=Noto+Sans+Bengali:wght@400;500;600;700&family=Noto+Serif+Bengali:wght@400;500;600;700&family=Inter:wght@400;500;600;700;800&family=Poppins:wght@400;500;600;700;800&family=Montserrat:wght@400;500;600;700;800&family=Roboto:wght@400;500;700&family=Lato:wght@400;700&family=Oswald:wght@400;500;600;700&family=Sora:wght@700;800&display=swap" rel="stylesheet">
+<!-- Ethvelle high-resolution logo is embedded in the splash image below. -->
+<!-- ================= FIREBASE (user login + read-only site content) =================
+     This app connects to the same Firebase project as the separate admin panel file
+     (riggy-admin-panel.html). It uses Firebase Authentication for end-user sign in
+     (email/password + Google) and reads (never writes) banners/animations/plans that the
+     admin publishes to Firestore. -->
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-auth-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.13.0/firebase-firestore-compat.js"></script>
+<style>
+  :root{
+    --bg: #0F0F12;
+    --panel: #17171C;
+    --elevated: #202027;
+    --elevated-2: #2A2A33;
+    --line: #313139;
+    --text: #F5F5F7;
+    --text-dim: #8A8A94;
+    --text-faint: #57575F;
+    --accent: #2F5CE8;
+    --accent-dim: #1B3A9E;
+    --accent-ink: #F2F5FF;
+    --danger: #FF6B6B;
+    --success: #34D399;
+    --warning: #F5B942;
+    --radius-sm: 8px;
+    --radius-md: 14px;
+    --radius-lg: 22px;
+  }
+  *{box-sizing:border-box; -webkit-tap-highlight-color: transparent;}
+  html,body{
+    margin:0; padding:0; height:100%; background:var(--bg); color:var(--text);
+    font-family:'Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    overflow:hidden; overscroll-behavior:none;
+  }
+  #app{position:relative; width:100%; height:100vh; height:100dvh; overflow:hidden;}
+  .screen{
+    position:absolute; inset:0; display:none; flex-direction:column;
+    background:var(--bg);
+  }
+  .screen.active{display:flex;}
+
+  /* ---------- utility ---------- */
+  button{font-family:inherit; border:none; background:none; color:inherit; cursor:pointer;}
+  ::-webkit-scrollbar{display:none;}
+  .icon{width:22px; height:22px; display:block;}
+  .row{display:flex; align-items:center;}
+  .grow{flex:1;}
+
+  /* ================= SPLASH ================= */
+  #screen-splash{
+    align-items:center; justify-content:center; background:var(--bg);
+    opacity:1; transition:opacity .5s cubic-bezier(.4,0,.2,1);
+  }
+  #screen-splash.splash-out{ opacity:0; }
+  .splash-mark{display:flex; flex-direction:column; align-items:center; gap:6px;}
+  .splash-logo{
+    width:140px !important; height:140px !important; min-width:140px; min-height:140px; position:relative; /* sized down on request — was 200px */
+    opacity:0; transform:scale(0.82); filter:blur(6px);
+    animation: splashLogoIn .9s cubic-bezier(.16,1,.3,1) forwards;
+  }
+  .splash-logo-img{
+    width:100%; height:100%; object-fit:contain; display:block;
+    position:relative; z-index:1;
+    /* Forces the image onto its own GPU-composited layer instead of being rasterized by
+       the WebView's cheap default scaler — fixes the jagged/"cracked" edges some Android
+       WebViews show on small, background-less PNGs scaled up to fill this box. */
+    image-rendering:-webkit-optimize-contrast; image-rendering:auto;
+    transform:translateZ(0); -webkit-transform:translateZ(0); backface-visibility:hidden;
+  }
+  .splash-logo-fallback{
+    width:100%; height:100%; display:none; align-items:center; justify-content:center;
+    position:relative; z-index:1;
+  }

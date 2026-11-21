@@ -1,0 +1,1000 @@
+  }
+  let deviceSnapshotQueue=Promise.resolve();
+  async function saveFullProjectsToDevice(snapshotOverride){
+    const snapshot=snapshotOverride||projectSnapshotWithMediaRefs();
+    const task=deviceSnapshotQueue.catch(()=>{}).then(async()=>{
+      const db=await openProjectDb();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction('snapshots','readwrite');
+        tx.objectStore('snapshots').put({key:'all-projects',projects:snapshot,savedAt:Date.now()});
+        tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Project save failed.'));tx.onabort=()=>reject(tx.error||new Error('Project save was interrupted.'));
+      });
+      return true;
+    });
+    deviceSnapshotQueue=task;
+    return task;
+  }
+  window.__ethvelleDeviceSaveNow=()=>saveFullProjectsToDevice();
+  function queueDeviceSave(delay){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(()=>{saveTimer=0;saveFullProjectsToDevice().catch(err=>{
+      console.error('Ethvelle project storage:',err);
+      const now=Date.now();if(now-lastStorageErrorAt>10000){lastStorageErrorAt=now;toast('Could not save all project data to this device. Export a backup before leaving.');}
+    });},Number.isFinite(delay)?delay:250);
+  }
+  // Keep small projects in localStorage for quick startup; keep big video/image projects in IndexedDB
+  // so a few large Base64 media files cannot exhaust the usual localStorage quota.
+  let localIndexGeneration=0;
+  window.saveProjectsToStorage=function(){
+    let size=0;try{size=approxJsonSize(projects,1400000);}catch(_e){size=1400001;}
+    // Every save supersedes previous asynchronous index publications, including a transition
+    // from a large/device-media project back to the small localStorage branch.
+    const generation=++localIndexGeneration;
+    let hasDeviceMedia=false;
+    try{hasDeviceMedia=(projects||[]).some(p=>{const st=p&&p.savedState;if(!st)return false;return [...(Array.isArray(st.overlays)?st.overlays:[]),...(Array.isArray(st.backgrounds)?st.backgrounds:[])].some(m=>m&&m.deviceMediaKey);});}catch(_e){}
+    if(size<=1400000&&!hasDeviceMedia){
+      try{localStorage.setItem('riggy.projects.v1',JSON.stringify(projects));}catch(err){console.warn('Ethvelle local project save:',err);}
+      queueDeviceSave(240);
+      return true;
+    }
+    const snapshot=projectSnapshotWithMediaRefs();
+    return saveFullProjectsToDevice(snapshot).then(()=>{
+      if(generation===localIndexGeneration)localStorage.setItem('riggy.projects.v1',JSON.stringify(makeProjectIndex()));
+      return true;
+    }).catch(err=>{
+      console.error('Ethvelle durable project save failed:',err);
+      const now=Date.now();if(now-lastStorageErrorAt>10000){lastStorageErrorAt=now;toast('Could not finish saving this project to device storage. Keep the editor open and export a backup before leaving.');}
+      return false;
+    });
+  };
+  async function restoreProjectsFromDevice(){
+    try{
+      const db=await openProjectDb();
+      const rec=await new Promise((resolve,reject)=>{const tx=db.transaction('snapshots','readonly'),req=tx.objectStore('snapshots').get('all-projects');req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error||new Error('Could not read stored projects.'));});
+      if(!rec||!Array.isArray(rec.projects))return;
+      const device=rec.projects;
+      let sourceMediaRecords=[];
+      try{sourceMediaRecords=await listSourceMediaRecords();}catch(mediaErr){console.warn('Ethvelle media recovery lookup:',mediaErr);}
+      const repairedDevice=repairLegacyOverlayMediaRefs(device,sourceMediaRecords);
+      await rehydrateDeviceMediaRefs(device);
+      const local=Array.isArray(projects)?projects:[],byId=new Map();
+      device.forEach(p=>{if(p&&p.id!=null)byId.set(String(p.id),p);});
+      local.forEach(p=>{
+        if(!p||p.id==null)return;const id=String(p.id),saved=byId.get(id);
+        if(!saved||(!p.__evIndexOnly&&Number(p.updatedAt||0)>Number(saved.updatedAt||0)))byId.set(id,p);
+      });
+      projects=Array.from(byId.values()).map(p=>{if(p&&p.__evIndexOnly){const q={...p};delete q.__evIndexOnly;return q;}return p;});
+      const repairedMerged=repairLegacyOverlayMediaRefs(projects,sourceMediaRecords);
+      await rehydrateDeviceMediaRefs(projects);
+      try{await Promise.race([window.__evFramesGate,new Promise(r=>setTimeout(r,5000))]);if(window.__evSourceFrames)await window.__evSourceFrames.restoreForProjects(projects);}catch(frameErr){console.warn('Ethvelle frame restore:',frameErr);}
+      projects.sort((a,b)=>new Date(b.created||0)-new Date(a.created||0));
+      // Make repaired references durable so the next refresh does not have to rediscover them.
+      if(repairedDevice||repairedMerged){
+        try{window.saveProjectsToStorage();await saveFullProjectsToDevice();}catch(saveErr){console.warn('Ethvelle repaired-media snapshot:',saveErr);}
+      }
+      try{if(typeof window.renderProjects==='function')window.renderProjects();if(typeof window.updateProfileUI==='function')window.updateProfileUI();}catch(_e){}
+    }catch(err){console.warn('Ethvelle: stored project recovery unavailable:',err);}
+  }
+  // Promote the storage request immediately from the user's click, then open the device DB.
+  async function requestStorageAndContinue(){
+    const allow=$('evspAllow'),backdrop=$('ethvelleStoragePermission');if(allow){allow.disabled=true;allow.textContent='Preparing storage…';}
+    let persistenceGranted=null;
+    try{if(navigator.storage&&typeof navigator.storage.persist==='function'){try{persistenceGranted=await navigator.storage.persist();}catch(_e){persistenceGranted=false;}}}catch(_e){persistenceGranted=false;}
+    try{await openProjectDb();}catch(err){console.warn('Ethvelle: IndexedDB could not be opened:',err);}
+    try{localStorage.setItem(CONSENT_KEY,'yes');}catch(_e){}
+    backdrop?.classList.remove('active');if(allow){allow.disabled=false;allow.textContent='Allow & continue';}
+    if(persistenceGranted===false)toast('Browser storage is available, but permanent retention was not guaranteed. Export important projects as backups.');
+    if(pendingCreate){pendingCreate=false;try{if(originalCreateProject)originalCreateProject.call(window);if(projects&&projects[0])projects[0].updatedAt=Date.now();window.saveProjectsToStorage();}catch(err){console.error(err);toast('Project could not be created. Please try again.');}}
+  }
+  const modal=$('ethvelleStoragePermission');
+  $('evspAllow')?.addEventListener('click',requestStorageAndContinue);
+  $('evspCancel')?.addEventListener('click',()=>{pendingCreate=false;modal?.classList.remove('active');});
+  modal?.addEventListener('click',e=>{if(e.target===modal){pendingCreate=false;modal.classList.remove('active');}});
+  const originalCreateProject=window.createProject;
+  if(typeof originalCreateProject==='function'&&!originalCreateProject.__evStorageGate){
+    const gatedCreateProject=function(){
+      let consent=false;try{consent=localStorage.getItem(CONSENT_KEY)==='yes';}catch(_e){}
+      /* v219-fix: no permission panel any more. Storage is requested automatically in the background
+         (persistent-storage request + opening the device DB) and the project is created straight away. */
+      if(!consent){
+        try{localStorage.setItem(CONSENT_KEY,'yes');}catch(_e){}
+        try{if(navigator.storage&&typeof navigator.storage.persist==='function'){Promise.resolve(navigator.storage.persist()).catch(()=>{});}}catch(_e){}
+        try{Promise.resolve(openProjectDb()).catch(err=>console.warn('Ethvelle: IndexedDB could not be opened:',err));}catch(_e){}
+      }
+      const result=originalCreateProject.apply(this,arguments);
+      try{if(projects&&projects[0])projects[0].updatedAt=Date.now();window.saveProjectsToStorage();}catch(_e){}
+      return result;
+    };
+    gatedCreateProject.__evStorageGate=true;window.createProject=gatedCreateProject;
+  }
+  const originalPersist=window.persistProjectState;
+  if(typeof originalPersist==='function'&&!originalPersist.__evDeviceSave){
+    const wrappedPersist=function(){try{if(typeof currentProject!=='undefined'&&currentProject)currentProject.updatedAt=Date.now();}catch(_e){}return originalPersist.apply(this,arguments);};
+    wrappedPersist.__evDeviceSave=true;window.persistProjectState=wrappedPersist;
+  }
+  window.addEventListener('pagehide',()=>{clearTimeout(saveTimer);saveTimer=0;saveFullProjectsToDevice().catch(()=>{});});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(saveTimer);saveTimer=0;saveFullProjectsToDevice().catch(()=>{});}});
+  // Opening a project before the IndexedDB restore finishes used to pass the early
+  // localStorage index-only record (savedState:null) into openEditor. That made every Clips
+  // row appear empty until the user re-uploaded media, even though the full snapshot existed.
+  // Publish a restore promise and let the final openEditor guard wait for it.
+  window.__evFramesGate = new Promise(r=>{window.__evFramesGateResolve=r;});
+  window.__ethvelleProjectsRestoreReady = false;
+  window.__ethvelleProjectsRestorePromise = Promise.resolve()
+    .then(()=>restoreProjectsFromDevice())
+    .catch(err=>{console.warn('Ethvelle project restore:',err);})
+    .finally(()=>{window.__ethvelleProjectsRestoreReady = true;});
+
+  // Video thumbnails are generated only by the time-windowed sequential decoder in V9.
+  // The compatibility generateVideoThumbnails() helper above resolves metadata only.
+
+  // Legacy per-tile live-video fallback removed; video rows use the shared lazy tile decoder.
+
+  // Compare the selected media directly on the main canvas. Only the white wipe/handle accepts
+  // pointer input; the comparison slider in the settings sheet is deliberately removed.
+  function unwrappedSource(src){let s=String(src||'').trim(),m=s.match(/^url\((.*)\)$/i);if(m)s=m[1].trim().replace(/^['"]|['"]$/g,'');return s;}
+  function getEnhanceTarget(){
+    const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+    try{const bg=(typeof backgrounds!=='undefined'?backgrounds:[]).find(x=>String(x.id)===id);if(bg&&unwrappedSource(bg.src))return {kind:'background',model:bg,type:'image',src:unwrappedSource(bg.src)};}catch(_e){}
+    try{const ov=(typeof overlays!=='undefined'?overlays:[]).find(x=>String(x.id)===id);if(ov&&['video','image'].includes(ov.type)&&unwrappedSource(ov.src))return {kind:'overlay',model:ov,type:ov.type,src:unwrappedSource(ov.src)};}catch(_e){}
+    if(!id){try{const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0):null;if(bg&&unwrappedSource(bg.src))return {kind:'background',model:bg,type:'image',src:unwrappedSource(bg.src)};}catch(_e){}}
+    return null;
+  }
+  function transformFor(target){
+    const t=target.kind==='background'?(target.model.transform||((typeof bgTransform!=='undefined')?bgTransform:null)):target.model.transform;
+    if(!t)return 'none';return `translate(${Number(t.offsetX)||0}px,${Number(t.offsetY)||0}px) rotate(${Number(t.rotation)||0}deg) scale(${Number(t.scale)||1})`;
+  }
+  function referenceMediaForCompare(target){
+    try{
+      if(target.kind==='background')return $('bgImgLayer');
+      const host=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[target.model.id]:null;
+      if(!host)return null;
+      if(host.matches&&host.matches('video,img,canvas'))return host;
+      return host.querySelector?host.querySelector('video,img,canvas'):host;
+    }catch(_e){return null;}
+  }
+  let comparePipeline=null,comparePipelineKey='',compareLastPlaybackSyncAt=0;
+  let compareSnap=null,compareSnapCtx=null,compareLastSource=null,compareLastKey='',compareLastTime=-1,compareLastCost=0,compareRvfcEl=null,compareRvfcId=0,compareLoopTimer=0;
+  const COMPARE_PREVIEW_LONG_SIDE=720;
+  function makeCompareMedia(target,after){
+    const el=document.createElement('canvas');el.className='evcc-media';el.width=2;el.height=2;el.dataset.evSide=after?'after':'before';
+    el.style.width='100%';el.style.height='100%';el.style.objectFit='contain';el.style.objectPosition='center';el.style.transform=transformFor(target);el.style.transformOrigin='center center';el.draggable=false;
+    const reference=referenceMediaForCompare(target);if(reference){try{const cs=getComputedStyle(reference);if(cs.objectFit)el.style.objectFit=cs.objectFit;if(cs.objectPosition)el.style.objectPosition=cs.objectPosition;if(cs.transform&&cs.transform!=='none')el.style.transform=cs.transform;if(cs.transformOrigin)el.style.transformOrigin=cs.transformOrigin;}catch(_e){}}
+    return el;
+  }
+  /* The tool panel's full-screen click-catcher (#panelBackdrop, z-index 100100) sits above the
+     preview and swallowed every touch meant for the divider. Cut a hole in it exactly over the
+     divider so the handle can be dragged while taps elsewhere still behave as before. */
+  function updateBackdropHole(){
+    const bd=document.getElementById('panelBackdrop');if(!bd)return;
+    const wipe=document.querySelector('#ethvelleCanvasCompareRoot .evcc-wipe');
+    if(!wipe){bd.style.removeProperty('clip-path');return;}
+    const b=bd.getBoundingClientRect(),w0=wipe.getBoundingClientRect(),rr=wipe.parentElement.getBoundingClientRect();if(!b.width||!w0.width)return;
+    const l=Math.max(w0.left,rr.left),r=Math.min(w0.right,rr.right),w={left:l,top:w0.top,width:Math.max(0,r-l),height:w0.height};if(!w.width)return;
+    const x=Math.round(w.left-b.left),y=Math.round(w.top-b.top),ww=Math.round(w.width),hh=Math.round(w.height),W=Math.round(b.width),H=Math.round(b.height);
+    bd.style.setProperty('clip-path',`path(evenodd,'M0 0H${W}V${H}H0Z M${x} ${y}h${ww}v${hh}h-${ww}Z')`,'important');
+  }
+  window.__evUpdateBackdropHole=updateBackdropHole;
+  function setCanvasComparePosition(p){
+    canvasComparePercent=Math.max(0,Math.min(100,Number(p)||0));const root=$('ethvelleCanvasCompareRoot');if(!root)return;
+    const after=root.querySelector('.evcc-after'),wipe=root.querySelector('.evcc-wipe');if(after)after.style.clipPath=`inset(0 0 0 ${canvasComparePercent}%)`;
+    if(wipe){const width=root.clientWidth||root.getBoundingClientRect().width||0,x=width*canvasComparePercent/100;wipe.style.left=x+'px';wipe.style.setProperty('--evcc-line-offset','31px');updateBackdropHole();}
+  }
+  /* v287 BEFORE/AFTER SYNC FIX. The two halves used to be filled by two separate reads of the live video
+     (the AFTER half through a full-resolution WebGL pass that was also rebuilt every time playback started or
+     stopped), so AFTER could trail BEFORE by 0.1-0.5 s. Now:
+       1. ONE snapshot of the current video frame is taken per update;
+       2. BEFORE and AFTER are both drawn from that same snapshot in the same synchronous block, so they can never
+          show different moments;
+       3. updates are driven by the video's own frame callback (requestVideoFrameCallback) plus seeked/loadeddata,
+          so both halves advance on exactly the frames the video presents;
+       4. the preview pipeline works on the small snapshot and is NOT rebuilt on play/pause, so it is cheap and
+          never stalls the start of playback. */
+  function syncCanvasCompare(force){
+    force=(force===true);
+    const root=$('ethvelleCanvasCompareRoot');if(!root)return;
+    const target=getEnhanceTarget();if(!target)return;
+    const before=root.querySelector('.evcc-before .evcc-media'),after=root.querySelector('.evcc-after .evcc-media');if(!before||!after)return;
+    const source=referenceMediaForCompare(target);if(!source)return;
+    const isVideo=source.tagName==='VIDEO';
+    const sw=Number(source.videoWidth||source.naturalWidth||source.width)||0,sh=Number(source.videoHeight||source.naturalHeight||source.height)||0;
+    if(!sw||!sh||(isVideo&&source.readyState<2))return;
+    const live=!!(isPlaying||window.__ethvelleTimelineScrubbing);
+    const now=performance.now();
+    if(live&&!force){
+      // While playing, the video frame callback drives the updates; only fall back to the render loop when it is unavailable.
+      if(isVideo&&compareRvfcEl===source&&typeof source.requestVideoFrameCallback==='function')return;
+      if(compareLastPlaybackSyncAt&&now-compareLastPlaybackSyncAt<33)return;
+    }
+    const factor=Math.min(1,COMPARE_PREVIEW_LONG_SIDE/Math.max(sw,sh)),pw=Math.max(2,Math.round(sw*factor)),ph=Math.max(2,Math.round(sh*factor));
+    const amount=Math.max(0,Math.min(100,Number($('evltEnhanceAmount')?.value??target.model.enhanceAmount??0)||0));
+    const filter=typeof window.ethvelleAdjustmentFilter==='function'?window.ethvelleAdjustmentFilter(target.model.adjustments,0):'none';
+    const key=`${source.currentSrc||source.src||''}|${pw}x${ph}|${amount}|${filter}`,t=isVideo?Number(source.currentTime)||0:0;
+    if(!live&&!force&&source===compareLastSource&&key===compareLastKey&&t===compareLastTime)return;
+    if(!isVideo&&!force&&source===compareLastSource&&key===compareLastKey)return;
+    const started=performance.now();
+    // 1) ONE snapshot of the current frame - both halves are built from this and nothing else.
+    if(!compareSnap)compareSnap=document.createElement('canvas');
+    if(compareSnap.width!==pw||compareSnap.height!==ph){compareSnap.width=pw;compareSnap.height=ph;compareSnapCtx=null;}
+    if(!compareSnapCtx){compareSnapCtx=compareSnap.getContext('2d',{alpha:false});if(!compareSnapCtx)return;compareSnapCtx.imageSmoothingEnabled=true;compareSnapCtx.imageSmoothingQuality='high';}
+    try{compareSnapCtx.drawImage(source,0,0,pw,ph);}catch(_e){return;}
+    // 2) Preview pipeline sized to the snapshot (rebuilt only if the preview size itself changes).
+    const pkey=pw+'x'+ph;
+    if(comparePipelineKey!==pkey||!comparePipeline){
+      try{if(comparePipeline)comparePipeline.dispose();comparePipeline=window.ethvelleCreateEnhancePipeline(pw,ph,pw,ph);comparePipelineKey=pkey;}
+      catch(err){console.warn('Ethvelle: comparison processor unavailable',err);comparePipeline=null;comparePipelineKey='';}
+    }
+    let processed=null;
+    if(comparePipeline){try{processed=comparePipeline.render(compareSnap,filter,amount);}catch(err){console.warn('Ethvelle: comparison frame failed',err);}}
+    // 3) Paint BEFORE and AFTER back-to-back in the same synchronous block, from the same snapshot.
+    if(before.width!==pw||before.height!==ph){before.width=pw;before.height=ph;}
+    if(after.width!==pw||after.height!==ph){after.width=pw;after.height=ph;}
+    const beforeCtx=before.getContext('2d'),afterCtx=after.getContext('2d');
+    if(beforeCtx){beforeCtx.save();beforeCtx.filter=filter;beforeCtx.imageSmoothingEnabled=true;beforeCtx.imageSmoothingQuality='high';beforeCtx.clearRect(0,0,pw,ph);beforeCtx.drawImage(compareSnap,0,0,pw,ph);beforeCtx.restore();}
+    if(afterCtx&&processed){afterCtx.clearRect(0,0,pw,ph);afterCtx.imageSmoothingEnabled=true;afterCtx.imageSmoothingQuality='high';afterCtx.drawImage(processed,0,0,pw,ph);}
+    if(!live)setCanvasComparePosition(canvasComparePercent);
+    compareLastSource=source;compareLastKey=key;compareLastTime=t;compareLastPlaybackSyncAt=performance.now();compareLastCost=compareLastPlaybackSyncAt-started;
+  }
+  const compareFrameHandler=()=>{try{syncCanvasCompare(true);}catch(_e){}};
+  function detachCompareFrameLoop(){
+    if(compareLoopTimer){clearInterval(compareLoopTimer);compareLoopTimer=0;}
+    if(compareRvfcEl){
+      try{if(compareRvfcId&&typeof compareRvfcEl.cancelVideoFrameCallback==='function')compareRvfcEl.cancelVideoFrameCallback(compareRvfcId);}catch(_e){}
+      try{compareRvfcEl.removeEventListener('seeked',compareFrameHandler);compareRvfcEl.removeEventListener('loadeddata',compareFrameHandler);compareRvfcEl.removeEventListener('pause',compareFrameHandler);}catch(_e){}
+    }
+    compareRvfcEl=null;compareRvfcId=0;
+  }
+  function attachCompareFrameLoop(){
+    detachCompareFrameLoop();
+    const check=()=>{
+      if(!$('ethvelleCanvasCompareRoot')){detachCompareFrameLoop();return;}
+      const tg=getEnhanceTarget(),src=tg?referenceMediaForCompare(tg):null;
+      if(src===compareRvfcEl)return;
+      if(compareRvfcEl){
+        try{if(compareRvfcId&&typeof compareRvfcEl.cancelVideoFrameCallback==='function')compareRvfcEl.cancelVideoFrameCallback(compareRvfcId);}catch(_e){}
+        try{compareRvfcEl.removeEventListener('seeked',compareFrameHandler);compareRvfcEl.removeEventListener('loadeddata',compareFrameHandler);compareRvfcEl.removeEventListener('pause',compareFrameHandler);}catch(_e){}
+        compareRvfcEl=null;compareRvfcId=0;
+      }
+      if(src&&src.tagName==='VIDEO'){
+        compareRvfcEl=src;
+        src.addEventListener('seeked',compareFrameHandler);src.addEventListener('loadeddata',compareFrameHandler);src.addEventListener('pause',compareFrameHandler);
+        if(typeof src.requestVideoFrameCallback==='function'){
+          const onFrame=()=>{
+            if(compareRvfcEl!==src||!$('ethvelleCanvasCompareRoot'))return;
+            try{syncCanvasCompare(true);}catch(_e){}
+            try{compareRvfcId=src.requestVideoFrameCallback(onFrame);}catch(_e){}
+          };
+          try{compareRvfcId=src.requestVideoFrameCallback(onFrame);}catch(_e){}
+        }
+      }
+    };
+    check();compareLoopTimer=setInterval(check,250);
+  }
+  window.ethvelleSetCompareSplit=function(p){setCanvasComparePosition(p);};
+  function removeCanvasCompare(){detachCompareFrameLoop();if(compareSnap){try{compareSnap.width=compareSnap.height=1;}catch(_e){}compareSnap=null;compareSnapCtx=null;}compareLastSource=null;compareLastKey='';compareLastTime=-1;compareLastPlaybackSyncAt=0;const root=$('ethvelleCanvasCompareRoot');if(root)root.remove();updateBackdropHole();if(comparePipeline){try{comparePipeline.dispose();}catch(_e){}comparePipeline=null;comparePipelineKey='';}canvasCompareDrag=null;}
+  function mountCanvasCompare(){
+    removeCanvasCompare();const stage=$('canvasStage'),target=getEnhanceTarget();if(!stage||!target)return;
+    const root=document.createElement('div');root.id='ethvelleCanvasCompareRoot';root.dataset.targetId=String(target.model.id||selectedClip||'');
+    const before=document.createElement('div');before.className='evcc-layer evcc-before';before.appendChild(makeCompareMedia(target,false));
+    const after=document.createElement('div');after.className='evcc-layer evcc-after';after.appendChild(makeCompareMedia(target,true));
+    const wipe=document.createElement('div');wipe.className='evcc-wipe';wipe.setAttribute('role','slider');wipe.setAttribute('aria-label','Drag the before and after divider');wipe.setAttribute('tabindex','0');wipe.innerHTML='<span class="evcc-handle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 6.5l-5.5 5.5 5.5 5.5M14 6.5l5.5 5.5-5.5 5.5"/></svg></span>';
+    root.append(before,after,wipe);
+    const btag=document.createElement('span');btag.className='evcc-tag before';btag.textContent='BEFORE';const atag=document.createElement('span');atag.className='evcc-tag after';atag.textContent='AFTER';root.append(btag,atag);stage.appendChild(root);
+    const updateFromEvent=e=>{const r=stage.getBoundingClientRect();if(r.width)setCanvasComparePosition((e.clientX-r.left)/r.width*100);};
+    wipe.addEventListener('pointerdown',e=>{
+      // The divider uses a 64px invisible touch target around the restored black handle.
+      // A drag can begin anywhere along the rail, including at 0% and 100%.
+      e.preventDefault();e.stopPropagation();
+      try{if(typeof window.__evSweepCancel==='function')window.__evSweepCancel();}catch(_e){}
+      canvasCompareDrag={id:e.pointerId,startX:e.clientX,startY:e.clientY,moved:false};
+      try{wipe.setPointerCapture(e.pointerId);}catch(_e){}
+    });
+    wipe.addEventListener('pointermove',e=>{if(canvasCompareDrag&&canvasCompareDrag.id===e.pointerId){
+      if(!canvasCompareDrag.moved&&Math.hypot(e.clientX-canvasCompareDrag.startX,e.clientY-canvasCompareDrag.startY)<5)return;
+      canvasCompareDrag.moved=true;updateFromEvent(e);e.preventDefault();e.stopPropagation();
+    }});
+    const end=e=>{if(canvasCompareDrag&&canvasCompareDrag.id===e.pointerId){canvasCompareDrag=null;try{wipe.releasePointerCapture(e.pointerId);}catch(_e){}e.preventDefault();e.stopPropagation();}};
+    wipe.addEventListener('pointerup',end);wipe.addEventListener('pointercancel',end);
+    wipe.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'){setCanvasComparePosition(canvasComparePercent-2);e.preventDefault();}else if(e.key==='ArrowRight'){setCanvasComparePosition(canvasComparePercent+2);e.preventDefault();}});
+    canvasComparePercent=50;setCanvasComparePosition(50);
+    attachCompareFrameLoop();
+  }
+  function renderEnhanceSettings(){
+    const host=$('evltEnhancePanel');if(!host)return;const target=getEnhanceTarget();if(!target){host.innerHTML='<div class="evlt-status">Select a video or image clip first.</div>';return;}
+    const amount=Math.max(0,Math.min(100,Number(target.model.enhanceAmount)||0));
+    host.innerHTML=`<div class="text-editor-controls evlt-enhance-settings">
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceAmount">Enhance amount</label><output id="evltEnhanceAmountValue">${amount}%</output></div><div class="text-range-line"><input id="evltEnhanceAmount" type="range" min="0" max="100" step="1" value="${amount}" oninput="window.ethvelleSetEnhanceAmount(this.value);document.getElementById('evltEnhanceAmountValue').textContent=this.value+'%'" aria-label="Enhance amount"></div></div>
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceQuality">Output quality</label></div><select id="evltEnhanceQuality"><option value="1080">1080p · Full HD</option><option value="1440">1440p · QHD</option><option value="2160">2160p · Ultra HD</option></select></div>
+      <div class="evlt-progress" id="evltEnhanceProgress"><i id="evltEnhanceProgressFill"></i></div><div class="evlt-status" id="evltEnhanceStatus" role="status"></div>
+      <div class="evlt-enhance-actions"><button type="button" id="evltEnhanceStart" class="evlt-primary" onclick="window.ethvelleStartVideoEnhance()">Enhance</button><button type="button" id="evltEnhanceApply" class="evlt-primary evlt-apply" onclick="window.ethvelleApplyVideoEnhance()" ${target.model.__evltPendingEnhancedSrc?'':'disabled'}>Apply</button></div>
+    </div>`;
+    try{const q=Number(target.model.enhancedAssetQuality)||1080;$('evltEnhanceQuality').value=String([1080,1440,2160].includes(q)?q:1080);}catch(_e){}
+    applyEnhanceCapsUi();
+  }
+  /* v294: first time the panel opens, show a loading state while the device comfort test runs (see __evEnhanceCaps). */
+  function applyEnhanceCapsUi(){
+    const host=$('evltEnhancePanel'),settings=host&&host.querySelector('.evlt-enhance-settings');if(!settings)return;
+    const ensure=window.ethvelleEnsureEnhanceCaps;if(typeof ensure!=='function')return;
+    const caps=window.__evEnhanceCaps||{state:'idle'};
+    const busy=caps.state==='idle'||caps.state==='running';
+    let ov=settings.querySelector(':scope > .evlt-caps-loading');
+    const start=$('evltEnhanceStart'),sel=$('evltEnhanceQuality');
+    if(!busy){
+      if(ov)ov.remove();settings.classList.remove('evlt-caps-busy');
+      if(sel)sel.disabled=false;if(start&&!window.__ethvelleV5EnhanceBusy)start.disabled=false;
+      return;
+    }
+    settings.classList.add('evlt-caps-busy');
+    if(!ov){ov=document.createElement('div');ov.className='evlt-caps-loading';ov.setAttribute('role','status');ov.innerHTML='<i class="evlt-caps-spin"></i><b>Checking your device…</b><span>Finding the best Enhance quality for this phone</span>';settings.appendChild(ov);}
+    if(sel)sel.disabled=true;if(start)start.disabled=true;
+    try{ensure().then(()=>applyEnhanceCapsUi(),()=>applyEnhanceCapsUi());}catch(_e){}
+  }
+  const oldSetEnhance=window.ethvelleSetEnhanceAmount;
+  if(typeof oldSetEnhance==='function'&&!oldSetEnhance.__evCanvasCompare){const w=function(v){const r=oldSetEnhance.apply(this,arguments);syncCanvasCompare();return r;};w.__evCanvasCompare=true;window.ethvelleSetEnhanceAmount=w;}
+  const oldStartEnhance=window.ethvelleStartVideoEnhance;
+  if(typeof oldStartEnhance==='function'&&!oldStartEnhance.__evCanvasCompare){const w=async function(){const r=await oldStartEnhance.apply(this,arguments);syncCanvasCompare();return r;};w.__evCanvasCompare=true;window.ethvelleStartVideoEnhance=w;}
+  function positionEnhancePanel(){
+    const panel=$('toolPanel'),editor=$('screen-editor');if(!panel||!editor||!panel.classList.contains('evlt-enhance-compact'))return;
+    const row=editor.querySelector('.transport-row')||editor.querySelector('#transportRow')||editor.querySelector('[data-role="transport-row"]');
+    if(!row)return;const er=editor.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    const top=Math.max(0,Math.round(rr.top-er.top));panel.style.setProperty('--evlt-enhance-panel-top',top+'px');
+  }
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__evCanvasCompare){const w=function(key){if(key==='evltEnhance'){try{if(typeof selectedClip!=='undefined'&&selectedClip!=null)window.__ethvelleTimelineSelectionLockId=String(selectedClip);}catch(_e){}try{if(typeof window.pausePlaybackAtCurrentTime==='function')window.pausePlaybackAtCurrentTime();else if(typeof window.pausePlayback==='function')window.pausePlayback();}catch(_e){}}const r=oldOpenPanel.apply(this,arguments);if(key==='evltEnhance'){const panel=$('toolPanel');panel?.classList.add('evlt-enhance-compact');setTimeout(()=>{positionEnhancePanel();renderEnhanceSettings();mountCanvasCompare();syncCanvasCompare();},45);setTimeout(()=>{positionEnhancePanel();syncCanvasCompare();},240);}else{const panel=$('toolPanel');panel?.classList.remove('evlt-enhance-compact');panel?.style.removeProperty('--evlt-enhance-panel-top');window.__ethvelleTimelineSelectionLockId='';removeCanvasCompare();}return r;};w.__evCanvasCompare=true;window.openPanel=w;}
+  const oldClosePanel=window.closePanel;
+  if(typeof oldClosePanel==='function'&&!oldClosePanel.__evCanvasCompare){const w=function(){const panel=$('toolPanel');if(panel&&panel.classList.contains('evlt-enhance-compact')){try{if(typeof window.__evCancelEnhanceAutoPreview==='function')window.__evCancelEnhanceAutoPreview('panel-close',true,true);}catch(_e){}}const r=oldClosePanel.apply(this,arguments);window.__ethvelleTimelineSelectionLockId='';panel?.classList.remove('evlt-enhance-compact');panel?.style.removeProperty('--evlt-enhance-panel-top');removeCanvasCompare();return r;};w.__evCanvasCompare=true;window.closePanel=w;}
+  window.addEventListener('resize',()=>{positionEnhancePanel();if($('ethvelleCanvasCompareRoot'))syncCanvasCompare();},{passive:true});
+  const oldRenderFrame=window.renderFrame;
+  if(typeof oldRenderFrame==='function'&&!oldRenderFrame.__evLiveEnhancePreview){const w=function(){const result=oldRenderFrame.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))syncCanvasCompare();return result;};w.__evLiveEnhancePreview=true;window.renderFrame=w;}
+  const oldRenderOverlays=window.renderOverlayLayers;
+  if(typeof oldRenderOverlays==='function'&&!oldRenderOverlays.__evCompareRefresh){const w=function(){const r=oldRenderOverlays.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))setTimeout(syncCanvasCompare,0);return r;};w.__evCompareRefresh=true;window.renderOverlayLayers=w;}
+  const oldApplyBg=window.applyBackground;
+  if(typeof oldApplyBg==='function'&&!oldApplyBg.__evCompareRefresh){const w=function(){const r=oldApplyBg.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))setTimeout(syncCanvasCompare,0);return r;};w.__evCompareRefresh=true;window.applyBackground=w;}
+})();
+</script>
+
+
+<style id="ethvelle-v7-long-video-enhance-slider-css">
+  .evlt-enhance-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px;}
+  .evlt-enhance-actions button{min-width:0;min-height:44px;}
+  .evlt-enhance-actions .evlt-apply{background:#202027;border:1px solid #3A3A45;color:#F5F5F7;}
+.evlt-enhance-actions .evlt-apply:disabled{opacity:.42;cursor:not-allowed;}
+  /* v294: loading state while the device comfort test runs */
+  .evlt-enhance-settings{position:relative;}
+  .evlt-enhance-settings.evlt-caps-busy > *:not(.evlt-caps-loading){opacity:.28;pointer-events:none;transition:opacity .2s ease;}
+  .evlt-caps-loading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:18px;background:transparent;}
+  .evlt-caps-loading b{font-size:14px;font-weight:800;color:#F5F5F7;}
+  .evlt-caps-loading span{font-size:12px;color:#A5A5B2;line-height:1.4;}
+  .evlt-caps-spin{width:30px;height:30px;border-radius:50%;border:3px solid rgba(255,255,255,.16);border-top-color:var(--accent,#2F5CE8);animation:evltCapsSpin .8s linear infinite;}
+  @keyframes evltCapsSpin{to{transform:rotate(360deg);}}
+</style>
+
+
+<script id="ethvelle-v7-device-media-and-thumb-drag-fixes">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+  function toast(msg){try{if(typeof window.showToast==='function')window.showToast(msg,{duration:2800});else console.info('Ethvelle:',msg);}catch(_e){}}
+
+  // Store long local video files as Blob records, never convert them into enormous Base64 strings.
+  let sourceDbPromise=null;
+  function openSourceDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('IndexedDB is not available in this browser view.'));
+    if(!sourceDbPromise){
+      sourceDbPromise=new Promise((resolve,reject)=>{
+        const req=indexedDB.open('ethvelle-source-media-v1',1);
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('assets'))db.createObjectStore('assets');};
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not access device media storage.'));
+      }).catch(err=>{sourceDbPromise=null;throw err;});
+    }
+    return sourceDbPromise;
+  }
+  async function storeVideoFile(file,handle=null){
+    const key='media-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+    const db=await openSourceDb();
+    // Keep the selected File as a Blob even when File System Access is supported. File handles
+    // can become invalid when the original source is moved/deleted; the Blob is the durable copy
+    // that lets the clip survive refresh. The handle remains optional metadata only.
+    async function writeRecord(record){await new Promise((resolve,reject)=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put(record,key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not save this media to device storage.'));tx.onabort=()=>reject(tx.error||new Error('Device storage ran out of space or aborted the save.'));});}
+    if(navigator.storage&&typeof navigator.storage.estimate==='function'){
+      try{const estimate=await navigator.storage.estimate(),remaining=Number(estimate.quota)-Number(estimate.usage||0);if(Number.isFinite(remaining)&&file.size>Math.max(0,remaining-16*1024*1024))throw new Error('Not enough estimated browser storage for this video. Use the direct device-file picker if your browser supports it, or free storage space.');}catch(err){if(err&&/Not enough estimated/.test(err.message||''))throw err;}
+    }
+    const base={name:file.name,type:file.type||'application/octet-stream',size:file.size,lastModified:file.lastModified||0,savedAt:Date.now()};
+    // Do not let the project clip be created until this Blob transaction commits.
+    try{await writeRecord({...base,blob:file,handle:handle||null,storageMode:'indexeddb-blob'});}
+    catch(err){
+      if(!handle)throw err;
+      await writeRecord({...base,blob:file,handle:null,storageMode:'indexeddb-blob'});
+    }
+    return key;
+  }
+  // Expose the same IndexedDB asset store to the standard Android file-input path too.
+  // This keeps image/video/audio overlays as Blob records instead of huge Base64 strings.
+  window.__ethvelleStoreMediaFile=(file,handle=null)=>storeVideoFile(file,handle);
+  window.__ethvelleDeleteStoredMediaFile=deleteVideoFile;
+  async function deleteVideoFile(key){try{const db=await openSourceDb();await new Promise(resolve=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').delete(key);tx.oncomplete=tx.onerror=tx.onabort=resolve;});}catch(e){}}
+  async function prepareFrames(src,file,key,meta){
+    try{
+      if(window.__evSourceFrames&&typeof window.__evSourceFrames.prepare==='function'){
+        await window.__evSourceFrames.prepare(src,{key,name:file&&file.name,size:file&&file.size,lastModified:file&&file.lastModified,
+          duration:Number(meta&&meta.duration)||0,width:Number(meta&&meta.width)||0,height:Number(meta&&meta.height)||0,
+          onProgress:p=>{if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(Math.round(24+p*0.70),'Capturing timeline frames… '+Math.round(p)+'%');}});
+      }
+    }catch(err){console.warn('Ethvelle frames before import:',err);}
+  }
+  async function createFilmstrip(src,file){
+    // Metadata only: return as soon as the browser knows duration and aspect ratio.
+    // Actual frames are captured later by the single lazy timeline thumbnail decoder.
+    return await new Promise(resolve=>{
+      const video=document.createElement('video');
+      let settled=false,timer=0;
+      video.muted=true;video.playsInline=true;video.preload='metadata';
+      video.setAttribute('playsinline','');
+      if(/^https?:/i.test(String(src||'')))video.crossOrigin='anonymous';
+      const finish=()=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        const result={frames:[],duration:Number(video.duration)||0,width:Number(video.videoWidth)||0,height:Number(video.videoHeight)||0};
+        try{video.pause();video.removeAttribute('src');video.load();}catch(_e){}
+        resolve(result);
+      };
+      video.addEventListener('loadedmetadata',finish,{once:true});
+      video.addEventListener('error',finish,{once:true});
+      timer=setTimeout(finish,15000);
+      try{video.src=String(src||'');video.load();}catch(_e){finish();}
+    });
+  }
+  // Prefer a browser-native file handle picker for the normal Clips/Media import path.
+  // This grants access to the actual chosen file (where supported) and avoids copying huge
+  // videos into IndexedDB. Older Android WebViews use the standard picker + IndexedDB Blob.
+  const previousTriggerUpload=window.triggerUpload;
+  async function handlePickedWithDeviceAccess(target,appendAfterGroup){
+    let handles;
+    try{
+      handles=await window.showOpenFilePicker({multiple:false,types:[{description:'Common images and videos',accept:{
+        'image/jpeg':['.jpg','.jpeg','.jfif'],'image/png':['.png','.apng'],'image/webp':['.webp'],'image/gif':['.gif'],'image/avif':['.avif'],
+        'image/bmp':['.bmp','.dib'],'image/tiff':['.tif','.tiff'],'image/svg+xml':['.svg'],'image/heic':['.heic'],'image/heif':['.heif'],'image/vnd.microsoft.icon':['.ico'],'image/jxl':['.jxl'],
+        'video/mp4':['.mp4','.m4v','.f4v'],'video/quicktime':['.mov'],'video/webm':['.webm'],'video/x-matroska':['.mkv'],
+        'video/x-msvideo':['.avi'],'video/3gpp':['.3gp','.3gpp'],'video/3gpp2':['.3g2'],'video/mpeg':['.mpeg','.mpg','.mpe','.m2v'],'video/ogg':['.ogv'],
+        'video/mp2t':['.ts','.mts','.m2ts'],'video/x-ms-wmv':['.wmv'],'video/x-flv':['.flv']
+      }}]});
+    }catch(err){
+      if(err&&err.name==='AbortError')return;
+      console.warn('Ethvelle direct device picker unavailable; using normal media picker:',err);
+      if(typeof previousTriggerUpload==='function')previousTriggerUpload.call(window,target,appendAfterGroup);
+      return;
+    }
+    const handle=handles&&handles[0];if(!handle)return;
+    const file=await handle.getFile();const isVideo=/^video\//i.test(file.type||'')||/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(file.name||'');
+    const isImage=/^image\//i.test(file.type||'')||/\.(png|apng|jpe?g|jfif|webp|gif|avif|bmp|dib|heic|heif|tif|tiff|svg|ico|jxl)$/i.test(file.name||'');
+    if(!isVideo&&!isImage){toast('Choose an image or video file.');return;}
+    if(isVideo&&typeof window.__ethvelleImportBegin==='function')window.__ethvelleImportBegin(file.name,file.size);
+    let key=null,src=null,sessionOnly=false;
+    try{
+      if(isVideo&&typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(12,'Linking the original video file…');
+      try{key=await window.__ethvelleStoreMediaFile(file,handle);}catch(storageError){
+        console.warn('Ethvelle device persistence unavailable; using a safe project/session fallback:',storageError);
+        if(file.size<=3*1024*1024){
+          src=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(reader.error||new Error('Could not read the selected media.'));reader.readAsDataURL(file);});
+        }else{src=URL.createObjectURL(file);sessionOnly=true;}
+      }
+      if(!src)src=URL.createObjectURL(file);
+      if(isVideo){
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(23,'Preparing the timeline preview…');
+        const tr=await createFilmstrip(src,file),duration=Number(tr&&tr.duration)||0;
+        await prepareFrames(src,file,key,tr);
+        if(typeof addMediaOverlay!=='function')throw new Error('The timeline is unavailable.');
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Adding the clip to your timeline…');
+        addMediaOverlay({type:'video',src,name:file.name,duration:duration||12,sourceDuration:duration||12,sourceWidth:tr&&tr.width,sourceHeight:tr&&tr.height,thumbs:[],peaks:[],appendAfterGroup:appendAfterGroup||null,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+        if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+        if(sessionOnly||!key)toast(sessionOnly?'Video added for this session only. Export a backup before leaving.':'Video added to project data. Keep an exported backup.');
+      }else{
+        if(typeof addMediaOverlay!=='function')throw new Error('The timeline is unavailable.');
+        addMediaOverlay({type:'image',src,name:file.name,duration:5,thumbs:[],peaks:[],appendAfterGroup:appendAfterGroup||null,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+        if(sessionOnly||!key)toast(sessionOnly?'Image added for this session only. Export a backup before leaving.':'Image added to project data. Keep an exported backup.');
+      }
+      try{if(typeof closePanel==='function')closePanel();}catch(_e){}
+      try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+      try{if(typeof window.__ethvelleDeviceSaveNow==='function')await window.__ethvelleDeviceSaveNow();}catch(err){console.warn('Device project snapshot save:',err);}
+    }catch(err){
+      if(key)await deleteVideoFile(key);if(src){try{URL.revokeObjectURL(src);}catch(_e){}}
+      if(typeof window.__ethvelleImportFail==='function')window.__ethvelleImportFail(err&&err.message?err.message:'Could not import this media file.');
+      console.error('Ethvelle direct device import:',err);
+      toast(err&&err.message?err.message:'Could not import this media file.');
+    }
+  }
+  if(typeof previousTriggerUpload==='function'&&!previousTriggerUpload.__evV7DevicePicker){
+    const wrappedTriggerUpload=function(target,appendAfterGroup){
+      const t=String(target||'');
+      try{uploadTarget=t;uploadAppendGroup=appendAfterGroup||null;}catch(_e){}
+      if(['overlay','media'].includes(t)&&typeof window.showOpenFilePicker==='function'){
+        // The native picker API must be invoked synchronously from the user's button gesture.
+        handlePickedWithDeviceAccess(t,appendAfterGroup).catch(err=>{console.error(err);toast('Could not open the device file picker.');});
+        return;
+      }
+      return previousTriggerUpload.apply(this,arguments);
+    };
+    wrappedTriggerUpload.__evV7DevicePicker=true;window.triggerUpload=wrappedTriggerUpload;
+  }
+
+  const input=$('fileInput');
+  if(input)input.addEventListener('change',function(e){
+    const file=input.files&&input.files[0];if(!file||(!/^video\//i.test(file.type||'')&&!/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(file.name||'')))return;
+    let target='';try{target=String(uploadTarget||'');}catch(_e){}
+    if(!['overlay','media','replace-overlay'].includes(target))return;
+    // Prevent the old bubbling listener from FileReader-reading the whole video as Base64.
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    const appendGroup=typeof uploadAppendGroup!=='undefined'?uploadAppendGroup:null;
+    const replaceId=typeof replaceTargetId!=='undefined'?replaceTargetId:null;
+    input.value='';
+    if(typeof window.__ethvelleImportBegin==='function')window.__ethvelleImportBegin(file.name,file.size);
+    if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(12,'Saving the original video on this device…');
+    (async()=>{
+      let key=null,src=null;
+      try{
+        try{key=await window.__ethvelleStoreMediaFile(file);}catch(storageError){console.warn('Ethvelle video persistence unavailable; adding a session-only clip:',storageError);key=null;}
+        src=URL.createObjectURL(file);
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(23,'Preparing the timeline preview…');
+        const thumbsResult=await createFilmstrip(src,file);
+        await prepareFrames(src,file,key,thumbsResult);
+        const frames=[];
+        const duration=Number(thumbsResult&&thumbsResult.duration)||0;
+        if(target==='replace-overlay'){
+          const ov=(typeof overlays!=='undefined'?overlays:[]).find(o=>String(o.id)===String(replaceId));
+          if(!ov)throw new Error('The selected clip no longer exists.');
+          ov.type='video';ov.src=src;ov.deviceMediaKey=key;ov.deviceMediaName=file.name;ov.deviceMediaSize=Number(file.size)||ov.deviceMediaSize||0;ov.deviceMediaLastModified=Number(file.lastModified)||ov.deviceMediaLastModified||0;ov.name=file.name;ov.sourceDuration=duration||ov.sourceDuration||1;ov.sourceWidth=Number(thumbsResult&&thumbsResult.width)||ov.sourceWidth||0;ov.sourceHeight=Number(thumbsResult&&thumbsResult.height)||ov.sourceHeight||0;ov.thumbs=[];ov.peaks=[];
+          if(!ov.transform)ov.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+          try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();if(typeof renderOverlayListPanel==='function')renderOverlayListPanel();if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState();}catch(err){throw err;}
+          if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Updating the selected timeline clip…');
+          if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+          if(typeof window.showToast==='function')window.showToast(key?'Video replaced and saved on this device':'Video replaced for this session. Export a backup before leaving.',{duration:2800});
+        }else{
+          if(typeof addMediaOverlay!=='function')throw new Error('The media timeline is unavailable.');
+          if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Adding the clip to your timeline…');
+          addMediaOverlay({type:'video',src,name:file.name,duration:duration||12,sourceDuration:duration||12,sourceWidth:thumbsResult&&thumbsResult.width,sourceHeight:thumbsResult&&thumbsResult.height,thumbs:[],peaks:[],appendAfterGroup:appendGroup,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+          if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+          if(!key&&typeof window.showToast==='function')window.showToast('Video added for this session. Export a backup before leaving.',{duration:2800});
+        }
+        if(typeof closePanel==='function')closePanel();
+      }catch(err){
+        const attached=!!(typeof overlays!=='undefined'&&Array.isArray(overlays)&&overlays.some(o=>o&&((key&&String(o.deviceMediaKey||'')===String(key))||(src&&String(o.src||'')===String(src)))));
+        if(!attached){if(key)await deleteVideoFile(key);if(src){try{URL.revokeObjectURL(src);}catch(_e){}}}
+        if(typeof window.__ethvelleImportFail==='function')window.__ethvelleImportFail(err&&err.message?err.message:'Could not add this video.');
+        console.error('Ethvelle long-video import:',err);
+        const msg=file.size>25*1024*1024?'This browser view could not save the large video in device storage. Open the HTML in a supported browser or free storage space, then retry.':(err&&err.message?err.message:'Could not add this video.');
+        if(typeof window.showToast==='function')window.showToast(msg,{duration:3500});
+      }finally{try{if(typeof uploadAppendGroup!=='undefined')uploadAppendGroup=null;}catch(_e){}try{if(typeof replaceTargetId!=='undefined'&&target==='replace-overlay')replaceTargetId=null;}catch(_e){}}
+    })();
+  },true);
+
+  // Slider input is guarded by the single shared thumb-only handler earlier in this file.
+})();
+</script>
+
+
+
+<!-- Ethvelle V9/V230 repair: short clips eager once; long clips lazy/windowed; persisted frame cache; text loading + scrub-lag fixes. -->
+<style id="ethvelle-v9-filmstrip-ratio-slider-css">
+  /* Video strips are position-addressed tiles: one tile is lane-height x source aspect.
+     The parent remains a neutral placeholder until the sequential decoder paints a frame. */
+  #timelineInner .clip-thumb-strip.ev-video-thumbs{
+    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+    display:block!important;overflow:hidden!important;white-space:normal!important;gap:0!important;
+    background:#383943!important;background-image:none!important;pointer-events:none!important;
+    contain:paint!important;
+  }
+  #timelineInner .ev-video-thumb-tile{
+    position:absolute!important;left:0;top:0;bottom:0;height:100%!important;min-width:0!important;
+    max-width:none!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    display:block!important;box-sizing:border-box!important;overflow:hidden!important;
+    background-color:#41434D!important;background-position:center center!important;
+    background-repeat:no-repeat!important;background-size:100% 100%!important;pointer-events:none!important;
+  }
+  #timelineInner .ev-video-thumb-tile.ev-video-thumb-ready{background-color:transparent!important;}
+  /* v231: capped eager tiles wider than their natural aspect use cover to avoid gaps. */
+  .ev-video-thumbs-wide .ev-video-thumb-tile{background-size:cover!important;}
+  /* v231: match the base #timelineInner id specificity so cover wins over the stretch rule. */
+  #timelineInner .ev-video-thumbs-wide .ev-video-thumb-tile{background-size:cover!important;}
+  input[type="range"]{touch-action:none!important;-webkit-tap-highlight-color:transparent!important;}
+</style>
+<script id="ethvelle-v9-filmstrip-ratio-slider-js">
+(function(){
+  'use strict';
+  /* v231: retain enough decoded frames for eager strips without evicting visible tiles. */
+  const CACHE_LIMIT=900,DOM_TILE_LIMIT=60,DEFAULT_ASPECT=16/9;
+  /* v231: every trimmed source span up to five minutes is eager, capped at 240 natural tiles. */
+  const SHORT_VIDEO_EAGER_MAX_SOURCE_SEC=300,EAGER_MAX_TILES=240;
+  const cache=new Map();                 // LRU object-URL cache: src|source-time -> {url,blob}
+  const pending=new Map();               // coalesced seek/capture jobs
+  const queue=[];                        // one sequential seek queue for every source
+  const sourceMeta=new Map();
+  const primed=new Set();
+  let activeVideo=null,activeVideoSrc='',workerRunning=false;
+  let scheduleTimer=0,scheduleRaf=0,retryTimer=0;
+  // Keep the LRU small, but persist completed JPEG blobs so moving a clip or scrolling
+  // away and back never decodes an already-captured source-time again in this session.
+  let frameDbPromise=null;
+  function openFrameDb(){
+    if(!('indexedDB' in window))return Promise.resolve(null);
+    if(!frameDbPromise){
+      frameDbPromise=new Promise(resolve=>{
+        let req;
+        try{req=indexedDB.open('ethvelle-filmstrip-frames-v1',1);}catch(_e){resolve(null);return;}
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('frames'))db.createObjectStore('frames');};
+        req.onsuccess=()=>resolve(req.result);
+        req.onerror=()=>resolve(null);
+        req.onblocked=()=>resolve(null);
+      });
+    }
+    return frameDbPromise;
+  }
+  async function readSavedFrame(key){
+    try{
+      const db=await openFrameDb();if(!db)return null;
+      return await new Promise(resolve=>{
+        const tx=db.transaction('frames','readonly'),req=tx.objectStore('frames').get(key);
+        req.onsuccess=()=>resolve(req.result instanceof Blob?req.result:null);
+        req.onerror=()=>resolve(null);
+        tx.onabort=()=>resolve(null);
+      });
+    }catch(_e){return null;}
+  }
+  async function saveFrameBlob(key,blob){
+    try{
+      const db=await openFrameDb();if(!db||!blob)return;
+      await new Promise(resolve=>{
+        const tx=db.transaction('frames','readwrite');
+        tx.objectStore('frames').put(blob,key);
+        tx.oncomplete=tx.onerror=tx.onabort=()=>resolve();
+      });
+    }catch(_e){}
+  }
+
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  function sourceOf(ov){
+    let src=String(ov&&ov.src||'').trim();
+    const m=src.match(/^url\((.*)\)$/i);
+    if(m)src=m[1].trim().replace(/^['"]|['"]$/g,'');
+    return src;
+  }
+  function cacheKey(src,t){return src+'|'+(Math.round(Number(t)*1000)/1000).toFixed(3);}
+  function cached(key){
+    const hit=cache.get(key);if(!hit)return null;
+    cache.delete(key);cache.set(key,hit);return hit;
+  }
+  function cachePut(key,blob){
+    const url=URL.createObjectURL(blob);
+    cache.set(key,{url,blob});
+    while(cache.size>CACHE_LIMIT){
+      const first=cache.keys().next().value,old=cache.get(first);cache.delete(first);
+      try{if(old&&old.url)URL.revokeObjectURL(old.url);}catch(_e){}
+    }
+    return cache.get(key);
+  }
+  function paintNode(node,key,entry){
+    if(!node||!node.isConnected||node.dataset.evThumbKey!==key||!entry)return;
+    node.style.backgroundImage='url("'+entry.url.replace(/"/g,'%22')+'")';
+    node.classList.add('ev-video-thumb-ready');
+  }
+  function teardownVideo(){
+    const v=activeVideo;activeVideo=null;activeVideoSrc='';
+    if(!v)return;
+    try{v.pause();v.removeAttribute('src');v.load();}catch(_e){}
+    try{v.remove();}catch(_e){}
+  }
+  function loadedEvent(video,eventName,timeout){
+    return new Promise(resolve=>{
+      let settled=false,timer=0;
+      const finish=ok=>{if(settled)return;settled=true;clearTimeout(timer);video.removeEventListener(eventName,onEvent);video.removeEventListener('error',onError);resolve(ok);};
+      const onEvent=()=>finish(true),onError=()=>finish(false);
+      video.addEventListener(eventName,onEvent,{once:true});video.addEventListener('error',onError,{once:true});
+      timer=setTimeout(()=>finish(false),timeout);
+      if((eventName==='loadedmetadata'&&video.readyState>=1)||(eventName==='loadeddata'&&video.readyState>=2))finish(true);
+    });
+  }
+  function externalDecoderCount(){
+    let count=0;
+    document.querySelectorAll('video').forEach(v=>{
+      if(v===activeVideo)return;
+      try{if((v.currentSrc||v.src)&&v.readyState>0&&!v.error)count++;}catch(_e){}
+    });
+    return count;
+  }
+  function canCreateDecoder(){
+    const budget=Number(window.__evDecoderBudget&&window.__evDecoderBudget.pool)||3;
+    return externalDecoderCount()<Math.max(1,budget);
+  }
+  function applyMetadata(src,video){
+    const width=Number(video.videoWidth)||0,height=Number(video.videoHeight)||0,duration=Number(video.duration)||0;
+    if(width>0&&height>0){
+      const prev=sourceMeta.get(src),next={width,height,duration,aspect:width/height};
+      sourceMeta.set(src,next);
+      let changed=!prev||Math.abs(prev.aspect-next.aspect)>.002;
+      try{
+        (Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+          if(!ov||ov.type!=='video'||sourceOf(ov)!==src)return;
+          if(Number(ov.sourceWidth)!==width||Number(ov.sourceHeight)!==height){ov.sourceWidth=width;ov.sourceHeight=height;changed=true;}
+          if(!(Number(ov.sourceDuration)>0)&&duration>0)ov.sourceDuration=duration;
+        });
+      }catch(_e){}
+      /* v231: use the eager path immediately after the real aspect ratio arrives. */
+      if(changed)schedule(true);
+    }
+  }
+  async function ensureSourceVideo(src,force){
+    if(activeVideo&&activeVideoSrc===src&&activeVideo.readyState>=1&&!activeVideo.error)return activeVideo;
+    if(activeVideo)teardownVideo();
+    if(!force&&!canCreateDecoder())return null;
+    const video=document.createElement('video');
+    video.muted=true;video.defaultMuted=true;video.volume=0;video.playsInline=true;video.preload='auto';
+    video.setAttribute('muted','');video.setAttribute('playsinline','');video.setAttribute('disablepictureinpicture','');
+    video.setAttribute('aria-hidden','true');video.tabIndex=-1;
+    video.style.cssText='position:fixed!important;left:-10000px!important;top:0!important;width:160px!important;height:90px!important;opacity:.001!important;pointer-events:none!important;z-index:-1!important;contain:strict!important;';
+    if(/^https?:/i.test(src))video.crossOrigin='anonymous';
+    activeVideo=video;activeVideoSrc=src;
+    document.body.appendChild(video);
+    const meta=loadedEvent(video,'loadedmetadata',15000);
+    try{video.src=src;video.load();}catch(_e){teardownVideo();return null;}
+    if(!await meta||!video.videoWidth||!video.videoHeight){if(activeVideo===video)teardownVideo();return null;}
+    applyMetadata(src,video);
+    if(video.readyState<2){
+      const data=await loadedEvent(video,'loadeddata',12000);
+      if(!data||activeVideo!==video){if(activeVideo===video)teardownVideo();return null;}
+    }
+    return activeVideo===video?video:null;
+  }
+  function waitPaint(video){
+    return new Promise(resolve=>{
+      let settled=false,timer=0;
+      const finish=ok=>{if(settled)return;settled=true;clearTimeout(timer);resolve(ok);};
+      timer=setTimeout(()=>finish(video.readyState>=2&&activeVideo===video),420);
+      if(typeof video.requestVideoFrameCallback==='function'){
+        try{video.requestVideoFrameCallback(()=>finish(video.readyState>=2&&activeVideo===video));}catch(_e){}
+      }
+      requestAnimationFrame(()=>requestAnimationFrame(()=>finish(video.readyState>=2&&activeVideo===video)));
+    });
+  }
+  async function seekVideo(video,wanted,attempt){
+    if(!video||activeVideo!==video||video.readyState<2)return false;
+    const target=clamp(wanted,0,Math.max(0,(Number(video.duration)||.1)-.045));
+    if(!video.seeking&&Math.abs((Number(video.currentTime)||0)-target)<.012){
+      if(await waitPaint(video))return true;
+    }else{
+      const ok=await new Promise(resolve=>{
+        let settled=false,guard=0,timer=0;
+        const finish=value=>{if(settled)return;settled=true;clearInterval(guard);clearTimeout(timer);video.removeEventListener('seeked',onSeek);video.removeEventListener('error',onError);resolve(value);};
+        const onSeek=()=>finish(video.readyState>=2&&activeVideo===video&&Math.abs(video.currentTime-target)<.18);
+        const onError=()=>finish(false);
+        video.addEventListener('seeked',onSeek,{once:true});video.addEventListener('error',onError,{once:true});
+        try{video.currentTime=target;}catch(_e){finish(false);return;}
+        guard=setInterval(()=>{if(activeVideo!==video)finish(false);else if(video.readyState>=2&&!video.seeking&&Math.abs(video.currentTime-target)<.10)finish(true);},65);
+        timer=setTimeout(()=>finish(video.readyState>=2&&!video.seeking&&Math.abs(video.currentTime-target)<.20),attempt===0?1700:1300);
+      });
+      if(!ok)return false;
+      if(await waitPaint(video))return true;
+    }
+    return false;
+  }
+  function isBlackFrame(video){
+    try{
+      const probe=document.createElement('canvas');probe.width=16;probe.height=9;
+      const ctx=probe.getContext('2d',{willReadFrequently:true});if(!ctx)return false;
+      ctx.drawImage(video,0,0,video.videoWidth,video.videoHeight,0,0,16,9);
+      const pixels=ctx.getImageData(0,0,16,9).data;let max=0,sum=0;
+      for(let i=0;i<pixels.length;i+=4){const m=Math.max(pixels[i],pixels[i+1],pixels[i+2]);max=Math.max(max,m);sum+=m;}
+      return max<12||sum/(16*9)<3.5;
+    }catch(_e){return true;}
+  }
+  async function captureBlob(video,targetH,quality){
+    if(!video||activeVideo!==video||!video.videoWidth||!video.videoHeight)return null;
+    const sw=video.videoWidth,sh=video.videoHeight,aspect=sw/sh;
+    const h=Math.max(16,Math.round(Number(targetH)||144)),w=Math.max(1,Math.round(h*aspect));
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)return null;
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    try{ctx.drawImage(video,0,0,sw,sh,0,0,w,h);}catch(_e){return null;}
+    return await new Promise(resolve=>{
+      try{canvas.toBlob(blob=>resolve(blob&&blob.size?blob:null),'image/jpeg',Number(quality)||.8);}catch(_e){resolve(null);}
+    });
+  }
+  async function decodeFrame(src,time){
+    const video=await ensureSourceVideo(src);if(!video)return null;
+    let ok=false;
+    for(let attempt=0;attempt<2;attempt++){
+      if(activeVideo!==video)return null;
+      if(await seekVideo(video,time,attempt)){
+        if(!isBlackFrame(video)){ok=true;break;}
+      }
+      if(attempt===0)await delay(110);
+    }
+    if(!ok)return null;
+    return await captureBlob(video);
+  }
+  /* ===================== v234 source-frame store =====================
+     Frames belong to the SOURCE MEDIA (stable id + fixed source-time samples), never to a clip or tile.
+     - prepare(): runs BEFORE addMediaOverlay at import (progress callback), persists to IndexedDB.
+     - paintAll(): fills every strip synchronously from stored frames (nearest source time). Never decodes.
+     - Background fill (sources > 5 min): one shared decoder, per-frame lock, yields to playback. */
+  const SF_DB='ethvelle-source-frames-v2',LONG_SOURCE_SEC=300,SHORT_H=216,LONG_H=144,DENSE_MAX=1500;
+  const sets=new Map(),aliasMap=new Map(),srcToId=new Map(),loading=new Map(),bgGen=new Set(),filling=new Set();
+  const failedSets=new Set();
+  const stats={decodes:0,saves:0,paints:0,restored:0};
+  let sfDbPromise=null,lockTail=Promise.resolve(),fgBusy=0,restoreDone=false;
+  function sfDb(){
+    if(!('indexedDB' in window))return Promise.resolve(null);
+    if(!sfDbPromise)sfDbPromise=new Promise(resolve=>{
+      let req;try{req=indexedDB.open(SF_DB,1);}catch(_e){resolve(null);return;}
+      req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('frames'))db.createObjectStore('frames');if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta');};
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);req.onblocked=()=>resolve(null);
+    });
+    return sfDbPromise;
+  }
+  async function idbGet(store,key){
+    try{const db=await sfDb();if(!db)return null;
+      return await new Promise(res=>{const r=db.transaction(store,'readonly').objectStore(store).get(key);r.onsuccess=()=>res(r.result||null);r.onerror=()=>res(null);});
+    }catch(_e){return null;}
+  }
+  async function idbPut(store,key,val){
+    try{const db=await sfDb();if(!db)return;
+      await new Promise(res=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(val,key);tx.oncomplete=tx.onerror=tx.onabort=()=>res();});
+    }catch(_e){}
+  }
+  async function idbFrames(setId){
+    try{const db=await sfDb();if(!db)return [];
+      return await new Promise(res=>{const r=db.transaction('frames','readonly').objectStore('frames').getAll(IDBKeyRange.bound(setId+'\u0001',setId+'\u0002'));r.onsuccess=()=>res(r.result||[]);r.onerror=()=>res([]);});
+    }catch(_e){return [];}
+  }
+  const fkey=(id,ms)=>id+'\u0001'+ms;
+  function withLock(fn){const run=lockTail.then(fn,fn);lockTail=run.catch(()=>{});return run;}
+  function fingerprintOf(o){
+    const n=o&&(o.deviceMediaName||o.name),s=o&&(o.deviceMediaSize||o.size),m=o&&(o.deviceMediaLastModified||o.lastModified),d=Number(o&&(o.sourceDuration||o.duration))||0;
+    return (n&&s)?'f:'+n+'|'+s+'|'+(m||0)+'|'+d.toFixed(2):'';
+  }
+  function idOf(ov){
+    if(ov.deviceMediaKey)return 'k:'+ov.deviceMediaKey;
+    const src=sourceOf(ov);if(srcToId.has(src))return srcToId.get(src);
+    const fp=fingerprintOf(ov);if(fp)return fp;
+    return 'n:'+(ov.name||'')+'|'+(Number(ov.sourceDuration)||0).toFixed(2)+'|'+(ov.sourceWidth||0)+'x'+(ov.sourceHeight||0);
+  }
+  const resolveId=id=>aliasMap.get(id)||id;
+  const setFor=ov=>sets.get(resolveId(idOf(ov)))||null;
+  function newSet(meta){
+    return {id:meta.id,duration:Number(meta.duration)||0,width:Number(meta.width)||0,height:Number(meta.height)||0,
+      aspect:Number(meta.aspect)||0,mode:meta.mode==='long'?'long':'short',complete:!!meta.complete,fillDone:!!meta.fillDone,
+      times:[],urls:new Map(),imgs:[],saving:0,fillRetryAt:0};
+  }
+  function addFrame(set,ms,blob){
+    if(set.urls.has(ms)||!blob)return false;
+    const url=URL.createObjectURL(blob);set.urls.set(ms,url);
+    const a=set.times;let lo=0,hi=a.length;while(lo<hi){const mid=(lo+hi)>>1;if(a[mid]<ms)lo=mid+1;else hi=mid;}a.splice(lo,0,ms);
+    try{const img=new Image();img.decoding='async';img.src=url;if(img.decode)img.decode().catch(()=>{});set.imgs.push(img);}catch(_e){}
+    return true;
+  }
+  function nearest(set,t){
+    const a=set.times,n=a.length;if(!n)return '';const ms=t*1000;
+    let lo=0,hi=n-1;while(lo<hi){const mid=(lo+hi)>>1;if(a[mid]<ms)lo=mid+1;else hi=mid;}
+    if(lo>0&&Math.abs(a[lo-1]-ms)<=Math.abs(a[lo]-ms))lo--;
+    return set.urls.get(a[lo])||'';
+  }
+  function saveMeta(set){
+    return idPutMeta(set);
+  }
+  function idPutMeta(set){
+    return idbPut('meta',set.id,{id:set.id,duration:set.duration,width:set.width,height:set.height,aspect:set.aspect,mode:set.mode,
+      complete:set.complete,fillDone:set.fillDone,count:set.times.length,updated:Date.now()});
+  }
+  async function loadSet(id){
+    const rid=resolveId(id);if(sets.has(rid))return sets.get(rid);
+    if(loading.has(id))return loading.get(id);
+    const job=(async()=>{
+      let setId=id;
+      const al=await idbGet('meta','alias|'+id);if(al&&al.target){setId=String(al.target);aliasMap.set(id,setId);}
+      if(sets.has(setId))return sets.get(setId);
+      const meta=await idbGet('meta',setId);if(!meta||!meta.id)return null;
+      const set=newSet(meta);
+      const rows=await idbFrames(setId);
+      rows.forEach(r=>{if(r&&r.blob&&Number.isFinite(r.ms))addFrame(set,r.ms,r.blob);});
+      if(!set.times.length)return null;
+      sets.set(setId,set);stats.restored++;return set;
+    })().finally(()=>loading.delete(id));
+    loading.set(id,job);return job;
+  }
+  async function restoreForProjects(projects){
+    const ids=new Set(),walk=ovs=>{(Array.isArray(ovs)?ovs:[]).forEach(o=>{if(o&&o.type==='video'&&(o.deviceMediaKey||o.src))ids.add(idOf(o));});};
+    try{(Array.isArray(projects)?projects:[]).forEach(p=>{if(p&&p.savedState)walk(p.savedState.overlays);});}catch(_e){}
+    try{walk(overlays);}catch(_e){}
+    await Promise.race([Promise.all([...ids].map(id=>loadSet(id).catch(()=>null))),delay(6000)]);
+    restoreDone=true;
+  }
+  /* ---- decoding (single shared decoder; every real seek is counted in stats.decodes) ---- */
+  async function grab(src,t,h,q){
+    const video=await ensureSourceVideo(src,true);if(!video)return null;
+    for(let attempt=0;attempt<2;attempt++){
+      if(activeVideo!==video)return null;
+      stats.decodes++;
+      if(await seekVideo(video,t,attempt)){if(!isBlackFrame(video))return await captureBlob(video,h,q);}
+      if(attempt===0)await delay(110);
+    }
+    return null;
+  }
+  function playbackActive(){
+    let busy=false;
+    document.querySelectorAll('video').forEach(v=>{if(v!==activeVideo&&!v.paused&&!v.ended&&v.readyState>=2)busy=true;});
+    return busy;
+  }
+  async function idleWait(){while(playbackActive()||document.hidden||fgBusy>0)await delay(500);}
+  const msList=(span,n,from)=>{const o=[];for(let i=0;i<n;i++)o.push(Math.round(1000*((from||0)+(n===1?0:span*i/(n-1)))));return o;};
+  function planShort(dur){const n=Math.round(clamp(Math.ceil(dur*3),6,60));return msList(Math.max(.08,dur-.08),n,0);}
+  function planCoarse(dur){return msList(Math.max(.08,dur-.08),24,0);}
+  function denseStep(dur){return Math.max(2,dur/DENSE_MAX);}
+  function planDense(dur){const st=denseStep(dur),o=[];for(let t=0;t<dur-.08;t+=st)o.push(Math.round(t*1000));return o;}
+  async function persistFrame(set,ms,blob){stats.saves++;await idbPut('frames',fkey(set.id,ms),{ms,blob});}
+  /* Runs a capture plan. fg=true holds the decoder for the whole run (import); fg=false takes the lock per frame and yields to playback. */
+  async function runPlan(set,src,times,opt){
+    const h=opt.h,q=opt.q,total=times.length;let done=0,okCount=0;const retry=[];
+    const queue=times.filter(ms=>!set.urls.has(ms));const skipped=total-queue.length;done=skipped;
+    const step=async ms=>{
+      if(!opt.fg)await idleWait();
+      const blob=opt.fg?await grab(src,ms/1000,h,q):await withLock(()=>grab(src,ms/1000,h,q));
+      if(blob){if(addFrame(set,ms,blob)){await persistFrame(set,ms,blob);okCount++;}}else return false;
+      return true;
+    };
+    let failStreak=0;
+    for(let i=0;i<queue.length;i++){
+      if(opt.deadline&&Date.now()>opt.deadline)break;
+      if(opt.shouldStop&&opt.shouldStop())break;
+      const ok=await step(queue[i]);
+      if(!ok){retry.push(queue[i]);failStreak++;}else failStreak=0;
+      done++;
+      try{if(opt.onProgress)opt.onProgress(Math.min(100,done/Math.max(1,total)*100));}catch(_e){}
+      if(opt.onBatch&&okCount&&okCount%25===0)opt.onBatch();
+      if(failStreak>=6&&!opt.fg){opt.aborted=true;break;}
+      await delay(opt.fg?0:40);
+    }
+    if(!opt.aborted&&retry.length&&!(opt.deadline&&Date.now()>opt.deadline)){
+      for(const ms of retry){if(opt.shouldStop&&opt.shouldStop())break;await step(ms);}
+    }
+    return okCount;
+  }
+  function liveSrcFor(set){
+    try{const o=(Array.isArray(overlays)?overlays:[]).find(x=>x&&x.type==='video'&&resolveId(idOf(x))===set.id&&sourceOf(x)&&sourceOf(x).indexOf('ethvelle-device-media://')!==0);return o?sourceOf(o):'';}catch(_e){return '';}
+  }
+  function usedWindows(set){
+    const w=[];try{(Array.isArray(overlays)?overlays:[]).forEach(o=>{if(o&&o.type==='video'&&resolveId(idOf(o))===set.id){
+      const sp=Math.max(0,((Number(o.trimEnd)||0)-(Number(o.trimStart)||0))*(Math.max(.05,Number(o.speed)||1)));const s=Math.max(0,Number(o.sourceOffset)||0);w.push([s,s+sp]);}});}catch(_e){}
+    return w.length?w:[[0,0]];
+  }
+  async function ensureFill(set){
+    if(!set||set.fillDone||filling.has(set.id)||Date.now()<set.fillRetryAt||set.mode!=='long')return;
+    filling.add(set.id);
+    try{
+      const src=liveSrcFor(set);if(!src)return;
+      const win=usedWindows(set),dist=ms=>{const t=ms/1000;let d=1e9;win.forEach(([a,b])=>{d=Math.min(d,t<a?a-t:t>b?t-b:0);});return d;};
+      const times=planDense(set.duration).filter(ms=>!set.urls.has(ms)).sort((a,b)=>dist(a)-dist(b));
+      const opt={fg:false,h:LONG_H,q:.7,shouldStop:()=>!liveSrcFor(set),onBatch:()=>{idPutMeta(set);schedule();}};
+      await runPlan(set,src,times,opt);
+      if(opt.aborted){set.fillRetryAt=Date.now()+30000;}
+      else if(liveSrcFor(set)){set.fillDone=true;}
+      await idPutMeta(set);
+    }catch(err){console.warn('Ethvelle background frame fill:',err);set.fillRetryAt=Date.now()+30000;}
+    finally{filling.delete(set.id);try{if(!playbackActive())teardownVideo();}catch(_e){}schedule();}
+  }
+  /* Import-time preparation. Resolves (never rejects) once the first strip is ready. */
+  async function prepare(src,info){
+    info=info||{};
+    const clean=sourceOf({src}),fp=fingerprintOf(info),key=info.key?'k:'+info.key:'';
+    const id=key||fp||'s:'+clean;
+    srcToId.set(clean,id);
+    try{
+      let existing=await loadSet(id);
+      if(!existing&&fp&&fp!==id)existing=await loadSet(fp);
+      if(existing&&existing.complete){
+        if(existing.id!==id){aliasMap.set(id,existing.id);await idbPut('meta','alias|'+id,{target:existing.id});}
+        if(info.onProgress)try{info.onProgress(100);}catch(_e){}
+        schedule(true);
+        return {id:existing.id,reused:true,frames:existing.times.length};
+      }
+      if(failedSets.has(id)&&info.background)return {id,failed:true};
+      const bg=!!info.background;
+      if(!bg)fgBusy++;

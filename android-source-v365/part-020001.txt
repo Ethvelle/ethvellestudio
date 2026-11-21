@@ -1,0 +1,999 @@
+    // If playback is running, freeze it immediately at the exact instant of this touch —
+    // BEFORE any drag-threshold logic, so play/pause never races a scrub gesture that's
+    // still deciding whether it's a tap or a drag.
+    if(isPlaying) pausePlayback();
+    gesture = { type:'pending', startX:e.clientX, startY:e.clientY, pointerId:e.pointerId, startTime: getCurrentAbsoluteTime() };
+  }, true); // capture phase: see this before any child stopPropagation()
+
+  scroller.addEventListener('pointermove', (e)=>{
+    if(!gesture || e.pointerId !== gesture.pointerId) return;
+    const dx = e.clientX-gesture.startX, dy = e.clientY-gesture.startY;
+    const movedPx = Math.hypot(dx, dy);
+    if(gesture.type==='pending'){
+      if(movedPx <= TAP_MOVE_TOLERANCE) return; // still could be a tap — do nothing yet
+      // BUGFIX (couldn't vertically scroll the row list at all unless a clip happened to be
+      // under the finger): this used to treat ANY movement past the tolerance — including a
+      // drag that was almost entirely vertical — as the start of a horizontal timeline scrub,
+      // then immediately called setPointerCapture(), which hands the whole gesture to this
+      // listener and stops the browser's own native pan-y vertical scroll from ever taking
+      // over for that touch. On a project with more character rows than fit on screen (or
+      // just the empty Background/Add-character rows before anything's added), any attempt
+      // to slide the row list up/down that moved more than 6px got silently swallowed the
+      // same way — it just never scrolled, which is exactly the "stuck" feeling reported.
+      // Touches landing directly on a clip/handle/badge were never affected (see the
+      // deny-list above, which steps aside for those before gesture tracking even starts) —
+      // that's why selecting a clip first, then dragging over ITS row, "worked": the finger
+      // was on territory this listener never claimed in the first place.
+      // FIX: classify by which axis actually dominates once the tolerance is crossed. A
+      // mostly-vertical drag releases the gesture entirely (no pointer capture taken, no
+      // preventDefault fired) so the browser's native pan-y scroll handles it exactly like
+      // any other scrollable list. Only a drag that's actually more horizontal than vertical
+      // becomes a scrub. This check happens once, at the moment the gesture leaves 'pending'
+      // — a real horizontal scrub that later drifts a little vertically (a finger is never
+      // perfectly straight) is unaffected, since once type is 'scrub' this branch no longer runs.
+      if(Math.abs(dy) > Math.abs(dx)){
+        gesture = null;
+        return;
+      }
+      gesture.type = 'scrub';
+      timelineScrollOwner = 'user';
+      try{ scroller.setPointerCapture(e.pointerId); }catch(err){}
+    }
+    if(gesture.type==='scrub'){
+      // Compute time from the finger's movement since this gesture began (anchor-relative),
+      // then coalesce expensive canvas/overlay redraws to one latest-value update per frame.
+      const t = timeFromDragAnchor(gesture.startX, gesture.startTime, e.clientX);
+      scheduleTimelineScrub(t);
+      flingSamples.push({x:e.clientX, ts:e.timeStamp});
+      while(flingSamples.length>2 && e.timeStamp-flingSamples[0].ts>100) flingSamples.shift();
+    }
+  });
+
+  function endGesture(e){
+    if(!gesture || (e && e.pointerId!==undefined && e.pointerId!==gesture.pointerId)) return;
+    const wasScrub = gesture.type==='scrub';
+    if(wasScrub){
+      const finalX = (e && Number.isFinite(e.clientX)) ? e.clientX : gesture.startX;
+      flushTimelineScrub(timeFromDragAnchor(gesture.startX, gesture.startTime, finalX));
+      timelineScrollOwner = 'programmatic';
+      try{ scroller.releasePointerCapture(gesture.pointerId); }catch(err){}
+      persistProjectState({skipHistory:true});
+      try{
+        const s = flingSamples; flingSamples = [];
+        if(e && s.length>=2){
+          const a=s[0], z=s[s.length-1], span=z.ts-a.ts;
+          if(span>8 && e.timeStamp-z.ts<70){
+            const v=(z.x-a.x)/(span/1000);
+            if(Math.abs(v)>160) startFling(v);
+          }
+        }
+      }catch(_e){}
+    } else if(e && e.clientX!==undefined){
+      // TAP: seek exactly to the tapped absolute time. Deliberately does NOT deselect —
+      // a tap on empty timeline space must not reset selection, frame, or clip choice
+      // (PART 20) — selection is left exactly as it was; only the playhead moves. Movement
+      // never crossed the drag threshold here, so anchor-relative and absolute agree; using
+      // the same anchor-relative helper keeps every seek path on one consistent formula.
+      const t = timeFromDragAnchor(gesture.startX, gesture.startTime, e.clientX);
+      flushTimelineScrub(t);
+      // v234: CapCut drops the selection frame instantly when empty timeline space is tapped.
+      try{
+        if(selectedClip!=null && e.target && e.target.closest && !e.target.closest('.overlay-clip, .track-clip, .anim-clip, .layer-badge, .kf-marker')) deselectAllClips();
+      }catch(_e){}
+    }
+    gesture = null;
+  }
+  scroller.addEventListener('pointerup', endGesture);
+  scroller.addEventListener('pointercancel', ()=>{
+    cancelScheduledTimelineScrub();
+    timelineScrollOwner = 'programmatic';
+    gesture = null;
+  });
+
+  // The native 'scroll' event now exists purely as a passive mirror for browsers that
+  // rubber-band/inertia-scroll the container on its own — it must NEVER independently
+  // seek time. Ownership is checked directly rather than inferred from timing windows:
+  // only an active user drag (tracked above) sets timelineScrollOwner='user'; every
+  // programmatic scroll (movePlayhead, seekPlayheadToClipStart, etc.) sets it back to
+  // 'programmatic' around its own assignment. This is what makes PART 24's requirement
+  // exact: programmatic playhead movement can never recursively modify current time.
+  scroller.addEventListener('scroll', ()=>{
+    if(timelineScrollOwner !== 'user') return;
+    const t = absTimeFromPointerX(scroller.getBoundingClientRect().left + scroller.clientWidth/2);
+    // movePlayhead() can emit a scroll event during a scrub; skip duplicate frame redraws.
+    if(Math.abs(t-currentAbsoluteTimeSec) < 0.5/Math.max(1,Number(FPS)||24)) return;
+    scheduleTimelineScrub(t);
+  }, {passive:true});
+}
+
+// ---------------- Free drag-to-reposition for stickman-track clips (CapCut-style) ----------------
+// A quick/ordinary touch on a clip body NEVER moves it — it only scrubs the playhead (see
+// wireClipInteractions below), exactly like touching empty timeline space. Only holding the
+// clip down for LONG_PRESS_SWAP_MS, before any sliding starts, arms "move mode": from that
+// instant every pointermove repositions the clip in real time, tracking the finger 1:1.
+const LONG_PRESS_SWAP_MS = 240;
+// REPLACED the old findSwapTarget/insertStickmanClipNextTo mechanic: that forcibly snapped a
+// held clip flush against whichever neighbor its center crossed, so it was never actually
+// possible to just drop a clip wherever you wanted. A held clip now goes exactly where the
+// finger takes it (only floor-clamped at 0, same as before); if that means it now overlaps a
+// neighbor, that neighbor is pushed forward in time by exactly the overlap amount instead
+// (see resolveCharClipOverlaps/applyCharClipLanes) — the row always stays exactly one lane
+// tall, and two of this character's own clips can never actually end up time-overlapping.
+
+// Non-active characters' clips can't change from a gesture on the ACTIVE character's own
+// clip (each character's clip data is independent), so this only needs to run after
+// something that could change which characters HAVE clips at all or how many — it's kept
+// separate from the active clip's own repositionClipEl() so a trim/drag on the active
+// clip never has to rebuild every other row's DOM mid-gesture (see handle onpointerup
+// bugfix above).
+function refreshOtherCharacterClipPreviews(){
+  characters.forEach((c, idx)=>{
+    if(idx === activeCharIdx) return;
+    const track = document.getElementById('track-char-'+idx);
+    if(!track) return;
+    if(!c.clip){ track.innerHTML = `<span class="char-row-name">${c.name}</span>`; return; }
+    // FIX (rows only extended all together): re-apply this row's OWN lane-based height too,
+    // not just its clip markup — otherwise a non-active row that just gained an overlap
+    // (e.g. another split segment dragged on top of one of its clips) would show two
+    // stacked clips inside a row that never actually grew to fit them.
+    const readOnly = readOnlyCharClipMarkup(c, idx);
+    track.innerHTML = readOnly.html;
+    const row = track.closest('.char-row');
+    setCharacterLaneGeometry(row,track,readOnly.laneCount||1);
+  });
+}
+function wireClipInteractions(){
+  const clipEl = document.getElementById('animClipEl');
+  const body = document.getElementById('clipBody');
+  const leftHandle = document.getElementById('clipHandleLeft');
+  const rightHandle = document.getElementById('clipHandleRight');
+  if(!clipEl) return;
+  wireClipZoomGesture(body); // FEATURE: two-finger pinch on this clip zooms the timeline
+  clipEl.addEventListener('pointerdown', (e)=>{
+    // Body and handles already have dedicated gesture handlers. Capture only clicks on the
+    // outer clip surface/selection bars so the very first tap selects the clip itself.
+    if(e.target !== clipEl && !e.target.closest('.sel-edge-top, .sel-edge-bottom, .sel-edge-left, .sel-edge-right')) return;
+    e.stopPropagation();
+    if(isPlaying) pausePlayback();
+    selectClipForChrome('main');
+  });
+
+  // Apply current trimStart/trimEnd and vertical lane placement directly to existing DOM
+  // nodes (no rebuild), so drag/resize stays smooth and never loses pointer capture mid-gesture.
+  // When a character clip overlaps another, applyCharClipLanes moves the colliding clip to a
+  // separate vertical sub-lane immediately while preserving both clips' actual timeline times.
+  function repositionClipEl(){
+    // Resize is reconciled on every drag frame: neighbouring clips move sideways in real
+    // time while the selected clip keeps its current trim geometry.
+    applyCharClipLanes('main');
+  }
+  function repositionDraggedMainClip(){
+    paintTimelineDragX(clipEl,(activeClip.trimStart-dragState.origStart)*pxPerSecond());
+  }
+
+  // Drag the whole clip to reposition it on the timeline. A quick touch-and-slide on the
+  // clip body ALWAYS scrubs the playhead, exactly like touching empty timeline space — it
+  // never moves the clip, no matter how far the finger travels. Only a LONG_PRESS_SWAP_MS
+  // hold-still, done BEFORE any sliding starts, arms "move mode"; once armed, every
+  // subsequent pointermove repositions the clip in real time, tracking the finger 1:1 (no
+  // deferred "snap on release" — the clip's DOM position is updated on every move event,
+  // same frame). This is the "must long-press first, then it should move" behavior
+  // requested — sliding without holding first is reserved for scrubbing.
+  const DRAG_MOVE_TOLERANCE = 7; // px — small vertical gestures hand off to row scrolling immediately
+  let dragState = null; // null | {type:'pending'|'move'|'scroll', startX, origStart, origEnd, origKfTimes}
+  let swapPressTimer = null;
+  function clearSwapPressTimer(){ if(swapPressTimer){ clearTimeout(swapPressTimer); swapPressTimer=null; } }
+  function applyBodyMoveAt(clientX){
+    if(!dragState||dragState.type!=='move')return;
+    const pps=pxPerSecond();
+    const deltaSec=timelineDragDeltaPixels(dragState,clientX)/pps;
+    const len=dragState.origEnd-dragState.origStart;
+    const newStart=Math.max(0,dragState.origStart+deltaSec);
+    activeClip.trimStart=newStart;activeClip.trimEnd=newStart+len;
+    // Keep keyframe data untouched until release. Repack the other clips into vertical
+    // lanes now, then paint the active transform so the clip stays under the finger.
+    applyCharClipLanes('main','main');
+    ensureTimelineRoomForDraggedClip(activeClip);
+    repositionDraggedMainClip();
+  }
+  body.onpointerdown = (e)=>{
+    e.stopPropagation();
+    if(isPlaying) pausePlayback();
+    selectClipForChrome('main');
+    const timelineScroller=document.getElementById('timelineScroll');
+    // The clip being dragged always belongs to the currently-active character's own row —
+    // that row is already showing as selected (see renderCharacterLayers) and stays that
+    // way; there is no separate "stickman" row to re-highlight anymore now that each
+    // character's clips live directly on its own row.
+    dragState = { type:'pending', pointerId:e.pointerId, startScrollLeft:timelineScroller?timelineScroller.scrollLeft:0, startX:e.clientX, startY:e.clientY, lastX:e.clientX, startTime: getCurrentAbsoluteTime(), origStart:activeClip.trimStart, origEnd:activeClip.trimEnd, origKfTimes: activeClip.keyframes.map(k=>k.t) };
+    body.setPointerCapture(e.pointerId);
+    clearSwapPressTimer();
+    swapPressTimer=setTimeout(()=>{
+      swapPressTimer=null;
+      if(!dragState||dragState.type!=='pending')return;
+      dragState.type='move';clipEl.classList.add('dragging');if(window.ethvelleNotifyClipMoveReady)window.ethvelleNotifyClipMoveReady();armClipDrag();
+      startTimelineEdgeAutoScroll(dragState.pointerId,dragState.lastX,()=>{if(dragState&&dragState.type==='move')applyBodyMoveAt(dragState.lastX);});
+      if(Number.isFinite(dragState.lastX))applyBodyMoveAt(dragState.lastX);
+    },LONG_PRESS_SWAP_MS);
+  };
+  body.onpointermove = (e)=>{
+    if(!dragState) return;
+    dragState.lastX=e.clientX;
+    if(dragState.type==='scroll'){ applyClipVerticalScrollHandoff(dragState, e.clientY); return; }
+    const movedPx = Math.abs(e.clientX - dragState.startX);
+    if(dragState.type==='pending'){
+      // A dominantly-vertical slide before the long-press fires means "scroll the row list",
+      // not "interact with this clip" — hand off to the shared scroller, same as sliding on
+      // empty timeline space (see applyClipVerticalScrollHandoff above).
+      const movedPy = Math.abs(e.clientY - dragState.startY);
+      if(movedPy >= DRAG_MOVE_TOLERANCE && movedPy >= movedPx*0.82){
+        clearSwapPressTimer();
+        dragState.type = 'scroll';
+        const scroller = document.getElementById('timelineScroll');
+        dragState.scrollTopStart = scroller ? scroller.scrollTop : 0;
+        applyClipVerticalScrollHandoff(dragState, e.clientY);
+        return;
+      }
+      // A normal horizontal touch-and-drag scrubs immediately; only a stationary hold
+      // arms clip-move mode, so timeline navigation never needs a long press.
+      if(movedPx > 6 && movedPx >= Math.max(1, movedPy*0.72)){
+        clearSwapPressTimer();dragState.type='scrub';
+        scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+      }
+      return;
+    }
+    if(dragState.type==='scrub'){
+      scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+      return;
+    }
+    // Only one compositor translation is painted per display frame while a clip follows the finger.
+    updateTimelineEdgeAutoScroll(e.pointerId,e.clientX,()=>{if(dragState&&dragState.type==='move')applyBodyMoveAt(dragState.lastX);});
+    scheduleTimelineDragFrame(body,e,point=>applyBodyMoveAt(point.clientX));
+      return;
+  };
+  body.onpointerup = (e)=>{
+    if(!dragState) return;
+    stopTimelineEdgeAutoScroll(e.pointerId);
+    clearSwapPressTimer();
+    const wasMove = dragState.type==='move';
+    const wasScroll = dragState.type==='scroll';
+    const wasScrub = dragState.type==='scrub';
+    const anchorX = dragState.startX, anchorTime = dragState.startTime;
+    if(wasMove) flushTimelineDragFrame(body,e,point=>applyBodyMoveAt(point.clientX));
+    else cancelTimelineDragFrame(body);
+    if(wasMove){const movedBy=activeClip.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(activeClip.keyframes,dragState.origKfTimes,movedBy);if(window.ethvelleNotifyClipMoved)window.ethvelleNotifyClipMoved(movedBy);clearTimelineDragX(clipEl);}
+    dragState=null; body.releasePointerCapture(e.pointerId);
+    clipEl.classList.remove('dragging');
+    if(wasMove) disarmClipDrag();
+    if(wasMove){
+      applyCharClipLanes('main'); // apply neighbour spacing once, after the fast drag completes
+      // FIX: no more snap-to-neighbor on release — the clip stays exactly wherever it was
+      // dropped. If it's still overlapping a neighbor, that's fine now: the row already has
+      // both on separate lanes (see applyCharClipLanes, called live throughout the drag) and
+      // a full renderTimelineClip() below re-confirms that packing from scratch.
+      // Dragging a clip must not cause an accidental playback seek (PART 31) — keep the
+      // playhead at whatever absolute time it already was rather than snapping to 0.
+      setCurrentAbsoluteTime(currentAbsoluteTimeSec);
+      renderTimelineClip();
+    } else if(wasScrub&&!wasScroll){
+      // Only a deliberate horizontal slide is a scrub; a stationary tap selects only.
+      const t = timeFromDragAnchor(anchorX, anchorTime, e.clientX);
+      flushTimelineScrub(t, false);
+    }
+    renderFrame();
+    persistProjectState({skipHistory:true});
+  };
+  // Safety net if the gesture is interrupted (OS call/notification, app losing focus, etc.)
+  // rather than ending in a normal pointerup — without this, a mid-drag interruption could
+  // leave clip-drag-active permanently on (disabling row-edge cropping for good) since
+  // disarmClipDrag() would never get called otherwise. Mirrors the same safety-net pattern
+  // wireBackgroundTrackInteractions already uses for bgHandleDragActive.
+  body.onpointercancel = ()=>{
+    if(!dragState) return;
+    stopTimelineEdgeAutoScroll(dragState.pointerId);
+    clearSwapPressTimer();
+    const wasMove = dragState.type==='move';
+    cancelTimelineDragFrame(body);
+    if(wasMove){const movedBy=activeClip.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(activeClip.keyframes,dragState.origKfTimes,movedBy);clearTimelineDragX(clipEl);}
+    dragState = null;
+    clipEl.classList.remove('dragging');
+    if(wasMove){
+      applyCharClipLanes('main');
+      disarmClipDrag();
+      renderTimelineClip();
+      renderFrame();
+    }
+  };
+
+  // Resize handles: extend/trim clip length
+  function wireHandle(handle, side){
+    let hs=null;
+    function applyHandleAt(clientX){
+      if(!hs)return;
+      const pps=pxPerSecond();
+      const deltaSec=(clientX-hs.startX)/pps;
+      // Trimming is not clamped against neighbors. If the new length overlaps another clip,
+      // repositionClipEl's live lane pass moves the collision to a separate vertical lane.
+      if(side==='left'){
+        let newStart = Math.min(hs.origEnd - MIN_CLIP_SEC, Math.max(0, hs.origStart + deltaSec));
+        activeClip.trimStart = newStart;
+      } else {
+        let newEnd = Math.max(hs.origStart + MIN_CLIP_SEC, hs.origEnd + deltaSec);
+        newEnd = Math.min(newEnd, timelineDuration + 30); // allow extending well past view; view grows
+        activeClip.trimEnd = newEnd;
+        // BUGFIX (extending an animation clip's handle could drag it visually off/under the
+        // end of the row): timelineDuration grew here but #timelineInner's own scrollable
+        // width (and the ruler drawn across it) previously only got resynced AFTER the
+        // finger lifted (see onpointerup's renderTimelineClip below) — so mid-drag, once the
+        // clip's right edge passed the container's last-synced width, it kept extending
+        // into space the row/track didn't actually occupy yet, reading as the clip running
+        // out past its own row. Resyncing live, every move, keeps the track/ruler width
+        // always at least as wide as the clip currently being stretched, exactly like the
+        // Speed panel path (speedPanelSetSpeed) already does for the same growth case.
+        if(newEnd > timelineDuration - 0.3){
+          timelineDuration = newEnd + 1;
+          syncTimelineInnerWidth();
+          renderRuler();
+        }
+      }
+      repositionClipEl();
+      updateTimeReadout();
+      // ADDED: live "Nf" frame-count readout while trimming, same gesture that already
+      // drives the resize above — just reflects how far THIS handle has moved so far.
+      showTrimFrameBadge(handle, side==='left' ? (activeClip.trimStart-hs.origStart) : (activeClip.trimEnd-hs.origEnd));
+    }
+    // v279: trimming starts only after a long press on the handle (see ethvelleMakeHandleHoldGate).
+    const gate = ethvelleMakeHandleHoldGate((x)=>{
+      if(!handle.isConnected) return;
+      hs={startX:x,origStart:activeClip.trimStart,origEnd:activeClip.trimEnd};
+      clipEl.dataset.evTimelineDragActive='1';
+      armClipDrag();
+    });
+    handle.onpointerdown = (e)=>{
+      e.stopPropagation();
+      gate.down(e);
+      try{handle.setPointerCapture(e.pointerId);}catch(_e){}
+    };
+    handle.onpointermove = (e)=>{
+      if(gate.move(e)==='trim' && hs) scheduleTimelineDragFrame(handle,e,point=>applyHandleAt(point.clientX));
+    };
+    handle.onpointerup = (e)=>{
+      gate.up(e);
+      const wasDragging=hs!==null;
+      if(!wasDragging){
+        // Plain tap, quick slide (scrub) or row scroll: nothing was trimmed, so nothing to commit.
+        cancelTimelineDragFrame(handle);
+        try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+        return;
+      }
+      flushTimelineDragFrame(handle,e,point=>applyHandleAt(point.clientX));
+      hs=null;delete clipEl.dataset.evTimelineDragActive;
+      try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+      disarmClipDrag();
+      hideTrimFrameBadge();
+      // Same as the clip-body drag above: trimming must not cause an accidental seek.
+      setCurrentAbsoluteTime(currentAbsoluteTimeSec);
+      renderFrame();
+      // Rebuild once after the gesture ends, when it is safe to replace the handle DOM.
+      // The live applyCharClipLanes('main') call already kept overlapping clips in separate
+      // vertical lanes throughout the drag; this confirms the same layout from scratch.
+      renderTimelineClip();
+      refreshOtherCharacterClipPreviews();
+      persistProjectState();
+    };
+    handle.onpointercancel = ()=>{
+      gate.cancel();
+      if(!hs) return;
+      cancelTimelineDragFrame(handle);hs=null;delete clipEl.dataset.evTimelineDragActive;
+      hideTrimFrameBadge();
+      disarmClipDrag();
+    };
+  }
+  wireHandle(leftHandle, 'left');
+  wireHandle(rightHandle, 'right');
+}
+
+/* Old "cut tool" toggle (tap-a-clip-to-trim-its-end) has been replaced by
+   splitSelectedClipAtPlayhead(), which behaves like CapCut's Split: it cuts the
+   SELECTED clip at the current playhead position into two independent clips,
+   rather than requiring a separate tool-arm step and only ever trimming the end. */
+
+/* ---------------- Keyframes ---------------- */
+// How close (in seconds) the playhead must be to an existing keyframe to count as
+// "sitting on" it, for both the red-highlight check and the toggle-button logic.
+const KF_HIT_WINDOW = 0.05;
+function keyframeContactWindow(){
+  // The playhead counts as touching the diamond once its 2px line reaches the diamond's
+  // outer white edge (15px rotated square = about 11px wide), not only when centered.
+  return Math.max(KF_HIT_WINDOW, 10.5 / Math.max(1, pxPerSecond()));
+}
+
+// Finds a keyframe whenever the playhead line touches its visible diamond, for this clip.
+function keyframeAtPlayhead(clip, tSec){
+  if(!clip) return -1;
+  const hitWindow = keyframeContactWindow();
+  return clip.keyframes.findIndex(kf => Math.abs(kf.t - tSec) <= hitWindow);
+}
+
+// PART 17 fix: updateTransform() (and bone-drag posing) used to move the live model/rig
+// and redraw, but never touched a keyframe even when the playhead was sitting exactly on
+// one — so the UI moved while the stored keyframe silently went stale (the very next
+// scrub/playback would snap back to the OLD stored value). This is the single place that
+// keeps "what you see" and "what's stored" in sync: called after any live edit
+// (transform sliders, bone drag), it checks whether the playhead is parked exactly on a
+// keyframe of the currently-selected stickman clip (falling back to the main clip when
+// nothing stickman-related is selected, same convention as toggleKeyframeAtPlayhead) and,
+// only if so, overwrites that keyframe's stored pose+transform with the live editor state.
+// Deliberately does nothing when the playhead is merely NEAR a keyframe but not on it —
+// "on keyframe" uses the same edge-aware keyframeContactWindow() as the key-button's own on-key state, so
+// this only ever fires when the UI is already showing that keyframe as active.
+function updateCurrentKeyframeFromEditorState(){
+  if(!activeClip) return false;
+  const clip = getClipByRef(selectedClip) || activeClip;
+  if(!clip) return false;
+  const tSec = currentAbsoluteTimeSec;
+  let idx = -1;
+  const explicitlySelected=getClipByRef(selectedClip);
+  if(selectedKfIdx!==null&&explicitlySelected===clip){
+    const candidate=clip.keyframes&&clip.keyframes[selectedKfIdx];
+    const contact=typeof keyframeContactWindow==='function'?keyframeContactWindow():0.05;
+    if(candidate&&Math.abs(Number(candidate.t)-Number(tSec))<=Math.max(0.001,Number(contact)||0.05))idx=selectedKfIdx;
+  }
+  if(idx===-1)idx=keyframeAtPlayhead(clip,tSec);
+  if(idx === -1) return false; // not parked on an existing keyframe — nothing to update
+  const currentPose = {};
+  Object.keys(bones).forEach(k=>{
+    if(baseAngles[k] !== undefined) currentPose[k] = bones[k].angle - baseAngles[k];
+  });
+  clip.keyframes[idx].pose = currentPose;
+  clip.keyframes[idx].transform = ethvelleUntrackedModelTransform(activeCharacter());
+  if(!refreshCharacterKeyframeMarkers(selectedClip,clip))renderTimelineClip({skipOverlayRender:true});
+  updateKeyButtonState();
+  return true;
+}
+
+// CapCut-style single button: tap once to drop a keyframe at the EXACT current playhead
+// position (capturing the live pose AND the current Transform — size/position/rotation —
+// so two keyframes with different Transform snapshots animate the character gliding/
+// resizing/rotating between them, not just its bone pose); tap again while the playhead is
+// still on that same keyframe to remove it. This replaces the old always-add
+// addKeyframeAtPlayhead(). Acts on whichever stickman clip is currently selected (main or
+// any split/appended segment) — not just the main clip — falling back to the main clip when
+// nothing stickman-related is selected (e.g. pressed straight from the transport bar).
+function toggleKeyframeAtPlayhead(){
+  // Keyframes only ever apply to a stickman clip's pose (main clip or a split segment) —
+  // background and overlay clips are plain media with no pose to key. Selecting one of
+  // those and tapping Key now says so plainly instead of silently keyframing whichever
+  // stickman clip happens to be loaded underneath (that used to happen because the
+  // fallback below reached for `activeClip` when getClipByRef came back empty).
+  const isCharacterLayerSelection = typeof selectedClip === 'string' && /^char\d+$/.test(selectedClip);
+  const isStickmanSelection = selectedClip === 'main' || (typeof selectedClip === 'string' && selectedClip.startsWith('seg')) || isCharacterLayerSelection;
+  if(!isStickmanSelection){
+    if(ethvelleObjectClipById(selectedClip)){toggleObjectKeyframeAtPlayhead();return;}
+    showToast('This layer has no keyframes to set', {icon: toastIcons.info});
+    return;
+  }
+  if(!activeClip){
+    showToast('Pick an animation first', {icon: toastIcons.info});
+    return;
+  }
+  // BUGFIX (keyframe-add froze the animation): this used to unconditionally call
+  // pausePlayback() every time, even while Play was actively running — so dropping a
+  // keyframe mid-playback always looked like "adding a keyframe freezes the character",
+  // when really it was just pause firing on every tap. Keyframes are allowed to be
+  // added live now: while playing, read the exact instant from the real clock
+  // (getCurrentAbsoluteTime(), which derives from performance.now() even mid-playback)
+  // WITHOUT stopping the rAF loop, so Play keeps running uninterrupted through the tap.
+  const clip = getClipByRef(selectedClip) || activeClip;
+  if(!onClipSelected(clip,'keyframe'))return;
+  const tSec = getCurrentAbsoluteTime();
+  const existingIdx = keyframeAtPlayhead(clip, tSec);
+  if(existingIdx > -1){
+    clip.keyframes.splice(existingIdx, 1);
+    selectedKfIdx = null;
+    if(!refreshCharacterKeyframeMarkers(selectedClip,clip))renderTimelineClip({skipOverlayRender:true});
+    syncBottomToolsMode();
+    updateKeyButtonState();
+    showToast('Keyframe removed', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+    return;
+  }
+  const currentPose = {};
+  Object.keys(bones).forEach(k=>{
+    if(baseAngles[k] !== undefined) currentPose[k] = bones[k].angle - baseAngles[k];
+  });
+  const currentTransform = ethvelleUntrackedModelTransform(activeCharacter());
+  // remove any existing keyframe very close to this time, replace it
+  clip.keyframes = clip.keyframes.filter(kf => Math.abs(kf.t - tSec) > keyframeContactWindow());
+  clip.keyframes.push({ t: tSec, pose: currentPose, transform: currentTransform });
+  clip.keyframes.sort((a,b)=>a.t-b.t);
+  selectedKfIdx=clip.keyframes.findIndex(kf=>Math.abs(Number(kf.t)-tSec)<=keyframeContactWindow());
+  if(!refreshCharacterKeyframeMarkers(selectedClip,clip))renderTimelineClip({skipOverlayRender:true});
+  syncBottomToolsMode();
+  updateKeyButtonState();
+  showToast('Keyframe added', {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+// Keeps both key buttons (transport row + bottom clip toolbar) in sync with whether the
+// playhead is currently sitting exactly on a keyframe of whichever stickman clip is
+// selected (falls back to the main clip) — CapCut fills the key icon solid when parked on one.
+function updateKeyButtonState(){
+  const transportBtn=document.getElementById('transportKeyBtn');
+  const toolBtn=document.getElementById('clipKeyTool');
+  const isCharacterLayerSelection=typeof selectedClip==='string'&&/^char\d+$/.test(selectedClip);
+  const isStickmanSelection=selectedClip==='main'||(typeof selectedClip==='string'&&selectedClip.startsWith('seg'))||isCharacterLayerSelection;
+  const charClip=isStickmanSelection?(getClipByRef(selectedClip)||activeClip):null;
+  const objectClip=isStickmanSelection?null:ethvelleObjectClipById(selectedClip);
+  const objectProperty=objectClip?ethvelleObjectKeyframeProperty(objectClip):null;
+  const tSec=Number(currentAbsoluteTimeSec)||0;
+  const charIdx=charClip?keyframeAtPlayhead(charClip,tSec):-1;
+  const objectIdx=objectClip&&Array.isArray(objectClip.ethvelleMediaKeyframes)
+    ?objectClip.ethvelleMediaKeyframes.findIndex(k=>k&&k.property===objectProperty&&Math.abs(Number(k.t)-tSec)<=ethvelleObjectKeyframeContactWindow()):-1;
+  // Scrubbing onto an authored keyframe selects that existing key automatically. Leaving
+  // it clears the playhead-driven selection; no marker is added or moved by scrubbing.
+  if(charClip)selectedKfIdx=charIdx>-1?charIdx:null;
+  if(objectClip){
+    if(objectIdx>-1)window.__ethvelleSelectedObjectKeyframe={id:String(selectedClip),index:objectIdx,source:'playhead'};
+    else if(window.__ethvelleSelectedObjectKeyframe&&String(window.__ethvelleSelectedObjectKeyframe.id)===String(selectedClip))window.__ethvelleSelectedObjectKeyframe=null;
+  }
+  const onKey=charClip?charIdx>-1:objectIdx>-1;
+  const hasTarget=!!(charClip||objectClip),badgeGlyph=onKey?'\u2212':'+';
+  if(transportBtn){
+    transportBtn.classList.toggle('on-key',onKey);transportBtn.classList.toggle('disabled',!hasTarget);
+    const b=document.getElementById('transportKeyBadge');if(b)b.textContent=badgeGlyph;
+  }
+  if(toolBtn){
+    toolBtn.classList.toggle('on-key',onKey);toolBtn.classList.toggle('disabled',!hasTarget);
+    const b=document.getElementById('clipKeyBadge');if(b)b.textContent=badgeGlyph;
+  }
+
+  // Only touch the active layer's own marker rail. The previous implementation walked
+  // every keyframe in every row on every renderFrame() call (including playback and scrub),
+  // which became a large source of lag as projects accumulated clips.
+  let track=null;
+  if(charClip){
+    const trackId=(selectedClip==='main'||isCharacterLayerSelection)?'kfTrack':'kfTrack-'+selectedClip;
+    track=document.getElementById(trackId);
+  }else if(objectClip){
+    const cached=window.__ethvelleActiveObjectKeyframeTrack;
+    if(cached&&cached.isConnected&&String(cached.dataset.objectKfTrack||'')===String(selectedClip))track=cached;
+    else{
+      // A render may replace the selected row's DOM node. Recover only that one marker rail
+      // by ID instead of falling back to a scan of every keyframe track.
+      const id=String(selectedClip);
+      track=document.querySelector(`[data-object-kf-track="${id}"]`);
+      if(track)window.__ethvelleActiveObjectKeyframeTrack=track;
+    }
+  }
+  if(track){
+    const previousMarker=window.__ethvelleUnderPlayheadMarker;
+    if(previousMarker&&previousMarker.isConnected&&previousMarker.classList.contains('under-playhead'))previousMarker.classList.remove('under-playhead');
+    let nextMarker=null;
+    if(charClip&&charIdx>-1)nextMarker=track.querySelector(`[data-kf-idx=\"${charIdx}\"]`);
+    else if(objectClip&&objectIdx>-1)nextMarker=track.querySelector(`[data-object-kf-idx=\"${objectIdx}\"]`);
+    if(nextMarker)nextMarker.classList.add('under-playhead');
+    // Keep the visible diamond's selected styling in sync with the playhead.
+    if(charClip){
+      track.querySelectorAll('[data-kf-idx]').forEach(marker=>marker.classList.toggle('active',Number(marker.dataset.kfIdx)===charIdx));
+    }else if(objectClip){
+      track.querySelectorAll('[data-object-kf-idx]').forEach(marker=>marker.classList.toggle('active',Number(marker.dataset.objectKfIdx)===objectIdx));
+    }
+    window.__ethvelleUnderPlayheadMarker=nextMarker;
+  }else{
+    window.__ethvelleUnderPlayheadMarker=null;
+  }
+}
+// ref is the clip's selection ref ('main' or 'segN'); defaults to 'main' so any older
+// onclick markup without a ref still behaves exactly as before.
+function selectKeyframe(idx, ref){
+  ref = ref || 'main';
+  const clip = getClipByRef(ref);
+  if(!clip) return;
+  // Same as selectClipForChrome: pause first, at exactly the instant that was on screen, so
+  // tapping a keyframe diamond mid-playback doesn't fight the still-running playback loop —
+  // this is what made the pause/play tap feel broken right after picking a keyframe.
+  pausePlayback();
+  selectedKfIdx = idx;
+  selectedClip = ref; // a keyframe selection implies its parent clip is the active context
+  document.querySelectorAll('.kf-marker.active').forEach(m=>m.classList.remove('active'));
+  const trackId = ref.startsWith('seg') ? ('kfTrack-'+ref) : 'kfTrack';
+  const el = document.querySelector(`#${trackId} [data-kf-idx="${idx}"]`);
+  if(el) el.classList.add('active');
+  syncBottomToolsMode();
+  // Seek playhead exactly to that keyframe's own stored absolute time (kf.t is ALWAYS
+  // absolute timeline seconds — see PART 14) via the canonical clock. Never derive this
+  // from activeClip.trimStart: `ref` may be a split segment, whose correct offset is its
+  // OWN trimStart, not activeClip's — that mismatch is exactly what PART 18 flags.
+  const kf = clip.keyframes[idx];
+  if(kf) seekAbsoluteTimelineSeconds(kf.t);
+}
+function deleteSelectedKeyframe(){
+  if(selectedKfIdx===null) return;
+  const clip = getClipByRef(selectedClip) || activeClip;
+  if(!clip) return;
+  clip.keyframes.splice(selectedKfIdx, 1);
+  selectedKfIdx = null;
+  renderTimelineClip();
+  syncBottomToolsMode();
+  updateKeyButtonState();
+  showToast('Keyframe deleted', {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+
+/* ---------------- Model transform (size / position / rotation) ---------------- */
+// BUGFIX ("made I can Transform any Background or clips position, size etc by adjust button
+// when I select background or clips" — the Transform panel/button did nothing for either):
+// this whole section used to only ever read/write the single shared `modelTransform` (the
+// active character's own size/position/rotation) no matter what was selected — Background
+// already HAD its own transform data (bgTransform, used for pinch/pan on the canvas) and
+// image/video Clips got one added above (ov.transform), but neither was ever wired to the
+// Transform panel's sliders, so selecting either and opening Transform silently just showed/
+// edited the character's transform regardless. transformTarget() below resolves the correct
+// live transform object from whatever selectedClip currently is, and every function in this
+// section now reads/writes THROUGH that resolved target instead of the hardcoded
+// modelTransform — so the same panel now edits the right thing no matter which row is
+// selected, with the old character-editing behavior kept as the default/fallback.
+// FEATURE (multiple sequential backgrounds): selectedClip for a background clip is now its
+// own id ('bg'+n, mirroring how each overlay clip has its own id) instead of the single
+// literal string 'background', since there can be several background clips now and each
+// needs its own independent transform/selection/delete/duplicate. transformTarget resolves
+// the SPECIFIC clip's own transform object, not just whichever one currently plays.
+function backgroundClipForSelection(){
+  if(typeof selectedClip !== 'string' || !selectedClip.startsWith('bg')) return null;
+  return backgrounds.find(b=>b.id===selectedClip) || null;
+}
+function transformTarget(){
+  const bgClip = backgroundClipForSelection();
+  if(bgClip){
+    if(!bgClip.transform) bgClip.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+    return { obj: bgClip.transform, kind:'background', bgClip };
+  }
+  if(typeof selectedClip === 'string'){
+    const ov = overlays.find(o=>o.id===selectedClip);
+    // Older saved/imported visual clips may predate per-clip transform data. Create it
+    // lazily so the Transform panel never falls back to editing the character by mistake.
+    if(ov && (ov.type==='image'||ov.type==='video')){
+      if(!ov.transform) ov.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+      return { obj: ov.transform, kind:'overlay', ov };
+    }
+    if(ov && ov.transform) return { obj: ov.transform, kind:'overlay', ov };
+  }
+  // Default: the active character's own model transform — main clip, split segments, a
+  // character row, or nothing selected at all all fall back to posing/sizing the stickman,
+  // matching every bit of behavior this panel already had before Background/Clips existed.
+  return { obj: modelTransform, kind:'character' };
+}
+function updateTransform(){
+  const size = +document.getElementById('sizeSlider').value;
+  const px = +document.getElementById('posXSlider').value;
+  const py = +document.getElementById('posYSlider').value;
+  const rot = +document.getElementById('rotSlider').value;
+  const { obj: t, kind, ov } = transformTarget();
+  t.scale = size/100;
+  t.offsetX = (px/100) * (stageW*0.75);
+  t.offsetY = (py/100) * (stageH*0.75);
+  t.rotation = rot;
+  document.getElementById('sizeVal').textContent = size+'%';
+  document.getElementById('posXVal').textContent = px;
+  document.getElementById('posYVal').textContent = py;
+  document.getElementById('rotVal').textContent = rot+'°';
+  if(kind==='background'){
+    // Only visibly repaints if the EDITED clip also happens to be the one currently under
+    // the playhead (see currentBackgroundClip) — editing a background clip that isn't
+    // showing right now correctly has no visible effect until playback reaches it.
+    refreshCurrentBgFromPlayhead();
+    applyBgTransform();
+  } else if(kind==='overlay'){
+    renderFrame(); // repaints overlayMediaLayer with the clip's updated transform
+  } else {
+    drawStick();
+    // If the playhead is parked exactly on an existing keyframe, editing Transform here must
+    // update that keyframe's stored snapshot too — otherwise the model visibly moves while
+    // the stored keyframe silently goes stale (PART 17). Only meaningful for the character
+    // (Background/Clips have no keyframe timeline of their own).
+    const updatedKeyframe = updateCurrentKeyframeFromEditorState();
+    if(!updatedKeyframe && activeCharacter()) activeCharacter().restTransform = ethvelleUntrackedModelTransform(activeCharacter());
+    const ch=activeCharacter();
+    if(ch&&typeof window.ethvelleRefreshTrackingFollowersForSource==='function'){
+      const key=ch.id!=null?String(ch.id):'index:'+String(activeCharIdx);
+      window.ethvelleRefreshTrackingFollowersForSource('char:'+key,typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec);
+    }
+  }
+  debouncedPersist();
+}
+let persistDebounceTimer=null;
+function debouncedPersist(){
+  clearTimeout(persistDebounceTimer);
+  persistDebounceTimer = setTimeout(persistProjectState, 400);
+}
+function syncTransformSliders(){
+  const sizeSlider = document.getElementById('sizeSlider');
+  const posXSlider = document.getElementById('posXSlider');
+  const posYSlider = document.getElementById('posYSlider');
+  const rotSlider = document.getElementById('rotSlider');
+  if(!sizeSlider) return;
+  const { obj: t } = transformTarget();
+  sizeSlider.value = Math.round(t.scale*100);
+  posXSlider.value = Math.round((t.offsetX/(stageW*0.75))*100) || 0;
+  posYSlider.value = Math.round((t.offsetY/(stageH*0.75))*100) || 0;
+  rotSlider.value = t.rotation||0;
+  document.getElementById('sizeVal').textContent = sizeSlider.value+'%';
+  document.getElementById('posXVal').textContent = posXSlider.value;
+  document.getElementById('posYVal').textContent = posYSlider.value;
+  document.getElementById('rotVal').textContent = rotSlider.value+'°';
+}
+function resetTransform(){
+  const { obj: t, kind } = transformTarget();
+  t.scale = 1; t.offsetX = 0; t.offsetY = 0; t.rotation = 0;
+  syncTransformSliders();
+  if(kind==='background'){ refreshCurrentBgFromPlayhead(); applyBgTransform(); }
+  else if(kind==='overlay') renderFrame();
+  else {
+    const updatedKeyframe = updateCurrentKeyframeFromEditorState();
+    if(!updatedKeyframe && activeCharacter()) activeCharacter().restTransform = ethvelleUntrackedModelTransform(activeCharacter());
+    drawStick();
+    const ch=activeCharacter();
+    if(ch&&typeof window.ethvelleRefreshTrackingFollowersForSource==='function'){
+      const key=ch.id!=null?String(ch.id):'index:'+String(activeCharIdx);
+      window.ethvelleRefreshTrackingFollowersForSource('char:'+key,typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec);
+    }
+  }
+  showToast('Transform reset', {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+
+/* ================= EXPORT (real video file download) ================= */
+let exportQuality = 720;
+// Export-specific controls; the editor's internal animation clock remains 24 fps.
+window.exportFrameRate = 30;
+window.exportBitrateMode = 'recommended';
+window.exportBitrateMbps = 0; // Optional custom export bitrate in Mbps; set by the export slider.
+function openExportSheet(){
+  if(isExporting){
+    showToast('Export already in progress', {icon: toastIcons.info, duration:1400});
+    return;
+  }
+  // Exporting is the one action that requires a signed-in account — everything else
+  // (creating/editing projects) works as a guest. requireLoginThen() sends the user to the
+  // login screen and automatically re-opens this same sheet the moment they sign in.
+  requireLoginThen(function(){
+    pausePlayback();
+    renderExportQualityOptions();
+    document.getElementById('exportModalBackdrop').classList.add('active');
+  });
+}
+function closeExportSheet(){
+  document.getElementById('exportModalBackdrop').classList.remove('active');
+}
+const QUALITY_LOCK_SVG = '<svg class="quality-lock" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 018 0v3"/></svg>';
+// Greys out / locks any quality tier above what the user's current plan actually allows
+// (plan.maxQuality, set by the admin's "Actual limits" controls), and makes sure the
+// pre-selected tile is never a locked one. Re-run every time the sheet opens so a plan
+// upgrade (or admin change) is reflected immediately.
+function renderExportQualityOptions(){
+  const plan = getMyPlanData();
+  const maxQ = Number(plan.maxQuality) || 720;
+  const opts = Array.from(document.querySelectorAll('#exportQualityGrid .ratio-opt'));
+  let highestAllowed = null;
+  opts.forEach(o=>{
+    const q = Number(o.dataset.quality);
+    const locked = q > maxQ;
+    o.classList.toggle('locked', locked);
+    // Remove any lock badge left over from a previous render before possibly re-adding one.
+    const existingLock = o.querySelector('.quality-lock');
+    if(existingLock) existingLock.remove();
+    if(locked) o.insertAdjacentHTML('beforeend', QUALITY_LOCK_SVG);
+    if(!locked && (highestAllowed===null || q>highestAllowed)) highestAllowed = q;
+  });
+  // If nothing is selected, or the currently-selected tile just became locked (e.g. the
+  // admin lowered this plan's limit while the sheet was closed), fall back to the highest
+  // quality this plan still allows.
+  let selected = opts.find(o=>o.classList.contains('selected'));
+  if(!selected || selected.classList.contains('locked')){
+    opts.forEach(o=>o.classList.remove('selected'));
+    const fallback = opts.find(o=>Number(o.dataset.quality)===highestAllowed) || opts[0];
+    if(fallback){ fallback.classList.add('selected'); exportQuality = Number(fallback.dataset.quality); }
+  }
+  const hint = document.getElementById('exportQualityHint');
+  const anyLocked = opts.some(o=>o.classList.contains('locked'));
+  const usedExports = getExportsUsedThisMonth();
+  const exportCapHit = !plan.unlimitedExports && plan.maxExports != null && usedExports >= plan.maxExports;
+  if(exportCapHit){
+    hint.style.display = 'block';
+    hint.innerHTML = 'You\u2019ve used all <b>' + plan.maxExports + '</b> exports this month \u2014 upgrade for more.';
+  } else if(anyLocked){
+    hint.style.display = 'block';
+    hint.innerHTML = 'Higher quality needs a bigger plan — <b>upgrade</b> to unlock it.';
+  } else {
+    hint.style.display = 'none';
+  }
+  renderExportCreditEstimate();
+}
+function renderExportCreditEstimate(){
+  const el=document.getElementById('exportCreditEstimate');if(!el)return;
+  const settings=getCreditSettings();
+  if(!settings.enabled){el.textContent='Credit charging is currently disabled.';return;}
+  const duration=getExportContentDurationSec();
+  const cost=calculateExportCreditCost(exportQuality,duration);
+  const rate=getExportCreditRate(exportQuality);
+  const label=exportQuality===2160?'4K':exportQuality+'p';
+  el.textContent='Estimated cost: '+cost.toLocaleString()+' credits · '+label+' · '+Math.ceil(duration)+' sec video ('+rate+' credits/min). Balance: '+(currentUser?myCreditsBalance.toLocaleString():'sign in required')+'.';
+  const btn=document.getElementById('exportConfirmBtn');
+  if(btn){const insufficient=currentUser&&myCreditsBalance<cost;btn.disabled=!!insufficient;btn.style.opacity=insufficient?'.62':'';}
+}
+function selectExportQuality(el){
+  if(el.classList.contains('locked')){
+    const plan = getMyPlanData();
+    showToast('Upgrade your plan to export at ' + el.querySelector('.ratio-label').textContent, {icon: toastIcons.info, duration:2200});
+    return;
+  }
+  document.querySelectorAll('#exportQualityGrid .ratio-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+  exportQuality = +el.dataset.quality;
+  renderExportCreditEstimate();
+}
+
+function qualityToHeight(q){
+  // width/height derived from the project ratio, scaled so the shorter/relevant side matches q
+  const [rw, rh] = (currentProject?.ratio || '9:16').split(':').map(Number);
+  if(rw >= rh){
+    // landscape-ish: q is the height
+    const h = q, w = Math.round(q * (rw/rh));
+    return {w, h};
+  } else {
+    // portrait: q is the width for consistent quality across ratios
+    const w = q, h = Math.round(q * (rh/rw));
+    return {w, h};
+  }
+}
+
+let isExporting = false;
+// FEATURE (extract audio / control clip volume — export mixing): builds the FULL audio mix
+// for the project as a single decoded AudioBuffer, covering every video and audio overlay
+// clip that carries sound, each one gain-adjusted by its own `volume` (0–2) and placed at
+// its correct absolute-timeline start, trimmed and speed-adjusted exactly the way
+// renderOverlayMedia/renderAudioOverlayMedia already do for live preview. The WebCodecs
+// path encodes this buffer using sample-derived timestamps; only the legacy MediaRecorder
+// compatibility fallback plays it through a MediaStreamAudioDestinationNode.
+// Returns null if the project has no audio-bearing clips at all.
+async function mixProjectAudioForExport(durationSec){
+  const soundClips = overlays.filter(o=> (o.type==='video'||o.type==='audio') && o.src && (o.volume!==0 || (Array.isArray(o.ethvelleMediaKeyframes)&&o.ethvelleMediaKeyframes.some(k=>k&&k.property==='volume'&&Number(k.value)>0))));
+  if(soundClips.length === 0) return null;
+  const SR = 44100;
+  const offlineCtx = new OfflineAudioContext(2, Math.ceil(durationSec*SR), SR);
+  let anyDecoded = false;
+  const audioDecodeFailures=[];
+  for(const ov of soundClips){
+    try{
+      const resp = await fetch(ov.src);
+      const arrBuf = await resp.arrayBuffer();
+      // decodeAudioData's older callback form is used instead of the promise form for
+      // Safari compatibility (older WebKit only supports the callback signature) — the
+      // surrounding Promise wrapper gives both forms the same async/await call site.
+      let audioBuf = await new Promise((resolve, reject)=> offlineCtx.decodeAudioData(arrBuf, resolve, reject));
+      const audioCfg = (ov.type==='audio' && typeof getEthvelleAudioSettings==='function') ? getEthvelleAudioSettings(ov) : {voice:'natural',effect:'none',pitch:0,enhance:0,enhanceEnabled:false,noiseReduction:false,noiseStrength:65};
+      // PCM enhancement/noise reduction is baked into the selected WAV after Apply.
+      // Do not run its matching realtime/export stage a second time on that processed source.
+      const processedModes=ov.audioProcessedModes||{};
+      const noiseLive=!!audioCfg.noiseReduction&&!processedModes.noise;
+      const enhanceLive=!!audioCfg.enhanceEnabled&&!processedModes.enhance;
+      if(ov.type==='audio' && noiseLive && typeof window.ethvelleApplyOfflineNoiseGate==='function'){
+        audioBuf = window.ethvelleApplyOfflineNoiseGate(audioBuf,audioCfg.noiseStrength);
+      }
+      const baseSpeed = ov.speed || 1;
+      const speed = baseSpeed * Math.pow(2, Math.max(-12,Math.min(12,Number(audioCfg.pitch)||0))/12);
+      const vol = ov.volume==null ? 1 : ov.volume; // Volume boost remains independent of the voice-processing controls.
+      const srcNode = offlineCtx.createBufferSource();
+      const exportPitchRatio = Math.pow(2, Math.max(-12,Math.min(12,Number(audioCfg.pitch)||0))/12);
+      /* v221: buffer + playbackRate are assigned right before start() so clip speed can be applied pitch-safe. */
+      const gainNode = offlineCtx.createGain(); gainNode.gain.value = vol;
+      let exportFadeNode = null;
+      if(ov.type==='audio'){
+        // Standalone audio clips receive the selected voice/effect/noise processing.
+        const cfg = (typeof window.ethvelleAudioVoiceProfile==='function') ? window.ethvelleAudioVoiceProfile(audioCfg.voice) : {highpass:20,lowpass:20000,type:'peaking',frequency:1200,q:.5,gain:0};
+        const noiseAmount=Math.max(0,Math.min(100,Number(audioCfg.noiseStrength)||0))/100;
+        const highpass = offlineCtx.createBiquadFilter(); highpass.type='highpass'; highpass.frequency.value=noiseLive?80+noiseAmount*120:cfg.highpass;
+        const voiceFilter = offlineCtx.createBiquadFilter(); voiceFilter.type=cfg.type; voiceFilter.frequency.value=cfg.frequency; voiceFilter.Q.value=cfg.q; voiceFilter.gain.value=cfg.gain;
+        const lowpass = offlineCtx.createBiquadFilter(); lowpass.type='lowpass'; lowpass.frequency.value=noiseLive?Math.max(6500,14500-noiseAmount*4500):cfg.lowpass;
+        const compressor = offlineCtx.createDynamicsCompressor();
+        compressor.threshold.value=noiseLive?-38:(audioCfg.effect==='studio'?-24:(enhanceLive?-25:0));
+        compressor.knee.value=audioCfg.effect==='studio'?18:24;
+        compressor.ratio.value=noiseLive?4:(audioCfg.effect==='studio'?5:(enhanceLive?3.5:1));
+        compressor.attack.value=.008; compressor.release.value=.18;
+        const makeup = offlineCtx.createGain(); makeup.gain.value=enhanceLive ? 1+Math.max(0,Math.min(100,Number(audioCfg.enhance)||0))/100*.55 : 1;
+        const panner = (typeof offlineCtx.createStereoPanner==='function') ? offlineCtx.createStereoPanner() : null;
+        const fadeNode = offlineCtx.createGain();
+        if(panner){panner.pan.value=Math.max(-1,Math.min(1,(Number(audioCfg.pan)||0)/100));}
+        srcNode.connect(highpass); highpass.connect(voiceFilter); voiceFilter.connect(lowpass); lowpass.connect(compressor); compressor.connect(makeup);
+        if(typeof window.ethvelleBuildAudioFx==='function'){window.ethvelleBuildAudioFx(offlineCtx,makeup,panner||fadeNode,audioCfg);}else{makeup.connect(panner||fadeNode);}if(panner){panner.connect(fadeNode);}
+        fadeNode.connect(gainNode);
+        if(audioCfg.effect==='echo'){
+          const delay=offlineCtx.createDelay(1); delay.delayTime.value=.24;
+          const echoGain=offlineCtx.createGain(); echoGain.gain.value=.22;
+          const feedback=offlineCtx.createGain(); feedback.gain.value=.22;
+          srcNode.connect(delay); delay.connect(echoGain); if(panner)echoGain.connect(panner);else echoGain.connect(fadeNode); delay.connect(feedback); feedback.connect(delay);
+        }
+        exportFadeNode=fadeNode;
+      }else{
+        // Audio embedded in a video is kept unchanged; only its existing clip volume applies.
+        srcNode.connect(gainNode);
+      }
+      gainNode.connect(offlineCtx.destination);
+      // trimStart/trimEnd are absolute timeline seconds; sourceOffset is the exact source
+      // second where this segment begins. Split halves therefore retain their source offset.
+      const sourceOffset = Math.max(0,Number(ov.sourceOffset)||0);
+      const clipLenSourceSec = Math.max(0, (ov.trimEnd - ov.trimStart) * speed);
+      if(clipLenSourceSec <= 0 || ov.trimStart >= durationSec || sourceOffset >= audioBuf.duration) continue;
+      const when = Math.max(0, ov.trimStart);
+      const availableSourceSec = Math.max(0,audioBuf.duration-sourceOffset);
+      const outputRoomSourceSec = Math.max(0,durationSec-when)*speed;
+      const playLen = Math.min(clipLenSourceSec,availableSourceSec,outputRoomSourceSec);
+      if(playLen <= 0) continue;
+      if(Array.isArray(ov.ethvelleMediaKeyframes)&&ov.ethvelleMediaKeyframes.some(k=>k&&k.property==='volume')){
+        ethvelleScheduleObjectVolumeAutomation(gainNode.gain,ov,when,Math.min(playLen/speed,Math.max(0,(ov.trimEnd-ov.trimStart))));
+      }
+      if(ov.type==='audio' && exportFadeNode){
+        const fadeNode=exportFadeNode;
+        const audibleDuration=Math.max(.001,playLen/speed);
+        let fadeIn=Math.max(0,Math.min(8,Number(audioCfg.fadeIn)||0));
+        let fadeOut=Math.max(0,Math.min(8,Number(audioCfg.fadeOut)||0));
+        if(fadeIn+fadeOut>audibleDuration){const factor=audibleDuration/(fadeIn+fadeOut);fadeIn*=factor;fadeOut*=factor;}
+        try{
+          fadeNode.gain.cancelScheduledValues(when);
+          fadeNode.gain.setValueAtTime(fadeIn>0?0:1,when);
+          if(fadeIn>0)fadeNode.gain.linearRampToValueAtTime(1,when+fadeIn);
+          if(fadeOut>0){const fadeStart=when+Math.max(fadeIn,audibleDuration-fadeOut);fadeNode.gain.setValueAtTime(1,fadeStart);fadeNode.gain.linearRampToValueAtTime(0,when+audibleDuration);}
+        }catch(_e){fadeNode.gain.value=1;}
+      }
+      let nodeBuffer = audioBuf, nodeRate = speed, nodeOffset = sourceOffset, nodePlayLen = playLen;
+      if(Math.abs(baseSpeed-1) > .001 && window.ethvellePitchSafeStretch){
+        try{
+          const stretched = await window.ethvellePitchSafeStretch.request(audioBuf, baseSpeed, sourceOffset, sourceOffset+playLen+.05);
+          if(stretched && stretched.buffer){
+            /* Time-stretched copy keeps the original pitch; only the semitone Pitch setting still changes the rate. */
+            nodeBuffer = stretched.buffer;
+            nodeRate = exportPitchRatio;
+            nodeOffset = Math.max(0,(sourceOffset-stretched.originSec)/baseSpeed);
+            nodePlayLen = Math.max(.001,playLen/baseSpeed);
+          }
+        }catch(stretchErr){console.warn('Ethvelle pitch-safe export fallback:',stretchErr);}
+      }
+      srcNode.buffer = nodeBuffer;
+      srcNode.playbackRate.value = nodeRate;
+      srcNode.start(when, nodeOffset, nodePlayLen);
+      anyDecoded = true;
+    }catch(err){
+      const clipLabel=String(ov.name||ov.title||('Clip '+String(ov.id||'')));
+      audioDecodeFailures.push(clipLabel);
+      console.error('Ethvelle: could not decode audio for export; this clip will be silent',clipLabel,err);
+    }
+  }
+  if(audioDecodeFailures.length){
+    window.__ethvelleLastExportAudioDecodeFailures=audioDecodeFailures.slice();
+    const shown=audioDecodeFailures.slice(0,3).join(', ');
+    const more=audioDecodeFailures.length>3?' and '+(audioDecodeFailures.length-3)+' more':'';
+    try{showToast('Audio could not be decoded for: '+shown+more,{icon:toastIcons.info,duration:4200});}catch(_e){}
+  }else{window.__ethvelleLastExportAudioDecodeFailures=[];}
+  if(!anyDecoded) return null;
+  return await offlineCtx.startRendering();
+}
+
+// Load the pinned, browser-global muxer builds only when an export actually needs them.
+function loadPinnedExportMuxer(globalName,src){
+  if(window[globalName])return Promise.resolve(window[globalName]);
+  return new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-ethvelle-export-muxer="'+globalName+'"]');
+    const script=existing||document.createElement('script');
+    const done=()=>{if(window[globalName])resolve(window[globalName]);else reject(new Error('Export muxer did not initialize: '+globalName));};
+    if(existing){
+      if(existing.dataset.loaded==='1'){done();return;}
+      existing.addEventListener('load',done,{once:true});
+      existing.addEventListener('error',()=>reject(new Error('Could not load '+globalName)),{once:true});
+      return;
+    }
+    script.src=src;script.async=true;script.dataset.ethvelleExportMuxer=globalName;
+    script.onload=()=>{script.dataset.loaded='1';done();};
+    script.onerror=()=>reject(new Error('Could not load pinned export muxer: '+globalName));
+    document.head.appendChild(script);
+  });
+}

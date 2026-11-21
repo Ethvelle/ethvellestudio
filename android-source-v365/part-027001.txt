@@ -1,0 +1,1000 @@
+  const alts = SHEET_ALTS[k]; if(alts && alts.includes(ED.sel) && !(k==='head'&&edIsFaceOverlayKey(ED.sel))) return false;
+  return true;
+}
+// Legacy editor oval-joint blend helpers removed; do not repaint over imported part artwork.
+function edPick(p, W){
+  const edTipHit = (radius)=>{
+    const tipKey=isMythicModelType(ED.modelType)?'tail_tip':'tail';
+    if(!ED.bones || edIsLocked(tipKey)) return null;
+    const t = edTailTip(W); if(!t) return null;
+    const q = { x:ED.cam.x+t.x*ED.cam.z, y:ED.cam.y+t.y*ED.cam.z };
+    return Math.hypot(p.x-q.x, p.y-q.y) < (radius||20) ? { type:'tailtip', key:tipKey } : null;
+  };
+  if(ED.lock && ED.bones){
+    const tipLocked = edTipHit(); if(tipLocked) return tipLocked;
+    // Mouth crops are nested face artwork, not bones: keep their pixels draggable even while
+    // every structural joint is locked to its connected artwork. Their pivot dots are hidden
+    // in edDraw(), so exclude them from bone-point hit-testing as well.
+    const jointKeys = ED.order.filter(k=>W[k] && edKeyVisible(k) && !edIsLocked(k) && !edIsFaceOverlayKey(k) && k!=='mouth_closed' && k!=='mouth_open' && k!=='mouth_hold').sort((a,b)=>(a===ED.sel?-1:0)-(b===ED.sel?-1:0));
+    for(const k of jointKeys){
+      const q={x:ED.cam.x+W[k].x*ED.cam.z,y:ED.cam.y+W[k].y*ED.cam.z};
+      if(Math.hypot(p.x-q.x,p.y-q.y)<20) return {type:'pivot',key:k};
+    }
+    const fx=(p.x-ED.cam.x)/ED.cam.z, fy=(p.y-ED.cam.y)/ED.cam.z;
+    for(let i=ED.order.length-1;i>=0;i--){
+      const k=ED.order[i];
+      if((k!=='mouth_closed' && k!=='mouth_open' && k!=='mouth_hold') || !W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+      const a=edArt(k), l=edW2L(W,k,fx,fy), lx=Math.round(l.x), ly=Math.round(l.y);
+      for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+        const X=lx+ox,Y=ly+oy;
+        if(X>=0 && Y>=0 && X<a.w && Y<a.h && a.alpha[Y*a.w+X]) return {type:'move',key:k};
+      }
+    }
+    // v348: locked mode must still let a plain tap select a body part. Only joint dots
+    // are draggable while locked; selecting the artwork itself never starts a transform.
+    for(let i=ED.order.length-1;i>=0;i--){
+      const k=ED.order[i];
+      if(!W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+      const a=edArt(k), l=edW2L(W,k,fx,fy), lx=Math.round(l.x), ly=Math.round(l.y);
+      for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+        const X=lx+ox,Y=ly+oy;
+        if(X>=0 && Y>=0 && X<a.w && Y<a.h && a.alpha[Y*a.w+X]) return {type:'select',key:k};
+      }
+    }
+    return {type:'locked',key:ED.sel};
+  }
+  const tipExact = edTipHit(11); if(tipExact) return tipExact;   // the width knob of a selected tail sits right next to the tip dot
+  if(ED.sel){ const h = edHandles(ED.sel, W); for(const n of ['rot','len','wid']) if(Math.hypot(p.x-h[n].x, p.y-h[n].y) < 20) return { type:n, key:ED.sel }; }
+  const tipFree = edTipHit(); if(tipFree) return tipFree;
+  if(ED.bones){
+    const keys = ED.order.filter(k=>W[k] && edKeyVisible(k) && !edIsLocked(k) && !edIsFaceOverlayKey(k)).sort((a,b)=>(a===ED.sel?-1:0)-(b===ED.sel?-1:0));
+    for(const k of keys){ const q = { x:ED.cam.x+W[k].x*ED.cam.z, y:ED.cam.y+W[k].y*ED.cam.z }; if(Math.hypot(p.x-q.x, p.y-q.y) < 17) return { type:'pivot', key:k }; }
+  }
+  const fx = (p.x-ED.cam.x)/ED.cam.z, fy = (p.y-ED.cam.y)/ED.cam.z;
+  const opaqueAt = k=>{
+    const a = edArt(k), l = edW2L(W, k, fx, fy), lx = Math.round(l.x), ly = Math.round(l.y);
+    for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+      const X = lx+ox, Y = ly+oy; if(X >= 0 && Y >= 0 && X < a.w && Y < a.h && a.alpha[Y*a.w+X]) return true;
+    }
+    return false;
+  };
+  let hitKey = null;
+  for(let i = ED.order.length-1; i >= 0; i--){
+    const k = ED.order[i]; if(!W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+    if(opaqueAt(k)){ hitKey = k; break; }
+  }
+  // v332 FIX (small part grabbed through its own box selects the big part underneath):
+  // a thin/small selected part (eyebrow, eye, ...) is mostly transparent inside its selection
+  // border, so a drag that starts inside that border missed the part's pixels and fell through
+  // to the large part below it (usually the Head), which then got selected. If the touch is
+  // inside (or right on) the SELECTED part's drawn border, and what the pixel test found is
+  // only a part layered BELOW it (or nothing) that is bigger than the selected part, keep
+  // the selected part and move it. A part layered ABOVE the selected one with real pixels
+  // under the finger still wins, so tapping an eyebrow while the head is selected works.
+  const selK = ED.sel;
+  if(selK && hitKey !== selK && W[selK] && edKeyVisible(selK) && !edIsLocked(selK) && edArt(selK) && ED.st[selK]){
+    const selIdx = ED.order.indexOf(selK), hitIdx = hitKey == null ? -1 : ED.order.indexOf(hitKey);
+    if(hitKey == null || hitIdx < selIdx){
+      const sq = edHandles(selK, W).corners;
+      const quadArea = q=>{ let s = 0; for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4]; s += a.x*b.y - b.x*a.y; } return Math.abs(s)/2; };
+      const inQuad = (q, pt)=>{ let pos = false, neg = false; for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4], c = (b.x-a.x)*(pt.y-a.y) - (b.y-a.y)*(pt.x-a.x); if(c > 0) pos = true; else if(c < 0) neg = true; } return !(pos && neg); };
+      const nearEdge = (q, pt, r)=>{ for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4], dx = b.x-a.x, dy = b.y-a.y, l2 = dx*dx+dy*dy || 1, t = Math.max(0, Math.min(1, ((pt.x-a.x)*dx+(pt.y-a.y)*dy)/l2)); if(Math.hypot(pt.x-(a.x+t*dx), pt.y-(a.y+t*dy)) <= r) return true; } return false; };
+      if(inQuad(sq, p) || nearEdge(sq, p, 8)){
+        let selWins = hitKey == null;
+        if(!selWins){ try{ selWins = quadArea(sq) < quadArea(edHandles(hitKey, W).corners); }catch(_e){ selWins = false; } }
+        if(selWins) return { type:'move', key:selK };
+      }
+    }
+  }
+  if(hitKey != null) return { type:'move', key:hitKey };
+  return { type:'pan' };
+}
+
+/* ---------- editor drawing ---------- */
+function edDraw(){
+  if(!ED.open || !ED.g) return;
+  const g = ED.g, cv = ED.cv, dpr = ED.dpr, Z = ED.cam.z, W = edWorld();
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,cv.width,cv.height);
+  g.setTransform(dpr*Z,0,0,dpr*Z,dpr*ED.cam.x,dpr*ED.cam.y); g.imageSmoothingQuality = 'high';
+  ED.order.forEach(k=>{
+    if(!W[k] || !edKeyVisible(k)) return;
+    const w = W[k], st = ED.st[k]; g.save(); g.translate(w.x,w.y); g.rotate(w.rot); g.scale(w.sx,w.sy); g.drawImage(edArt(k).canvas, -st.pvx, -st.pvy);
+    const preview=ED.previewVariant;
+    if(preview&&preview.targetKey===k&&preview.src){
+      const cache=window.__ethvelleModelLabVariantPreviewCache||(window.__ethvelleModelLabVariantPreviewCache=new Map());
+      let previewImage=cache.get(preview.src);
+      if(!previewImage){previewImage=new Image();previewImage.onload=()=>{if(ED.previewVariant&&ED.previewVariant.src===preview.src)edDraw();};previewImage.onerror=()=>{};cache.set(preview.src,previewImage);previewImage.src=preview.src;}
+      if(previewImage.complete&&previewImage.naturalWidth){const art=edArt(k);g.drawImage(previewImage,-st.pvx,-st.pvy,art.w,art.h);}
+    }
+    g.restore();
+  });
+  g.setTransform(dpr,0,0,dpr,0,0);
+  const S = p=>({ x:ED.cam.x+p.x*Z, y:ED.cam.y+p.y*Z });
+  // Joint-bridge painting intentionally removed: it generated oval/crescent artifacts over source art.
+  if(ED.bones){
+    const segs = edBoneSegs(W); g.lineCap = 'round';
+    [['rgba(255,255,255,.95)',ED.lock?7:6],[ED.lock?'#12B886':'#2F5CE8',ED.lock?4:3]].forEach(([c,lw])=>{ g.strokeStyle = c; g.lineWidth = lw; g.beginPath(); segs.forEach(([a,b])=>{ const A = S(a), B = S(b); g.moveTo(A.x,A.y); g.lineTo(B.x,B.y); }); g.stroke(); });
+  }
+  if(ED.sel){
+    const h = edHandles(ED.sel, W), c = h.corners;
+    g.beginPath(); g.moveTo(c[0].x,c[0].y); for(let i=1;i<4;i++) g.lineTo(c[i].x,c[i].y); g.closePath();
+    g.lineJoin = 'round'; g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 4; g.stroke(); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    // Part selection stays visible in locked mode; manipulation knobs remain unlocked-only.
+    if(!ED.lock){
+      const rot = W[ED.sel].rot;
+      const knob = (p, ang, glyph)=>{
+        g.save(); g.translate(p.x,p.y); g.rotate(ang);
+        g.beginPath(); g.arc(0,0,11,0,Math.PI*2); g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 6; g.fill(); g.shadowBlur = 0;
+        g.strokeStyle = '#2F5CE8'; g.fillStyle = '#2F5CE8'; g.lineWidth = 2; g.lineCap = 'round'; glyph(); g.restore();
+      };
+      const arrows = ()=>{ g.beginPath(); g.moveTo(0,-5); g.lineTo(0,5); g.stroke(); [[-1,-5],[1,5]].forEach(([d,y])=>{ g.beginPath(); g.moveTo(-3,y-d*3); g.lineTo(0,y); g.lineTo(3,y-d*3); g.stroke(); }); };
+      knob(h.wid, rot + Math.PI/2, arrows);
+      knob(h.len, rot, arrows);
+      knob(h.rot, 0, ()=>{ g.beginPath(); g.arc(0,0,5,Math.PI*0.15,Math.PI*1.55); g.stroke(); g.beginPath(); g.moveTo(-1,-6.5); g.lineTo(2.5,-4.2); g.lineTo(-1.5,-2.4); g.closePath(); g.fill(); });
+    }
+  }
+  if(ED.bones) ED.order.forEach(k=>{
+    if(!W[k] || !edKeyVisible(k)) return;
+    // Facial overlays are positioned inside the head artwork, not skeleton joints. Their
+    // pivot dots intercepted taps intended for an eye/brow and made the head jump/disappear.
+    if(edIsFaceOverlayKey(k) || k==='mouth_closed' || k==='mouth_open' || k==='mouth_hold') return;
+    const p = S(W[k]), on = k === ED.sel;
+    g.beginPath(); g.arc(p.x,p.y,on?9:7,0,Math.PI*2); g.fillStyle = '#fff'; g.fill();
+    g.beginPath(); g.arc(p.x,p.y,on?6.5:4.5,0,Math.PI*2); g.fillStyle = ED.lock ? (on ? '#12B886' : '#3fd6a6') : (on ? '#2F5CE8' : '#5b7cf0'); g.fill();
+  });
+  if(ED.bones){
+    const tailTip = edTailTip(W);
+    if(tailTip){
+      const p = S(tailTip), on = ED.sel === (isMythicModelType(ED.modelType)?'tail_tip':'tail');
+      g.beginPath(); g.arc(p.x,p.y,on?9:7,0,Math.PI*2); g.fillStyle = '#fff'; g.fill();
+      g.beginPath(); g.arc(p.x,p.y,on?6.5:4.5,0,Math.PI*2); g.fillStyle = ED.lock ? (on ? '#12B886' : '#3fd6a6') : (on ? '#2F5CE8' : '#5b7cf0'); g.fill();
+    }
+  }
+}
+function edResize(){
+  const st = document.getElementById('edStage'), r = st.getBoundingClientRect(); if(r.width < 10 || r.height < 10) return;
+  ED.dpr = window.devicePixelRatio || 1; ED.cv.width = Math.round(r.width*ED.dpr); ED.cv.height = Math.round(r.height*ED.dpr); ED.cw = r.width; ED.ch = r.height;
+  if(ED.needFit){ ED.needFit = false; edFit(); return; }
+  edDraw();
+}
+function edFit(){
+  const W = edWorld(); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  ED.order.forEach(k=>{ const a = edArt(k); if(!a) return; [[0,0],[a.w,0],[a.w,a.h],[0,a.h]].forEach(([lx,ly])=>{ const p = edL2W(W,k,lx,ly); x0 = Math.min(x0,p.x); x1 = Math.max(x1,p.x); y0 = Math.min(y0,p.y); y1 = Math.max(y1,p.y); }); });
+  const bw = Math.max(1,x1-x0), bh = Math.max(1,y1-y0), z = Math.min((ED.cw-36)/bw, (ED.ch-36)/bh);
+  ED.cam.z = Math.max(0.05, z); ED.cam.x = ED.cw/2 - (x0+x1)/2*ED.cam.z; ED.cam.y = ED.ch/2 - (y0+y1)/2*ED.cam.z;
+  edSyncZoom(); edDraw();
+}
+function edSyncZoom(){ const e = document.getElementById('edZoomVal'); if(e) e.textContent = Math.round(ED.cam.z*100)+'%'; }
+function edZoomAt(f, cx, cy){ const z = Math.max(0.08, Math.min(8, ED.cam.z*f)), k = z/ED.cam.z; ED.cam.x = cx-(cx-ED.cam.x)*k; ED.cam.y = cy-(cy-ED.cam.y)*k; ED.cam.z = z; edSyncZoom(); edDraw(); }
+function edZoomBy(f){ edZoomAt(f, ED.cw/2, ED.ch/2); }
+
+/* ---------- undo / redo ---------- */
+const edSnap = ()=>JSON.stringify({ st:ED.st, order:ED.order, assign:ED.assign, facing:ED.facing });
+function edRestore(j){ const o = JSON.parse(j); ED.st = o.st; ED.order = o.order; ED.assign = o.assign; ED.facing = o.facing === -1 ? -1 : 1; }
+function edPush(){ ED.undo.push(edSnap()); if(ED.undo.length > 80) ED.undo.shift(); ED.redo.length = 0; edSyncHistory(); }
+function edUndo(){ if(!ED.undo.length) return; ED.redo.push(edSnap()); edRestore(ED.undo.pop()); edAfterChange(true); }
+function edRedo(){ if(!ED.redo.length) return; ED.undo.push(edSnap()); edRestore(ED.redo.pop()); edAfterChange(true); }
+function edSyncHistory(){ document.getElementById('edUndoBtn').disabled = !ED.undo.length; document.getElementById('edRedoBtn').disabled = !ED.redo.length; }
+function edAfterChange(full){ edSyncHistory(); if(full) edSyncUI(); else edSyncVals(); edDraw(); }
+
+/* ---------- selection + toolbar ---------- */
+function edThumb(a){
+  if(!a.thumb){ const k = 60/Math.max(a.w,a.h), c = document.createElement('canvas'); c.width = Math.max(1,Math.round(a.w*k)); c.height = Math.max(1,Math.round(a.h*k)); c.getContext('2d').drawImage(a.canvas,0,0,c.width,c.height); a.thumb = c.toDataURL('image/png'); }
+  return a.thumb;
+}
+// v328 PART LOCK: a locked part can't be selected (chip or canvas tap), moved, resized, rotated or bulk-edited until it is
+// unlocked again from its long-press "Part options" panel. State lives in ED.lockedParts and is saved with the model.
+function edIsLocked(k){ return !!(k && ED.lockedParts && ED.lockedParts[k]); }
+function edSetPartLocked(k, on){
+  if(!k || !ED.st || !ED.st[k]) return false;
+  if(!ED.lockedParts) ED.lockedParts = {};
+  if(on){ ED.lockedParts[k] = true; if(ED.sel === k) ED.sel = null; }
+  else delete ED.lockedParts[k];
+  edSyncUI(); edDraw();
+  showToast(sheetLabel(k)+(on ? ' locked' : ' unlocked'), { duration:1300 });
+  return true;
+}
+function edSelect(k){
+  if(edIsLocked(k)){ showToast(sheetLabel(k)+' is locked. Long press it to unlock.', { duration:1500 }); return; }
+  ED.sel = k; edSyncUI(); edDraw();
+}
+// Facial reactions, mouths and each side's hand gestures are interchangeable variants. Paired
+// arms/legs share size and rotation edits without destroying their different anatomical positions.
+function edSimilarKeys(k){
+  // v333: every part family now has a rule, for humanoid, animal and bird models alike.
+  // Head variants (incl. the open-eye head), mouths (incl. mouth_hold), hands (incl. holding hands).
+  if(ED_SIM.head.test(k)) return SHEET_KEYS.filter(x=>ED_SIM.head.test(x));
+  if(ED_SIM.mouth.test(k)) return ['mouth_closed','mouth_open','mouth_hold'];
+  // v318: open eyes (eye_L/eye_R) and closed eyes (eye_closed_L/eye_closed_R) are left/right pairs.
+  const em=k.match(/^(eye|eye_closed)_([LR])$/);
+  if(em) return [em[1]+'_L',em[1]+'_R'];
+  // v333: eyebrows are a left/right pair (humanoid + animal face kits).
+  if(/^brow_[LR]$/.test(k)) return ['brow_L','brow_R'];
+  // Hand transforms are a paired character-level edit, not side-specific: include both base hands
+  // and every matching gesture on both sides. Per-part defaults still preserve each gesture's own
+  // wrist pivot and the left/right model's original mirror direction.
+  if(ED_SIM.hand.test(k)) return SHEET_KEYS.filter(x=>ED_SIM.hand.test(x));
+  const lm=k.match(/^(arm|leg)([LR])_(upper|lower)$/);
+  if(lm){ const other=lm[2]==='L'?'R':'L'; return [k,lm[1]+other+'_'+lm[3]]; }
+  // v333: shoes are a left/right pair.
+  if(/^shoe[LR]$/.test(k)) return ['shoeL','shoeR'];
+  // v333: bird flight wings are a left/right pair; bird eye and beak states are interchangeable variants.
+  if(/^wing[LR]_fly$/.test(k)) return ['wingL_fly','wingR_fly'];
+  if(/^bird_eye(?:_closed)?$/.test(k)) return ['bird_eye','bird_eye_closed'];
+  if(/^beak_(?:closed|open)$/.test(k)) return ['beak_closed','beak_open'];
+  return [k];
+}
+// v333: shared matchers so "which parts are similar" and "how to transfer the edit" never disagree.
+const ED_SIM={
+  head:/^head(?:_blink|_open)?$/,
+  mouth:/^mouth_(?:closed|open|hold)$/,
+  hand:/^hand[LR](?:_(?:fist|point|thumb|palm|hold))?$/,
+  birdVariant:/^(?:bird_eye(?:_closed)?|beak_(?:closed|open))$/
+};
+function edApplyToSimilarParts(){
+  const k=ED.sel;
+  if(!k || !ED.st[k]){ showToast('Select a part first',{duration:1300}); return; }
+  let init;
+  try{ init = typeof ED.init === 'string' ? JSON.parse(ED.init).st : ED.init.st; }
+  catch(e){ showToast('Could not read the starting layout',{duration:1500}); return; }
+  const headGroup=ED_SIM.head.test(k);
+  const keys=edSimilarKeys(k);
+  const group=keys.filter(x=>x!==k && !edIsLocked(x) && ED.st[x] && init[x] && ED.arts[ED.assign[x]]);
+  if(!group.length){ showToast(keys.length<=1 ? 'This part has no matching pair to copy to' : 'No other matching parts are present in this sheet',{duration:1500}); return; }
+  const src=ED.st[k], src0=init[k], srcArt=edArt(k);
+  if(!src0 || !srcArt){ showToast('Could not read the selected part',{duration:1500}); return; }
+  const ratio=(v,b)=>Math.abs(b)>1e-6?v/b:1;
+  const variants=headGroup || ED_SIM.mouth.test(k) || ED_SIM.hand.test(k) || ED_SIM.birdVariant.test(k);
+  let applied=0;
+  edPush();
+  group.forEach(q=>{
+    const dst=ED.st[q], d0=init[q], art=edArt(q);
+    if(!dst || !d0 || !art) return;
+    // Transfer edit DELTAS from the selected piece, relative to its opening state. This preserves
+    // the destination's own detected proportions while copying every intentional transform edit.
+    dst.s=Math.max(.3,Math.min(3,d0.s*ratio(src.s,src0.s)));
+    dst.wx=Math.max(.2,Math.min(4,d0.wx*ratio(src.wx,src0.wx)));
+    dst.hy=Math.max(.2,Math.min(4,d0.hy*ratio(src.hy,src0.hy)));
+    dst.rot=d0.rot+(src.rot-src0.rot);
+    dst.fx=src.fx===src0.fx ? d0.fx : -d0.fx;
+    dst.fy=src.fy===src0.fy ? d0.fy : -d0.fy;
+    if(variants){
+      const srcParent=SHEET_PARENT[k], dstParent=SHEET_PARENT[q];
+      const pa=srcParent&&edArt(srcParent), pb=dstParent&&edArt(dstParent);
+      const sx=pa&&pb ? pb.w/Math.max(1,pa.w) : 1;
+      const sy=pa&&pb ? pb.h/Math.max(1,pa.h) : 1;
+      const sp0=srcParent&&init[srcParent], dp0=dstParent&&init[dstParent];
+      const sign=v=>v ? Math.sign(v.s*v.wx*v.fx)||1 : 1;
+      const flipLocalX=ED.view!=='side' && sign(sp0)!==sign(dp0) ? -1 : 1;
+      dst.ax=d0.ax+(src.ax-src0.ax)*sx*flipLocalX;
+      dst.ay=d0.ay+(src.ay-src0.ay)*sy;
+    } else {
+      const mirror=ED.view!=='side';
+      dst.ax=d0.ax+(mirror?-(src.ax-src0.ax):(src.ax-src0.ax));
+      dst.ay=d0.ay+(src.ay-src0.ay);
+    }
+    // Keep each part's own crop pivot but copy the selected pivot adjustment as a relative offset.
+    dst.pvx=art.dpx+(src.pvx-srcArt.dpx)*(art.w/Math.max(1,srcArt.w));
+    dst.pvy=art.dpy+(src.pvy-srcArt.dpy)*(art.h/Math.max(1,srcArt.h));
+    applied++;
+  });
+  if(!applied){ ED.undo.pop(); showToast('No matching parts could be updated',{duration:1500}); return; }
+  edAfterChange(true);
+  showToast(headGroup ? 'Applied head edits to '+applied+' head variants' : 'Applied edits to '+applied+' matching parts',{duration:1800});
+}
+function edSyncUI(){
+  const box = document.getElementById('edLayers');
+  box.innerHTML = ED.order.slice().reverse().map(k=>`<button class="ed-chip ${k===ED.sel?'is-on':''} ${edIsLocked(k)?'is-locked':''}" data-k="${k}" data-locked="${edIsLocked(k)?'1':'0'}" onclick="edSelect('${k}')"><span class="th"><img src="${edThumb(edArt(k))}" alt="">${edIsLocked(k)?'<i class="ed-lock-badge" aria-label="Locked"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9.5" rx="2.2"/><path d="M8.2 11V8a3.8 3.8 0 0 1 7.6 0v3"/></svg></i>':''}</span><span class="n">${sheetLabel(k)}</span></button>`).join('');
+  const on = box.querySelector('.is-on'); if(on) on.scrollIntoView({ inline:'nearest', block:'nearest' });
+  document.getElementById('edSubtitle').textContent = ED.sel ? sheetLabel(ED.sel) + ' selected' : 'Tap a part to edit it';
+  document.getElementById('edSwapBtn').disabled = !ED.sel || !/[LR]_/.test(ED.sel);
+  const fmb = document.getElementById('edFlipModelBtn'); if(fmb) fmb.style.display = ED.view === 'side' ? '' : 'none';
+  document.querySelectorAll('#edModes button').forEach(b=>b.classList.toggle('is-on', b.dataset.m === ED.mode));
+  const bb = document.getElementById('edBonesBtn'); bb.classList.toggle('is-on', ED.bones); bb.classList.toggle('is-off', !ED.bones); bb.innerHTML = edIcon(ED.bones ? 'eye' : 'eyeOff');
+  const bg = document.getElementById('edLockBadge'); if(bg){ bg.classList.remove('show'); bg.textContent = ''; }
+  const lb = document.getElementById('edLockBtn'); lb.classList.toggle('is-lock', ED.lock); lb.innerHTML = edIcon(ED.lock ? 'lock' : 'unlock'); lb.setAttribute('aria-pressed', ED.lock ? 'true' : 'false');
+  edSyncHistory(); edSyncVals();
+}
+const ED_RANGE = { size:[30,300,'%'], width:[30,300,'%'], height:[30,300,'%'], rotate:[-180,180,'°'], position:[-150,150,'%'] };
+// The part's auto-placed position when the sheet was first opened -- the 0% reference point for the
+// Move sliders, and what "Reset part" already returns ax/ay to, so the two stay conceptually in sync.
+function edInitSt(k){ try{ return JSON.parse(ED.init).st[k]; }catch(e){ return null; } }
+// Position is expressed as a percentage of the part's OWN width/height (not raw pixels) so the same
+// slider range feels right whether you're nudging a tiny mouth or the whole torso.
+function edPosVal(axis){
+  const st = ED.st[ED.sel], init = edInitSt(ED.sel), a = edArt(ED.sel); if(!st || !init || !a) return 0;
+  const span = axis==='x' ? a.w : a.h; if(!span) return 0;
+  const cur = axis==='x' ? st.ax : st.ay, base = axis==='x' ? init.ax : init.ay;
+  return Math.round((cur-base)/span*100);
+}
+function edApplyPos(axis, v){
+  const st = ED.st[ED.sel], init = edInitSt(ED.sel), a = edArt(ED.sel); if(!st || !init || !a) return;
+  const span = axis==='x' ? a.w : a.h;
+  if(axis==='x'){ st.ax = init.ax + v/100*span; document.getElementById('edVal').textContent = 'X ' + v + '%'; }
+  else { st.ay = init.ay + v/100*span; document.getElementById('edValY').textContent = 'Y ' + v + '%'; }
+  edDraw();
+}
+function edGetVal(){
+  const st = ED.st[ED.sel]; if(!st) return 0;
+  if(ED.mode === 'size') return Math.round(st.s*100);
+  if(ED.mode === 'width') return Math.round(st.wx*100);
+  if(ED.mode === 'height') return Math.round(st.hy*100);
+  if(ED.mode === 'rotate') return Math.round(st.rot);
+  return edPosVal('x');   // position mode: the main (first) slider is X
+}
+function edSyncVals(){
+  const rowY = document.getElementById('edSliderRowY');
+  if(ED.mode === 'position'){
+    rowY.style.display = '';
+    const r = ED_RANGE.position;
+    const slX = document.getElementById('edSlider'), vX = edPosVal('x');
+    slX.min = r[0]; slX.max = r[1]; slX.value = vX; document.getElementById('edVal').textContent = 'X ' + vX + '%';
+    const slY = document.getElementById('edSliderY'), vY = edPosVal('y');
+    slY.min = r[0]; slY.max = r[1]; slY.value = vY; document.getElementById('edValY').textContent = 'Y ' + vY + '%';
+  } else {
+    rowY.style.display = 'none';
+    const r = ED_RANGE[ED.mode], sl = document.getElementById('edSlider'), v = edGetVal();
+    sl.min = r[0]; sl.max = r[1]; sl.value = v; document.getElementById('edVal').textContent = v + r[2];
+  }
+}
+function edSetMode(m){ ED.mode = m; edSyncUI(); }
+let edSliderPushed = false;
+function edSliderStart(){ if(!edSliderPushed){ edPush(); edSliderPushed = true; } }
+function edSliderEnd(){ edSliderPushed = false; }
+function edSliderInput(v){
+  const st = ED.st[ED.sel]; if(!st) return; v = +v;
+  if(ED.mode === 'position'){ edApplyPos('x', v); return; }
+  if(ED.mode==='size') st.s = v/100; else if(ED.mode==='width') st.wx = v/100; else if(ED.mode==='height') st.hy = v/100; else st.rot = v;
+  document.getElementById('edVal').textContent = v + ED_RANGE[ED.mode][2]; edDraw();
+}
+function edSliderInputY(v){ if(ED.mode !== 'position' || !ED.sel) return; edApplyPos('y', +v); }
+function edNudge(d){ if(!ED.sel) return; edPush(); const r = ED_RANGE[ED.mode]; edSliderInput(Math.max(r[0], Math.min(r[1], edGetVal()+d))); edSyncVals(); }
+function edNudgeY(d){ if(!ED.sel || ED.mode !== 'position') return; edPush(); const r = ED_RANGE.position; edSliderInputY(Math.max(r[0], Math.min(r[1], edPosVal('y')+d))); edSyncVals(); }
+function edFlip(axis){ if(!ED.sel) return; edPush(); const st = ED.st[ED.sel]; if(axis==='x') st.fx *= -1; else st.fy *= -1; edDraw(); }
+// NEAR/FAR limb pairs in a side-view sheet: two pieces with the same silhouette (the far one a touch darker,
+// see SHEET_PROMPT_SIDE's "NO MIRRORING IN SIDE VIEW" rule). When the model turns around, the near and far
+// limbs trade places, so the far leg becomes the near one and vice versa.
+const SHEET_FLIP_PAIRS = [['armL_upper','armR_upper'], ['armL_lower','armR_lower'], ['handL','handR'], ['legL_upper','legR_upper'], ['legL_lower','legR_lower'], ['shoeL','shoeR'], ['wingL','wingR'],
+  ['handL_fist','handR_fist'], ['handL_point','handR_point'], ['handL_thumb','handR_thumb'], ['handL_palm','handR_palm']];
+// Turns the WHOLE side-view model around so it faces the other way. Every piece turns, limbs and hands included:
+// its art is reflected (fx), its joint is mirrored across the body's centre line and its angle is negated, so a foot
+// or hand that pointed forward now points the new way. The near and far limbs first trade places together with their
+// own state (art, size, stretch, rotation and joint edits), so nothing the person tuned is lost. Parents go first so
+// children are placed against their new parent transforms. Side view only.
+// ED.facing flips as well: the animation presets read it, so arms and legs swing toward the way the model now faces.
+function edFlipModel(){
+  if(ED.view !== 'side') return;
+  edPush();
+  SHEET_FLIP_PAIRS.forEach(([l,r])=>{
+    if(!ED.arts[ED.assign[l]] || !ED.arts[ED.assign[r]]) return;   // basic sheets may not have the fist pair
+    const t = ED.assign[l]; ED.assign[l] = ED.assign[r]; ED.assign[r] = t;
+    const s = ED.st[l]; ED.st[l] = ED.st[r]; ED.st[r] = s;
+  });
+  const W0 = edWorld(true), cx = W0.torso.x, done = {};
+  const go = k => {
+    if(done[k] || !ED.st[k] || !W0[k]) return; done[k] = true;
+    const p = SHEET_PARENT[k]; if(p) go(p);
+    const st = ED.st[k], old = W0[k];
+    st.fx *= -1;                                   // reflect this piece's art (limbs and hands included)
+    if(p){
+      const P = edWorld(true)[p];
+      st.rot = (-old.rot - P.rot)*180/Math.PI;
+      edSetPos(k, 2*cx - old.x, old.y);
+    } else st.rot = -old.rot*180/Math.PI;
+  };
+  SHEET_KEYS.forEach(go);
+  ED.facing = -(ED.facing || 1);
+  edSyncVals(); edDraw();
+  const flipBtn=document.getElementById('edFlipModelBtn');
+  if(flipBtn){ flipBtn.setAttribute('aria-pressed', ED.facing < 0 ? 'true' : 'false'); flipBtn.title='Turn the entire side-profile rig 180 degrees. Near/far limbs swap, and every piece stays editable'; }
+  showToast(ED.facing < 0 ? 'Model turned to face left' : 'Model turned to face right', { duration:1500 });
+}
+function edSwap(){
+  const k = ED.sel; if(!k || !/[LR]_/.test(k)) return;
+  const o = k.replace(/([LR])_/, (m,s)=>(s==='L'?'R':'L')+'_');
+  if(edIsLocked(o)){ showToast(sheetLabel(o)+' is locked. Unlock it first.', { duration:1500 }); return; }
+  edPush(); const t = ED.assign[k]; ED.assign[k] = ED.assign[o]; ED.assign[o] = t;
+  [k,o].forEach(x=>{ const a = edArt(x); ED.st[x].pvx = a.dpx; ED.st[x].pvy = a.dpy; });
+  edSyncUI(); edDraw(); showToast('Swapped '+sheetLabel(k).toLowerCase()+' and '+sheetLabel(o).toLowerCase(), { duration:1500 });
+}
+function edResetPart(){
+  if(!ED.sel) return; const init = JSON.parse(ED.init), k = ED.sel; edPush();
+  const a = edArt(k); ED.st[k] = { ...init.st[k], pvx:a.dpx, pvy:a.dpy }; edAfterChange(true);
+}
+function edResetAll(){ edPush(); const keepLocked = {}; Object.keys(ED.lockedParts||{}).forEach(k=>{ if(ED.lockedParts[k] && ED.st[k]) keepLocked[k] = JSON.parse(JSON.stringify(ED.st[k])); }); edRestore(ED.init); Object.keys(keepLocked).forEach(k=>{ if(ED.st[k]) ED.st[k] = keepLocked[k]; }); edAfterChange(true); edFit(); showToast('Reset to the starting layout', { duration:1300 }); }
+// Only joint attachment coordinates and bone rotations are restored. Artwork scale, width, length,
+// flips and the rest of the part edits remain untouched. The "default" is the pose/layout this
+// specific model had when this editing session opened.
+function edSkeletonAtDefault(){
+  if(!ED.init || !ED.st) return false;
+  let base; try{ base=JSON.parse(ED.init).st||{}; }catch(e){ return false; }
+  for(const k of Object.keys(ED.st)){
+    if(k==='tail' && ED.modelType==='humanoid') continue;   // v344: the beast-man tail keeps the rest pose chosen in the editor
+    // Mouth crops are independent face overlays nested inside the head, not skeleton joints.
+    // Their ax/ay/rot are part of the model's saved facial layout and must not block the
+    // skeleton-default check after a user deliberately repositions them.
+    if(k==='mouth_closed'||k==='mouth_open'||k==='mouth_hold'||(typeof SHEET_FACE_NESTED!=='undefined'&&SHEET_FACE_NESTED.includes(k))||(typeof SHEET_FACE_KIT_NESTED!=='undefined'&&SHEET_FACE_KIT_NESTED.includes(k))||(typeof SHEET_HUMANOID_FACE_KIT_KEYS!=='undefined'&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(k))||(typeof SHEET_BIRD_FACE_NESTED!=='undefined'&&SHEET_BIRD_FACE_NESTED.includes(k))||(typeof SHEET_ALT_OF!=='undefined'&&SHEET_ALT_OF[k])) continue;
+    const cur=ED.st[k], ref=base[k]; if(!cur || !ref) continue;
+    for(const prop of ['ax','ay','rot']){
+      if(Number.isFinite(ref[prop]) && (!Number.isFinite(cur[prop]) || Math.abs(cur[prop]-ref[prop])>1e-4)) return false;
+    }
+  }
+  return true;
+}
+function edResetSkeletonToDefault(silent){
+  if(!ED.open || !ED.init || !ED.st) return false;
+  let base; try{ base=JSON.parse(ED.init).st||{}; }catch(e){ return false; }
+  const keys=Object.keys(ED.st).filter(k=>{
+    if(k==='tail' && ED.modelType==='humanoid') return false;   // v344: never reset the beast-man tail
+    // Reset only structural joint attachments. Keep mouth overlay transforms as edited by
+    // the user; they are nested in the head and are not part of the skeleton pose.
+    if(k==='mouth_closed'||k==='mouth_open'||k==='mouth_hold'||(typeof SHEET_FACE_NESTED!=='undefined'&&SHEET_FACE_NESTED.includes(k))||(typeof SHEET_FACE_KIT_NESTED!=='undefined'&&SHEET_FACE_KIT_NESTED.includes(k))||(typeof SHEET_HUMANOID_FACE_KIT_KEYS!=='undefined'&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(k))||(typeof SHEET_BIRD_FACE_NESTED!=='undefined'&&SHEET_BIRD_FACE_NESTED.includes(k))||(typeof SHEET_ALT_OF!=='undefined'&&SHEET_ALT_OF[k])) return false;
+    const cur=ED.st[k], ref=base[k];
+    return !!(cur && ref && ['ax','ay','rot'].some(prop=>Number.isFinite(ref[prop]) && (!Number.isFinite(cur[prop]) || Math.abs(cur[prop]-ref[prop])>1e-4)));
+  });
+  if(keys.length){
+    edPush();
+    keys.forEach(k=>['ax','ay','rot'].forEach(prop=>{
+      const cur=ED.st[k], ref=base[k];
+      if(cur && ref && Number.isFinite(ref[prop])) cur[prop]=ref[prop];
+    }));
+    if(!ED.st[ED.sel]) ED.sel=ED.st.torso?'torso':Object.keys(ED.st)[0]||null;
+    edAfterChange(true);
+  }
+  const ok=edSkeletonAtDefault();
+  if(!silent) showToast(ok ? (keys.length?'Skeleton reset to its default position':'Skeleton is already in its default position') : 'Could not reset this skeleton', {duration:1600});
+  return ok;
+}
+function edToggleBones(){ ED.bones = !ED.bones; edSyncUI(); edDraw(); showToast(ED.bones ? 'Bones shown' : 'Bones hidden' + (ED.lock ? ' (still locked)' : ''), { duration:1100 }); }
+// Bone <-> body-part lock. OFF: a joint dot moves on its own (the art stays where it is, so you can line the bones up with the art).
+// ON: the body part is locked to its bone, so dragging a joint moves the part with it; an elbow / knee dot swings and stretches
+// the whole arm / leg (upper part + lower part) so the dot stays under your finger.
+function edToggleLock(){
+  ED.lock = !ED.lock; if(ED.lock && !ED.bones) ED.bones = true;
+  edSyncUI(); edDraw();
+  // No floating green/black lock notification: the lock button state and aligned green joints
+  // are the visual feedback, and locked mode now accepts only joint-point drags.
+}
+
+/* ---------- gestures ---------- */
+function edSetupPointer(){
+  const cv = ED.cv, ptrs = new Map(); let drag = null, moved = false;
+  const pos = e=>{ const r = cv.getBoundingClientRect(); return { x:e.clientX-r.left, y:e.clientY-r.top }; };
+  const toFig = p=>({ x:(p.x-ED.cam.x)/ED.cam.z, y:(p.y-ED.cam.y)/ED.cam.z });
+  const begin = ()=>{ if(!moved){ moved = true; edPush(); } };
+  cv.onpointerdown = e=>{
+    cv.setPointerCapture(e.pointerId); const p = pos(e); ptrs.set(e.pointerId, p); moved = false;
+    if(ptrs.size === 2){ const [a,b] = [...ptrs.values()]; drag = { type:'pinch', d:Math.hypot(a.x-b.x,a.y-b.y)||1, z:ED.cam.z, c:{x:(a.x+b.x)/2,y:(a.y+b.y)/2}, vx:ED.cam.x, vy:ED.cam.y }; return; }
+    const W = edWorld(), hit = edPick(p, W), fp = toFig(p);
+    if(hit.type === 'locked'){ drag = null; return; }
+    if(hit.type === 'pan'){ drag = { type:'pan', p0:p, vx:ED.cam.x, vy:ED.cam.y, dist:0 }; return; }
+    if(hit.key !== ED.sel){ ED.sel = hit.key; edSyncUI(); }
+    const k = hit.key, w = W[k], st = ED.st[k];
+    const isFaceOverlay=k==='mouth_closed' || k==='mouth_open' || k==='mouth_hold';
+    if(hit.type === 'tailtip'){
+      const tip = edTailTip(W);
+      drag = { type:'tailtip', k:k, cx:w.x, cy:w.y, a0:Math.atan2(tip.y-w.y, tip.x-w.x), d0:Math.max(1, Math.hypot(tip.x-w.x, tip.y-w.y)), r0:st.rot, wx0:st.wx, hy0:st.hy };
+    }
+    else if(hit.type === 'move' && ED.lock && k !== 'torso' && !isFaceOverlay) drag = { type:'prot', k, cx:w.x, cy:w.y, a0:Math.atan2(fp.y-w.y, fp.x-w.x), r0:st.rot };
+    else if(hit.type === 'move') drag = { type:'move', k, fp0:fp, x0:w.x, y0:w.y };
+    else if(hit.type === 'pivot' && ED.lock){
+      const off = { x:w.x-fp.x, y:w.y-fp.y };                                   // grab offset, so the dot doesn't jump under the finger
+      if(/_lower$/.test(k) || /^hand[LR](?:_(?:fist|point|thumb|palm))?$/.test(k) || /^shoe[LR]$/.test(k)){
+        const driver = SHEET_ALT_OF[k] || k;
+        if(driver !== k && /^hand[LR](?:_(?:fist|point|thumb|palm))?$/.test(k)) drag = { type:'bone', k, driver, off };
+        else drag = { type:'bone', k, driver, off };
+        ED.sel = k; edSyncUI();
+      } else drag = { type:'pmove', k, off };                                     // root/shoulder/hip/neck joint: move attached chain
+    }
+    else if(hit.type === 'pivot'){ const c = Math.cos(w.rot), s = Math.sin(w.rot); drag = { type:'pivot', k, ax:w.x-(st.pvx*w.sx*c-st.pvy*w.sy*s), ay:w.y-(st.pvx*w.sx*s+st.pvy*w.sy*c) }; }
+    else if(hit.type === 'rot') drag = { type:'rot', k, x:w.x, y:w.y, v0:{ x:fp.x-w.x, y:fp.y-w.y }, s0:st.s, r0:st.rot };
+    else if(hit.type === 'len'){ const dir = { x:-Math.sin(w.rot)*Math.sign(w.sy), y:Math.cos(w.rot)*Math.sign(w.sy) }; drag = { type:'len', k, x:w.x, y:w.y, dir, u0:(fp.x-w.x)*dir.x+(fp.y-w.y)*dir.y, h0:st.hy }; }
+    else if(hit.type === 'wid'){ const dir = { x:Math.cos(w.rot)*Math.sign(w.sx), y:Math.sin(w.rot)*Math.sign(w.sx) }; drag = { type:'wid', k, x:w.x, y:w.y, dir, u0:(fp.x-w.x)*dir.x+(fp.y-w.y)*dir.y, w0:st.wx }; }
+    edDraw();
+  };
+  cv.onpointermove = e=>{
+    if(!ptrs.has(e.pointerId)) return; const p = pos(e); ptrs.set(e.pointerId, p); if(!drag) return;
+    if(drag.type === 'pinch'){
+      if(ptrs.size < 2) return; const [a,b] = [...ptrs.values()], d = Math.hypot(a.x-b.x,a.y-b.y), c = {x:(a.x+b.x)/2,y:(a.y+b.y)/2};
+      const z = Math.max(0.08, Math.min(8, drag.z*d/drag.d)), k = z/drag.z; ED.cam.z = z; ED.cam.x = c.x-(drag.c.x-drag.vx)*k; ED.cam.y = c.y-(drag.c.y-drag.vy)*k; edSyncZoom(); edDraw(); return;
+    }
+    if(drag.type === 'pan'){ ED.cam.x = drag.vx+p.x-drag.p0.x; ED.cam.y = drag.vy+p.y-drag.p0.y; drag.dist = Math.max(drag.dist, Math.hypot(p.x-drag.p0.x, p.y-drag.p0.y)); edDraw(); return; }
+    const fp = toFig(p), st = ED.st[drag.k];
+    if(drag.type === 'move'){ begin(); edSetPos(drag.k, drag.x0+fp.x-drag.fp0.x, drag.y0+fp.y-drag.fp0.y); }
+    else if(drag.type === 'prot'){          // locked: the part stays on its joint and swings around it (children follow)
+      const vx = fp.x-drag.cx, vy = fp.y-drag.cy; if(Math.hypot(vx,vy) < 6/ED.cam.z) return;
+      begin(); let r = drag.r0 + (Math.atan2(vy,vx)-drag.a0)*180/Math.PI; st.rot = ((r+180)%360+360)%360-180;
+    }
+    else if(drag.type === 'tailtip'){
+      const vx = fp.x-drag.cx, vy = fp.y-drag.cy, d = Math.hypot(vx,vy); if(d < 6/ED.cam.z) return;
+      begin();
+      let r = drag.r0 + (Math.atan2(vy,vx)-drag.a0)*180/Math.PI; st.rot = ((r+180)%360+360)%360-180;
+      if(ED.modelType==='humanoid'||isMythicModelType(ED.modelType)) st.hy = Math.max(0.3, Math.min(3, (drag.hy0||1)*d/drag.d0));   // upright tail segments stretch along their length (y)
+      else st.wx = Math.max(0.3, Math.min(3, drag.wx0*d/drag.d0));
+    }
+    else if(drag.type === 'pmove'){ begin(); edSetPos(drag.k, fp.x+drag.off.x, fp.y+drag.off.y); }
+    else if(drag.type === 'bone'){ begin(); edBoneDrive(drag.driver || drag.k, fp.x+drag.off.x, fp.y+drag.off.y); }
+    else if(drag.type === 'pivot'){
+      begin(); const w = edWorld()[drag.k], c = Math.cos(w.rot), s = Math.sin(w.rot), vx = fp.x-drag.ax, vy = fp.y-drag.ay;
+      st.pvx = (vx*c+vy*s)/w.sx; st.pvy = (-vx*s+vy*c)/w.sy; edSetPos(drag.k, fp.x, fp.y);
+    }
+    else if(drag.type === 'rot'){
+      begin(); const v = { x:fp.x-drag.x, y:fp.y-drag.y }, l0 = Math.hypot(drag.v0.x,drag.v0.y)||1, l1 = Math.hypot(v.x,v.y)||1;
+      st.s = Math.max(0.3, Math.min(3, drag.s0*l1/l0));
+      let r = drag.r0 + (Math.atan2(v.y,v.x)-Math.atan2(drag.v0.y,drag.v0.x))*180/Math.PI; r = ((r+180)%360+360)%360-180; st.rot = r;
+    }
+    else if(drag.type === 'len' || drag.type === 'wid'){
+      begin(); const u = (fp.x-drag.x)*drag.dir.x+(fp.y-drag.y)*drag.dir.y;
+      if(Math.abs(drag.u0) > 1){ const f = Math.max(0.2, Math.min(4, (drag.type==='len'?drag.h0:drag.w0)*u/drag.u0)); if(drag.type==='len') st.hy = f; else st.wx = f; }
+    }
+    edSyncVals(); edDraw();
+  };
+  cv.onpointerup = cv.onpointercancel = e=>{
+    ptrs.delete(e.pointerId);
+    if(!ptrs.size){
+      if(drag && drag.type === 'pan' && drag.dist < 6 && ED.sel){ ED.sel = null; edSyncUI(); edDraw(); }   // tap on empty space: deselect, hide the border
+      drag = null; if(moved) edSyncHistory();
+    } else if(drag && drag.type==='pinch' && ptrs.size < 2) drag = null;
+  };
+  cv.addEventListener('wheel', e=>{ e.preventDefault(); const p = pos(e); edZoomAt(e.deltaY < 0 ? 1.12 : 1/1.12, p.x, p.y); }, { passive:false });
+  cv.oncontextmenu = e=>e.preventDefault();
+}
+
+/* ---------- open / close ---------- */
+function edInit(){
+  if(ED.ready) return; ED.ready = true; ED.cv = document.getElementById('edCanvas'); ED.g = ED.cv.getContext('2d');
+  edSetupPointer(); new ResizeObserver(()=>edResize()).observe(document.getElementById('edStage'));
+}
+function edSetModelName(value){ ED.name = String(value == null ? '' : value).slice(0,40); }
+// v318: the two closed-eye lids must sit UNDER the two open eyes in the layer stack (back -> front), never on top
+// of them. New models get this from SHEET_DEFAULT_ORDER_SIDE; this also repairs models saved with the old order.
+function edFixFaceKitEyeOrder(order){
+  if(!Array.isArray(order)) return order;
+  // The inner mouth must always sit behind the complete head silhouette. Older saved layer
+  // orders sometimes placed it after the head, which exposed the oversized tongue/throat below
+  // the chin whenever a hollow laughing/surprised head was active.
+  if(ED.modelType==='animal' && ED.arts && ED.arts.mouth_inner){
+    const oldIndex=order.indexOf('mouth_inner');
+    if(oldIndex>=0) order.splice(oldIndex,1);
+    const headIndex=order.indexOf('head');
+    if(headIndex>=0) order.splice(headIndex,0,'mouth_inner');
+    else order.unshift('mouth_inner');
+  }
+  if(ED.modelType==='bird'){
+    const bci=order.indexOf('bird_eye_closed'), boi=order.indexOf('bird_eye');
+    if(bci>=0 && boi>=0 && bci>boi){ order.splice(bci,1); order.splice(order.indexOf('bird_eye'),0,'bird_eye_closed'); }
+  }
+  ['L','R'].forEach(side=>{
+    const closed='eye_closed_'+side, open='eye_'+side;
+    const ci=order.indexOf(closed), oi=order.indexOf(open);
+    if(ci>=0 && oi>=0 && ci>oi){
+      order.splice(ci,1);
+      order.splice(order.indexOf(open),0,closed);
+    }
+  });
+  return order;
+}
+function edOpen(o){
+  if(isPlaying && typeof pausePlayback === 'function') pausePlayback();
+  edInit();
+  edFillIcons();
+  ED.arts = o.arts; ED.assign = {}; SHEET_KEYS.forEach(k=>{ if(o.arts[k]) ED.assign[k] = k; });
+  ED.view = o.view === 'side' || o.view === 'back' ? o.view : 'front';
+  ED.facing = o.facing === -1 ? -1 : 1;
+  ED.modelType = o.modelType || (o.sheet && o.sheet.modelType) || 'humanoid';
+  ED.beast = !!(o.beast || (o.sheet && o.sheet.beast));
+  ED.extraVariants = JSON.parse(JSON.stringify((o.sheet && o.sheet.customVariants) || {headParts:[],expressions:[],gestures:[]}));
+  if(!Array.isArray(ED.extraVariants.headParts)) ED.extraVariants.headParts=[];
+  if(!Array.isArray(ED.extraVariants.expressions)) ED.extraVariants.expressions=[];
+  if(!Array.isArray(ED.extraVariants.gestures)) ED.extraVariants.gestures=[];
+  ED.pendingVariantType = null;
+  ED.st = o.st;
+  if(o.sheet && Number(o.sheet.v||0)<7) normalizeLegacySheetMouthLayout(o.sheet.parts,o.sheet.draw,ED.st);
+  ED.order = edFixFaceKitEyeOrder(sheetDepthOrderForView(o.order.slice(),ED.modelType,ED.view)); ED.kind = o.kind; ED.editIdx = o.editIdx == null ? null : o.editIdx; ED.name = o.name || 'Model';
+  const nameField=document.getElementById('edModelNameInput'); if(nameField) nameField.value=ED.name;
+  ED.lockedParts = {}; if(o.sheet && o.sheet.edit && Array.isArray(o.sheet.edit.locked)) o.sheet.edit.locked.forEach(k=>{ if(o.st && o.st[k]) ED.lockedParts[k] = true; });
+  ED.init = edSnap(); ED.undo = []; ED.redo = []; ED.sel = 'torso'; ED.mode = 'size'; ED.bones = true; ED.lock = true; ED.assetId = o.assetId || null; ED.returnLib = !!o.returnLib;
+  document.getElementById('sheetEd').classList.add('active'); ED.open = true; ED.needFit = true;
+  edSyncUI(); edRenderExtraParts();
+  requestAnimationFrame(()=>requestAnimationFrame(()=>{ edResize(); }));
+}
+function edExtraCategoryLabel(category){ return category==='headParts' ? 'Head / mouth' : category==='expressions' ? 'Face expression' : 'Hand gesture'; }
+function edVariantRemoveFlatBackground(canvas){
+  const w=canvas.width,h=canvas.height,n=w*h,ctx=canvas.getContext('2d',{willReadFrequently:true});
+  let im; try{ im=ctx.getImageData(0,0,w,h); }catch(e){ return; }
+  const d=im.data; let transparent=0;
+  for(let i=3;i<d.length;i+=4) if(d[i]<200) transparent++;
+  if(transparent>=n*0.01) return; // preserve genuine transparent PNG/WebP alpha
+  const samples=[],step=Math.max(1,Math.floor((2*w+2*h)/500));
+  for(let x=0;x<w;x+=step){ samples.push((x)*4,((h-1)*w+x)*4); }
+  for(let y=0;y<h;y+=step){ samples.push((y*w)*4,(y*w+w-1)*4); }
+  const median=k=>{const a=samples.map(i=>d[i+k]).sort((a,b)=>a-b);return a[Math.floor(a.length/2)]||0;};
+  const bg=[0,1,2].map(median);
+  const near=p=>Math.abs(d[p*4]-bg[0])<27&&Math.abs(d[p*4+1]-bg[1])<27&&Math.abs(d[p*4+2]-bg[2])<27;
+  const seen=new Uint8Array(n),queue=new Int32Array(n);let head=0,tail=0;
+  const push=p=>{if(p>=0&&p<n&&!seen[p]&&d[p*4+3]>20&&near(p)){seen[p]=1;queue[tail++]=p;}};
+  for(let x=0;x<w;x++){push(x);push((h-1)*w+x);}
+  for(let y=0;y<h;y++){push(y*w);push(y*w+w-1);}
+  while(head<tail){const q=queue[head++],x=q%w;d[q*4+3]=0;if(x>0)push(q-1);if(x<w-1)push(q+1);if(q>=w)push(q-w);if(q<n-w)push(q+w);}
+  ctx.putImageData(im,0,0);
+}
+function edPickExtra(kind){
+  if(!ED.open) return;
+  if(ED.modelType!=='humanoid'){ showToast('Optional human face and hand parts are only for humanoid models', {duration:2200}); return; }
+  let category=kind, subkind='';
+  if(kind==='head'){
+    const choice=window.prompt('Choose the head part type:\n1 = Open-mouth overlay (talking)\n2 = Closed-mouth overlay\n3 = Blink / closed-eyes full head','1');
+    if(choice===null) return;
+    const map={'1':'mouth-open','2':'mouth-closed','3':'blink-head','open':'mouth-open','closed':'mouth-closed','blink':'blink-head'};
+    subkind=map[String(choice).trim().toLowerCase()];
+    if(!subkind){ showToast('Choose 1, 2 or 3', {duration:1600}); return; }
+    category='headParts';
+  } else if(kind==='expression') category='expressions';
+  else if(kind==='gesture') category='gestures';
+  ED.pendingVariantType={category,kind:subkind};
+  const input=document.getElementById('edExtraFileInput'); input.value=''; input.click();
+}
+function edHandleExtraFile(input){
+  const file=input.files && input.files[0]; input.value=''; if(!file || !ED.pendingVariantType) return;
+  const pending=ED.pendingVariantType; ED.pendingVariantType=null;
+  const reader=new FileReader();
+  reader.onload=()=>{
+    const img=new Image(); img.onload=()=>{
+      const max=640, scale=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+      const cv=document.createElement('canvas'); cv.width=Math.max(1,Math.round(img.naturalWidth*scale)); cv.height=Math.max(1,Math.round(img.naturalHeight*scale));
+      const cx=cv.getContext('2d'); cx.clearRect(0,0,cv.width,cv.height); cx.drawImage(img,0,0,cv.width,cv.height);
+      // If the image service returned a flat opaque backdrop rather than real alpha, remove only
+      // the edge-connected background pixels. Wide margins in the prompt keep the artwork safe.
+      edVariantRemoveFlatBackground(cv);
+      const src=cv.toDataURL('image/png');
+      const category=pending.category, kind=pending.kind || '';
+      const defaultName=(kind==='mouth-open'?'Mouth open':kind==='mouth-closed'?'Mouth closed':kind==='blink-head'?'Blink head':category==='expressions'?'Face expression':'Right-hand gesture');
+      let name=(file.name||defaultName).replace(/\.[^.]+$/,'').replace(/[_-]+/g,' ').trim();
+      name=window.prompt('Give this part a name',name||defaultName);
+      if(name===null) name=defaultName;
+      name=String(name||defaultName).trim().slice(0,42)||defaultName;
+      const item={id:'extra_'+Date.now().toString(36)+'_'+Math.random().toString(36).slice(2,7),name,kind,src,w:cv.width,h:cv.height,createdAt:Date.now()};
+      ED.extraVariants[category].push(item);
+      edRenderExtraParts();
+      showToast('Added '+name, {duration:1500});
+    };
+    img.onerror=()=>showToast('Could not read that image', {duration:1800}); img.src=reader.result;
+  };
+  reader.onerror=()=>showToast('Could not read that file', {duration:1800}); reader.readAsDataURL(file);
+}
+function edRemoveExtraVariant(category,id){
+  if(!ED.extraVariants || !Array.isArray(ED.extraVariants[category])) return;
+  ED.extraVariants[category]=ED.extraVariants[category].filter(v=>v.id!==id); edRenderExtraParts();
+}
+function edRenderExtraParts(){
+  const count=document.getElementById('edExtraCount'); if(!count||!ED.extraVariants) return;
+  const defs=[
+    {key:'headParts',target:'edExtraHeadParts',count:'edExtraHeadCount',pick:'head',label:'Add head part'},
+    {key:'expressions',target:'edExtraExpressions',count:'edExtraExpressionCount',pick:'expression',label:'Add expression'},
+    {key:'gestures',target:'edExtraGestures',count:'edExtraGestureCount',pick:'gesture',label:'Add gesture'}
+  ];
+  const allCount=defs.reduce((n,d)=>n+(Array.isArray(ED.extraVariants[d.key])?ED.extraVariants[d.key].length:0),0);
+  count.textContent=allCount+' added';
+  defs.forEach(d=>{
+    const row=document.getElementById(d.target), rowCount=document.getElementById(d.count);
+    if(!row) return;
+    const items=Array.isArray(ED.extraVariants[d.key])?ED.extraVariants[d.key]:[];
+    if(rowCount) rowCount.textContent=items.length+' '+(items.length===1?'part':'parts');
+    const cards=items.map(v=>{
+      const name=escapeHtml(v.name||'Extra part');
+      const detail=v.kind?escapeHtml(v.kind.replace(/-/g,' ')):escapeHtml(edExtraCategoryLabel(d.key));
+      const id=String(v.id||'').replace(/[^a-zA-Z0-9_-]/g,'');
+      return '<div class="ed-extra-card"><button class="ed-extra-remove" type="button" title="Remove" aria-label="Remove '+name+'" onclick="edRemoveExtraVariant(\''+d.key+'\',\''+id+'\')">×</button><img src="'+v.src+'" alt=""><b title="'+name+'">'+name+'</b><small title="'+detail+'">'+detail+'</small></div>';
+    }).join('');
+    const add='<button type="button" class="ed-extra-add-card" onclick="edPickExtra(\''+d.pick+'\')" aria-label="'+d.label+'"><span class="plus">+</span><span> Add </span></button>';
+    row.innerHTML=cards+add;
+  });
+}
+function edClose(){ ED.open = false; document.getElementById('sheetEd').classList.remove('active'); if(ED.returnLib){ ED.returnLib = false; openModelLibrary(); } }
+let edCancelArmed = 0;
+function edCancel(){
+  if(ED.undo.length && Date.now() > edCancelArmed){ edCancelArmed = Date.now() + 2500; showToast('Tap close again to discard changes', { icon:toastIcons.info, duration:2200 }); return; }
+  edCancelArmed = 0; edClose();
+}
+function buildFromSheet(img, fname, modelType){
+  const type = modelType || activeSheetType || 'humanoid';
+  const r = sheetParse(img, type);
+  if(r.error){
+    if(type === 'humanoid' && r.fallbackAutoRig && r.cleanedCanvas && autoRigState){
+      const detected = runAutoRigDetection(r.cleanedCanvas);
+      if(!detected.error){
+        Object.assign(autoRigState, detected);
+        autoRigState.modelType = 'humanoid';
+        autoRigState.originalJoints = JSON.parse(JSON.stringify(detected.joints));
+        autoRigState.warnings = (detected.warnings || []).concat([
+          'The upload contains touching cut-out parts, so it opened in whole-image auto-rig mode. The preview provides 17 draggable joint handles; move the blue points onto the shoulders, elbows, wrists, hips, knees and feet before creating the rig.'
+        ]);
+        closeAutoRigUploader();
+        openAutoRigPreview();
+        showToast('Only '+r.detectedRegions+' separate regions were found. Opened the 17-joint rig preview.', { icon:toastIcons.info, duration:2600 });
+        return;
+      }
+    }
+    showToast(r.error, { icon:toastIcons.info, duration:3000 });
+    document.getElementById('autoRigUploadPreviewImg').style.display = 'none';
+    document.getElementById('autoRigUploadIcon').style.display = '';
+    setUploadSheetType(type);
+    document.getElementById('autoRigUploadPreviewImg').style.display = 'none';
+    document.getElementById('autoRigUploadIcon').style.display = '';
+    return;
+  }
+  closeAutoRigUploader();
+  // Anatomy-position 12-part and current 14-part humanoid sheets are upright/front-facing. Legacy/species sheets keep their side-view convention.
+  const view = (type === 'humanoid' && (r.layout === 'anatomy12' || r.layout === 'anatomy14' || r.layout === 'base14')) || r.layout==='winged16' ? 'front' : 'side', side = view === 'side';
+  const createKind = sheetCreateMode === 'newAsset' ? 'newAsset' : 'new';
+  const directOrder=isWingedHumanoidType(type)?SHEET_DEFAULT_ORDER_WINGED:(side?SHEET_DEFAULT_ORDER_SIDE:SHEET_DEFAULT_ORDER);
+  edOpen({ kind:createKind, view, modelType:type, arts:r.arts, st:edDefaultLayout(r.arts, view, type), order:directOrder.filter(k=>r.arts[k]), name:(fname||'Model').replace(/\.[^.]+$/,'').slice(0,24) });
+}
+function edShowLoading(message){
+  const overlay=document.getElementById('edLoadingOverlay');
+  const title=document.getElementById('edLoadingTitle');
+  if(title)title.textContent=message||'Opening character editor';
+  if(overlay){overlay.classList.add('active');overlay.setAttribute('aria-hidden','false');}
+}
+function edHideLoading(){
+  const overlay=document.getElementById('edLoadingOverlay');
+  if(overlay){overlay.classList.remove('active');overlay.setAttribute('aria-hidden','true');}
+}
+function edHideLoadingAfterPaint(){
+  requestAnimationFrame(()=>requestAnimationFrame(edHideLoading));
+}
+// Rebuilds the 10 editable "arts" from a saved sheet (char.sheet / asset.sheet). Resolves to null if any part image fails to load.
+function edLoadSheetArts(sh){
+  const arts = {}, keys = Object.keys(sh.parts);
+  return Promise.all(keys.map(k=>new Promise(res=>{
+    const p = sh.parts[k], im = new Image();
+    im.onload = ()=>{ const cv = document.createElement('canvas'); cv.width = p.w; cv.height = p.h; cv.getContext('2d').drawImage(im,0,0); const a = edMakeArt(cv, k, sh.modelType || 'humanoid'); a.dpx = p.dpx; a.dpy = p.dpy; a.src = null; arts[k] = a; res(); };
+    im.onerror = res; im.src = p.src;
+  }))).then(()=> keys.some(k=>!arts[k]) ? null : arts);
+}
+// Re-open an already-built model (Model tab > Edit rig).
+function edOpenFromChar(idx){
+  const c=characters[idx];if(!c||!c.sheet)return;
+  edShowLoading('Opening character editor');
+  let opened=false;
+  return edLoadSheetArts(c.sheet).then(arts=>{
+    if(!arts){showToast("Couldn't load this model's parts",{icon:toastIcons.info});return;}
+    edOpen({kind:'edit',editIdx:idx,view:c.sheet.view,facing:c.sheet.facing,modelType:c.modelType||c.sheet.modelType||'humanoid',sheet:c.sheet,arts,st:JSON.parse(JSON.stringify(c.sheet.edit.st)),order:c.sheet.edit.order,name:c.name});
+    opened=true;edHideLoadingAfterPaint();
+  }).catch(err=>{
+    console.error('Ethvelle: character editor could not be opened',err);
+    showToast("Couldn't open this character editor",{icon:toastIcons.info});
+  }).finally(()=>{if(!opened)edHideLoading();});
+}
+// UPDATE: "My models" > pencil now opens the FULL editor (same screen as when the model was first added) for that saved model.
+// Rename is its own button next to it. Done saves the changes back into the saved model (and any copy of it on stage).
+function edOpenFromAsset(id,returnLib){
+  let a=modelAssets.find(x=>String(x.id)===String(id));
+  if(!a){
+    const published=Array.isArray(publishedModelAssets)?publishedModelAssets.find(x=>String(x.id)===String(id)):null;
+    if(published){ a=JSON.parse(JSON.stringify(published)); delete a.origin; modelAssets.push(a); saveModelAssetsToStorage(); }
+  }
+  if(!a)return;
+  if(!a.sheet||!a.sheet.parts||!a.sheet.edit){showToast("This older model can't open in the editor. Rename it here, or upload its part sheet again",{icon:toastIcons.info,duration:2800});openRenameModelModal(id);return;}
+  edShowLoading('Preparing model editor');
+  let opened=false;
+  return edLoadSheetArts(a.sheet).then(arts=>{
+    if(!arts){showToast("Couldn't load this model's parts",{icon:toastIcons.info});return;}
+    closeModelLibrary();
+    edOpen({kind:'asset',assetId:id,returnLib:!!returnLib,view:a.sheet.view,facing:a.sheet.facing,modelType:a.modelType||a.sheet.modelType||'humanoid',sheet:a.sheet,arts,st:JSON.parse(JSON.stringify(a.sheet.edit.st)),order:a.sheet.edit.order,name:a.name});
+    opened=true;edHideLoadingAfterPaint();
+  }).catch(err=>{
+    console.error('Ethvelle: saved-model editor could not be opened',err);
+    showToast("Couldn't open this model editor",{icon:toastIcons.info});
+  }).finally(()=>{if(!opened)edHideLoading();});
+}
+
+
+/* v260 fix: Done preserves authored body-part attachment offsets; never auto-reset ax/ay before compile. */
+/* ---------- 3) Done: layout -> rig + puppet ---------- */
+function edCompile(){
+  // Front-facing rigs are displayed in a temporary T-pose while editing. Compile the neutral/rest
+  // pose instead, so Done never saves that visual stance as the character's default project pose.
+  const W = edWorld(true), st = ED.st, P = (k,lx,ly)=>edL2W(W,k,lx,ly), pv = k=>({ x:W[k].x, y:W[k].y }), mix = (a,b,t)=>({ x:a.x+(b.x-a.x)*t, y:a.y+(b.y-a.y)*t });
+  const J = { pelvis:pv('torso'), neck:pv('head'), headTop:P('head', st.head.pvx, 0) };
+  J.chest = mix(J.pelvis, J.neck, 0.86);
+  if(isWingedHumanoidType(ED.modelType)&&st.wingL&&st.wingR){
+    J.wingRootL=pv('wingL');J.wingTipL=P('wingL',0,st.wingL.pvy);
+    J.wingRootR=pv('wingR');J.wingTipR=P('wingR',edArt('wingR').w,st.wingR.pvy);
+  }
+  if(isMythicModelType(ED.modelType)&&st.tail&&st.tail_mid&&st.tail_tip){const fin=edArt('tail_tip'),tl=edTailTipLocal(fin);J.tailBase=pv('tail');J.tailJoint1=pv('tail_mid');J.tailJoint2=pv('tail_tip');J.tailTip=P('tail_tip',tl.x,tl.y);}
+  else if(st.tail && edArt('tail')){ const tl=edTailTipLocal(edArt('tail')); J.tailBase=pv('tail'); J.tailTip=P('tail',tl.x,tl.y); }
+  const birdCompact=ED.modelType==='bird'&&['L','R'].every(side=>st['arm'+side+'_upper']&&st['leg'+side+'_upper'])&& !st.armL_lower&&!st.armR_lower&&!st.legL_lower&&!st.legR_lower;
+  const endOf=k=>P(k,st[k].pvx,edArt(k).h);
+  ['L','R'].forEach(S=>{
+    const up='arm'+S+'_upper',lo='arm'+S+'_lower',ha='hand'+S,th='leg'+S+'_upper',sh='leg'+S+'_lower';
+    J['shoulder'+S]=pv(up);
+    if(isMythicModelType(ED.modelType)){
+      const side=S==='L'?-1:1,base=J.tailBase||pv('torso'),j1=J.tailJoint1||base,j2=J.tailJoint2||j1,tip=J.tailTip||j2;
+      J['hip'+S]={x:base.x+side*2,y:base.y};J['knee'+S]={x:j1.x+side*2,y:j1.y};J['ankle'+S]={x:j2.x+side*2,y:j2.y};J['foot'+S]={x:tip.x+side*2,y:tip.y};
+    }else J['hip'+S]=pv(th);
+    if(st[lo]){
+      J['elbow'+S]=pv(lo);
+      J['wrist'+S]=st[ha]?pv(ha):mix(J['elbow'+S],endOf(lo),.85);
+      J['hand'+S]=st[ha]?P(ha,st[ha].pvx,edArt(ha).h):endOf(lo);
+    }else if(birdCompact){
+      const tip=endOf(up);J['elbow'+S]=mix(J['shoulder'+S],tip,.78);J['wrist'+S]=mix(J['shoulder'+S],tip,.92);J['hand'+S]=tip;
+    }else{
+      const tip=endOf(up);J['elbow'+S]=mix(J['shoulder'+S],tip,.8);J['wrist'+S]=mix(J['shoulder'+S],tip,.94);J['hand'+S]=tip;
+    }
+    if(isMythicModelType(ED.modelType)){/* no leg artwork: the virtual anchors above keep the shared joint schema complete */}
+    else if(st[sh]){
+      J['knee'+S]=pv(sh);
+      if(st['shoe'+S]){J['ankle'+S]=pv('shoe'+S);J['foot'+S]=P('shoe'+S,st['shoe'+S].pvx,edArt('shoe'+S).h);}
+      else{J['foot'+S]=endOf(sh);J['ankle'+S]=mix(J['knee'+S],J['foot'+S],.9);}
+    }else if(birdCompact){
+      const tip=endOf(th);J['knee'+S]=mix(J['hip'+S],tip,.78);J['ankle'+S]=mix(J['hip'+S],tip,.93);J['foot'+S]=tip;
+    }else{
+      const tip=endOf(th);J['knee'+S]=mix(J['hip'+S],tip,.8);J['ankle'+S]=mix(J['hip'+S],tip,.94);J['foot'+S]=tip;
+    }
+  });
+  const ang = (a,b)=>Math.atan2(b.y-a.y, b.x-a.x), ra = { head:ang(J.neck,J.headTop), torso:ang(J.pelvis,J.neck) };
+  if(J.wingRootL&&J.wingTipL){ra.wingL=ang(J.wingRootL,J.wingTipL);ra.wingR=ang(J.wingRootR,J.wingTipR);}
+  if(J.tailBase && J.tailTip){if(isMythicModelType(ED.modelType)){ra.tail=ang(J.tailBase,J.tailJoint1);ra.tail_mid=ang(J.tailJoint1,J.tailJoint2);ra.tail_tip=ang(J.tailJoint2,J.tailTip);}else ra.tail=ang(J.tailBase,J.tailTip);}
+  ['L','R'].forEach(S=>{
+    ra['arm'+S+'_upper'] = ang(J['shoulder'+S],J['elbow'+S]); ra['arm'+S+'_lower'] = ang(J['elbow'+S],J['wrist'+S]); ra['hand'+S] = ang(J['wrist'+S],J['hand'+S]);
+    ra['leg'+S+'_upper'] = ang(J['hip'+S],J['knee'+S]);
+    ra['leg'+S+'_lower'] = st['shoe'+S] ? ang(J['knee'+S],J['ankle'+S]) : ang(J['knee'+S],J['foot'+S]);
+    if(st['shoe'+S]) ra['shoe'+S] = ang(J['ankle'+S],J['foot'+S]);
+  });
+  // The optional expression/gesture parts ride the exact same bone as their base part (see SHEET_BONES), so
+  // they inherit that part's rest angle rather than needing one of their own.
+  ra.mouth_closed = ra.head; Object.keys(SHEET_ALT_OF).forEach(a=>{ ra[a] = ra[SHEET_ALT_OF[a]]; });
+  let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  ED.order.forEach(k=>{ const a = edArt(k); if(!a) return; [[0,0],[a.w,0],[a.w,a.h],[0,a.h]].forEach(([lx,ly])=>{ const p = P(k,lx,ly); x0 = Math.min(x0,p.x); x1 = Math.max(x1,p.x); y0 = Math.min(y0,p.y); y1 = Math.max(y1,p.y); }); });
+  const E = Math.max(1, y1-y0), cx = (x0+x1)/2, cy = (y0+y1)/2;
+  const all = Object.values(J), mnX = Math.min(...all.map(p=>p.x)), mxX = Math.max(...all.map(p=>p.x)), mnY = Math.min(...all.map(p=>p.y)), mxY = Math.max(...all.map(p=>p.y));
+  const pd = 0.1*Math.max(1, mxY-mnY), Wv = Math.max(1,mxX-mnX)+2*pd, Hv = Math.max(1,mxY-mnY)+2*pd, F = {};
+  Object.keys(J).forEach(k=>{ F[k] = { x:(J[k].x-mnX+pd)/Wv, y:(J[k].y-mnY+pd)/Hv }; });
+  const rigOverride = sheetBuildRigOverrideFromJoints(F, Wv, Hv, ED.modelType), Hj = Math.max(1, Math.max(J.footL.y,J.footR.y)-J.headTop.y);
+  rigOverride.figFrac = Math.max(0.2, Math.min(1.2, SHEET_FILL*Hj/E));
+  const parts = {}, draw = {};
+  ED.order.forEach(k=>{
+    const a = edArt(k); if(!a) return; if(!a.src) a.src = a.canvas.toDataURL('image/png');
+    parts[k] = { src:a.src, w:a.w, h:a.h, dpx:a.dpx, dpy:a.dpy, skinTop:a.skinTop, jointColors:a.jointColors||{} };
+    draw[k] = { pvx:st[k].pvx, pvy:st[k].pvy, rot:W[k].rot, sx:W[k].sx, sy:W[k].sy, ra:ra[k] };
+    // Mouth pieces are a small facial feature positioned BY HAND inside the head's own artwork
+    // (st.ax/ay live in the head's pixel space and are draggable in the editor), unlike head_blink
+    // or the fist swaps which share their base part's own bone + pivot formula. Store the mouth's
+    // offset/rotation/scale relative to the head's pivot so the runtime renderer can nest it inside
+    // the head's live transform (see drawSheetCharacter) instead of mis-anchoring it at the head
+    // bone's joint the way a same-bone swap would.
+    if(SHEET_FACE_NESTED.includes(k)||SHEET_FACE_KIT_NESTED.includes(k)||(typeof SHEET_HUMANOID_FACE_KIT_KEYS!=='undefined'&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(k))||(typeof SHEET_BIRD_FACE_NESTED!=='undefined'&&SHEET_BIRD_FACE_NESTED.includes(k))||k==='beak_open'||k==='mouth_open'||k==='mouth_hold'){
+      const hp = st.head;
+      draw[k].nestDx = st[k].ax - hp.pvx; draw[k].nestDy = st[k].ay - hp.pvy;
+      draw[k].nestRot = (st[k].rot||0)*Math.PI/180;
+      draw[k].nestSx = st[k].s*st[k].wx*st[k].fx; draw[k].nestSy = st[k].s*st[k].hy*st[k].fy;
+    }
+  });
+  const th = edArt('head'), tk = 72/Math.max(th.w, th.h), tc = document.createElement('canvas'); tc.width = Math.max(1,Math.round(th.w*tk)); tc.height = Math.max(1,Math.round(th.h*tk)); tc.getContext('2d').drawImage(th.canvas,0,0,tc.width,tc.height);
+  const sheet = { v:7, view:ED.view, facing:ED.facing, modelType:ED.modelType || 'humanoid', beast:(ED.modelType==='humanoid'&&!!ED.beast)||undefined, parts, draw, order:ED.order.slice(), edit:{ st:JSON.parse(JSON.stringify(st)), order:ED.order.slice(), locked:Object.keys(ED.lockedParts||{}).filter(k=>ED.lockedParts[k]&&st[k]) },
+    customVariants:JSON.parse(JSON.stringify(ED.extraVariants || {headParts:[],expressions:[],gestures:[]})),
+    refLen:Math.max(1e-3, Math.hypot(J.neck.x-J.pelvis.x, J.neck.y-J.pelvis.y)), H:Hj, rootOff:{ x:J.pelvis.x-cx, y:J.pelvis.y-cy }, thumb:tc.toDataURL('image/png') };
+  sheet.rigJoints = JSON.parse(JSON.stringify(F));
+  sheet.rigSourceW = Wv; sheet.rigSourceH = Hv;
+  sheet.rigOverride = JSON.parse(JSON.stringify(rigOverride));
+  return { sheet, rigOverride };
+}
+// Puts a sheet character's pelvis where it makes the whole figure sit centred on the stage.
+function sheetPlace(c){
+  if(!c || !c.bones || !c.bones.hip) return;
+  // The live site uses the older hip-rooted pose rig. The Lab's sheet rig is reconstructed
+  // separately by sheetRigForCharacter(), anchored to this hip so transforms and timeline poses work.
+  c.hipRestY = c.bones.hip.y;
+}
+function applySheetToChar(c, sheet, rigOverride){
+  if(!c) return;
+  if(!c.restTransform && c.modelTransform) c.restTransform = { ...c.modelTransform };
+  c.sheet = JSON.parse(JSON.stringify(sheet || {}));
+  try{ sheetPreloadImages(c.sheet); }catch(_e){}
+  c.sheet.rigOverride = JSON.parse(JSON.stringify(rigOverride || c.sheet.rigOverride || {}));
+  c.rigOverride = undefined; // the Lab's sheet-rig override (21 bones humanoid / 22 species) must never be applied to the legacy rig
+  c.thumb = c.sheet.thumb || c.thumb;
+  c.parts = {}; c.type = 'custom'; c.modelType = c.sheet.modelType || 'humanoid'; c.skinMesh = null;
+  ensureSpeciesTailBone(c);
+  if(!c.expr) c.expr = sheetExprFresh();
+  sheetPlace(c);
+}
+// Clear only temporary bone offsets after Done; keep the user's stage position/scale and clips.
+// The newly compiled sheet supplies the screenshot's saved default pose, while the legacy rig
+// must return to its own base angles so an old drag/animation offset cannot distort that sheet.
+function resetCharacterBonesToRest(c){
+  if(!c || !c.bones) return;
+  const angles = c.baseAngles || {};
+  Object.keys(c.bones).forEach(k=>{
+    if(c.bones[k] && Number.isFinite(angles[k])) c.bones[k].angle = angles[k];
+  });
+  if(c.bones.hip && Number.isFinite(c.hipRestY)) c.bones.hip.y = c.hipRestY;
+}
+function edDone(){
+  const nameField=document.getElementById('edModelNameInput');
+  ED.name=String(nameField ? nameField.value : ED.name || 'Model').trim().slice(0,40) || 'Model';
+  // Animal/bird body-part attachment positions are authored rig data, not a temporary pose.
+  // Resetting ax/ay to ED.init here silently discarded every species body-position adjustment.
+  // Preserve their exact edited layout. edCompile() uses edWorld(true), which removes only the
+  // temporary display stance while retaining attachment positions, rotations, sizing and pivots.
+  // Keep the existing humanoid save/reset behavior unchanged; manual reset remains available.
+  // FIX: beast-man models (modelType 'humanoid' with the beast flag) are anatomically their
+  // own species too — same as animal/bird/mythic/winged types — and need every joint's authored
+  // position/rotation (e.g. a custom neck) to persist. Previously only the tail had a one-off
+  // carve-out (v344: "the beast-man tail keeps the rest pose chosen in the editor"); every other
+  // beast-man joint still fell through to the plain-humanoid branch below, which silently resets
+  // ax/ay/rot back to this session's starting values right before saving — so Done would report
+  // "Model updated" while quietly discarding the user's structural edits. Plain (non-beast)
+  // humanoid models are untouched: they keep the original save/reset behavior exactly as before.
+  const preserveSpeciesLayout = ED.modelType === 'animal' || ED.modelType === 'bird' || isMythicModelType(ED.modelType) || isWingedHumanoidType(ED.modelType) || (ED.modelType === 'humanoid' && !!ED.beast);
+  if(!preserveSpeciesLayout && (!edResetSkeletonToDefault(true) || !edSkeletonAtDefault())){
+    showToast('Reset the skeleton to its default position before saving this model', {icon:toastIcons.info, duration:2400});
+    return;
+  }
+  let out;
+  try{ out = edCompile(); }
+  catch(err){ console.error(err); showToast("Couldn't build this model", {icon:toastIcons.info, duration:2400}); return; }
+  const sheet = out.sheet, rigOverride = out.rigOverride;
+  sheet.rigOverride = JSON.parse(JSON.stringify(rigOverride));
+  const inProjectEditor = !!(document.getElementById('screen-editor') && document.getElementById('screen-editor').classList.contains('active'));
+  if(ED.kind === 'asset'){
+    const asset = modelAssets.find(x=>x.id === ED.assetId);
+    if(!asset){ showToast('That saved model no longer exists', {icon:toastIcons.info}); edClose(); return; }
+    asset.name = ED.name;
+    asset.sheet = JSON.parse(JSON.stringify(sheet));
+    asset.rigOverride = undefined;
+    asset.modelType = sheet.modelType || ED.modelType || 'humanoid';
+    asset.thumb = sheet.thumb;
+    asset.previewThumb = undefined; // rebuild the full-body card image from the newly saved rig
+    asset.parts = {};
+    asset.updatedAt = Date.now();
+    const assetPersisted = saveModelAssetsToStorage();
+    characters.forEach(c=>{ if(String(c.assetId) === String(asset.id) && c.type === 'custom'){ c.name=ED.name; applySheetToChar(c, sheet, rigOverride); c.modelType=asset.modelType; resetCharacterBonesToRest(c); } });
+    if(inProjectEditor){ syncActiveCharacterRefs(); }
+    const returnLib = !!ED.returnLib;
+    edClose();
+    if(inProjectEditor){ drawStick(); renderCharacterLayers(); syncTransformSliders(); persistProjectState(); }
+    if(!returnLib) renderModelsTab();
+    showToast(assetPersisted ? 'Model updated' : 'Model updated for this session; storage is full', {duration:2200});
+    if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
+    return;
+  }
+  if(ED.kind === 'edit' && characters[ED.editIdx]){
+    const c = characters[ED.editIdx];
+    c.name = ED.name;
+    applySheetToChar(c, sheet, rigOverride); resetCharacterBonesToRest(c); c.modelType = ED.modelType || 'humanoid';
+    if(ED.editIdx === activeCharIdx) syncActiveCharacterRefs();
+    updateModelAssetFromChar(c);
+    edClose();
+    if(inProjectEditor){ drawStick(); renderCharacterLayers(); syncTransformSliders(); persistProjectState(); renderTimelineClip(); syncTimelineInnerWidth(); renderRuler(); }
+    showToast('Model updated', {duration:1400});
+  } else if(ED.kind === 'newAsset'){
+    const c = makeCharacter(ED.name);
+    applySheetToChar(c, sheet, rigOverride); resetCharacterBonesToRest(c); c.name = ED.name || 'Model'; c.assetId = undefined;
+    saveCharacterAsModelAsset(c, {silent:true});
+    edClose(); renderModelsTab();
+    showToast('Model saved to your library', {duration:1500});
+  } else {
+    const c = makeCharacter(ED.name);
+    applySheetToChar(c, sheet, rigOverride); resetCharacterBonesToRest(c); c.name = ED.name || 'Model'; c.modelType = ED.modelType || 'humanoid';
+    c.expr = sheetExprFresh();
+    characters.push(c); activeCharIdx = characters.length-1; syncActiveCharacterRefs(); selectedJoint = null;
+    saveCharacterAsModelAsset(c, {silent:true});
+    edClose();
+    if(inProjectEditor){ drawStick(); renderCharacterLayers(); syncTransformSliders(); persistProjectState(); renderTimelineClip(); syncTimelineInnerWidth(); renderRuler(); }
+    showToast('Model ready', {duration:1400});
+  }
+  if(navigator.vibrate) try{ navigator.vibrate(12); }catch(e){}
+}
+
+
+
+/* ===== ETHVELLE MAIN-SITE BRIDGE FOR THE MODEL LAB'S 21-BONE HUMANOID / 22-BONE SPECIES SHEET RIG ===== */
+const ED_ICON_PATHS = {
+  x:'<path d="M18 6 6 18M6 6l12 12"/>',
+  undo:'<path d="M9 14 4 9l5-5"/><path d="M4 9h10.5a5.5 5.5 0 0 1 0 11H13"/>',
+  redo:'<path d="m15 14 5-5-5-5"/><path d="M20 9H9.5a5.5 5.5 0 0 0 0 11H11"/>',
+  eye:'<path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7S2 12 2 12Z"/><circle cx="12" cy="12" r="3"/>',
+  eyeOff:'<path d="m3 3 18 18M10.6 10.6a2 2 0 0 0 2.8 2.8M9.9 5.2A10.6 10.6 0 0 1 12 5c6.5 0 10 7 10 7a17 17 0 0 1-3.3 4.1M6.2 6.2C3.5 8 2 12 2 12s3.5 7 10 7a10 10 0 0 0 4-.8"/>',
+  lock:'<rect x="4" y="10" width="16" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/>',

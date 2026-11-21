@@ -1,0 +1,1000 @@
+    const stageRect=ctx.stage.getBoundingClientRect();
+    const onStage=e.clientX>=stageRect.left&&e.clientX<=stageRect.right&&
+      e.clientY>=stageRect.top&&e.clientY<=stageRect.bottom;
+    if(!onStage&&!root.contains(e.target))return false;
+    const inverse=localToClientInverse(root,ctx.stage);
+    const p=cropPointerInStage(e,root,ctx.stage,inverse);
+    const left=parseFloat(frame.style.left)||0,top=parseFloat(frame.style.top)||0;
+    const width=parseFloat(frame.style.width)||frame.offsetWidth||18;
+    const height=parseFloat(frame.style.height)||frame.offsetHeight||18;
+    const right=left+width,bottom=top+height;
+    const explicitHandle=e.target?.closest?.('.ev-v89-crop-handle')?.dataset.handle||'';
+    let handle=explicitHandle;
+    // Use the eight visible grip centres as forgiving 28px touch targets. This also
+    // works when the browser dispatches the touch to the frame/root rather than the grip.
+    if(!handle){
+      const centres={nw:[left,top],n:[left+width/2,top],ne:[right,top],e:[right,top+height/2],
+        se:[right,bottom],s:[left+width/2,bottom],sw:[left,bottom],w:[left,top+height/2]};
+      let nearest='',nearestD=Infinity;
+      Object.entries(centres).forEach(([name,point])=>{
+        const dist=Math.hypot(p.x-point[0],p.y-point[1]);
+        if(dist<nearestD){nearestD=dist;nearest=name;}
+      });
+      if(nearestD<=29)handle=nearest;
+    }
+    // The whole perimeter is also draggable, not just the eight grip squares.
+    if(!handle){
+      const edgeBand=20;
+      const verticalSpan=p.y>=top-edgeBand&&p.y<=bottom+edgeBand;
+      const horizontalSpan=p.x>=left-edgeBand&&p.x<=right+edgeBand;
+      const nearL=verticalSpan&&Math.abs(p.x-left)<=edgeBand;
+      const nearR=verticalSpan&&Math.abs(p.x-right)<=edgeBand;
+      const nearT=horizontalSpan&&Math.abs(p.y-top)<=edgeBand;
+      const nearB=horizontalSpan&&Math.abs(p.y-bottom)<=edgeBand;
+      if(nearT&&nearL)handle='nw';
+      else if(nearT&&nearR)handle='ne';
+      else if(nearB&&nearL)handle='sw';
+      else if(nearB&&nearR)handle='se';
+      else if(nearL)handle='w';
+      else if(nearR)handle='e';
+      else if(nearT)handle='n';
+      else if(nearB)handle='s';
+    }
+    const inside=p.x>=left&&p.x<=right&&p.y>=top&&p.y<=bottom;
+    if(!handle&&!inside){
+      // Do not let a tap outside the crop frame select or move the media underneath.
+      e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+      return true;
+    }
+    if(!handle)handle='move';
+    cropDrag={pointerId:e.pointerId,ctx,handle,startX:e.clientX,startY:e.clientY,
+      startCrop:cropValues(ctx.clip),inverse,root,frame,capture:root,
+      ratio:document.querySelector('.ev-v89-ratio.active')?.dataset.ratio||'free'};
+    // Capture on the full-stage overlay: its geometry does not change as the frame is
+    // resized, so pointer capture remains stable throughout the gesture.
+    try{root.setPointerCapture(e.pointerId);}catch(_e){}
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    return true;
+  }
+  function updateManualCrop(e){
+    const d=cropDrag;if(!d||d.pointerId!==e.pointerId)return false;
+    if(!d.frame.isConnected||!d.root.isConnected){cropDrag=null;return false;}
+    const ctx=d.ctx,inv=d.inverse;
+    const sx=e.clientX-d.startX,sy=e.clientY-d.startY;
+    // Convert the finger's screen-space delta directly into stage/crop-root local pixels.
+    const lx=inv.a*sx+inv.c*sy,ly=inv.b*sx+inv.d*sy;
+    const dx=lx/Math.max(1,ctx.m.w),dy=ly/Math.max(1,ctx.m.h);
+    const c={...d.startCrop},h=d.handle;
+    const w0=1-d.startCrop.left-d.startCrop.right,hh0=1-d.startCrop.top-d.startCrop.bottom;
+    const min=.04;
+    if(h==='move'){
+      c.left=clamp(d.startCrop.left+dx,0,1-w0);c.right=1-w0-c.left;
+      c.top=clamp(d.startCrop.top+dy,0,1-hh0);c.bottom=1-hh0-c.top;
+    }else if(d.ratio==='free'){
+      if(h.includes('w'))c.left=clamp(d.startCrop.left+dx,0,1-d.startCrop.right-min);
+      if(h.includes('e'))c.right=clamp(d.startCrop.right-dx,0,1-d.startCrop.left-min);
+      if(h.includes('n'))c.top=clamp(d.startCrop.top+dy,0,1-d.startCrop.bottom-min);
+      if(h.includes('s'))c.bottom=clamp(d.startCrop.bottom-dy,0,1-d.startCrop.top-min);
+    }else{
+      const ratioParts=String(d.ratio).split(':').map(Number);
+      const wanted=(ratioParts[0]/ratioParts[1])/ctx.m.aspect;
+      if(!Number.isFinite(wanted)||wanted<=0){cropDrag=null;return false;}
+      if(h==='e'||h==='w'){
+        let w=clamp(w0+(h==='e'?dx:-dx),min,1),height=clamp(w/wanted,min,1);w=height*wanted;
+        if(h==='e')c.right=1-d.startCrop.left-w;else c.left=1-d.startCrop.right-w;
+        c.top=(1-height)/2;c.bottom=1-height-c.top;
+      }else if(h==='n'||h==='s'){
+        let height=clamp(hh0+(h==='s'?dy:-dy),min,1),w=clamp(height*wanted,min,1);height=w/wanted;
+        if(h==='s')c.bottom=1-d.startCrop.top-height;else c.top=1-d.startCrop.bottom-height;
+        c.left=(1-w)/2;c.right=1-w-c.left;
+      }else{
+        const dirX=h.includes('w')?-1:1,dirY=h.includes('n')?-1:1;
+        const wCandidate=clamp(w0+dirX*dx,min,1),hCandidate=clamp(hh0+dirY*dy,min,1);
+        let w=Math.abs(wCandidate-w0)/Math.max(min,w0)>=Math.abs(hCandidate-hh0)/Math.max(min,hh0)?wCandidate:hCandidate*wanted;
+        let height=w/wanted;
+        if(height>1){height=1;w=height*wanted;}if(w>1){w=1;height=w/wanted;}
+        if(dirX<0)c.left=1-d.startCrop.right-w;else c.right=1-d.startCrop.left-w;
+        if(dirY<0)c.top=1-d.startCrop.bottom-height;else c.bottom=1-d.startCrop.top-height;
+      }
+    }
+    const next=normalizeCrop(c);
+    ctx.clip.crop=next;
+    paintManualCrop(ctx,next);
+    // Update readouts only; do not rebuild the media renderer or persist on every pointer frame.
+    ['left','top','right','bottom'].forEach(k=>{const v=$('evcr-'+k+'-value');if(v)v.textContent=Math.round(next[k]*100)+'%';const input=$('evcr-'+k);if(input)input.value=Math.round(next[k]*100);});
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    return true;
+  }
+  function finishManualCrop(e){
+    if(!cropDrag||e.pointerId!==undefined&&e.pointerId!==cropDrag.pointerId)return false;
+    const d=cropDrag;cropDrag=null;
+    try{if(e.pointerId!==undefined&&d.capture?.hasPointerCapture?.(e.pointerId))d.capture.releasePointerCapture(e.pointerId);}catch(_e){}
+    try{if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});}catch(_e){}
+    e?.preventDefault?.();e?.stopPropagation?.();if(e?.stopImmediatePropagation)e.stopImmediatePropagation();
+    return true;
+  }
+  // Window capture runs before the old document-level crop handler and before canvas drag handlers.
+  window.addEventListener('pointerdown',e=>{if(startManualCrop(e))return;},{capture:true,passive:false});
+  window.addEventListener('pointermove',e=>{if(cropDrag)updateManualCrop(e);},{capture:true,passive:false});
+  window.addEventListener('pointerup',e=>{if(cropDrag)finishManualCrop(e);},{capture:true,passive:false});
+  window.addEventListener('pointercancel',e=>{if(cropDrag)finishManualCrop(e);},{capture:true,passive:false});
+
+  /* ------------------------------------------------------------------
+     2. Native bottom tool-strip movement. The final CSS enables native
+        horizontal overflow scrolling and Android momentum without competing
+        JS touch/pointer scroll drivers.
+     ------------------------------------------------------------------ */
+  /*
+     The bottom tool rows now use native horizontal overflow scrolling. This avoids
+     competing touch/pointer scroll drivers and lets Android provide its own smooth
+     compositor scrolling and momentum. Tool taps remain native/clickable.
+  */
+
+  /* ------------------------------------------------------------------
+     3. Coalesce selection-box rendering to one paint per display frame.
+        Drag values still update on every input event; only DOM painting
+        is coalesced. Flush before pointer-up saves the final transform.
+     ------------------------------------------------------------------ */
+  const baseSelBoxApply=window.selBoxApply;
+  let pendingSelTarget=null,selPaintRaf=0,selPaintThis=null,lastDragSliderSync=0;
+  const syncTransformBase=window.syncTransformSliders;
+  if(typeof syncTransformBase==='function'&&!syncTransformBase.__evv95DragThrottle){
+    const throttled=function(){
+      if(window.__ethvelleLayerDragPainting){
+        const now=performance.now();if(now-lastDragSliderSync<90)return;
+        lastDragSliderSync=now;
+      }
+      return syncTransformBase.apply(this,arguments);
+    };
+    throttled.__evv95DragThrottle=true;window.syncTransformSliders=throttled;
+  }
+  function flushSelPaint(){
+    if(selPaintRaf){cancelAnimationFrame(selPaintRaf);selPaintRaf=0;}
+    if(!pendingSelTarget||typeof baseSelBoxApply!=='function')return;
+    const target=pendingSelTarget,context=selPaintThis;pendingSelTarget=null;selPaintThis=null;
+    window.__ethvelleLayerDragPainting=true;
+    try{baseSelBoxApply.call(context,target);}catch(err){console.warn('Ethvelle drag paint:',err);}
+    finally{window.__ethvelleLayerDragPainting=false;}
+  }
+  if(typeof baseSelBoxApply==='function'){
+    const coalesced=function(tg){pendingSelTarget=tg;selPaintThis=this;if(!selPaintRaf)selPaintRaf=requestAnimationFrame(flushSelPaint);};
+    coalesced.__evv95Raf=true;window.selBoxApply=coalesced;
+    document.addEventListener('pointerup',flushSelPaint,true);
+    document.addEventListener('pointercancel',flushSelPaint,true);
+  }
+
+  /* Transform sliders previously called the full media renderer on every input event.
+     Keep the keyframe/model writes from the existing updateTransform(), but draw only the
+     selected media element during that short slider gesture. */
+  const baseRenderOverlay=window.renderOverlayMedia;
+  if(typeof baseRenderOverlay==='function'&&!baseRenderOverlay.__evv95FastTransform){
+    const fastRender=function(time){
+      if(window.__ethvelleFastTransformInput){
+        try{
+          const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+          const clip=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(o=>String(o.id)===id):null;
+          if(clip&&(clip.type==='image'||clip.type==='video')&&typeof window.applyOverlayTransformPreviewFast==='function'){
+            window.applyOverlayTransformPreviewFast({obj:clip.transform||{scale:1,offsetX:0,offsetY:0,rotation:0}});
+            if(typeof window.updateSelBox==='function')window.updateSelBox();
+            return;
+          }
+        }catch(err){console.warn('Ethvelle fast transform render:',err);}
+      }
+      return baseRenderOverlay.apply(this,arguments);
+    };
+    fastRender.__evv95FastTransform=true;window.renderOverlayMedia=fastRender;
+  }
+  const baseUpdateTransform=window.updateTransform;
+  if(typeof baseUpdateTransform==='function'&&!baseUpdateTransform.__evv95FastTransform){
+    const fastUpdate=function(){
+      window.__ethvelleFastTransformInput=true;
+      try{return baseUpdateTransform.apply(this,arguments);}
+      finally{window.__ethvelleFastTransformInput=false;}
+    };
+    fastUpdate.__evv95FastTransform=true;window.updateTransform=fastUpdate;
+  }
+
+  /* Character-joint drawing is also painted at most once per display frame while a pointer
+     is held on the canvas. Pose calculations themselves remain immediate. */
+  const baseDrawStick=window.drawStick;
+  if(typeof baseDrawStick==='function'&&!baseDrawStick.__evv95Raf){
+    let canvasPointerActive=false,pendingDraw=false,drawRaf=0,drawingNow=false,drawArgs=[];
+    function flushDraw(){
+      if(drawRaf){cancelAnimationFrame(drawRaf);drawRaf=0;}
+      if(!pendingDraw)return;
+      pendingDraw=false;drawingNow=true;
+      try{baseDrawStick.apply(window,drawArgs);}catch(err){console.warn('Ethvelle canvas drag paint:',err);}
+      finally{drawingNow=false;drawArgs=[];}
+    }
+    const wrappedDraw=function(){
+      if((!canvasPointerActive&&!window.__ethvelleFastTransformInput)||drawingNow)return baseDrawStick.apply(this,arguments);
+      pendingDraw=true;drawArgs=Array.from(arguments);
+      if(!drawRaf)drawRaf=requestAnimationFrame(flushDraw);
+    };
+    wrappedDraw.__evv95Raf=true;window.drawStick=wrappedDraw;
+    window.addEventListener('pointerdown',e=>{if(e.target?.closest?.('#stickCanvas'))canvasPointerActive=true;},{capture:true,passive:true});
+    const endCanvas=e=>{if(!canvasPointerActive)return;canvasPointerActive=false;flushDraw();};
+    document.addEventListener('pointerup',endCanvas,true);
+    document.addEventListener('pointercancel',endCanvas,true);
+    window.addEventListener('blur',()=>{canvasPointerActive=false;flushDraw();});
+  }
+})();
+</script>
+
+<!-- Ethvelle v97: committed crop persistence, screenshot-style Transform sliders,
+     native bottom-toolbar scrolling, and compositor-based layer dragging. -->
+<style id="ethvelle-v97-performance-and-transform-css">
+  /* Match the supplied Transform reference: one compact panel with four full-width sliders. */
+  #toolPanel .evv-transform-slider-panel{display:flex;flex-direction:column;gap:0;padding:4px 0 8px;}
+  #toolPanel .evv-transform-slider-panel .transform-group{margin-bottom:25px;}
+  #toolPanel .evv-transform-slider-panel .transform-group:last-of-type{margin-bottom:22px;}
+  #toolPanel .evv-transform-slider-panel .transform-label-row{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px;}
+  #toolPanel .evv-transform-slider-panel .transform-label-row span:first-child{font-size:13px;font-weight:600;color:#B9B9C3;}
+  #toolPanel .evv-transform-slider-panel .transform-value{font-size:12px;color:#D4D4DD;font-weight:700;font-variant-numeric:tabular-nums;}
+  #toolPanel .evv-transform-slider-panel .transform-slider{
+    display:block;width:100%;height:6px;margin:0;padding:0;border:0;border-radius:999px;
+    -webkit-appearance:none;appearance:none;background:linear-gradient(180deg,#111116,#24242B);
+    box-shadow:inset 0 1px 3px rgba(0,0,0,.65);touch-action:pan-x;cursor:pointer;
+  }
+  #toolPanel .evv-transform-slider-panel .transform-slider::-webkit-slider-thumb{
+    -webkit-appearance:none;appearance:none;width:20px;height:20px;border-radius:50%;
+    background:linear-gradient(165deg,#4E7CFF,#1E46C4);border:2px solid #202027;
+    box-shadow:0 2px 5px rgba(0,0,0,.42);cursor:grab;
+  }
+  #toolPanel .evv-transform-slider-panel .transform-slider::-moz-range-thumb{
+    width:20px;height:20px;border-radius:50%;background:linear-gradient(165deg,#4E7CFF,#1E46C4);
+    border:2px solid #202027;box-shadow:0 2px 5px rgba(0,0,0,.42);cursor:grab;
+  }
+  #toolPanel .evv-transform-slider-panel .transform-reset-btn{
+    display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:48px;
+    padding:12px;border-radius:12px;border:1px solid rgba(47,92,232,.32);
+    background:linear-gradient(165deg,rgba(47,92,232,.16),rgba(30,70,196,.08));
+    color:#4F78F2;font-size:13px;font-weight:700;margin-top:0;
+  }
+  #toolPanel .evv-transform-slider-panel .transform-reset-btn svg{width:15px;height:15px;}
+
+  /* Only the clip being moved receives this transform. Selection rails/handles move with it. */
+  html body #screen-editor #timelineInner .anim-clip.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .track-clip.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .overlay-clip.evv-timeline-transform-dragging{
+    transform:translate3d(var(--evv-timeline-drag-x,0px),0,0)!important;
+    transition:none!important;will-change:transform!important;backface-visibility:hidden!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip.selected.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .track-clip.selected.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .overlay-clip.selected.evv-timeline-transform-dragging{
+    transform:translate3d(var(--evv-timeline-drag-x,0px),0,0)!important;
+  }
+
+  /* Let the browser's native scroller handle toolbar swipes (with Android momentum). */
+  
+  #screen-editor #bottomToolsDefault > .tool-item,
+  #screen-editor #bottomToolsClip > .tool-item,
+  #screen-editor #bottomToolsKeyframe > .tool-item,
+  #screen-editor #bottomToolsDefault .tool-item,
+  #screen-editor #bottomToolsClip .tool-item,
+  #screen-editor #bottomToolsKeyframe .tool-item{touch-action:pan-x pan-y!important;flex:0 0 auto!important;}
+  #screen-editor #bottomToolsDefault::-webkit-scrollbar,
+  #screen-editor #bottomToolsClip::-webkit-scrollbar,
+  #screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+</style>
+<script id="ethvelle-v97-crop-commit-guard-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  // The crop fractions are already part of each image/video/background clip and are
+  // consumed by preview + export. Re-apply the crop transform after renderer passes so
+  // a later base-transform paint cannot visually undo an applied crop.
+  function applyCommittedCrop(){
+    try{
+      if(window.__ethvelleCropEditingId)return;
+      if(typeof window.ethvelleApplyCropPreview==='function')window.ethvelleApplyCropPreview();
+    }catch(err){console.warn('Ethvelle crop commit refresh:',err);}
+  }
+  function wrapCropRender(name){
+    const base=window[name];
+    if(typeof base!=='function'||base.__evv97CropCommit)return;
+    const wrapped=function(){
+      const result=base.apply(this,arguments);
+      applyCommittedCrop();
+      return result;
+    };
+    wrapped.__evv97CropCommit=true;
+    window[name]=wrapped;
+  }
+  // This final wrapper is deliberately installed after all earlier preview optimizers.
+  wrapCropRender('renderOverlayMedia');
+  wrapCropRender('applyBackground');
+  wrapCropRender('applyBgTransform');
+
+  // Apply crop after the Crop panel closes, then reassert it once more on the following
+  // frame. This covers Android WebView's delayed image/video style updates and guarantees
+  // that pressing Apply commits the same crop the export path already reads from clip.crop.
+  const baseClose=window.closePanel;
+  if(typeof baseClose==='function'&&!baseClose.__evv97CropCommit){
+    const wrappedClose=function(){
+      const cropId=String(window.__ethvelleCropEditingId||'');
+      const result=baseClose.apply(this,arguments);
+      if(cropId){
+        const commit=()=>{
+          try{
+            const clip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(cropId):null;
+            if(clip&&typeof window.ethvelleApplyCropPreview==='function')window.ethvelleApplyCropPreview();
+          }catch(err){console.warn('Ethvelle crop apply:',err);}
+        };
+        requestAnimationFrame(()=>{commit();requestAnimationFrame(commit);});
+      }
+      return result;
+    };
+    wrappedClose.__evv97CropCommit=true;
+    window.closePanel=wrappedClose;
+  }
+
+  // No MutationObserver is attached to the media layer: observing every video-frame
+  // style update would add unnecessary work during playback and timeline interactions.
+})();
+</script>
+
+
+<!-- Ethvelle v98: crop/media alignment, mobile panel fit, direct timeline gestures and UI polish. -->
+<style id="ethvelle-v98-final-fixes-css">
+  /* The image/video element fills the stage, but the pixels outside object-fit:contain
+     must be transparent. A matte on the full-stage element rotates with the media and
+     appears as unwanted black side bars during crop/transform. */
+  #canvasStage .overlay-media-layer > img,
+  #canvasStage .overlay-media-layer > video,
+  #canvasStage .bg-img-layer {
+    background:transparent!important;
+  }
+
+  /* Flat, solid 2D avatar fallback, matching the app's primary blue. Uploaded photos
+     remain unchanged and continue to cover the same circular frame. */
+  #screen-profile .profile-avatar,
+  #screen-settings .profile-avatar,
+  .profile-avatar {
+    background:#2F5CE8!important;
+    border:0!important;
+    box-shadow:none!important;
+    color:#fff!important;
+  }
+
+  /* Use the primary blue for support section accents. Text/value and FAQ question
+     blue is lighter for contrast on the dark panel; provider icons retain their brands. */
+  #screen-help .settings-group-label,
+  #screen-help .help-contact-card:not(.email-contact-card):not(.whatsapp-contact-card) svg {
+    color:#2F5CE8!important;
+    stroke:#2F5CE8!important;
+  }
+  #screen-help .help-contact-card .hc-text span,
+  #screen-help .help-q b {
+    color:#78A0FF!important;
+  }
+  #screen-help .help-contact-card.email-contact-card > svg {
+    color:#4F8CFF!important;
+    stroke:#4F8CFF!important;
+  }
+  #screen-help .help-contact-card.whatsapp-contact-card > svg {
+    color:#25D366!important;
+    stroke:#25D366!important;
+  }
+  #screen-help .help-item.open .help-q svg {
+    stroke:#2F5CE8!important;
+  }
+
+  /* Project selection: title left, Cancel + Delete grouped on the right. Remove
+     helper/count lines while in selection mode so the list starts cleanly. */
+  #screen-projects .select-bar {
+    display:none;
+    align-items:center;
+    gap:10px;
+    padding:18px 16px 14px!important;
+  }
+  #screen-projects.select-mode .select-bar { display:flex!important; }
+  #screen-projects .select-bar .select-count {
+    flex:1 1 auto!important;
+    min-width:0!important;
+    font-size:15px!important;
+    font-weight:800!important;
+    color:#F5F5F7!important;
+  }
+  #screen-projects .select-actions {
+    display:flex!important;
+    align-items:center!important;
+    gap:8px!important;
+    flex:0 0 auto!important;
+  }
+  #screen-projects.select-mode .select-hint,
+  #screen-projects.select-mode .projects-count { display:none!important; }
+
+  /* Current plan is informational until the user taps a card. Its green outline is
+     reserved for the explicit selected state only. */
+  #screen-payment .plan-card.current-plan {
+    border-color:var(--line)!important;
+    box-shadow:none!important;
+    background:linear-gradient(160deg,var(--elevated),var(--panel))!important;
+  }
+  #screen-payment .plan-card.current-plan.selected {
+    border-color:rgba(52,211,153,.72)!important;
+    box-shadow:0 0 0 1px rgba(52,211,153,.18)!important;
+    background:linear-gradient(160deg,rgba(52,211,153,.08),var(--panel))!important;
+  }
+
+  /* The previous v89 selector used max-height:none!important, which overrode the
+     measured inline max-height and let the panel run underneath the Android bottom edge. */
+  #screen-editor #toolPanel.tool-panel.ev-v89-fit-panel {
+    max-height:var(--ev-v98-panel-max-height,56dvh)!important;
+    bottom:calc(env(safe-area-inset-bottom,0px) + 8px)!important;
+    box-sizing:border-box!important;
+    overflow:hidden!important;
+  }
+  #screen-editor #toolPanel.ev-v89-fit-panel .tool-panel-body {
+    flex:1 1 auto!important;
+    min-height:0!important;
+    max-height:var(--ev-v98-panel-body-max-height,260px)!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;
+    padding-bottom:calc(16px + env(safe-area-inset-bottom,0px))!important;
+  }
+
+  /* Direct, no-hold horizontal interaction on the bottom tool strips. */
+  
+  #screen-editor #bottomToolsDefault > .tool-item,
+  #screen-editor #bottomToolsClip > .tool-item,
+  #screen-editor #bottomToolsKeyframe > .tool-item {
+    touch-action:pan-y!important;
+    flex:0 0 auto!important;
+  }
+
+  /* Timeline layer rows retain native vertical scrolling; horizontal swipes over a clip
+     are handled by the no-delay scrub state machines below. */
+  #screen-editor #timelineScroll {
+    overflow-x:auto!important;
+    overflow-y:auto!important;
+    -webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;
+    touch-action:pan-y!important;
+  }
+</style>
+
+<script id="ethvelle-v98-direct-interactions-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  /* ----- Transform sheet fit ----- */
+  function fitTransformPanelV98(){
+    const editor=$('screen-editor'),panel=$('toolPanel');
+    const transport=editor&&editor.querySelector('.transport-row');
+    if(!editor||!panel||!transport||!panel.classList.contains('open'))return;
+    const er=editor.getBoundingClientRect(),rr=transport.getBoundingClientRect();
+    const vv=window.visualViewport;
+    const visibleBottom=vv?Math.min(er.bottom,vv.offsetTop+vv.height):Math.min(er.bottom,window.innerHeight||er.bottom);
+    const bottomGap=8;
+    const available=Math.max(150,Math.floor(visibleBottom-bottomGap-(rr.bottom+5)));
+    panel.classList.add('ev-v89-fit-panel');
+    panel.style.setProperty('--ev-v98-panel-max-height',available+'px');
+    const header=panel.querySelector('.tool-panel-header');
+    const headerHeight=header?header.getBoundingClientRect().height:48;
+    const body=$('panelBody');
+    if(body)body.style.setProperty('--ev-v98-panel-body-max-height',Math.max(90,available-headerHeight-2)+'px');
+  }
+  const baseOpen=window.openPanel;
+  if(typeof baseOpen==='function'&&!baseOpen.__evv98Fit){
+    const wrapped=function(key){
+      const result=baseOpen.apply(this,arguments);
+      if(key==='transform')requestAnimationFrame(()=>requestAnimationFrame(fitTransformPanelV98));
+      return result;
+    };
+    wrapped.__evv98Fit=true;window.openPanel=wrapped;
+  }
+  const resizeFit=()=>{if($('toolPanel')?.classList.contains('ev-v89-fit-panel'))requestAnimationFrame(fitTransformPanelV98);};
+  window.addEventListener('resize',resizeFit,{passive:true});
+  window.addEventListener('orientationchange',resizeFit,{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',resizeFit,{passive:true});
+
+  /* Bottom toolbars use the browser's native horizontal scroller. A custom pointer-capture
+     loop here competed with Android's own touch/momentum pipeline and caused stutter. */
+
+  /* ----- Crop and selection frame use identical source geometry ----- */
+  function cropFractions(clip){
+    let c={left:0,right:0,top:0,bottom:0};
+    try{c=typeof window.ethvelleCropFractions==='function'?window.ethvelleCropFractions(clip.crop):(clip.crop||c);}catch(_e){}
+    const clamp=v=>Math.max(0,Math.min(.92,Number(v)||0));
+    let left=clamp(c.left),right=clamp(c.right),top=clamp(c.top),bottom=clamp(c.bottom);
+    if(left+right>.92){const f=.92/(left+right);left*=f;right*=f;}
+    if(top+bottom>.92){const f=.92/(top+bottom);top*=f;bottom*=f;}
+    return {left,right,top,bottom};
+  }
+  function sourceGeometry(clip,element,kind,target){
+    const stage=$('canvasStage');if(!stage||!clip||!element)return;
+    const sw=Math.max(1,stage.clientWidth||window.stageW||1),sh=Math.max(1,stage.clientHeight||window.stageH||1);
+    const iw=Math.max(1,Number(element.videoWidth||element.naturalWidth||clip.sourceWidth)||sw);
+    const ih=Math.max(1,Number(element.videoHeight||element.naturalHeight||clip.sourceHeight)||sh);
+    const base=Math.min(sw/iw,sh/ih),crop=cropFractions(clip);
+    const cropW=Math.max(1,iw*(1-crop.left-crop.right));
+    const cropH=Math.max(1,ih*(1-crop.top-crop.bottom));
+    const hasCrop=crop.left+crop.right+crop.top+crop.bottom>.0001;
+    const desired=hasCrop?Math.max(sw/cropW,sh/cropH):base;
+    const factor=desired/Math.max(.0001,base);
+    const dx=hasCrop?(crop.right-crop.left)*iw*desired/2:0;
+    const dy=hasCrop?(crop.bottom-crop.top)*ih*desired/2:0;
+    target.w0=iw*base*factor;
+    target.h0=ih*base*factor;
+    const baseTransform=target.obj||clip.transform||{scale:1,offsetX:0,offsetY:0,rotation:0};
+    const now=typeof window.getCurrentAbsoluteTime==='function'?window.getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?Number(currentAbsoluteTimeSec):0);
+    const tracked=kind==='overlay'&&typeof window.ethvelleGetTrackedOverlayTransform==='function'
+      ?window.ethvelleGetTrackedOverlayTransform(clip):baseTransform;
+    const objectKeyframe=kind==='overlay'&&typeof window.ethvelleGetObjectKeyframeValue==='function'
+      ?window.ethvelleGetObjectKeyframeValue(clip,'transform',now):null;
+    // Match the renderer's active transform source. During a cropped video preview the
+    // committed crop renderer uses the tracked transform; images continue to use their
+    // object keyframe when one exists. Without crop, use the regular renderer's keyframe
+    // fallback to the tracked/base transform.
+    const keyed=kind==='overlay'
+      ?(hasCrop&&clip.type==='video'?tracked:(objectKeyframe||tracked))
+      :baseTransform;
+    target.obj={...keyed};
+    if(hasCrop){
+      const motion=kind==='overlay'&&typeof window.getEthvelleClipAnimationState==='function'
+        ?window.getEthvelleClipAnimationState(clip,now):{x:0,y:0,rotation:0,scale:1};
+      target.obj.offsetX=(Number(keyed.offsetX)||0)+dx+(Number(motion.x)||0);
+      target.obj.offsetY=(Number(keyed.offsetY)||0)+dy+(Number(motion.y)||0);
+      target.obj.rotation=(Number(keyed.rotation)||0)+(Number(motion.rotation)||0);
+      target.obj.scale=(Number(keyed.scale)||1)*(Number(motion.scale)||1);
+    }
+  }
+  const baseTarget=window.selBoxTarget;
+  if(typeof baseTarget==='function'&&!baseTarget.__evv98CropBounds){
+    const wrapped=function(){
+      const target=baseTarget.apply(this,arguments);if(!target)return target;
+      try{
+        const now=typeof window.getCurrentAbsoluteTime==='function'?window.getCurrentAbsoluteTime():Number(window.currentAbsoluteTimeSec)||0;
+        if(target.kind==='overlay'){
+          const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip??''));
+          const list=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:(Array.isArray(window.overlays)?window.overlays:[]);
+          const clip=list.find(o=>o&&String(o.id)===id&&['image','video'].includes(o.type));
+          const mediaMap=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls:window.overlayMediaEls;
+          const el=clip&&mediaMap?mediaMap[id]:null;
+          if(clip&&el)sourceGeometry(clip,el,'overlay',target);
+        }else if(target.kind==='background'){
+          const clip=typeof backgroundClipForSelection==='function'?backgroundClipForSelection():null;
+          const el=$('bgImgLayer');
+          if(clip&&el)sourceGeometry(clip,el,'background',target);
+        }
+      }catch(err){console.warn('Ethvelle crop selection geometry:',err);}
+      return target;
+    };
+    wrapped.__evv98CropBounds=true;window.selBoxTarget=wrapped;
+  }
+  if(typeof window.updateSelBox==='function'){
+    const oldUpdate=window.updateSelBox;
+    if(!oldUpdate.__evv98CropRefresh){
+      const wrapped=function(){const result=oldUpdate.apply(this,arguments);return result;};
+      wrapped.__evv98CropRefresh=true;window.updateSelBox=wrapped;
+    }
+  }
+})();
+</script>
+
+
+<!-- Ethvelle v99: viewport-safe Transform sheet, conditional layer badge clearance,
+     frame-coalesced touch scrolling, and polished professional crop/support UI. -->
+<style id="ethvelle-v99-polish-css">
+  /* Stretch the Transform sheet only through the space available between transport and
+     the actual visible viewport. Its body scrolls internally, so the panel itself never
+     disappears under the browser/system navigation area on compact Android screens. */
+  #screen-editor #toolPanel.tool-panel.evv99-panel-fit{
+    position:absolute!important;
+    top:var(--evv99-panel-top,220px)!important;
+    right:0!important;bottom:auto!important;left:0!important;
+    width:100%!important;height:var(--evv99-panel-height,420px)!important;min-height:0!important;max-height:var(--evv99-panel-max-height,70vh)!important;
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+    box-sizing:border-box!important;contain:layout paint!important;
+  }
+  #screen-editor #toolPanel.evv99-panel-fit .tool-panel-header{flex:0 0 auto!important;}
+  #screen-editor #toolPanel.evv99-panel-fit .tool-panel-body{
+    flex:1 1 0%!important;min-height:0!important;height:auto!important;max-height:none!important;
+    overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;touch-action:pan-y!important;
+    padding-bottom:max(16px,env(safe-area-inset-bottom,0px))!important;
+  }
+  #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel{padding:2px 0 4px!important;}
+  #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-group{margin-bottom:8px!important;}
+  #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-group:last-of-type{margin-bottom:6px!important;}
+  #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-label-row{margin-bottom:6px!important;}
+  #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-reset-btn{min-height:40px!important;padding:9px 12px!important;}
+  @media(max-height:900px){
+    #screen-editor #toolPanel.evv99-panel-fit .tool-panel-body{padding-top:8px!important;padding-bottom:max(8px,env(safe-area-inset-bottom,0px))!important;}
+    #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-group{margin-bottom:5px!important;}
+    #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-group:last-of-type{margin-bottom:4px!important;}
+    #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-label-row{margin-bottom:5px!important;}
+    #screen-editor #toolPanel.evv99-panel-fit .evv-transform-slider-panel .transform-reset-btn{min-height:38px!important;padding:8px 11px!important;}
+  }
+
+  /* A layer badge stays exactly in its normal column for every selection. It shifts only
+     when the actual 20px external white trim tab intersects the badge's unshifted box. */
+  
+  
+
+  /* The crop overlay uses a true rule-of-thirds grid, stronger contrast, precise white
+     perimeter, and larger invisible touch targets around all eight resize grips. */
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame{
+    border:2px solid #F7F9FF!important;border-radius:2px!important;
+    background-color:rgba(255,255,255,.012)!important;
+    background-image:
+      linear-gradient(to right,transparent calc(33.333% - .5px),rgba(255,255,255,.72) 33.333%,transparent calc(33.333% + .5px),transparent calc(66.666% - .5px),rgba(255,255,255,.72) 66.666%,transparent calc(66.666% + .5px)),
+      linear-gradient(to bottom,transparent calc(33.333% - .5px),rgba(255,255,255,.72) 33.333%,transparent calc(33.333% + .5px),transparent calc(66.666% - .5px),rgba(255,255,255,.72) 66.666%,transparent calc(66.666% + .5px))!important;
+    background-size:100% 100%!important;background-repeat:no-repeat!important;
+    box-shadow:0 0 0 9999px rgba(4,7,15,.64),0 0 0 1px rgba(47,92,232,.55)!important;
+    cursor:move!important;
+  }
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame::before,
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame::after{display:none!important;content:none!important;}
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle{
+    width:16px!important;height:16px!important;min-width:16px!important;min-height:16px!important;
+    border:2px solid #fff!important;border-radius:4px!important;background:#2F5CE8!important;
+    box-shadow:0 1px 5px rgba(0,0,0,.72)!important;
+  }
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle::after{
+    content:""!important;display:block!important;position:absolute!important;
+    left:-8px!important;right:-8px!important;top:-8px!important;bottom:-8px!important;
+    border:0!important;background:transparent!important;box-shadow:none!important;pointer-events:auto!important;
+  }
+
+  /* Professional crop controls: clear ratio pills, concise gesture guidance and a strong
+     Apply action; the existing crop data, ratio math, Reset, undo/history and export path
+     remain the same underneath this visual redesign. */
+  #toolPanel .ev-v89-crop-panel{gap:13px!important;padding:4px 0 5px!important;}
+  #toolPanel .ev-v89-crop-panel .ev-v89-ratio-label{
+    color:#DCE5FF!important;font-size:12px!important;font-weight:800!important;letter-spacing:.035em!important;
+  }
+  #toolPanel .ev-v89-crop-panel .ev-v99-crop-hint{
+    margin:-5px 0 0!important;color:#A6ADBD!important;font-size:11px!important;line-height:1.45!important;
+  }
+  #toolPanel .ev-v89-ratios{grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:8px!important;}
+  #toolPanel .ev-v89-ratio{
+    min-height:42px!important;border:1px solid #353D52!important;border-radius:11px!important;
+    background:linear-gradient(160deg,#242A39,#1C202B)!important;color:#DCE2F0!important;
+    font-size:12px!important;font-weight:750!important;transition:background .14s ease,border-color .14s ease,transform .12s ease!important;
+  }
+  #toolPanel .ev-v89-ratio:active{transform:scale(.97)!important;}
+  #toolPanel .ev-v89-ratio.active{
+    border:1.5px solid #5E88FF!important;background:rgba(47,92,232,.24)!important;
+    color:#fff!important;box-shadow:inset 0 0 0 1px rgba(95,139,255,.18)!important;
+  }
+  #toolPanel .ev-v89-crop-actions{gap:10px!important;padding-top:12px!important;border-top:1px solid #30384A!important;}
+  #toolPanel .ev-v89-crop-actions button{min-height:44px!important;border-radius:11px!important;font-size:12.5px!important;}
+  #toolPanel .ev-v89-crop-reset{background:#242A37!important;color:#DDE4F3!important;border:1px solid #3B455D!important;}
+  #toolPanel .ev-v89-crop-done{flex:1 1 auto!important;background:linear-gradient(165deg,#4E7CFF,#1E46C4)!important;color:#fff!important;box-shadow:0 5px 14px rgba(47,92,232,.2)!important;}
+
+  /* Help & Support hierarchy: blue section/field labels, white FAQ questions and contact
+     values, muted-gray FAQ explanations, and brand-coloured contact marks. */
+  #screen-help .settings-group-label{color:#78A0FF!important;font-weight:800!important;letter-spacing:.045em!important;}
+  #screen-help .settings-card{background:linear-gradient(155deg,#1B1F2B,#17171C)!important;border:1px solid #2D3548!important;}
+  #screen-help .help-item{padding:16px!important;border-bottom:1px solid rgba(111,135,190,.16)!important;}
+  #screen-help .help-q b{color:#F5F6FA!important;font-size:13.8px!important;font-weight:750!important;}
+  #screen-help .help-q svg{stroke:#2F5CE8!important;}
+  #screen-help .help-item.open .help-q b{color:#FFFFFF!important;}
+  #screen-help .help-a{color:#AEB6C7!important;font-size:13px!important;line-height:1.65!important;}
+  #screen-help .help-contact-card{
+    min-height:68px!important;gap:14px!important;padding:15px 16px!important;margin-bottom:10px!important;
+    border:1px solid #2C354A!important;border-radius:15px!important;
+    background:linear-gradient(145deg,#1D2332,#171B25)!important;
+    box-shadow:0 5px 16px rgba(0,0,0,.14)!important;
+  }
+  #screen-help .help-contact-card > svg{width:26px!important;height:26px!important;flex:0 0 26px!important;filter:none!important;}
+  #screen-help .help-contact-card .hc-text b{color:#8EAEFF!important;font-size:13px!important;font-weight:800!important;letter-spacing:.01em!important;}
+  #screen-help .help-contact-card .hc-text span{color:#F4F6FB!important;font-size:13px!important;font-weight:600!important;overflow-wrap:anywhere!important;}
+  #screen-help .help-contact-card.email-contact-card > svg{stroke:none!important;color:inherit!important;}
+  #screen-help .help-contact-card.whatsapp-contact-card > svg{stroke:none!important;color:inherit!important;}
+  #screen-help #supportMsgSendBtn{background:linear-gradient(165deg,#4E7CFF,#1E46C4)!important;}
+  #screen-help #supportMsgInput{border-color:#35425F!important;}
+  #screen-help #supportMsgInput:focus{border-color:#5D84F5!important;box-shadow:0 0 0 2px rgba(47,92,232,.14)!important;}
+
+  /* Timeline/toolbar surfaces stay on their own scrolling layers to reduce paint work. */
+  #screen-editor #timelineScroll{
+    scroll-behavior:auto!important;overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;backface-visibility:hidden!important;
+  }
+  #screen-editor #timelineScroll{will-change:scroll-position!important;}
+</style>
+
+<script id="ethvelle-v99-interaction-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const raf=()=>new Promise(resolve=>requestAnimationFrame(()=>resolve()));
+
+  /* The earlier fit patch measured max-height but left the sheet bottom-anchored to an
+     editor box that can extend below Android's visible viewport. Use a top+bottom constrained
+     absolute sheet instead: both edges are guaranteed to remain within the visible viewport. */
+  function fitTransformPanelV99(){
+    const editor=$('screen-editor'),panel=$('toolPanel'),transport=editor?.querySelector('.transport-row');
+    if(!editor||!panel||!transport||!panel.classList.contains('open'))return;
+    const er=editor.getBoundingClientRect(),rr=transport.getBoundingClientRect(),vv=window.visualViewport;
+    const visibleTop=Math.max(er.top,vv?vv.offsetTop:0);
+    const visibleBottom=Math.min(er.bottom,vv?(vv.offsetTop+vv.height):document.documentElement.clientHeight);
+    let topViewport=Math.max(visibleTop+8,rr.bottom+6);
+    const bottomGap=Math.max(8,er.bottom-visibleBottom+8);
+    if(visibleBottom-topViewport-bottomGap<164)topViewport=Math.max(visibleTop+8,visibleBottom-bottomGap-164);
+    const available=Math.max(150,Math.floor(visibleBottom-topViewport-bottomGap));
+    panel.classList.add('evv99-panel-fit','ev-v89-fit-panel');
+    const header=panel.querySelector('.tool-panel-header'),body=$('panelBody');
+    const naturalHeight=(header?header.getBoundingClientRect().height:48)+(body?body.scrollHeight:300)+2;
+    const fittedHeight=Math.min(available,Math.max(160,naturalHeight));
+    panel.style.setProperty('--evv99-panel-top',Math.max(0,topViewport-er.top)+'px');
+    panel.style.setProperty('--evv99-panel-height',fittedHeight+'px');
+    panel.style.setProperty('--evv99-panel-max-height',available+'px');
+    if(body){body.style.removeProperty('max-height');body.style.removeProperty('height');}
+  }
+  function clearTransformPanelFit(){
+    const panel=$('toolPanel');if(!panel)return;
+    panel.classList.remove('evv99-panel-fit');
+    panel.style.removeProperty('--evv99-panel-top');panel.style.removeProperty('--evv99-panel-height');panel.style.removeProperty('--evv99-panel-max-height');
+  }
+  const originalOpen=window.openPanel;
+  if(typeof originalOpen==='function'&&!originalOpen.__evv99Fit){
+    const wrapped=function(key){
+      const result=originalOpen.apply(this,arguments);
+      if(key==='transform')requestAnimationFrame(()=>requestAnimationFrame(fitTransformPanelV99));
+      else clearTransformPanelFit();
+      return result;
+    };
+    wrapped.__evv99Fit=true;window.openPanel=wrapped;
+  }
+  const resizeFit=()=>{if($('toolPanel')?.classList.contains('open')&&$('toolPanel')?.classList.contains('evv99-panel-fit'))requestAnimationFrame(fitTransformPanelV99);};
+  window.addEventListener('resize',resizeFit,{passive:true});
+  window.addEventListener('orientationchange',resizeFit,{passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',resizeFit,{passive:true});
+    window.visualViewport.addEventListener('scroll',resizeFit,{passive:true});
+  }
+  const transport= $('screen-editor')?.querySelector('.transport-row');
+  if(transport&&typeof ResizeObserver==='function'){const ro=new ResizeObserver(resizeFit);ro.observe(transport);}
+
+  /* Only move a layer icon when the white left trim tab actually overlaps its normal icon
+     rectangle. Reconcile only the affected row, and only write row classes when their state
+     really changes. The old MutationObserver was passed its records array directly to an
+     event-style handler; records have no .target, so every mutation forced a full-row scan. */
+  const timeline=$('timelineInner');
+  let badgeRaf=0,badgeNeedsFullScan=false;
+  const pendingBadgeRows=new Set();
+  const badgeOwnedClasses=new Set(['evv99-icon-shift','evv104-bg-selected']);
+  function setBadgeRowClass(row,name,enabled){
+    if(!row||!row.classList)return;
+    const has=row.classList.contains(name),want=!!enabled;
+    if(has!==want)row.classList.toggle(name,want);
+  }
+  function updateLayerBadgeClearance(){
+    badgeRaf=0;if(!timeline)return;
+    const rows=badgeNeedsFullScan?Array.from(timeline.querySelectorAll('.layer-row')):Array.from(pendingBadgeRows);
+    pendingBadgeRows.clear();badgeNeedsFullScan=false;
+    rows.forEach(row=>{
+      if(!row||!row.isConnected)return;
+      // Background keeps the same left-clearance movement as the other clip rows even
+      // when its selected clip has been moved away from timeline time zero.
+      const bgSelected=!!row.querySelector('#track-background .track-clip.selected');
+      setBadgeRowClass(row,'evv104-bg-selected',bgSelected);
+      const badge=row.querySelector('.layer-badge');
+      const clip=row.querySelector('.anim-clip.selected,.track-clip.selected,.overlay-clip.selected');
+      if(!badge||!clip){setBadgeRowClass(row,'evv99-icon-shift',false);return;}
+      const track=clip.closest('.layer-track');if(!track){setBadgeRowClass(row,'evv99-icon-shift',false);return;}
+      const b=badge.getBoundingClientRect(),c=clip.getBoundingClientRect();
+      const wasShifted=row.classList.contains('evv99-icon-shift');
+      const badgeLeft=b.left+(wasShifted?21:0),badgeRight=b.right+(wasShifted?21:0);
+      const tabLeft=c.left-21,tabRight=c.left-1;
+      const overlap=Math.min(tabRight,badgeRight)-Math.max(tabLeft,badgeLeft);
+      setBadgeRowClass(row,'evv99-icon-shift',overlap>2);
+    });
+  }
+  function queueBadgeClearance(node,fullScan=false){
+    const element=node&&node.nodeType===1?node:null;
+    if(fullScan||!element){badgeNeedsFullScan=true;}
+    else{
+      const row=element.closest&&element.closest('.layer-row');
+      if(row)pendingBadgeRows.add(row);
+      else badgeNeedsFullScan=true;
+    }
+    if(!badgeRaf)badgeRaf=requestAnimationFrame(updateLayerBadgeClearance);
+  }
+  function scheduleBadgeClearance(event){
+    queueBadgeClearance(event&&event.target?event.target:null);
+  }
+  function classChangeIsOnlyBadgeState(record){
+    if(!record||record.attributeName!=='class'||record.oldValue==null)return false;
+    const before=new Set(String(record.oldValue||'').split(/\s+/).filter(Boolean));
+    const after=new Set(String(record.target&&record.target.getAttribute('class')||'').split(/\s+/).filter(Boolean));
+    const changed=new Set([...before,...after]);
+    for(const token of changed){if(before.has(token)!==after.has(token)&&!badgeOwnedClasses.has(token))return false;}
+    return true;
+  }
+  function nodeContainsLayerRowOrClip(node){
+    if(!node||node.nodeType!==1)return false;
+    if(node.matches&&node.matches('.layer-row,.anim-clip,.track-clip,.overlay-clip'))return true;
+    return !!(node.querySelector&&node.querySelector('.layer-row,.anim-clip,.track-clip,.overlay-clip'));
+  }
+  function handleTimelineMutations(records){
+    let fullScan=false,hasQueuedRow=false;
+    for(const record of records){
+      if(record.type==='attributes'&&record.attributeName==='class'){
+        // Our own clearance marker changes are final output, not new layout inputs. Also
+        // ignore unrelated class changes; only selection changes on a timeline clip matter.
+        if(classChangeIsOnlyBadgeState(record))continue;
+        const target=record.target;
+        if(!target||!target.matches||!target.matches('.anim-clip,.track-clip,.overlay-clip'))continue;
+        const before=new Set(String(record.oldValue||'').split(/\s+/).filter(Boolean));
+        const after=target.classList;
+        if(before.has('selected')===after.contains('selected'))continue;
+        const row=target.closest('.layer-row');
+        if(row){pendingBadgeRows.add(row);hasQueuedRow=true;}
+        continue;
+      }
+      if(record.type==='childList'){
+        const target=record.target;
+        const row=target&&target.nodeType===1&&target.closest?target.closest('.layer-row'):null;
+        const hasRelevantNodes=[...(record.addedNodes||[]),...(record.removedNodes||[])].some(nodeContainsLayerRowOrClip);
+        if(!hasRelevantNodes)continue;
+        if(row){pendingBadgeRows.add(row);hasQueuedRow=true;}
+        else fullScan=true;
+      }
+    }
+    if(fullScan)queueBadgeClearance(null,true);
+    else if(hasQueuedRow&&!badgeRaf)badgeRaf=requestAnimationFrame(updateLayerBadgeClearance);
+  }
+  if(timeline){
+    queueBadgeClearance(null,true);
+    const observer=new MutationObserver(handleTimelineMutations);
+    observer.observe(timeline,{subtree:true,childList:true,attributes:true,attributeOldValue:true,attributeFilter:['class']});
+    // Layer badges and their clips share the same horizontal scroll transform, so scrolling
+    // cannot change their overlap. During pointer interaction only the touched row is checked.
+    timeline.addEventListener('pointerdown',scheduleBadgeClearance,{passive:true});
+    timeline.addEventListener('pointerup',scheduleBadgeClearance,{passive:true});
+    timeline.addEventListener('pointercancel',scheduleBadgeClearance,{passive:true});
+    window.addEventListener('resize',()=>queueBadgeClearance(null,true),{passive:true});
+    // Selection-class mutations above already enqueue the old and new clip rows. Do not
+    // wrap every selection in a full timeline scan: that forced geometry reads for every
+    // layer (and a synchronous layout) even when only one row changed.
+  }
+
+  /* Professional crop surface: replace the ratio control body while continuing to use
+     the established normalized crop model and the working pointer/preview/export pipeline. */
+  if(typeof panelContent!=='undefined'){
+    panelContent.crop={title:'Crop',body:`<div class="ev-v89-crop-panel evv99-crop-panel">
+      <div class="ev-v89-ratio-label">ASPECT RATIO</div>
+      <div class="ev-v99-crop-hint">Drag inside the frame to reposition. Drag a corner or edge to refine the crop.</div>
+      <div class="ev-v89-ratios" role="group" aria-label="Crop aspect ratio">
+        <button type="button" class="ev-v89-ratio active" data-ratio="free" aria-pressed="true" onclick="ethvelleV89SetCropRatio('free')">Free</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="1:1" aria-pressed="false" onclick="ethvelleV89SetCropRatio('1:1')">1:1</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="16:9" aria-pressed="false" onclick="ethvelleV89SetCropRatio('16:9')">16:9</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="9:16" aria-pressed="false" onclick="ethvelleV89SetCropRatio('9:16')">9:16</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="4:3" aria-pressed="false" onclick="ethvelleV89SetCropRatio('4:3')">4:3</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="3:4" aria-pressed="false" onclick="ethvelleV89SetCropRatio('3:4')">3:4</button>
+      </div>
+      <div class="ev-v89-crop-actions"><button type="button" class="ev-v89-crop-reset" onclick="ethvelleV89ResetCrop()">Reset</button><button type="button" class="ev-v89-crop-done" onclick="closePanel()">Apply crop</button></div>
+    </div>`};
+  }
+  // Keep ratio state visibly and accessibly synchronized after choosing a preset.
+  const originalSetRatio=window.ethvelleV89SetCropRatio;
+  if(typeof originalSetRatio==='function'&&!originalSetRatio.__evv99Ratio){
+    const wrapped=function(value){const result=originalSetRatio.apply(this,arguments);document.querySelectorAll('.ev-v89-ratio').forEach(b=>{const active=b.dataset.ratio===String(value||'free');b.setAttribute('aria-pressed',active?'true':'false');});return result;};
+    wrapped.__evv99Ratio=true;window.ethvelleV89SetCropRatio=wrapped;
+  }
+  const originalResetCrop=window.ethvelleV89ResetCrop;
+  if(typeof originalResetCrop==='function'&&!originalResetCrop.__evv99Reset){
+    const wrapped=function(){const result=originalResetCrop.apply(this,arguments);document.querySelectorAll('.ev-v89-ratio').forEach(b=>{const active=b.dataset.ratio==='free';b.setAttribute('aria-pressed',active?'true':'false');});return result;};
+    wrapped.__evv99Reset=true;window.ethvelleV89ResetCrop=wrapped;
+  }
+})();
+</script>
+
+<!-- Ethvelle v100: high-refresh timeline interaction, persistent no-zoom crop, and panel fit. -->
+<style id="ethvelle-v100-performance-crop-css">
+  /* The Transform sheet begins at the transport row's top edge, covering Play/Pause while
+     leaving the canvas above it unobstructed. It fills the remaining visible phone viewport. */
+  #screen-editor #toolPanel.tool-panel.evv99-panel-fit.evv100-panel-fit{
+    top:var(--evv99-panel-top,220px)!important;
+    bottom:auto!important;
+    height:var(--evv99-panel-height,420px)!important;
+    max-height:var(--evv99-panel-max-height,420px)!important;
+    min-height:180px!important;
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+    box-sizing:border-box!important;contain:layout paint!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .tool-panel-header{flex:0 0 auto!important;}
+  #screen-editor #toolPanel.evv100-panel-fit .tool-panel-body{
+    flex:1 1 0%!important;min-height:0!important;height:auto!important;max-height:none!important;
+    overflow-x:hidden!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;
+    overscroll-behavior:contain!important;touch-action:pan-y!important;
+    padding-bottom:calc(14px + env(safe-area-inset-bottom,0px))!important;
+  }
+  /* The crop panel is intentionally icon/control-only; remove the explanatory sentence. */
+  #toolPanel .ev-v99-crop-hint{display:none!important;}
+  /* Help headings and contact field names use the same deep, solid primary blue as the app. */
+  #screen-help .settings-group-label,
+  #screen-help .help-contact-card .hc-text b{color:#2F5CE8!important;text-shadow:none!important;}
+  /* Keep answers readable without turning FAQ questions or contact values blue. */
+  #screen-help .help-a{color:#AEB6C7!important;}
+  /* Dedicated compositor surfaces: avoid smooth-scroll interpolation and repeated paints. */
+  
+  #screen-editor #bottomToolsDefault > .tool-item,
+  #screen-editor #bottomToolsClip > .tool-item,
+  #screen-editor #bottomToolsKeyframe > .tool-item,
+  #screen-editor #bottomToolsDefault button,
+  #screen-editor #bottomToolsClip button,
+  #screen-editor #bottomToolsKeyframe button{
+    touch-action:pan-x pan-y!important;flex:0 0 auto!important;
+  }
+  #screen-editor #bottomToolsDefault::-webkit-scrollbar,
+  #screen-editor #bottomToolsClip::-webkit-scrollbar,
+  #screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+  #screen-editor #timelineScroll{scroll-behavior:auto!important;will-change:scroll-position!important;}
+</style>
+<script id="ethvelle-v100-performance-crop-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  /* Expand Transform upward to the Play/Pause row, not upward into the canvas. */
+  function fitTransformPanelV100(){
+    const editor=$('screen-editor'),panel=$('toolPanel'),transport=editor?.querySelector('.transport-row');
+    if(!editor||!panel||!transport||!panel.classList.contains('open'))return;
+    const er=editor.getBoundingClientRect(),rr=transport.getBoundingClientRect(),vv=window.visualViewport;
+    const visibleTop=Math.max(er.top,vv?vv.offsetTop:0);
+    const visibleBottom=Math.min(er.bottom,vv?(vv.offsetTop+vv.height):(window.innerHeight||er.bottom));
+    const bottomGap=Math.max(8,er.bottom-visibleBottom+8);
+    const stageRect=editor.querySelector('#canvasStage')?.getBoundingClientRect();
+    const maxTop=Math.max(visibleTop+3,rr.top-2);
+    const desiredTop=Math.max(visibleTop+3,rr.top-20);
+    // The canvas bottom is a hard boundary. Use the gap above transport when available,
+    // but never pull the panel upward through the stage on short screens. If the viewport
+    // leaves only a shallow panel area, the panel body scrolls internally instead.
+    const safeTop=Math.min(maxTop,Math.max(visibleTop+3,stageRect?stageRect.bottom+4:rr.top-2));
+    const topViewport=Math.min(maxTop,Math.max(safeTop,desiredTop));
+    const availableHeight=Math.max(0,Math.floor(visibleBottom-bottomGap-topViewport));
+    const height=Math.max(0,availableHeight);
+    panel.classList.add('evv99-panel-fit','evv100-panel-fit');
+    panel.style.setProperty('--evv99-panel-top',Math.max(0,topViewport-er.top)+'px');
+    panel.style.setProperty('--evv99-panel-height',height+'px');
+    panel.style.setProperty('--evv99-panel-max-height',height+'px');
+    const body=$('panelBody');if(body){body.style.removeProperty('max-height');body.style.removeProperty('height');}
+  }
+  function clearTransformPanelV100(){
+    const panel=$('toolPanel');if(!panel)return;
+    panel.classList.remove('evv100-panel-fit');
+  }
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__evv100Panel){
+    const wrapped=function(key){
+      const result=oldOpenPanel.apply(this,arguments);
+      if(key==='transform')requestAnimationFrame(()=>requestAnimationFrame(fitTransformPanelV100));
+      else clearTransformPanelV100();
+      return result;
+    };
+    wrapped.__evv100Panel=true;window.openPanel=wrapped;
+  }
+  const onResize=()=>{if($('toolPanel')?.classList.contains('evv100-panel-fit'))requestAnimationFrame(fitTransformPanelV100);};
+  window.addEventListener('resize',onResize,{passive:true});
+  window.addEventListener('orientationchange',onResize,{passive:true});
+  if(window.visualViewport){window.visualViewport.addEventListener('resize',onResize,{passive:true});window.visualViewport.addEventListener('scroll',onResize,{passive:true});}
+
+  /*
+   * Non-zoom crop renderer.
+   * Crop fractions clip pixels inside the media's existing object-fit:contain bounds.
+   * The media transform (scale/position/rotation) is not changed by crop, so it cannot
+   * jump larger after Apply. The clip-path is reasserted after each normal renderer pass,
+   * preventing later preview ticks from silently restoring the uncropped media.
+   */
+  function cropFor(clip){
+    let c={left:0,right:0,top:0,bottom:0};
+    try{c=window.ethvelleCropFractions?window.ethvelleCropFractions(clip?.crop):(clip?.crop||c);}catch(_e){}
+    const clamp=v=>Math.max(0,Math.min(.92,Number(v)||0));
+    let left=clamp(c.left),right=clamp(c.right),top=clamp(c.top),bottom=clamp(c.bottom);
+    if(left+right>.92){const f=.92/(left+right);left*=f;right*=f;}
+    if(top+bottom>.92){const f=.92/(top+bottom);top*=f;bottom*=f;}
+    return {left,right,top,bottom};
+  }
+  const cropPathCache=new WeakMap();
+  function applyCropClipPath(el,clip,stage,source){
+    if(!el||!el.style)return;

@@ -1,27 +1,35 @@
-# Ethvelle Editor
+# Ethvelle Android APK
 
-This repository contains the website source and the Android APK project.
+This repository builds an Android APK from the current uploaded `Ethvelle_v365_Character_Voices.html` editor.
 
-## Website
+## Android-native media linking
 
-https://uttamdas5830-creator.github.io/ethvelle-editor/
+The APK includes an Android Storage Access Framework (SAF) picker. The editor's supported media import action opens the device picker for an image, video, or audio file. The app requests persistable read permission and saves the selected file's `content://` URI in app preferences.
 
-The existing website deployment workflow and the original website source under `site-source/` are kept in place. They are separate from the new Android package source.
+The editor stores only a small metadata/reference record in IndexedDB for this native import path. The media bytes are not copied into IndexedDB. A local HTTPS WebViewAssetLoader URL streams the original selected file and supports HTTP byte-range requests for playback and seeking when the chosen document provider supports random access.
 
-## Android APK (v365)
+The browser website remains unchanged and continues to use its existing browser media storage behaviour.
 
-The current Android project is in `android-apk/`. It packages the v365 HTML editor uploaded for this build and adds an Android Storage Access Framework (SAF) media picker.
+## Source layout
 
-For the native Android media-import path, the app stores an Android `content://` URI reference and metadata instead of copying the selected media bytes into IndexedDB. The selected file is streamed to the WebView through an app-local URL with byte-range support for playback and seeking. Files can still become unavailable if the original file is removed or the provider revokes access; exported projects need media to be relinked on another device.
+- `android/` contains the Android Studio / Gradle project.
+- `android-source-v365/part-*.txt` stores the current v365 HTML in ordered source chunks. The workflow joins the chunks in the correct order before building the APK.
+- `.github/workflows/build-android.yml` builds the debug APK automatically on pushes to `main` or `master`, and can also be started manually.
 
-### Get the APK
+## Download the APK
 
-1. Open **Actions**.
-2. Select **Build Ethvelle Android APK**.
-3. Open the latest successful run.
-4. Download the **Ethvelle-Android-APK** artifact.
-5. Extract the ZIP and install `app-debug.apk` on the Android device.
+1. Open the repository's **Actions** tab.
+2. Open the latest **Build Ethvelle Android APK** run.
+3. When the run succeeds, open **Artifacts** and download **Ethvelle-Android-APK**.
+4. Extract the artifact ZIP and install `app-debug.apk` on Android. Android may ask you to allow installation from the browser or file manager used to download it.
 
-The workflow runs after pushes to `main` or `master`, and can also be started manually from the Actions tab.
+## Build locally
 
-This workflow currently creates a debug APK for testing, not a Play Store-signed release. Test media import, playback and seeking on the target Android device before relying on it for production work.
+Open the `android/` folder in Android Studio. The project uses Java 17, Gradle 8.13, Android Gradle Plugin 8.13.2, compile SDK 36 and AndroidX WebKit 1.18.0.
+
+## Important limits
+
+- This workflow creates a debug APK for testing, not a Play Store-signed release.
+- A linked media file remains tied to the Android app installation and its original document provider. If the source file is deleted, moved, or access is revoked, it must be selected again.
+- Some document providers do not support persistent URI permission or efficient random access. Large-file playback and seeking should be tested on the target Android phone.
+- Firebase/cloud-backed parts of the editor still need an internet connection; only the editor HTML shell is bundled into the APK.

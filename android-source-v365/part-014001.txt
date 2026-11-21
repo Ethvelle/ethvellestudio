@@ -1,0 +1,1000 @@
+  animal_sniff: {
+    name:'Sniff and look', modelType:'animal', duration:1.6,
+    keyframes:[
+      {t:0,pose:{head:0,neck:0,spine_upper:0,upperArmL:0,upperArmR:0,thighL:0,thighR:0,tail:0}},
+      {t:.22,pose:{head:18*D,neck:4*D,spine_upper:1.5*D,upperArmL:3*D,upperArmR:3*D,thighL:0,thighR:0,tail:12*D}},
+      {t:.48,pose:{head:8*D,neck:2*D,spine_upper:0,upperArmL:1*D,upperArmR:1*D,thighL:0,thighR:0,tail:6*D}},
+      {t:.72,pose:{head:-5*D,neck:-1*D,spine_upper:-1*D,upperArmL:0,upperArmR:0,thighL:0,thighR:0,tail:-4*D}},
+      {t:1,pose:{head:0,neck:0,spine_upper:0,upperArmL:0,upperArmR:0,thighL:0,thighR:0,tail:0}}
+    ]
+  },
+  animal_idle: {
+    name:'Quadruped idle breathing',modelType:'animal',duration:2.8,
+    keyframes:[
+      {t:0,pose:{spine_lower:0,spine_upper:0,head:0,neck:0,tail:2*D,upperArmL:0,upperArmR:0,thighL:0,thighR:0,hipY:0}},
+      {t:.25,pose:{spine_lower:1.2*D,spine_upper:1.8*D,head:-.8*D,neck:.4*D,tail:5*D,upperArmL:-.5*D,upperArmR:-.5*D,thighL:0,thighR:0,hipY:-.004}},
+      {t:.5,pose:{spine_lower:0,spine_upper:0,head:0,neck:0,tail:0,upperArmL:0,upperArmR:0,thighL:0,thighR:0,hipY:0}},
+      {t:.75,pose:{spine_lower:-.8*D,spine_upper:-1.2*D,head:.6*D,neck:-.3*D,tail:-4*D,upperArmL:.3*D,upperArmR:.3*D,thighL:0,thighR:0,hipY:-.003}},
+      {t:1,pose:{spine_lower:0,spine_upper:0,head:0,neck:0,tail:2*D,upperArmL:0,upperArmR:0,thighL:0,thighR:0,hipY:0}}
+    ]
+  },
+  animal_canter: {
+    name:'Quadruped canter',modelType:'animal',duration:.95,
+    keyframes:[
+      {t:0,pose:{upperArmL:28*D,forearmL:31*D,handL:-7*D,upperArmR:-24*D,forearmR:-22*D,handR:6*D,thighL:-24*D,shinL:30*D,footL:-7*D,thighR:23*D,shinR:-28*D,footR:6*D,spine_lower:2*D,spine_upper:2.5*D,head:-2*D,tail:10*D,hipY:-.02}},
+      {t:.25,pose:{upperArmL:8*D,forearmL:13*D,handL:0,upperArmR:8*D,forearmR:13*D,handR:0,thighL:7*D,shinL:9*D,footL:0,thighR:7*D,shinR:9*D,footR:0,spine_lower:-1*D,spine_upper:-1*D,head:1*D,tail:-4*D,hipY:-.055}},
+      {t:.5,pose:{upperArmL:-24*D,forearmL:-22*D,handL:6*D,upperArmR:28*D,forearmR:31*D,handR:-7*D,thighL:23*D,shinL:-28*D,footL:6*D,thighR:-24*D,shinR:30*D,footR:-7*D,spine_lower:2*D,spine_upper:2.5*D,head:-2*D,tail:10*D,hipY:-.02}},
+      {t:.75,pose:{upperArmL:8*D,forearmL:13*D,handL:0,upperArmR:8*D,forearmR:13*D,handR:0,thighL:7*D,shinL:9*D,footL:0,thighR:7*D,shinR:9*D,footR:0,spine_lower:-1*D,spine_upper:-1*D,head:1*D,tail:-4*D,hipY:-.055}},
+      {t:1,pose:{upperArmL:28*D,forearmL:31*D,handL:-7*D,upperArmR:-24*D,forearmR:-22*D,handR:6*D,thighL:-24*D,shinL:30*D,footL:-7*D,thighR:23*D,shinR:-28*D,footR:6*D,spine_lower:2*D,spine_upper:2.5*D,head:-2*D,tail:10*D,hipY:-.02}}
+    ]
+  },
+  animal_hop: {
+    name:'Playful quadruped hop',modelType:'animal',duration:1.15,
+    keyframes:[
+      {t:0,pose:{upperArmL:0,upperArmR:0,forearmL:0,forearmR:0,thighL:0,thighR:0,shinL:0,shinR:0,footL:0,footR:0,spine_lower:0,spine_upper:0,head:0,tail:0,hipY:0}},
+      {t:.18,pose:{upperArmL:-16*D,upperArmR:-16*D,forearmL:24*D,forearmR:24*D,thighL:32*D,thighR:32*D,shinL:-42*D,shinR:-42*D,footL:8*D,footR:8*D,spine_lower:-3*D,spine_upper:-4*D,head:4*D,tail:16*D,hipY:.025}},
+      {t:.44,pose:{upperArmL:22*D,upperArmR:22*D,forearmL:-18*D,forearmR:-18*D,thighL:-18*D,thighR:-18*D,shinL:24*D,shinR:24*D,footL:-6*D,footR:-6*D,spine_lower:4*D,spine_upper:4*D,head:-3*D,tail:-8*D,hipY:-.11}},
+      {t:.7,pose:{upperArmL:8*D,upperArmR:8*D,forearmL:10*D,forearmR:10*D,thighL:6*D,thighR:6*D,shinL:-8*D,shinR:-8*D,footL:2*D,footR:2*D,spine_lower:1*D,spine_upper:1*D,head:1*D,tail:4*D,hipY:-.035}},
+      {t:1,pose:{upperArmL:0,upperArmR:0,forearmL:0,forearmR:0,thighL:0,thighR:0,shinL:0,shinR:0,footL:0,footR:0,spine_lower:0,spine_upper:0,head:0,tail:0,hipY:0}}
+    ]
+  },
+  animal_tail_wag: {
+    name:'Tail wag',modelType:'animal',duration:1.35,
+    keyframes:[
+      {t:0,pose:{tail:-18*D,spine_lower:0,spine_upper:0,head:0,hipY:0}},
+      {t:.2,pose:{tail:20*D,spine_lower:.3*D,spine_upper:.5*D,head:-.5*D,hipY:-.002}},
+      {t:.4,pose:{tail:-20*D,spine_lower:-.3*D,spine_upper:-.5*D,head:.5*D,hipY:0}},
+      {t:.6,pose:{tail:20*D,spine_lower:.3*D,spine_upper:.5*D,head:-.5*D,hipY:-.002}},
+      {t:.8,pose:{tail:-16*D,spine_lower:0,spine_upper:0,head:0,hipY:0}},
+      {t:1,pose:{tail:-18*D,spine_lower:0,spine_upper:0,head:0,hipY:0}}
+    ]
+  },
+  animal_face_sad: {
+    name:'Face test · Sad',modelType:'animal',duration:1.5,
+    faceActions:{expression:'sad',eyes:'auto',blink:'off',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0,tail:0}},{t:.28,pose:{head:1.5*D,neck:.4*D,tail:-2*D}},{t:.62,pose:{head:0,neck:0,tail:0}},{t:1,pose:{head:0,neck:0,tail:0}}]
+  },
+  animal_face_angry: {
+    name:'Face test · Angry',modelType:'animal',duration:1.5,
+    faceActions:{expression:'angry',eyes:'auto',blink:'off',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0,tail:0}},{t:.22,pose:{head:-2*D,neck:-.5*D,tail:4*D}},{t:.52,pose:{head:1*D,neck:.2*D,tail:-2*D}},{t:1,pose:{head:0,neck:0,tail:0}}]
+  },
+  animal_face_surprised: {
+    name:'Face test · Surprised',modelType:'animal',duration:1.5,
+    faceActions:{expression:'shock',eyes:'open',blink:'off',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0,tail:0}},{t:.18,pose:{head:-3*D,neck:-.8*D,tail:9*D}},{t:.48,pose:{head:1*D,neck:.2*D,tail:2*D}},{t:1,pose:{head:0,neck:0,tail:0}}]
+  },
+  animal_face_laugh: {
+    name:'Face test · Laughing',modelType:'animal',duration:1.5,
+    faceActions:{expression:'laugh',eyes:'auto',blink:'off',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0,tail:0}},{t:.22,pose:{head:-1*D,neck:.3*D,tail:5*D}},{t:.55,pose:{head:1*D,neck:-.2*D,tail:-3*D}},{t:1,pose:{head:0,neck:0,tail:0}}]
+  },
+  animal_face_blink: {
+    name:'Face test · Blink',modelType:'animal',duration:1.0,
+    // Auto eye state + a short test interval make the open/closed eye layers alternate.
+    // The previous eyes:'closed' / blink:'off' combination held the lids shut permanently.
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',blinkRate:.72,mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0}},{t:.3,pose:{head:1*D,neck:.2*D}},{t:1,pose:{head:0,neck:0}}]
+  },
+  animal_face_talk: {
+    name:'Face test · Talking',modelType:'animal',duration:1.2,
+    // Uses the normal closed/open mouth swap where available and the smile + inner-mouth
+    // face-kit layers on newer animal sheets. Closed and open mouth frames alternate.
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',blinkRate:1.05,mouth:'talk',leftHand:'none',rightHand:'none'},
+    keyframes:[
+      {t:0,pose:{head:0,neck:0,tail:0}},
+      {t:.22,pose:{head:-1.2*D,neck:.25*D,tail:2*D}},
+      {t:.5,pose:{head:1.1*D,neck:-.2*D,tail:-1.5*D}},
+      {t:.76,pose:{head:-.7*D,neck:.15*D,tail:1*D}},
+      {t:1,pose:{head:0,neck:0,tail:0}}
+    ]
+  },
+  bird_walk: {
+    name:'Bird walk', modelType:'bird', duration:1.0,
+    keyframes:[
+      {t:0,pose:{upperArmL:1*D,forearmL:1*D,handL:0,upperArmR:1*D,forearmR:1*D,handR:0,thighL:14*D,shinL:22*D,footL:-6*D,thighR:-12*D,shinR:-12*D,footR:4*D,head:1*D,spine_lower:1*D,tail:3*D,hipY:-.006}},
+      {t:.25,pose:{upperArmL:0,forearmL:0,handL:0,upperArmR:0,forearmR:0,handR:0,thighL:0,shinL:0,footL:0,thighR:0,shinR:0,footR:0,head:-1*D,spine_lower:0,tail:-3*D,hipY:-.012}},
+      {t:.5,pose:{upperArmL:1*D,forearmL:1*D,handL:0,upperArmR:1*D,forearmR:1*D,handR:0,thighL:-12*D,shinL:-12*D,footL:4*D,thighR:14*D,shinR:22*D,footR:-6*D,head:1*D,spine_lower:1*D,tail:3*D,hipY:-.006}},
+      {t:.75,pose:{upperArmL:0,forearmL:0,handL:0,upperArmR:0,forearmR:0,handR:0,thighL:0,shinL:0,footL:0,thighR:0,shinR:0,footR:0,head:-1*D,spine_lower:0,tail:-3*D,hipY:-.012}},
+      {t:1,pose:{upperArmL:1*D,forearmL:1*D,handL:0,upperArmR:1*D,forearmR:1*D,handR:0,thighL:14*D,shinL:22*D,footL:-6*D,thighR:-12*D,shinR:-12*D,footR:4*D,head:1*D,spine_lower:1*D,hipY:-.006}}
+    ]
+  },
+  bird_hop: {
+    name:'Bird hop', modelType:'bird', duration:.85,
+    keyframes:[
+      {t:0,pose:{thighL:0,thighR:0,shinL:0,shinR:0,footL:0,footR:0,head:0,hipY:0}},
+      {t:.18,pose:{thighL:-18*D,thighR:-18*D,shinL:30*D,shinR:30*D,footL:-8*D,footR:-8*D,head:-2*D,tail:8*D,hipY:-.065}},
+      {t:.45,pose:{thighL:8*D,thighR:8*D,shinL:-8*D,shinR:-8*D,footL:5*D,footR:5*D,head:2*D,tail:-6*D,hipY:-.13}},
+      {t:.72,pose:{thighL:0,thighR:0,shinL:0,shinR:0,footL:0,footR:0,head:0,hipY:-.01}},
+      {t:1,pose:{thighL:0,thighR:0,shinL:0,shinR:0,footL:0,footR:0,head:0,hipY:0}}
+    ]
+  },
+  bird_flap: {
+    name:'Wing flap', modelType:'bird', duration:1.0,
+    keyframes:[
+      {t:0,pose:{upperArmL:0,upperArmR:0,forearmL:0,forearmR:0,handL:0,handR:0,spine_upper:0,head:0,hipY:0}},
+      {t:.2,pose:{upperArmL:-58*D,upperArmR:-58*D,forearmL:-35*D,forearmR:-35*D,handL:-18*D,handR:-18*D,spine_upper:-2*D,head:-1*D,tail:4*D,hipY:-.018}},
+      {t:.45,pose:{upperArmL:-104*D,upperArmR:-104*D,forearmL:-60*D,forearmR:-60*D,handL:-28*D,handR:-28*D,spine_upper:-3*D,head:0,tail:-4*D,hipY:-.045}},
+      {t:.7,pose:{upperArmL:-40*D,upperArmR:-40*D,forearmL:-25*D,forearmR:-25*D,handL:-10*D,handR:-10*D,spine_upper:1*D,head:1*D,tail:3*D,hipY:-.014}},
+      {t:1,pose:{upperArmL:0,upperArmR:0,forearmL:0,forearmR:0,handL:0,handR:0,spine_upper:0,head:0,hipY:0}}
+    ]
+  },
+  bird_peck: {
+    name:'Peck', modelType:'bird', duration:1.05,
+    keyframes:[
+      {t:0,pose:{head:0,neck:0,spine_upper:0,thighL:0,thighR:0}},
+      {t:.22,pose:{head:25*D,neck:6*D,spine_upper:1*D,thighL:0,thighR:0,tail:-4*D}},
+      {t:.38,pose:{head:39*D,neck:9*D,spine_upper:2*D,thighL:1*D,thighR:1*D,tail:-8*D}},
+      {t:.56,pose:{head:12*D,neck:2*D,spine_upper:-1*D,thighL:0,thighR:0,tail:4*D}},
+      {t:.78,pose:{head:-5*D,neck:-2*D,spine_upper:0,thighL:0,thighR:0}},
+      {t:1,pose:{head:0,neck:0,spine_upper:0,thighL:0,thighR:0}}
+    ]
+  },
+  bird_face_blink: {
+    name:'Bird · Blink test',modelType:'bird',duration:1.0,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'preset',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0}},{t:.35,pose:{head:1.5*D,neck:.4*D}},{t:1,pose:{head:0,neck:0}}]
+  },
+  bird_face_talk: {
+    name:'Bird · Beak talk test',modelType:'bird',duration:1.1,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'talk',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0,neck:0}},{t:.5,pose:{head:-1*D,neck:0}},{t:1,pose:{head:0,neck:0}}]
+  },
+  bird_face_sad: {
+    name:'Bird · Sad mood test',modelType:'bird',duration:1.25,
+    faceActions:{expression:'sad',eyes:'auto',blink:'auto',mouth:'preset',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.25,pose:{head:2*D}},{t:.7,pose:{head:-1*D}},{t:1,pose:{head:0}}]
+  },
+  bird_face_angry: {
+    name:'Bird · Angry mood test',modelType:'bird',duration:1.25,
+    faceActions:{expression:'angry',eyes:'auto',blink:'auto',mouth:'preset',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.25,pose:{head:-2*D}},{t:.7,pose:{head:1*D}},{t:1,pose:{head:0}}]
+  },
+  bird_fly_compact: {
+    name:'Bird · Flight test',modelType:'bird',duration:1.0,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'preset',wings:'fly',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{upperArmL:0,upperArmR:0,tail:0,hipY:0}},{t:.2,pose:{upperArmL:-58*D,upperArmR:-58*D,tail:4*D,hipY:-.018}},{t:.48,pose:{upperArmL:-104*D,upperArmR:-104*D,tail:-4*D,hipY:-.045}},{t:.74,pose:{upperArmL:-40*D,upperArmR:-40*D,tail:3*D,hipY:-.014}},{t:1,pose:{upperArmL:0,upperArmR:0,tail:0,hipY:0}}]
+  },
+  humanoid_face_blink: {
+    name:'Humanoid · Blink test',modelType:'humanoid',duration:1.0,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.35,pose:{head:1*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_talk: {
+    name:'Humanoid · Talking test',modelType:'humanoid',duration:1.15,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'talk',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.28,pose:{head:-1.5*D}},{t:.62,pose:{head:1*D}},{t:1,pose:{head:0}}]
+  },
+  bird_face_surprised: {
+    name:'Bird · Surprised mood test',modelType:'bird',duration:1.25,
+    faceActions:{expression:'shock',eyes:'auto',blink:'auto',mouth:'preset',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.2,pose:{head:-3*D}},{t:.5,pose:{head:2*D}},{t:1,pose:{head:0}}]
+  },
+  bird_face_laugh: {
+    name:'Bird · Happy mood test',modelType:'bird',duration:1.3,
+    faceActions:{expression:'laugh',eyes:'auto',blink:'auto',mouth:'preset',wings:'natural',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.2,pose:{head:-2*D}},{t:.48,pose:{head:2*D}},{t:.76,pose:{head:-1*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_sad: {
+    name:'Humanoid · Sad expression test',modelType:'humanoid',duration:1.3,
+    faceActions:{expression:'sad',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.25,pose:{head:2*D}},{t:.68,pose:{head:-1*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_angry: {
+    name:'Humanoid · Angry expression test',modelType:'humanoid',duration:1.25,
+    faceActions:{expression:'angry',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.22,pose:{head:-2*D}},{t:.62,pose:{head:1*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_surprised: {
+    name:'Humanoid · Surprised expression test',modelType:'humanoid',duration:1.25,
+    faceActions:{expression:'shock',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.18,pose:{head:-3*D}},{t:.5,pose:{head:2*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_laugh: {
+    name:'Humanoid · Laughing expression test',modelType:'humanoid',duration:1.35,
+    faceActions:{expression:'laugh',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'},
+    keyframes:[{t:0,pose:{head:0}},{t:.2,pose:{head:-2*D}},{t:.48,pose:{head:2*D}},{t:.76,pose:{head:-1*D}},{t:1,pose:{head:0}}]
+  },
+  humanoid_face_hold_gesture: {
+    name:'Humanoid · Hold hand gesture test',modelType:'humanoid',duration:1.0,
+    faceActions:{expression:'none',eyes:'auto',blink:'auto',mouth:'preset',leftHand:'hold',rightHand:'hold'},
+    keyframes:[{t:0,pose:{head:0,upperArmL:0,upperArmR:0}},{t:.25,pose:{upperArmL:-8*D,upperArmR:-8*D}},{t:.75,pose:{upperArmL:-4*D,upperArmR:-4*D}},{t:1,pose:{head:0,upperArmL:0,upperArmR:0}}]
+  },
+  bird_takeoff: {
+    name:'Take off', modelType:'bird', duration:1.15,
+    keyframes:[
+      {t:0,pose:{upperArmL:0,upperArmR:0,forearmL:0,forearmR:0,handL:0,handR:0,thighL:0,thighR:0,shinL:0,shinR:0,hipY:0}},
+      {t:.2,pose:{upperArmL:-75*D,upperArmR:-75*D,forearmL:-44*D,forearmR:-44*D,handL:-24*D,handR:-24*D,thighL:-12*D,thighR:-12*D,shinL:18*D,shinR:18*D,tail:-8*D,hipY:-.045}},
+      {t:.48,pose:{upperArmL:-112*D,upperArmR:-112*D,forearmL:-68*D,forearmR:-68*D,handL:-34*D,handR:-34*D,thighL:-22*D,thighR:-22*D,shinL:28*D,shinR:28*D,tail:-14*D,hipY:-.12}},
+      {t:.74,pose:{upperArmL:-48*D,upperArmR:-48*D,forearmL:-28*D,forearmR:-28*D,handL:-12*D,handR:-12*D,thighL:-10*D,thighR:-10*D,shinL:14*D,shinR:14*D,tail:6*D,hipY:-.08}},
+      {t:1,pose:{upperArmL:-4*D,upperArmR:-4*D,forearmL:-4*D,forearmR:-4*D,handL:0,handR:0,thighL:0,thighR:0,shinL:0,shinR:0,hipY:-.02}}
+    ]
+  }
+,
+  mythic_idle: {
+    name:'Mythic · Floating idle', modelType:'mythic', duration:2.8,
+    keyframes:[
+      {t:0,pose:{spine:0,head:0,armL:0,armR:0,armL_lo:0,armR_lo:0,tail:0,tail_mid:0,tail_tip:0,hipY:0}},
+      {t:.25,pose:{spine:1.4*D,head:-.8*D,armL:-2*D,armR:1.5*D,armL_lo:-1*D,armR_lo:1*D,tail:2*D,tail_mid:-3*D,tail_tip:2*D,hipY:-.012}},
+      {t:.5,pose:{spine:0,head:0,armL:0,armR:0,armL_lo:0,armR_lo:0,tail:0,tail_mid:0,tail_tip:0,hipY:-.02}},
+      {t:.75,pose:{spine:-1.3*D,head:.7*D,armL:1.7*D,armR:-1.8*D,armL_lo:1*D,armR_lo:-1*D,tail:-2*D,tail_mid:3*D,tail_tip:-2*D,hipY:-.01}},
+      {t:1,pose:{spine:0,head:0,armL:0,armR:0,armL_lo:0,armR_lo:0,tail:0,tail_mid:0,tail_tip:0,hipY:0}}
+    ]
+  },
+  mermaid_swim: {
+    name:'Mermaid · Smooth swim', modelType:'mermaid', duration:1.65,
+    keyframes:[
+      {t:0,pose:{spine:2*D,head:0,armL:5*D,armR:-5*D,armL_lo:-4*D,armR_lo:4*D,tail:-14*D,tail_mid:22*D,tail_tip:-18*D,hipY:-.01}},
+      {t:.25,pose:{spine:-1*D,head:1*D,armL:2*D,armR:-2*D,armL_lo:3*D,armR_lo:-3*D,tail:12*D,tail_mid:-20*D,tail_tip:16*D,hipY:-.035}},
+      {t:.5,pose:{spine:-2*D,head:0,armL:-3*D,armR:3*D,armL_lo:5*D,armR_lo:-5*D,tail:15*D,tail_mid:20*D,tail_tip:-18*D,hipY:-.012}},
+      {t:.75,pose:{spine:1*D,head:-1*D,armL:1*D,armR:-1*D,armL_lo:-2*D,armR_lo:2*D,tail:-12*D,tail_mid:-18*D,tail_tip:17*D,hipY:-.04}},
+      {t:1,pose:{spine:2*D,head:0,armL:5*D,armR:-5*D,armL_lo:-4*D,armR_lo:4*D,tail:-14*D,tail_mid:22*D,tail_tip:-18*D,hipY:-.01}}
+    ]
+  },
+  naga_slither: {
+    name:'Naga / Lamia · Serpentine slither', modelType:'lamia', duration:1.9,
+    keyframes:[
+      {t:0,pose:{spine:-2*D,head:1*D,armL:-4*D,armR:4*D,tail:16*D,tail_mid:-25*D,tail_tip:20*D,hipY:0}},
+      {t:.25,pose:{spine:2*D,head:-1*D,armL:2*D,armR:-2*D,tail:-18*D,tail_mid:28*D,tail_tip:-22*D,hipY:-.008}},
+      {t:.5,pose:{spine:2*D,head:1*D,armL:4*D,armR:-4*D,tail:18*D,tail_mid:-28*D,tail_tip:24*D,hipY:0}},
+      {t:.75,pose:{spine:-2*D,head:-1*D,armL:-2*D,armR:2*D,tail:-16*D,tail_mid:25*D,tail_tip:-20*D,hipY:-.008}},
+      {t:1,pose:{spine:-2*D,head:1*D,armL:-4*D,armR:4*D,tail:16*D,tail_mid:-25*D,tail_tip:20*D,hipY:0}}
+    ]
+  },
+  naga_coil: {
+    name:'Naga / Lamia · Coil and uncoil', modelType:'lamia', duration:2.2,
+    keyframes:[
+      {t:0,pose:{spine:0,tail:0,tail_mid:0,tail_tip:0,head:0,hipY:0}},
+      {t:.3,pose:{spine:5*D,tail:24*D,tail_mid:-32*D,tail_tip:24*D,head:-2*D,hipY:-.01}},
+      {t:.58,pose:{spine:7*D,tail:36*D,tail_mid:-48*D,tail_tip:32*D,head:-3*D,hipY:-.015}},
+      {t:.82,pose:{spine:2*D,tail:10*D,tail_mid:-14*D,tail_tip:8*D,head:1*D,hipY:-.006}},
+      {t:1,pose:{spine:0,tail:0,tail_mid:0,tail_tip:0,head:0,hipY:0}}
+    ]
+  },
+  ghost_float: {
+    name:'Ghost · Float and drift', modelType:'ghost', duration:2.5,
+    keyframes:[
+      {t:0,pose:{spine:0,head:0,armL:-8*D,armR:8*D,armL_lo:-5*D,armR_lo:5*D,tail:-4*D,tail_mid:7*D,tail_tip:-8*D,hipY:-.015}},
+      {t:.25,pose:{spine:-3*D,head:2*D,armL:-14*D,armR:12*D,armL_lo:-8*D,armR_lo:7*D,tail:7*D,tail_mid:-12*D,tail_tip:10*D,hipY:-.07}},
+      {t:.5,pose:{spine:0,head:0,armL:-4*D,armR:4*D,armL_lo:0,armR_lo:0,tail:0,tail_mid:0,tail_tip:0,hipY:-.11}},
+      {t:.75,pose:{spine:3*D,head:-2*D,armL:5*D,armR:-8*D,armL_lo:6*D,armR_lo:-7*D,tail:-7*D,tail_mid:12*D,tail_tip:-10*D,hipY:-.055}},
+      {t:1,pose:{spine:0,head:0,armL:-8*D,armR:8*D,armL_lo:-5*D,armR_lo:5*D,tail:-4*D,tail_mid:7*D,tail_tip:-8*D,hipY:-.015}}
+    ]
+  },
+  fairy_idle:{name:'Fairy · Hover idle',modelType:'fairy',duration:2.4,keyframes:[
+    {t:0,pose:{wingL:0,wingR:0,spine:0,head:0,armL:0,armR:0,hipY:0}},
+    {t:.25,pose:{wingL:-12*D,wingR:12*D,spine:-1.5*D,head:1*D,armL:-3*D,armR:3*D,hipY:-.025}},
+    {t:.5,pose:{wingL:2*D,wingR:-2*D,spine:0,head:0,armL:1*D,armR:-1*D,hipY:-.045}},
+    {t:.75,pose:{wingL:14*D,wingR:-14*D,spine:1.5*D,head:-1*D,armL:3*D,armR:-3*D,hipY:-.022}},
+    {t:1,pose:{wingL:0,wingR:0,spine:0,head:0,armL:0,armR:0,hipY:0}}
+  ]},
+  fairy_flutter:{name:'Fairy · Quick wing flutter',modelType:'fairy',duration:.9,keyframes:[
+    {t:0,pose:{wingL:-8*D,wingR:8*D,spine:0,hipY:0}},
+    {t:.2,pose:{wingL:-38*D,wingR:38*D,spine:-1*D,hipY:-.018}},
+    {t:.42,pose:{wingL:24*D,wingR:-24*D,spine:1*D,hipY:-.032}},
+    {t:.62,pose:{wingL:-34*D,wingR:34*D,spine:-1*D,hipY:-.014}},
+    {t:.82,pose:{wingL:18*D,wingR:-18*D,spine:1*D,hipY:-.025}},
+    {t:1,pose:{wingL:-8*D,wingR:8*D,spine:0,hipY:0}}
+  ]},
+  fairy_flight:{name:'Fairy · Flight loop',modelType:'fairy',duration:1.8,keyframes:[
+    {t:0,pose:{wingL:-18*D,wingR:18*D,armL:-12*D,armR:12*D,legL:-5*D,legR:5*D,spine:0,hipY:-.02}},
+    {t:.25,pose:{wingL:34*D,wingR:-34*D,armL:-20*D,armR:18*D,legL:-10*D,legR:10*D,spine:-2*D,hipY:-.065}},
+    {t:.5,pose:{wingL:-26*D,wingR:26*D,armL:-8*D,armR:8*D,legL:8*D,legR:-8*D,spine:1.5*D,hipY:-.09}},
+    {t:.75,pose:{wingL:30*D,wingR:-30*D,armL:-18*D,armR:16*D,legL:-8*D,legR:8*D,spine:-1.5*D,hipY:-.05}},
+    {t:1,pose:{wingL:-18*D,wingR:18*D,armL:-12*D,armR:12*D,legL:-5*D,legR:5*D,spine:0,hipY:-.02}}
+  ]},
+  fairy_land:{name:'Fairy · Soft landing',modelType:'fairy',duration:1.35,keyframes:[
+    {t:0,pose:{wingL:20*D,wingR:-20*D,legL:-10*D,legR:10*D,spine:-1*D,hipY:-.08}},
+    {t:.35,pose:{wingL:-18*D,wingR:18*D,legL:18*D,legR:-18*D,spine:3*D,hipY:-.015}},
+    {t:.68,pose:{wingL:8*D,wingR:-8*D,legL:3*D,legR:-3*D,spine:-1*D,hipY:0}},
+    {t:1,pose:{wingL:0,wingR:0,legL:0,legR:0,spine:0,hipY:0}}
+  ]},
+  devil_idle:{name:'Devil · Dark hover idle',modelType:'devil',duration:2.3,keyframes:[
+    {t:0,pose:{wingL:0,wingR:0,spine:0,head:0,armL:-3*D,armR:3*D,hipY:0}},
+    {t:.25,pose:{wingL:12*D,wingR:-12*D,spine:1.5*D,head:-1*D,armL:-7*D,armR:7*D,hipY:-.025}},
+    {t:.5,pose:{wingL:0,wingR:0,spine:0,head:1*D,armL:-2*D,armR:2*D,hipY:-.04}},
+    {t:.75,pose:{wingL:-12*D,wingR:12*D,spine:-1.5*D,head:0,armL:4*D,armR:-4*D,hipY:-.018}},
+    {t:1,pose:{wingL:0,wingR:0,spine:0,head:0,armL:-3*D,armR:3*D,hipY:0}}
+  ]},
+  devil_flap:{name:'Devil · Powerful wing flap',modelType:'devil',duration:1.05,keyframes:[
+    {t:0,pose:{wingL:12*D,wingR:-12*D,spine:0,hipY:0}},
+    {t:.22,pose:{wingL:-36*D,wingR:36*D,spine:-2*D,hipY:-.03}},
+    {t:.48,pose:{wingL:28*D,wingR:-28*D,spine:3*D,hipY:-.075}},
+    {t:.72,pose:{wingL:-30*D,wingR:30*D,spine:-1*D,hipY:-.035}},
+    {t:1,pose:{wingL:12*D,wingR:-12*D,spine:0,hipY:0}}
+  ]},
+  devil_glide:{name:'Devil · Gliding flight',modelType:'devil',duration:2.0,keyframes:[
+    {t:0,pose:{wingL:24*D,wingR:-24*D,armL:-14*D,armR:14*D,legL:4*D,legR:-4*D,spine:0,hipY:-.035}},
+    {t:.3,pose:{wingL:10*D,wingR:-10*D,armL:-10*D,armR:10*D,legL:1*D,legR:-1*D,spine:-1*D,hipY:-.055}},
+    {t:.6,pose:{wingL:-8*D,wingR:8*D,armL:-6*D,armR:6*D,legL:-4*D,legR:4*D,spine:1*D,hipY:-.07}},
+    {t:1,pose:{wingL:24*D,wingR:-24*D,armL:-14*D,armR:14*D,legL:4*D,legR:-4*D,spine:0,hipY:-.035}}
+  ]},
+  devil_swoop:{name:'Devil · Diving swoop',modelType:'devil',duration:1.55,keyframes:[
+    {t:0,pose:{wingL:-8*D,wingR:8*D,spine:0,head:0,hipY:-.015}},
+    {t:.28,pose:{wingL:-34*D,wingR:34*D,spine:8*D,head:6*D,legL:-10*D,legR:10*D,hipY:-.04}},
+    {t:.55,pose:{wingL:28*D,wingR:-28*D,spine:14*D,head:9*D,legL:16*D,legR:-16*D,hipY:-.01}},
+    {t:.78,pose:{wingL:12*D,wingR:-12*D,spine:-4*D,head:-3*D,legL:4*D,legR:-4*D,hipY:-.025}},
+    {t:1,pose:{wingL:-8*D,wingR:8*D,spine:0,head:0,hipY:-.015}}
+  ]}
+};
+
+function lerp(a,b,t){ return a + (b-a)*t; }
+// Copies a previously-snapshotted bones state back onto the LIVE bones object in place
+// (mutating each joint's own angle/x/y) rather than reassigning the `bones` variable itself.
+// This matters because `bones` is just a reference to the active character's own
+// `c.bones` object (see syncActiveCharacterRefs) — applyPoseToBones already mutates that
+// same shared object in place during a preview, so restoring correctly means writing the
+// snapshotted values back into it the same way, not swapping in a detached clone that
+// syncActiveCharacterRefs would immediately overwrite/ignore on its next call.
+function restoreBonesSnapshot(snapshot, targetBones){
+  const target = targetBones || bones;
+  if(!snapshot || !target) return;
+  Object.keys(target).forEach(k=>{
+    if(snapshot[k]){
+      if(snapshot[k].angle !== undefined) target[k].angle = snapshot[k].angle;
+      if(snapshot[k].x !== undefined) target[k].x = snapshot[k].x;
+      if(snapshot[k].y !== undefined) target[k].y = snapshot[k].y;
+    }
+  });
+}
+// Shortest-path angular interpolation in degrees (e.g. 350deg -> 10deg travels through
+// 360/0, a 20deg turn, instead of the naive 340deg the long way around). Normalizes the
+// a->b delta into -180..+180 before lerping, then lets the result run outside 0..360 —
+// callers that display/store rotation don't need it wrapped back into range.
+function lerpAngleDegrees(a,b,t){
+  let delta = ((b-a+180) % 360 + 360) % 360 - 180;
+  return a + delta*t;
+}
+
+function evalPreset(preset, tFrac){
+  const source=Array.isArray(preset&&preset.keyframes)?preset.keyframes:[];
+  const kfs=source.filter(k=>k&&Number.isFinite(Number(k.t))&&k.pose&&typeof k.pose==='object')
+    .map(k=>({t:Math.max(0,Math.min(1,Number(k.t))),pose:k.pose})).sort((a,b)=>a.t-b.t);
+  if(!kfs.length)return {};
+  if(kfs.length===1)return {...kfs[0].pose};
+  const samePose=(a,b)=>{
+    const keys=new Set([...Object.keys(a||{}),...Object.keys(b||{})]);
+    for(const k of keys)if(Math.abs((Number(a&&a[k])||0)-(Number(b&&b[k])||0))>1e-8)return false;
+    return true;
+  };
+  // A repeated t=1 copy of the t=0 pose is a loop seam, not an extra stop point.
+  if(kfs.length>2&&kfs[0].t<=1e-8&&kfs[kfs.length-1].t>=1-1e-8&&samePose(kfs[0].pose,kfs[kfs.length-1].pose))kfs.pop();
+  if(kfs.length===1)return {...kfs[0].pose};
+  const n=kfs.length,t=((Number(tFrac)||0)%1+1)%1;
+  let ai=0,bi=1,t1=kfs[0].t,t2=kfs[1].t;
+  if(t<kfs[0].t&&kfs[0].t>0){ai=n-1;bi=0;t1=kfs[ai].t-1;t2=kfs[0].t;}
+  else if(t>=kfs[n-1].t&&kfs[n-1].t<1){ai=n-1;bi=0;t1=kfs[ai].t;t2=kfs[0].t+1;}
+  else{
+    ai=0;
+    while(ai<n-2&&t>kfs[ai+1].t)ai++;
+    bi=ai+1;t1=kfs[ai].t;t2=kfs[bi].t;
+  }
+  const prevIndex=(ai-1+n)%n,nextIndex=(bi+1)%n;
+  const p0=kfs[prevIndex],p1=kfs[ai],p2=kfs[bi],p3=kfs[nextIndex];
+  // Shift the neighbour timestamps into the same loop cycle as this segment.
+  // There are two distinct seam cases: just BEFORE the first keyframe (previous
+  // neighbour belongs to the prior cycle), and just AFTER the last keyframe
+  // (next neighbour belongs to the following cycle).
+  const beforeFirst=(ai===n-1&&t<kfs[0].t);
+  const afterLast=(ai===n-1&&t>=kfs[n-1].t);
+  const t0=(ai===0||beforeFirst)?p0.t-1:p0.t;
+  const t3=(bi===n-1||afterLast)?p3.t+1:p3.t;
+  const span=Math.max(1e-6,t2-t1),u=Math.max(0,Math.min(1,(t-t1)/span));
+  const u2=u*u,u3=u2*u;
+  const h00=2*u3-3*u2+1,h10=u3-2*u2+u,h01=-2*u3+3*u2,h11=u3-u2;
+  const keys=new Set([...Object.keys(p0.pose||{}),...Object.keys(p1.pose||{}),...Object.keys(p2.pose||{}),...Object.keys(p3.pose||{})]);
+  const value=(frame,key)=>{const v=Number(frame&&frame.pose&&frame.pose[key]);return Number.isFinite(v)?v:0;};
+  const pose={};
+  keys.forEach(key=>{
+    const v0=value(p0,key),v1=value(p1,key),v2=value(p2,key),v3=value(p3,key);
+    const m1=(v2-v0)/Math.max(1e-6,t2-t0),m2=(v3-v1)/Math.max(1e-6,t3-t1);
+    pose[key]=h00*v1+h10*span*m1+h01*v2+h11*span*m2;
+  });
+  return pose;
+}
+
+// Give older/admin-authored presets natural follow-through even when their keyframes only
+// animate the large limbs. Explicit elbow/wrist/knee keys always win over these derived values.
+function completeNaturalJointPose(pose, loopT, animKey){
+  const out={...(pose||{})};
+  if(animKey==='default')return out;
+  const D=Math.PI/180,phase=2*Math.PI*(Number(loopT)||0);
+  const primary=['spine','head','armL','armR','legL','legR'];
+  if(!primary.some(k=>Math.abs(Number(out[k])||0)>.0005))return out;
+  const has=k=>Object.prototype.hasOwnProperty.call(out,k);
+  ['L','R'].forEach(side=>{
+    const phaseSide=phase+(side==='L'?0:Math.PI);
+    const arm='arm'+side,forearm=arm+'_lo',hand='hand'+side;
+    const leg='leg'+side,shin=leg+'_lo';
+    const a=Number(out[arm])||0,l=Number(out[leg])||0;
+    if(!has(forearm))out[forearm]=-a*.16+1.25*D*Math.sin(phaseSide);
+    const f=Number(out[forearm])||0;
+    if(!has(hand))out[hand]=-(f-a)*.10+.55*D*Math.sin(phaseSide*2);
+    if(!has(shin))out[shin]=-l*.12+2.0*D*Math.max(0,Math.sin(phaseSide));
+  });
+  if(!has('head'))out.head=-(Number(out.spine)||0)*.14+.45*D*Math.sin(phase);
+  if(!has('hipY')){
+    const gait=Math.max(Math.abs(Number(out.legL)||0),Math.abs(Number(out.legR)||0));
+    if(gait>.015)out.hipY=-Math.min(.012,gait*.012)*(.45+.55*Math.cos(phase*2));
+  }
+  return out;
+}
+
+// Applies a computed pose onto a rig's bones. Defaults to the shared bones/baseAngles/
+// hipRestY (the active character) when called with no extra arguments, exactly as before —
+// pass an explicit (targetBones, targetBaseAngles, targetHipRestY) to pose a DIFFERENT,
+// non-active character's own rig instead (see animateAllCharacters), without touching the
+// active character's live bones at all.
+function applyPoseToBones(pose, targetBones, targetBaseAngles, targetHipRestY){
+  const b=targetBones!==undefined?targetBones:bones;
+  const ba=targetBaseAngles!==undefined?targetBaseAngles:baseAngles;
+  const restY=targetHipRestY!==undefined?targetHipRestY:hipRestY;
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  Object.keys(b).forEach(k=>{
+    if(ba[k]===undefined) return;
+    const delta=Number(pose[k])||0;
+    let limit=165*Math.PI/180;
+    if(k==='spine') limit=27*Math.PI/180;
+    else if(k==='head') limit=38*Math.PI/180;
+    else if(k.startsWith('leg')&&!k.endsWith('_lo')) limit=112*Math.PI/180;
+    else if(k.endsWith('_lo')&&k.startsWith('leg')) limit=142*Math.PI/180;
+    else if(/^hand[LR]$/.test(k)) limit=95*Math.PI/180;
+    else if(/^((thumb|index|middle|ring|pinky)[LR]_[12])$/.test(k)) limit=105*Math.PI/180;
+    b[k].angle=ba[k]+clamp(delta,-limit,limit);
+  });
+  // Gesture curves apply to fingertip bones without changing limb length or the torso bind pose.
+  const fist=clamp(Number(pose.gestureFist)||0,0,1), point=clamp(Number(pose.gesturePoint)||0,0,1), peace=clamp(Number(pose.gesturePeace)||0,0,1), thumbs=clamp(Number(pose.gestureThumbsUp)||0,0,1);
+  const fingerNames=['thumb','index','middle','ring','pinky'];
+  ['L','R'].forEach(side=>fingerNames.forEach((f,i)=>{
+    for(let seg=1;seg<=2;seg++){
+      const k=f+side+'_'+seg;
+      if(!b[k]||ba[k]===undefined) continue;
+      const sign=side==='L'?1:-1;
+      let bend=(seg===1?43:57)*Math.PI/180*fist*sign;
+      if(f!=='index') bend += (seg===1?38:48)*Math.PI/180*point*sign;
+      if(f!=='index'&&f!=='middle') bend += (seg===1?40:50)*Math.PI/180*peace*sign;
+      if(f!=='thumb') bend += (seg===1?42:55)*Math.PI/180*thumbs*sign;
+      if(f==='thumb') bend -= sign*95*Math.PI/180*thumbs;
+      b[k].angle=ba[k]+clamp((Number(pose[k])||0)+bend,-120*Math.PI/180,120*Math.PI/180);
+    }
+  }));
+  // Keep jumping on a readable arc: no extreme root travel that makes the character look detached.
+  if(pose.hipY!==undefined && Number.isFinite(restY)) b.hip.y=restY+clamp(Number(pose.hipY)||0,-0.13,0.035)*stageH;
+  else if(Number.isFinite(restY)) b.hip.y=restY;
+}
+
+let hipRestY;
+let currentAnimKey = null; // null = pose mode (no animation applied)
+
+// The clip placed on the Stickman track. trimStart/trimEnd are in seconds along
+// the clip's own timeline (0..sourceDuration for the looped preset).
+const DEFAULT_CLIP_LEN = 5; // seconds — new clips default to a 5s trim-out
+let activeClip = null; // { animKey, trimStart, trimEnd, keyframes: [{t (sec, absolute on timeline), pose}] }
+let timelineDuration = 2.0; // overall timeline length shown, grows to fit the clip
+let overlays = []; // CapCut-style extra overlay layers: { id, name, color, trimStart, trimEnd }
+let selectedClip = null; // 'main' | 'background' | overlay id | null — which clip shows selection chrome
+let selectedKfIdx = null; // index of the selected keyframe diamond on the main clip, or null
+// When the stickman's main clip is Split, the piece AFTER the cut is stored here as its own
+// independent segment (own trim handles, own delete) rather than mutating activeClip in place.
+// Also used to hold any additional animation clips appended after the first one (see
+// selectAnim), so a project can now carry several animation clips back-to-back on the
+// same stickman track, not just one.
+let splitStickmanSegments = [];
+
+// Resolves the actual clip object (activeClip or one of splitStickmanSegments) behind a
+// selection ref like 'main' or 'seg1'. Returns null for background/overlay refs (or
+// anything else that isn't a stickman clip) — those don't carry keyframes/transform.
+function getClipByRef(ref){
+  if(ref === 'main') return activeClip;
+  if(typeof ref === 'string' && ref.startsWith('seg')){
+    const idx = parseInt(ref.slice(3), 10);
+    return splitStickmanSegments[idx] || null;
+  }
+  return null;
+}
+// Returns every stickman-track clip (the main clip plus every split-off/appended segment)
+// in left-to-right timeline order. Each entry carries a stable `ref` ('main' or 'segN')
+// so callers can re-select or mutate the exact clip object it came from. Defaults to the
+// currently-ACTIVE character's clip/segments (the plain shared variables) when called with
+// no arguments, exactly as before — pass an explicit (clip, segments) pair (e.g. from
+// animateAllCharacters) to inspect a DIFFERENT, non-active character's own clips instead.
+function getAllStickmanClips(clip, segments){
+  const useClip = clip !== undefined ? clip : activeClip;
+  const useSegments = segments !== undefined ? segments : splitStickmanSegments;
+  const list = [];
+  if(useClip) list.push({ ref:'main', clip:useClip });
+  (useSegments||[]).forEach((seg, idx)=> list.push({ ref:'seg'+idx, clip:seg }));
+  list.sort((a,b)=> a.clip.trimStart - b.clip.trimStart);
+  return list;
+}
+// Total playable length across every stickman clip on the track (their combined span),
+// used so Play actually runs through every clip back-to-back instead of just the first.
+// Same optional (clip, segments) override as getAllStickmanClips.
+function combinedStickmanDuration(clip, segments){
+  const all = getAllStickmanClips(clip, segments);
+  if(!all.length) return 2.0;
+  return all.reduce((max, {clip})=> Math.max(max, clip.trimEnd), 0);
+}
+// Total playable length across EVERY character's own clips, not just the active one — this
+// is what playback/export must loop/run against now that each character animates
+// independently, so a longer clip on a non-active character is never cut short just because
+// the active character's own clip happens to be shorter (or vice versa).
+function combinedAllCharactersDuration(){
+  let max = 0;
+  characters.forEach(c=>{
+    if(!c.clip) return;
+    max = Math.max(max, combinedStickmanDuration(c.clip, c.segments));
+  });
+  return max || 2.0;
+}
+// BUGFIX (couldn't scrub/drag past 2s with no animation selected): setCurrentAbsoluteTime
+// and timeFromDragAnchor used to clamp the playhead to combinedStickmanDuration()/
+// combinedAllCharactersDuration() alone — BOTH of those hard-return a bare 2.0 the moment
+// there's no character/animation clip at all, completely ignoring `timelineDuration` (which
+// already tracks how far the Background/Clips/Audio rows actually extend — see
+// syncTimelineInnerWidth, trimPanelSetEnd, addMediaOverlay, etc.). So on a project with,
+// say, a 6s background/audio clip but zero animation yet, the timeline VISUALLY drew out to
+// 6s+ (tracks/ruler both sized off timelineDuration) but the playhead itself could never be
+// dragged, scrubbed, or tapped past the 2s mark — every gesture silently clamped back.
+// totalProjectDuration() is now the one authoritative "how far can the playhead go" bound:
+// the longer of (a) every character's own animation extent and (b) timelineDuration itself,
+// so background/overlay/audio-only projects (no animation yet) are fully scrubbable across
+// their real length, and adding a longer animation later still extends things correctly.
+function totalProjectDuration(){
+  return Math.max(combinedAllCharactersDuration(), timelineDuration);
+}
+// Exact playback endpoint: unlike timelineDuration this never includes ruler/track padding
+// and never inherits the two-second fallback used by the legacy character-duration helpers.
+// It includes every character's main/split clips and every background/overlay type.
+function getProjectContentEndSec(){
+  let endSec=0;
+  const includeClip=clip=>{
+    if(!clip||typeof clip!=='object')return;
+    const trimEnd=Number(clip.trimEnd);
+    if(Number.isFinite(trimEnd))endSec=Math.max(endSec,trimEnd);
+  };
+  (Array.isArray(characters)?characters:[]).forEach(character=>{
+    if(!character)return;
+    includeClip(character.clip);
+    (Array.isArray(character.segments)?character.segments:[]).forEach(includeClip);
+  });
+  // Include the active aliases as a defensive fallback for older/restored projects whose
+  // active character references have not yet been synchronized to the characters array.
+  if(typeof activeClip!=='undefined')includeClip(activeClip);
+  if(typeof splitStickmanSegments!=='undefined'&&Array.isArray(splitStickmanSegments))splitStickmanSegments.forEach(includeClip);
+  (Array.isArray(backgrounds)?backgrounds:[]).forEach(includeClip);
+  (Array.isArray(overlays)?overlays:[]).forEach(includeClip);
+  return Math.max(0.1,endSec);
+}
+// One exact duration source for export estimates, credit charging, progress readouts and encoding.
+function getExportContentDurationSec(){
+  try{return Math.max(0.1,Number(typeof getProjectContentEndSec==='function'?getProjectContentEndSec():0)||0.1);}
+  catch(_e){return 0.1;}
+}
+// Finds whichever stickman clip covers a given ABSOLUTE timeline second (falls back to the
+// nearest clip if the time sits in a gap between clips, so playback never just goes blank).
+// Same optional (clip, segments) override as getAllStickmanClips.
+function stickmanClipAt(absSec, clip, segments){
+  const all = getAllStickmanClips(clip, segments);
+  if(!all.length) return null;
+  let hit = all.find(({clip})=> absSec >= clip.trimStart && absSec < clip.trimEnd);
+  if(hit) return hit;
+  // gap: pick the nearest clip in time rather than showing nothing
+  let nearest = all[0], bestDist = Infinity;
+  all.forEach(entry=>{
+    const d = absSec < entry.clip.trimStart ? entry.clip.trimStart - absSec : absSec - entry.clip.trimEnd;
+    if(d < bestDist){ bestDist = d; nearest = entry; }
+  });
+  return nearest;
+}
+
+function setActiveAnimation(key){
+  currentAnimKey = key;
+  hipRestY = bones.hip.y;
+  if(activeCharacter()) activeCharacter().hipRestY = hipRestY;
+  activeClip = {
+    animKey: key,
+    trimStart: 0,
+    trimEnd: DEFAULT_CLIP_LEN,
+    keyframes: [],
+    speed: 1
+  };
+  // activeClip was just reassigned to a brand new object, so the active character's own
+  // `clip` field (and not just the plain shared variable) must be pointed at it too, or the
+  // new clip would vanish the moment syncActiveCharacterRefs() runs again (e.g. switching
+  // characters and back) since the character object would still show its old/empty clip.
+  syncClipRefsToCharacter();
+  timelineDuration = Math.max(2.0, activeClip.trimEnd);
+  frame = 0;
+  currentAbsoluteTimeSec = 0;
+  updateTimeReadout();
+  renderTimelineClip();
+  movePlayhead();
+  drawStick();
+  onClipSelected(activeClip,'add');
+}
+
+// Add a new animation clip according to the playhead's half of the current clip:
+// first half = insert before/left, second half = insert after/right. Clips after the
+// insertion point shift as a group, keeping all character clips independent and sequential.
+function appendAnimationClip(key){
+  if(!activeClip){setActiveAnimation(key);return;}
+  const all=getAllStickmanClips().sort((a,b)=>(Number(a.clip.trimStart)||0)-(Number(b.clip.trimStart)||0));
+  if(!all.length){setActiveAnimation(key);return;}
+  const lastEnd=all.reduce((m,x)=>Math.max(m,Number(x.clip.trimEnd)||0),0);
+  let playhead=0;try{playhead=Math.max(0,Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0);}catch(_e){}
+  let insertAt=lastEnd,anchor=all.find(x=>playhead>=Number(x.clip.trimStart)-.001&&playhead<Number(x.clip.trimEnd)-.001);
+  if(anchor){const st=Number(anchor.clip.trimStart)||0,en=Number(anchor.clip.trimEnd)||st;insertAt=playhead<(st+en)/2?st:en;}
+  else{
+    const next=all.find(x=>Number(x.clip.trimStart)>=playhead-.001);
+    if(next)insertAt=Math.max(0,Number(next.clip.trimStart)||0);
+  }
+  const len=Math.max(MIN_CLIP_SEC,Number(DEFAULT_CLIP_LEN)||2);
+  all.forEach(({clip})=>{
+    if(Number(clip.trimStart)>=insertAt-.001){
+      clip.trimStart=Number(clip.trimStart)+len;clip.trimEnd=Number(clip.trimEnd)+len;
+      if(Array.isArray(clip.keyframes))clip.keyframes=clip.keyframes.map(k=>{const kt=Number(k.t);return Number.isFinite(kt)?{...k,t:kt+len}:{...k};});
+    }
+  });
+  const newClip={animKey:key,trimStart:insertAt,trimEnd:insertAt+len,keyframes:[],speed:1};
+  splitStickmanSegments.push(newClip);
+  splitStickmanSegments.sort((a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0));
+  syncClipRefsToCharacter();
+  timelineDuration=Math.max(Number(timelineDuration)||0,...getAllStickmanClips().map(x=>Number(x.clip.trimEnd)||0));
+  renderTimelineClip();syncTimelineInnerWidth();renderRuler();
+  const newIdx=splitStickmanSegments.indexOf(newClip),newSegId='seg'+newIdx;
+  onClipSelected(newSegId,'add');
+}
+
+/* ==================================================================================
+   CANONICAL TIMELINE CLOCK + CENTRAL PLAYBACK CONTROLLER
+   ==================================================================================
+   ROOT CAUSE #1 (playback/pause race): the old code had `isPlaying=false;
+   clearInterval(playInterval)` copy-pasted into ~10 different handlers (clip tap, keyframe
+   tap, seekFrame, split, export, ...), each re-implementing "pause" slightly differently,
+   plus a completely separate setInterval(tickFrame, 1000/FPS) clock that free-runs on its
+   own timer independent of real elapsed time. Any of those call sites could race the next
+   interval tick, so a tap could land "one tick behind" or get silently overwritten.
+   FIX: exactly one requestAnimationFrame-driven clock (startPlayback/pausePlayback below),
+   and every other function in the file now calls pausePlayback()/togglePlayback() instead
+   of touching isPlaying/playInterval directly.
+
+   ROOT CAUSE #2 (time representation): `frame` used to mean "frames since
+   activeClip.trimStart" — but activeClip is just whichever clip happens to be in the
+   activeClip slot, NOT necessarily the clip that's selected/playing/being scrubbed. Once
+   split segments exist, activeClip.trimStart is the WRONG offset for anything happening on
+   a segment, which is what caused split-segment keyframes/taps to resolve against the
+   wrong clip.
+   FIX: currentAbsoluteTimeSec is now the one true clock (absolute timeline seconds, t=0 at
+   the very start of the whole timeline, matching how keyframe.t and clip.trimStart/trimEnd
+   are already stored). `frame` is kept as a derived, backward-compatible view of it
+   (frame = round((currentAbsoluteTimeSec - activeClip.trimStart) * FPS)) so the many
+   existing call sites that still read `frame` keep working, but every NEW/fixed call site
+   below reads/writes currentAbsoluteTimeSec directly via the helpers.
+   ==================================================================================== */
+let isPlaying=false;
+let frame=0; // DERIVED/LEGACY: frames since activeClip.trimStart. Kept in sync by setCurrentAbsoluteTime(). Do not assign this directly in new code — use setCurrentAbsoluteTime()/seekToFrame().
+let currentAbsoluteTimeSec = 0; // CANONICAL CLOCK: absolute timeline seconds, t=0 at timeline start.
+let playbackRaf = null;
+let playbackStartedAtMs = 0;    // performance.now() at the moment playback last (re)started
+let playbackStartTimeSec = 0;   // currentAbsoluteTimeSec at that same moment
+let evVideoBufferStall = null;  // { id, boundarySec, startedAtMs, paused } — one clock gate at a time
+let evVideoGateScanFromSec = 0;
+const EV_VIDEO_BUFFER_STALL_CAP_MS = 200; // Safety ceiling for any legacy gate; playback no longer waits on incoming video frames.
+const EV_VIDEO_CLOCK_EPS = 0.0005;
+// v150 debug flag: when true, logs every LIVE<->HOLD overlay-video transition and every
+// playback clock gate stall (with its reason and duration) to the console. Default off.
+window.__evVideoDebug = window.__evVideoDebug || false;
+// BUGFIX (video frame hidden + no audio after adding a video clip): every alignment gate used a
+// flat 0.04s tolerance. A <video> that is genuinely playing always trails the rAF timeline clock by
+// ~40-150ms (play() start latency + decoder/audio clock), so the gates failed on every frame and
+// evSafePlayVideo paused/muted/re-seeked the clip ~15x/second. Exact alignment (0.04s) is only
+// required while the element is NOT playing (start, cut boundary, scrub). Once it is playing, the
+// existing drift engine in renderOverlayMedia (rate nudge 0.08-0.35s, hard seek >0.35s) owns sync.
+const EV_VIDEO_ALIGN_TOL_START = 0.04;
+const EV_VIDEO_ALIGN_TOL_PLAYING = 1.0; // tolerate normal decoder-clock drift; the rate servo below corrects it without repeated audio-cutting seeks.
+function evVideoAlignTolerance(el){
+  return (isPlaying&&el&&el.tagName==='VIDEO'&&!el.paused&&!el.seeking)
+    ?EV_VIDEO_ALIGN_TOL_PLAYING:EV_VIDEO_ALIGN_TOL_START;
+}
+
+// ---- canonical clock helpers (every playback/seek/keyframe/split path should go through these) ----
+
+function evGetOverlayVideoElement(ov){
+  if(!ov)return null;
+  const key=String(ov.id);
+  return (typeof overlayMediaEls!=='undefined'&&overlayMediaEls[key]) ||
+    (typeof overlayWarmEls!=='undefined'&&overlayWarmEls[key]) || null;
+}
+function evIsOverlayVideoPresentable(ov){
+  const el=evGetOverlayVideoElement(ov);
+  const t=evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov&&ov.id)
+    ?Number(evVideoBufferStall.boundarySec):Number(currentAbsoluteTimeSec)||0;
+  return evOverlayVideoFrameIsPresentable(ov,el,t);
+}
+function evFindUnreadyOverlayVideoBoundary(fromSec,toSec){
+  if(!Array.isArray(overlays)||toSec<fromSec)return null;
+  let found=null;
+  for(let i=0;i<overlays.length;i++){
+    const ov=overlays[i];
+    if(!ov||ov.type!=='video'||ov.reversePlayback||!ov.src)continue;
+    const start=Number(ov.trimStart)||0;
+    const end=Number(ov.trimEnd)||0;
+    if(end<=start||start<=fromSec+EV_VIDEO_CLOCK_EPS||start>toSec+EV_VIDEO_CLOCK_EPS)continue;
+    if(evIsOverlayVideoPresentable(ov))continue;
+    if(!found||start<found.boundarySec)found={clip:ov,boundarySec:start};
+  }
+  return found;
+}
+
+// Reads the true "now" of the timeline. During a video-buffer gate it returns the exact
+// clip boundary, so pause/tap handlers cannot commit a time that has already run past it.
+function getCurrentAbsoluteTime(){
+  // The canonical clock never waits for an incoming decoder. Video compositing holds the
+  // last outgoing frame until the new decoder is ready, while audio remains clock-scheduled.
+  if(isPlaying)return playbackStartTimeSec+(performance.now()-playbackStartedAtMs)/1000;
+  return currentAbsoluteTimeSec;
+}
+// Sets the canonical clock and derives the legacy `frame` counter from it. This is the
+// ONLY function that should ever assign currentAbsoluteTimeSec outside of the rAF tick
+// itself. Does not render — callers render explicitly so scrub/seek can batch a redraw.
+function setCurrentAbsoluteTime(tSec){
+  // BUGFIX: was combinedStickmanDuration() — see totalProjectDuration()'s comment above for
+  // why that silently capped every seek/scrub at 2s whenever no animation was selected yet.
+  const cachedScrubDuration = window.__ethvelleTimelineScrubbing ? Number(window.__ethvelleTimelineScrubMaxDuration) : NaN;
+  const dur = Number.isFinite(cachedScrubDuration) && cachedScrubDuration>0 ? cachedScrubDuration : totalProjectDuration();
+  const boundedTime=Math.max(0,Math.min(dur,Number(tSec)||0));
+  // Media clips are active on [trimStart, trimEnd), so a finger released exactly at the
+  // project end used to seek one instant PAST the final video frame and clear the canvas.
+  // Settle end-of-project seeks on the last renderable frame (one frame step before trimEnd).
+  // This is shared by tap-seek, drag-scrub, and playback-end paths, so none can expose a blank
+  // canvas merely because the clock landed on an exclusive clip boundary.
+  const contentEnd=(typeof getProjectContentEndSec==='function')?Number(getProjectContentEndSec()):dur;
+  const frameStep=1/Math.max(1,Number(FPS)||24);
+  const hasRealContent=Number.isFinite(contentEnd)&&contentEnd>0.100001;
+  const lastVisibleTime=hasRealContent?Math.max(0,contentEnd-frameStep):boundedTime;
+  const nextTime=(hasRealContent&&boundedTime>=contentEnd-0.000001)
+    ?Math.min(boundedTime,lastVisibleTime):boundedTime;
+
+  // An actual seek/scrub away from a gated boundary cancels that gate. A pause/resume at
+  // the same boundary deliberately preserves it so the pending decoder can finish loading.
+  if(evVideoBufferStall&&(window.__ethvelleTimelineScrubbing||Math.abs(nextTime-evVideoBufferStall.boundarySec)>EV_VIDEO_CLOCK_EPS)){
+    evVideoBufferStall=null;
+    evVideoGateScanFromSec=nextTime;
+    evClearHeldOutgoingOverlayFrames();
+  }
+
+  currentAbsoluteTimeSec=nextTime;
+  const trimStart = activeClip ? activeClip.trimStart : 0;
+  frame = Math.max(0, Math.round((currentAbsoluteTimeSec - trimStart) * FPS));
+}
+function getFrameFromTime(tSec){
+  const trimStart = activeClip ? activeClip.trimStart : 0;
+  return Math.max(0, Math.round((tSec - trimStart) * FPS));
+}
+function getCurrentClipAtTime(tSec){
+  return stickmanClipAt(tSec);
+}
+function getClipLocalTime(clip, tSec){
+  if(!clip) return 0;
+  return Math.max(0, tSec - clip.trimStart);
+}
+
+function currentPresetDuration(){
+  // Total playable length across ALL stickman clips (main clip + every split/appended
+  // segment) so Play runs the full timeline instead of stopping after just the first
+  // clip/segment. `frame` is measured from activeClip.trimStart (existing convention used
+  // throughout scrubbing/keyframes), so the playable span is measured from there too.
+  if(activeClip) return Math.max(0.05, combinedStickmanDuration() - activeClip.trimStart);
+  return 2.0;
+}
+function totalFramesForCurrent(){
+  return Math.max(1, Math.round(currentPresetDuration()*FPS));
+}
+
+// ---- central playback controller ----
+// Starts (or resumes) playback from whatever currentAbsoluteTimeSec currently is. Anchors
+// the real-time clock (performance.now()) to that instant so every subsequent rAF tick
+// derives elapsed time mathematically instead of assuming a fixed 1000/FPS interval —
+// this is what keeps playback synchronized with real elapsed time even if a frame callback
+// is late/dropped, and is why we no longer use setInterval as the playback clock.
+function startPlayback(){
+  // Media-only projects must play normally too; a character rig is not required for
+  // image, video, text, background, or audio clips on the shared timeline.
+  const hasPlayableMedia = (Array.isArray(overlays) && overlays.some(o=>o && ['image','video','text','audio','shape','color'].includes(o.type)))
+    || (Array.isArray(backgrounds) && backgrounds.length > 0);
+  if(!activeClip && !hasPlayableMedia){
+    showToast('Add a clip or choose an animation before playback', {icon: toastIcons.info});
+    return;
+  }
+  if(isPlaying) return; // idempotent: calling start while already playing is a no-op
+  const projectEnd=getProjectContentEndSec();
+  const endRestartTolerance=1/Math.max(1,Number(FPS)||30);
+  if(Number(currentAbsoluteTimeSec)>=projectEnd-endRestartTolerance){
+    evVideoBufferStall=null;
+    evVideoGateScanFromSec=0;
+    try{evClearHeldOutgoingOverlayFrames();}catch(_e){}
+    setCurrentAbsoluteTime(0);
+  }
+  // Starting playback always clears any lingering clip/keyframe selection (see historical
+  // note preserved from the old togglePlay: picking a keyframe then pressing Play used to
+  // leave the contextual toolbar armed underneath a running playback).
+  if(selectedClip || selectedKfIdx !== null) deselectAllClips();
+  isPlaying = true;
+  const startedAt=performance.now();
+  playbackStartedAtMs=startedAt;
+  playbackStartTimeSec=currentAbsoluteTimeSec;
+
+  // Decoder readiness is deliberately non-blocking. The renderer retains the outgoing
+  // frame at cuts and the Web Audio scheduler pre-schedules sound independently.
+  evVideoBufferStall=null;
+  evVideoGateScanFromSec=currentAbsoluteTimeSec;
+
+  // Start pre-rolling immediately on the Play path, not after the first rendered frame.
+  try{evWarmLastCheckMs=0;warmUpcomingOverlayVideos(currentAbsoluteTimeSec);}catch(_e){}
+
+  const icon = document.getElementById('playIcon');
+  if(icon) icon.innerHTML = '<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  playbackRaf = requestAnimationFrame(playbackTick);
+}
+// Stop on the final content frame. Keep the playhead one frame-step inside the last clip
+// because visual clip activity is represented by [trimStart, trimEnd), not an inclusive end.
+function stopPlaybackAtProjectEnd(endSec){
+  const end=Math.max(0.1,Number(endSec)||getProjectContentEndSec());
+  const frameStep=1/Math.max(1,Number(FPS)||30);
+  const lastVisibleTime=Math.max(0,end-Math.min(frameStep,Math.max(0.001,end*0.25)));
+  if(playbackRaf!==null){try{cancelAnimationFrame(playbackRaf);}catch(_e){}playbackRaf=null;}
+  isPlaying=false;
+  playbackStartedAtMs=0;
+  playbackStartTimeSec=lastVisibleTime;
+  evVideoBufferStall=null;
+  evVideoGateScanFromSec=end;
+  setCurrentAbsoluteTime(lastVisibleTime);
+  try{renderFrame();}catch(err){console.warn('Ethvelle final-frame render:',err);}
+
+  // Pause attached and detached media alike (audio overlays are created with new Audio()).
+  const media=new Set();
+  const addMedia=value=>{if(value&&typeof value.pause==='function')media.add(value);};
+  try{document.querySelectorAll('video,audio').forEach(addMedia);}catch(_e){}
+  [overlayMediaEls,overlayWarmEls,audioOverlayEls].forEach(group=>{
+    if(group&&typeof group==='object')Object.keys(group).forEach(id=>addMedia(group[id]));
+  });
+  try{
+    const held=typeof renderOverlayMedia==='function'&&renderOverlayMedia.__evHeldOutgoing;
+    if(held)Object.keys(held).forEach(id=>addMedia(held[id]&&held[id].fallbackVideo));
+  }catch(_e){}
+  media.forEach(el=>{
+    try{el.pause();}catch(_e){}
+    if(el.dataset&&el.dataset.evAudioOverlayId){
+      el.dataset.evAudioNeedsSync='1';
+      el.dataset.evAudioTimelineActive='0';
+      el.__evAudioRunToken=(Number(el.__evAudioRunToken)||0)+1;
+    }
+  });
+  const icon=document.getElementById('playIcon');
+  if(icon)icon.innerHTML='<path d="M8 5v14l11-7z"/>';
+}
+// The ONE playback loop in the file. Every tick derives time from real elapsed time and
+// stops at the exact content endpoint; the timeline does not wrap or restart automatically.
+function playbackTick(timestamp){
+  if(!isPlaying)return;
+  const nowMs=Number.isFinite(timestamp)?timestamp:performance.now();
+  const t=playbackStartTimeSec+(nowMs-playbackStartedAtMs)/1000;
+  const contentEnd=getProjectContentEndSec();
+  if(contentEnd>0&&t>=contentEnd){
+    stopPlaybackAtProjectEnd(contentEnd);
+    return;
+  }
+  // Do not gate the canonical clock on a video frame. renderOverlayMedia() snapshots the
+  // outgoing visual and keeps it on stage until the incoming decoder can present its frame.
+  setCurrentAbsoluteTime(t);
+  renderFrame();
+  playbackRaf=requestAnimationFrame(playbackTick);
+}
+// Freezes playback at the EXACT current instant, calculated from the real clock first
+// (not "whatever currentAbsoluteTimeSec happened to be on the last rAF tick", which can be
+// up to one frame stale/behind the actual tap). This is what makes mobile taps feel
+// deterministic: update time -> commit it -> stop the loop -> render that exact time once
+// more -> flip the icon. Idempotent: calling this repeatedly (or while already paused) is
+// always safe and a no-op beyond re-rendering the same frozen time.
+function pausePlaybackAtCurrentTime(){
+  const exactTime = getCurrentAbsoluteTime(); // 1. update current time from performance.now()
+  setCurrentAbsoluteTime(exactTime);          // 2. commit currentAbsoluteTimeSec (+ legacy `frame`)
+  if(playbackRaf !== null){                   // 3. stop RAF
+    cancelAnimationFrame(playbackRaf);
+    playbackRaf = null;
+  }
+  isPlaying = false;                          // 4. set isPlaying false
+  if(evVideoBufferStall){
+    // Keep the pending boundary and outgoing picture, but suspend the timeout while paused.
+    evVideoBufferStall.paused=true;
+    evVideoBufferStall.startedAtMs=0;
+  }
+  renderFrame();                              // 5. render that exact time one final time
+  if(evVideoBufferStall)evVideoBufferStall.rendered=true;
+  const icon = document.getElementById('playIcon'); // 6. update UI/play icon
+  if(icon) icon.innerHTML = '<path d="M8 5v14l11-7z"/>';
+  // 7. position is already preserved — currentAbsoluteTimeSec was committed in step 2
+}
+// Public pause entry point. Every system in the file that needs to stop playback calls
+// this (never isPlaying=false/clearInterval directly) so pause behavior is identical and
+// centralized everywhere: clip tap, background tap, overlay tap, keyframe tap, timeline
+// tap, timeline seek, split, trim, export, editor navigation, transport controls.
+function pausePlayback(){
+  if(!isPlaying) return; // idempotent: safe to call even when already paused
+  pausePlaybackAtCurrentTime();
+}
+// togglePlayback means exactly what it says — invert current state. It is intentionally
+// the ONLY place isPlaying is inverted; nothing else should use this as a "pause" helper
+// (see the historical `if(isPlaying) togglePlay();` anti-pattern this replaces).
+function togglePlayback(){
+  if(isPlaying) pausePlayback();
+  else startPlayback();
+}
+// Thin, self-documenting aliases matching the canonical-clock helper names anyone auditing
+// this file's time architecture would expect to grep for. No separate logic of their own —
+// they delegate straight to the single real implementation, so there is still exactly ONE
+// playback loop and ONE seek path, just reachable under either name.
+function updatePlaybackFromClock(timestamp){ return playbackTick(timestamp); }
+function seekToTime(tSec){ return seekAbsoluteTimelineSeconds(tSec); }
+function seekToFrame(f){ return seekAbsoluteTimelineSeconds((activeClip?activeClip.trimStart:0) + f/FPS); }
+
+// Evaluate the pose at an absolute timeline time (seconds from the very start of the
+// timeline, t=0), looking up whichever clip covers that instant (main clip or any
+// split/appended segment) so playback runs continuously across all of them, then
+// blended with that clip's own user keyframes. Defaults to the currently-ACTIVE character's
+// clip/segments when called with no extra arguments (exactly as before, for every existing
+// call site) — pass an explicit (clip, segments) pair to evaluate a DIFFERENT character's
+// own animation instead (see animateAllCharacters), without touching the active one's state.
+function poseAtClipTime(tSecAbsolute, clipOverride, segmentsOverride){
+  const useClip = clipOverride !== undefined ? clipOverride : activeClip;
+  const useSegments = segmentsOverride !== undefined ? segmentsOverride : splitStickmanSegments;
+  if(!useClip) return null;
+  const hit = stickmanClipAt(tSecAbsolute, useClip, useSegments);
+  if(!hit) return null;
+  const clip = hit.clip;
+  const preset = animPresets[clip.animKey];
+  if(!preset) return null;
+  // Time relative to the covering clip's own trimStart, looping the underlying preset.
+  // Speed (see applyClipSpeed) scales how fast we move through the preset's own loop —
+  // 2x speed means clipLocalT advances through the preset twice as fast (more loops per
+  // second of timeline time), 0.5x means half as fast — without touching the preset's own
+  // authored keyframe data at all.
+  const speed = clip.speed || 1;
+  const clipLocalT = Math.max(0, (tSecAbsolute - clip.trimStart) * speed);
+  const loopT = (clipLocalT % preset.duration) / preset.duration;
+  let pose = evalPreset(preset, loopT);
+
+  // user-added keyframes override/blend on top, sorted by time. A single keyframe only
+  // nudges the pose right at that instant (crossfading in/out over a short window) rather
+  // than clamping the ENTIRE clip to one frozen pose — previously one keyframe made the
+  // whole clip look "stopped" because both the before- and after-edges resolved to the
+  // exact same static pose with nothing to blend toward.
+  //
+  // BUGFIX (2nd+ keyframe freezes the animation): with 2+ keyframes, everything BEFORE the
+  // first keyframe and everything AFTER the last keyframe used to be permanently clamped to
+  // that keyframe's frozen pose for the rest of the clip, not just a short window around it.
+  // FIX: reuse the exact same hold-then-blend-back-to-preset treatment the single-keyframe
+  // case already had, applied at both the first and last keyframe's outward-facing edge.
+  //
+  // BUGFIX (animation crawls to ~0.2-0.5x speed between two keyframes): the "between two
+  // keyframes" branch used to linearly interpolate directly from kf A's frozen pose to kf B's
+  // frozen pose across the ENTIRE span between them (localT going 0->1 over however many
+  // seconds apart the two keyframes were). Each keyframe's pose is just a snapshot of
+  // whatever instant of the walk/wave/jump cycle it was dropped on — so a full multi-phase
+  // step cycle that normally plays out with its own timing got flattened into one slow,
+  // linear glide from pose A to pose B, which reads as the whole animation suddenly playing
+  // back in slow motion. FIX: apply the SAME short hold-near-each-keyframe treatment used at
+  // the clip's outer edges to the gap BETWEEN two keyframes too — each keyframe only asserts
+  // itself for a brief window (HOLD, then eased back out over another HOLD) around its own
+  // timestamp; everywhere else in the gap just keeps sampling the normal preset loop at full
+  // speed, exactly as if no keyframe were there. Two keyframes placed close together (closer
+  // than 2*HOLD apart) still cross-fade smoothly between their own hold windows with no gap
+  // of bare preset motion in between, so short nudges still feel continuous.
+  if(clip.keyframes.length){
+    const kfs = [...clip.keyframes].sort((a,b)=>a.t-b.t);
+    // BUGFIX (animation freezes exactly at the keyframe): holdAndBlend used to fully clamp
+    // the pose to the keyframe's exact snapshot — no motion at all — for a flat 2*HOLD-wide
+    // window centered on the keyframe's own timestamp, then blend back out. That flat window
+    // IS a freeze: the stickman visibly stops dead right at (and for a moment around) every
+    // keyframe, while playing normally just before/after that window — exactly the reported

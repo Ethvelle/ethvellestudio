@@ -1,0 +1,1000 @@
+    node.style.setProperty('--ev-text-highlight-padding',pad+'px');node.style.setProperty('--ev-text-highlight-inset',(-pad)+'px');node.style.setProperty('--ev-text-highlight-radius',radius+'px');
+    if(window.ethvelleSyncTextBackplateShape)window.ethvelleSyncTextBackplateShape(node,t);
+  }
+  let colorSaveTimer=null;
+  function persistNow(){
+    if(colorSaveTimer!==null){clearTimeout(colorSaveTimer);colorSaveTimer=null;}
+    try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){try{if(typeof persistProjectState==='function')persistProjectState();}catch(__){}}
+  }
+  function persistOne(){
+    if(colorSaveTimer!==null)clearTimeout(colorSaveTimer);
+    colorSaveTimer=setTimeout(()=>{colorSaveTimer=null;try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){try{if(typeof persistProjectState==='function')persistProjectState();}catch(__){}}},100);
+  }
+  window.addEventListener('pagehide',persistNow,{passive:true});
+  // Swatch changes are applied to the already-rendered node instead of rerendering the whole stage.
+  // This prevents slow Highlight/Stroke palette taps and keeps the swatch row at its exact scroll offset.
+  window.ethvellePicsartSetColor=function(key,color){
+    const value=normalizeHex(color),t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+    if(!t){if(typeof priorSetColor==='function')return priorSetColor.apply(this,arguments);return;}
+    const composer=$('ethvelleTextComposer')?.classList.contains('active');
+    if(composer&&typeof priorSetColor==='function'){return priorSetColor.apply(this,arguments);}
+    t[key]=value;
+    if(key==='textColor'){
+      t.textGradient='';t.textTexture='';t.textTextureSize='100% 100%';
+      if(Number(t.textOpacity)===0)t.textOpacity=100;
+    }
+    const activeTab=$('evpaTabs')?.querySelector('.evpa-tab.active')?.dataset.tab||'';
+    if(key==='textBackgroundColor'&&(activeTab==='highlight'||activeTab==='background'))t.textHighlightColor=value;
+    const node=getTextNode(t),glyph=node?.querySelector(':scope > .evpa-text-effect-layer');
+    if(node){
+      if(key==='textColor'){
+        const fill=rgba(value,t.textOpacity);
+        node.style.setProperty('color',fill,'important');
+        node.style.setProperty('background-image','none','important');
+        node.style.setProperty('background-clip','border-box','important');
+        node.style.setProperty('-webkit-background-clip','border-box','important');
+        if(glyph){
+          glyph.style.setProperty('color',fill,'important');
+          glyph.style.setProperty('-webkit-text-fill-color',fill,'important');
+          glyph.style.setProperty('background-image','none','important');
+          glyph.style.setProperty('background-clip','border-box','important');
+          glyph.style.setProperty('-webkit-background-clip','border-box','important');
+          glyph.style.setProperty('background-size','auto','important');
+          glyph.style.setProperty('opacity','1','important');
+          glyph.querySelectorAll('span').forEach(span=>{
+            span.style.setProperty('color',fill,'important');
+            span.style.setProperty('-webkit-text-fill-color',fill,'important');
+            span.style.setProperty('background-image','none','important');
+            span.style.removeProperty('background-clip');
+            span.style.removeProperty('-webkit-background-clip');
+            span.style.removeProperty('background-size');
+            span.style.removeProperty('background-position');
+            span.style.removeProperty('background-repeat');
+          });
+        }
+      }else if(key==='strokeColor'){
+        const width=Math.max(0,Number(t.strokeWidth)||0),stroke=width>0?`${width}px ${rgba(value,t.strokeOpacity)}`:'0 transparent';
+        if(glyph){glyph.style.webkitTextStroke=stroke;glyph.style.paintOrder='stroke fill';}
+        node.style.webkitTextStroke='0 transparent';node.style.paintOrder='normal';
+      }else if(key==='shadowColor'){
+        const shadow=t.shadowEnabled?`${(Number(t.shadowX)||0)}px ${Math.max(4,Number(t.shadowY)||6)}px ${Math.max(0,Number(t.shadowBlur)||0)}px ${rgba(value,t.shadowOpacity)}`:'none';
+        if(glyph)window.ethvelleApplyTextShadow(glyph,shadow,!!(String(t.textGradient||'').trim()||String(t.textTexture||'').trim()));else node.style.textShadow=shadow;
+        node.style.textShadow='none';
+      }else if(key==='textBackgroundColor'){
+        plateStyle(node,t,value);
+      }
+    }
+    const palette=$('evpaPalette');if(palette)palette.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',normalizeHex(b.dataset.color)===value));
+    persistOne();
+  };
+  // Refresh glyph-only shadow/stroke when a model redraw changes the numeric controls.
+  function syncGlyphPaint(){
+    let list=[];try{list=typeof overlays!=='undefined'?overlays:(window.overlays||[]);}catch(_e){list=window.overlays||[];}
+    list.filter(o=>o&&o.type==='text').forEach(t=>{
+      const node=getTextNode(t);if(!node)return;const glyph=node.querySelector(':scope > .evpa-text-effect-layer');if(!glyph)return;
+      const strokeWidth=Math.max(0,Number(t.strokeWidth)||0);
+      glyph.style.webkitTextStroke=strokeWidth>0?`${strokeWidth}px ${rgba(t.strokeColor||'#000000',t.strokeOpacity)}`:'0 transparent';
+      glyph.style.paintOrder='stroke fill';
+      window.ethvelleApplyTextShadow(glyph,t.shadowEnabled?`${(Number(t.shadowX)||0)}px ${Math.max(4,Number(t.shadowY)||6)}px ${Math.max(0,Number(t.shadowBlur)||0)}px ${rgba(t.shadowColor||'#000000',t.shadowOpacity)}`:'none',!!(String(t.textGradient||'').trim()||String(t.textTexture||'').trim()));
+      node.style.webkitTextStroke='0 transparent';node.style.paintOrder='normal';node.style.textShadow='none';
+      if(t.textBackgroundEnabled||t.textHighlightEnabled)plateStyle(node,t);
+    });
+  }
+  ['renderFrame','renderOverlayLayers'].forEach(name=>{
+    const original=window[name];if(typeof original!=='function'||original.__evvelleV14Paint)return;
+    const wrapped=function(){const result=original.apply(this,arguments);syncGlyphPaint();return result;};
+    wrapped.__evvelleV14Paint=true;window[name]=wrapped;
+  });
+  // Keep section palette visibility accurate on both startup and tab changes, without rebuilding it.
+  document.addEventListener('click',e=>{const tab=e.target?.closest?.('#evpaTabs .evpa-tab');if(!tab)return;requestAnimationFrame(()=>{const dock=$('ethvellePicsartTextDock');if(!dock)return;const font=tab.dataset.tab==='font';if(font)dock.classList.remove('evpa-no-palette');});},true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',syncGlyphPaint,{once:true});else syncGlyphPaint();
+})();
+</script>
+
+
+<!-- Ethvelle touch-axis and selection-corner refinement v15 -->
+<style id="ethvelle-update-v15-touch-css">
+  /* Let each nested control own its intended scroll axis: palette swatches horizontally,
+     controls vertically, without an ancestor touch-action rule cancelling the gesture. */
+  #ethvellePicsartTextDock.evpa-dock{touch-action:auto!important;}
+  #ethvellePicsartTextDock .evpa-palette{touch-action:auto!important;overscroll-behavior:contain!important;}
+  #ethvellePicsartTextDock .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-font-gallery,
+  #ethvellePicsartTextDock .evpa-tabs{touch-action:pan-x!important;overscroll-behavior-x:contain!important;}
+  #ethvellePicsartTextDock .evpa-gradient-presets,
+  #ethvellePicsartTextDock .evpa-style-presets{touch-action:pan-y!important;overscroll-behavior:contain!important;}
+  #ethvellePicsartTextDock .evpa-controls{touch-action:pan-y!important;}
+</style>
+
+
+<!-- Ethvelle v18: precise CapCut handle geometry only; keep normal clip corner styling -->
+<style id="ethvelle-v18-selection-geometry">
+  /* Restore the original soft corners on actual clip blocks. Only the white trim handles
+     remain square; the blue animation and other media/text/audio/background blocks do not. */
+  #timelineInner .anim-clip,
+  #timelineInner .overlay-clip,
+  #timelineInner .track-clip,
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip[data-group="audio"],
+  #timelineInner .overlay-clip[data-group="audio"].selected,
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected {
+    border-radius:6px!important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v19: square timeline clips, edge-centered CapCut handles, contextual text Add -->
+<style id="ethvelle-v19-square-clips-and-context-add">
+  /* Square, flush corners on every real timeline clip in every row (animation, background,
+     media, text, and audio). This overrides older radius rules without changing clip colors. */
+  #timelineInner .anim-clip,
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip,
+  #timelineInner .track-clip.selected,
+  #timelineInner .track-clip-empty,
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected {
+    border-radius:0!important;
+    clip-path:none!important;
+  }
+  #timelineInner .anim-clip .clip-thumb-strip,
+  #timelineInner .overlay-clip .clip-thumb-strip,
+  #timelineInner .track-clip .clip-thumb-strip,
+  #timelineInner .anim-clip .clip-media-label,
+  #timelineInner .overlay-clip .clip-media-label,
+  #timelineInner .track-clip .clip-media-label {
+    border-radius:0!important;
+  }
+
+  /* The 20px white handle is centered on the exact clip edge: half outside, half inside.
+     Its gray grip stays centered on the edge, and the vertical ends align with the top and
+     bottom white selection bars. Preserve the existing white/gray handle design and width. */
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    
+    z-index:60!important;
+  }
+  /* Keep overflow visible all the way out through the row/track so outward halves are not
+     clipped by a parent, including on Android WebView. */
+  
+</style>
+<script id="ethvelle-v19-contextual-toolbar">
+(function(){
+  'use strict';
+  const byId=id=>document.getElementById(id);
+
+  function selectedId(){
+    try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip??''));}
+    catch(_e){return String(window.selectedClip??'');}
+  }
+  function selectedOverlay(){
+    const id=selectedId();
+    try{
+      const list=typeof overlays!=='undefined'?overlays:(window.overlays||[]);
+      return (list||[]).find(item=>item&&String(item.id)===id)||null;
+    }catch(_e){return null;}
+  }
+  function setTextEditVisibility(){
+    const edit=byId('clipTextEditTool');
+    if(!edit)return;
+    const clip=selectedOverlay();
+    const isText=!!clip&&clip.type==='text';
+    // This is the final toolbar sync layer, after legacy toolbar scripts have run.
+    // Only a selected text clip is allowed to expose the pencil/text-edit control.
+    edit.style.display=isText?'flex':'none';
+    edit.setAttribute('aria-hidden',isText?'false':'true');
+  }
+  function setContextualAddAction(){
+    const add=byId('clipAddMediaTool');
+    if(!add||add.dataset.evV19ContextAdd==='1')return;
+    add.dataset.evV19ContextAdd='1';
+    // Replaces the old inline handler rather than adding a second click listener, so a text
+    // selection cannot accidentally launch the device media picker as well.
+    add.onclick=function(event){
+      if(event){event.preventDefault();event.stopPropagation();}
+      const clip=selectedOverlay();
+      if(clip&&clip.type==='text'){
+        if(typeof window.openEthvelleTextComposer==='function'){
+          window.openEthvelleTextComposer('__ethvelle_new_text_layer__');
+        }
+        return false;
+      }
+      const isAudio=!!clip&&clip.type==='audio';
+      if(typeof window.triggerUpload==='function')window.triggerUpload(isAudio?'audio':'overlay',isAudio?'audio':'clips');
+      return false;
+    };
+  }
+  function refresh(){setContextualAddAction();setTextEditVisibility();}
+
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldSync.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.syncBottomToolsMode=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldSelect.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.selectClipForChrome=wrapped;
+  }
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldDeselect.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.deselectAllClips=wrapped;
+  }
+  document.addEventListener('click',event=>{
+    if(event.target&&event.target.closest&&event.target.closest('#timelineInner,#overlayRows'))requestAnimationFrame(refresh);
+  },true);
+  document.addEventListener('pointerup',event=>{
+    if(event.target&&event.target.closest&&event.target.closest('#timelineInner,#overlayRows'))requestAnimationFrame(refresh);
+  },true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh,{once:true});
+  else refresh();
+})();
+</script>
+
+
+
+<!-- Ethvelle v20: square background lane, fully-outside handles, context-safe text pencil,
+     shared palette separator and white slider thumb only -->
+<style id="ethvelle-v20-final-css">
+  /* The Background clip looked rounded at the left because its parent lane was still clipping
+     children to the old 6px rounded track. Square the parent and its dashed guide as well as
+     the background clip itself, so the very first block has four square corners. */
+  #timelineInner #track-background {
+    border-radius:0!important;
+  }
+  #timelineInner #track-background::after {
+    border-radius:0!important;
+  }
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected,
+  #timelineInner #track-background .track-clip.track-clip-empty {
+    border-radius:0!important;
+    clip-path:none!important;
+  }
+
+  /* A single blue outline separates the shared bottom swatch block from the controls above.
+     The palette remains hidden on tabs that intentionally don't use it (Gradient/Texture etc.). */
+  #ethvellePicsartTextDock:not(.evpa-no-palette) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-no-palette:has(#evpaTabs .evpa-tab[data-tab="font"].active) .evpa-palette {
+    border:1px solid rgba(47,92,232,.92)!important;
+    border-radius:9px!important;
+    margin:4px 10px 6px!important;
+    padding:0!important;
+    box-sizing:border-box!important;
+    background:rgba(47,92,232,.035)!important;
+  }
+
+  /* Color uses the bottom palette as its only control area now, so collapse the empty
+     controls viewport instead of leaving a blank spacer above the blue palette frame. */
+  #ethvellePicsartTextDock:has(#evpaTabs .evpa-tab[data-tab="color"].active) .evpa-controls {
+    height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;overflow:hidden!important;
+  }
+
+  /* Remove opacity range controls from Color/Gradient/Texture sections only. Their shared
+     text-opacity setting remains available in the dedicated Opacity tab. */
+  #ethvellePicsartTextDock:has(#evpaTabs .evpa-tab[data-tab="color"].active) .evpa-controls #evpa-v-textOpacity,
+  #ethvellePicsartTextDock:has(#evpaTabs .evpa-tab[data-tab="gradient"].active) .evpa-controls #evpa-v-textOpacity,
+  #ethvellePicsartTextDock:has(#evpaTabs .evpa-tab[data-tab="texture"].active) .evpa-controls #evpa-v-textOpacity {
+    display:none!important;
+  }
+
+  /* White outline only on the round slider thumb; no white border around the rail itself. */
+  #ethvellePicsartTextDock .evpa-range input[type="range"] {
+    -webkit-appearance:none!important;appearance:none!important;background:transparent!important;
+    accent-color:#6F68FF!important;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-webkit-slider-runnable-track {
+    height:4px;background:linear-gradient(to right,#6F68FF 0%,#6F68FF var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%);
+    border:0;border-radius:4px;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-webkit-slider-thumb {
+    -webkit-appearance:none!important;appearance:none!important;width:14px;height:14px;margin-top:-5px;
+    background:#6F68FF;border:2px solid #fff!important;border-radius:50%!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-track {
+    height:4px;background:#45495D;border:0;border-radius:4px;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-progress {
+    height:4px;background:#6F68FF;border:0;border-radius:4px;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-thumb {
+    width:10px;height:10px;background:#6F68FF;border:2px solid #fff!important;border-radius:50%!important;box-shadow:none!important;
+  }
+  /* Pencil visibility is governed by the current text selection state, not a stale toolbar style. */
+  #bottomToolsClip #clipTextEditTool {display:none!important;}
+  body.ev-v20-text-layer-selected #bottomToolsClip #clipTextEditTool {display:flex!important;}
+</style>
+<script id="ethvelle-v20-selection-toolbar-guards">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  let rafPending=false;
+  function currentId(){
+    try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip??''));}
+    catch(_e){return String(window.selectedClip??'');}
+  }
+  function currentOverlay(id){
+    try{
+      const list=typeof overlays!=='undefined'?overlays:(window.overlays||[]);
+      return (list||[]).find(o=>o&&String(o.id)===String(id))||null;
+    }catch(_e){return null;}
+  }
+  function textIsReallySelected(){
+    const id=currentId();
+    const selectedOverlayEl=document.querySelector('#timelineInner .overlay-clip.selected[data-overlay-id]');
+    if(selectedOverlayEl){
+      return selectedOverlayEl.dataset.group==='text' && String(selectedOverlayEl.dataset.overlayId)===id;
+    }
+    // If another kind of timeline clip is visibly selected, never trust an older selectedClip id.
+    if(document.querySelector('#timelineInner .anim-clip.selected, #timelineInner .track-clip.selected'))return false;
+    const overlay=currentOverlay(id);
+    return !!overlay&&overlay.type==='text';
+  }
+  function syncPencil(){
+    rafPending=false;
+    const button=$('clipTextEditTool');
+    const isText=textIsReallySelected();
+    document.body.classList.toggle('ev-v20-text-layer-selected',isText);
+    if(button){
+      button.style.setProperty('display',isText?'flex':'none','important');
+      button.setAttribute('aria-hidden',isText?'false':'true');
+      button.tabIndex=isText?0:-1;
+    }
+  }
+  function scheduleSync(){if(rafPending)return;rafPending=true;requestAnimationFrame(()=>requestAnimationFrame(syncPencil));}
+  // The original editor has multiple toolbar wrappers. Wrap the final versions so the pencil
+  // rule is reapplied after each legacy toolbar update rather than racing it.
+  ['syncBottomToolsMode','selectClipForChrome','deselectAllClips'].forEach(name=>{
+    const old=window[name];
+    if(typeof old!=='function'||old.__evV20PencilGuard)return;
+    const wrapped=function(){const result=old.apply(this,arguments);scheduleSync();return result;};
+    wrapped.__evV20PencilGuard=true;window[name]=wrapped;
+  });
+  ['click','pointerup','touchend'].forEach(type=>document.addEventListener(type,e=>{
+    if(e.target&&e.target.closest&&e.target.closest('#timelineInner,#overlayRows,#overlayMediaLayer,#bottomToolsClip'))scheduleSync();
+  },true));
+  const timeline=$('timelineInner');
+  if(timeline&&typeof MutationObserver!=='undefined'){
+    const observer=new MutationObserver(records=>{
+      if(records.some(r=>r.type==='childList'||(r.type==='attributes'&&r.attributeName==='class')))scheduleSync();
+    });
+    observer.observe(timeline,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});
+  }
+  // Keep the colored progress rail synchronized without drawing an outline around the rail.
+  function updateRangeProgress(input){
+    if(!input||input.type!=='range')return;
+    const min=Number(input.min||0),max=Number(input.max||100),value=Number(input.value||0);
+    const percent=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
+    input.style.setProperty('--ev-range-progress',percent+'%');
+  }
+  function initRanges(root=document){root.querySelectorAll('#ethvellePicsartTextDock .evpa-range input[type="range"]').forEach(updateRangeProgress);}
+  document.addEventListener('input',e=>{if(e.target&&e.target.matches&&e.target.matches('#ethvellePicsartTextDock .evpa-range input[type="range"]'))updateRangeProgress(e.target);},true);
+  const dock=$('ethvellePicsartTextDock');
+  if(dock&&typeof MutationObserver!=='undefined')new MutationObserver(()=>initRanges(dock)).observe(dock,{subtree:true,childList:true});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{initRanges();scheduleSync();},{once:true});
+  else {initRanges();scheduleSync();}
+})();
+</script>
+
+
+
+<!-- Ethvelle text polish v21: stable canvas, consistent sliders, responsive selection and fast text tabs -->
+<style id="ethvelle-text-polish-v21-css">
+  /* Opening text entry must not blur, darken, zoom, or resize the composition itself. */
+  #screen-editor.ev-text-backdrop-blur{filter:none!important;transform:none!important;}
+  .evtc-root{background:transparent!important;-webkit-backdrop-filter:none!important;backdrop-filter:none!important;}
+  .evtc-root .evtc-scrim{background:transparent!important;backdrop-filter:none!important;-webkit-backdrop-filter:none!important;}
+  #ethvelleTextComposer .evtc-header{background:rgba(15,16,22,.82)!important;}
+
+  /* One consistent Ethvelle-blue slider rail in the composer and all text effect panels.
+     The filled rail is painted from the current value and stays visible while idle. */
+  #ethvellePicsartTextDock .evpa-range input[type="range"],
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"],
+  #ethvelleTextStylePanel input[type="range"],
+  #ethvelleColorPicker input[type="range"],
+  #evpaCustomEffectEditor input[type="range"]{
+    -webkit-appearance:none!important;appearance:none!important;accent-color:#2F5CE8!important;
+    background:transparent!important;outline:none!important;touch-action:none!important;cursor:ew-resize;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-webkit-slider-runnable-track,
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]::-webkit-slider-runnable-track,
+  #ethvelleTextStylePanel input[type="range"]::-webkit-slider-runnable-track,
+  #ethvelleColorPicker input[type="range"]::-webkit-slider-runnable-track,
+  #evpaCustomEffectEditor input[type="range"]::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-track,
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]::-moz-range-track,
+  #ethvelleTextStylePanel input[type="range"]::-moz-range-track,
+  #ethvelleColorPicker input[type="range"]::-moz-range-track,
+  #evpaCustomEffectEditor input[type="range"]::-moz-range-track{height:4px!important;background:#45495D!important;border:0!important;border-radius:4px!important;}
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-progress,
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]::-moz-range-progress,
+  #ethvelleTextStylePanel input[type="range"]::-moz-range-progress,
+  #ethvelleColorPicker input[type="range"]::-moz-range-progress,
+  #evpaCustomEffectEditor input[type="range"]::-moz-range-progress{height:4px!important;background:#2F5CE8!important;border:0!important;border-radius:4px!important;}
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-webkit-slider-thumb,
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]::-webkit-slider-thumb,
+  #ethvelleTextStylePanel input[type="range"]::-webkit-slider-thumb,
+  #ethvelleColorPicker input[type="range"]::-webkit-slider-thumb,
+  #evpaCustomEffectEditor input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none!important;appearance:none!important;width:14px!important;height:14px!important;margin-top:-5px!important;
+    border:2px solid #fff!important;border-radius:50%!important;background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-range input[type="range"]::-moz-range-thumb,
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]::-moz-range-thumb,
+  #ethvelleTextStylePanel input[type="range"]::-moz-range-thumb,
+  #ethvelleColorPicker input[type="range"]::-moz-range-thumb,
+  #evpaCustomEffectEditor input[type="range"]::-moz-range-thumb{
+    width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #ethvelleTextComposer .evtc-opacity-line input[type="range"]{height:20px!important;min-height:20px!important;}
+
+  /* The blue selection ring follows the active swatch/preset instead of framing a fixed slot. */
+  #ethvellePicsartTextDock .evpa-swatch.active{box-shadow:0 0 0 2px #121319,0 0 0 4px #2F5CE8!important;z-index:3!important;}
+  #ethvelleTextComposer .evtc-color-swatch.active{border:2px solid #2F5CE8!important;box-shadow:0 0 0 2px #fff!important;transform:translateZ(0);}
+  #ethvellePicsartTextDock .evpa-gradient-chip{position:relative;box-sizing:border-box;outline:0!important;}
+  #ethvellePicsartTextDock .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-gradient-chip.active{border:2px solid #2F5CE8!important;box-shadow:inset 0 0 0 1px rgba(255,255,255,.9)!important;}
+  #ethvellePicsartTextDock .evpa-gradient-chip.selected::after{content:"";position:absolute;inset:2px;border:1px solid rgba(255,255,255,.8);border-radius:5px;pointer-events:none;}
+
+  /* Audio timeline clips and their inner artwork use true square corners. */
+  #timelineInner .overlay-clip[data-group="audio"],
+  #timelineInner .overlay-clip[data-group="audio"].selected,
+  #timelineInner .overlay-clip[data-group="audio"]::before,
+  #timelineInner .overlay-clip[data-group="audio"]::after,
+  #timelineInner .overlay-clip[data-group="audio"] *{border-radius:0!important;}
+  #ethvellePicsartTextDock .evpa-tabs .evpa-tab{touch-action:manipulation!important;pointer-events:auto!important;}
+
+  /* The legacy first-time Add Text size/capacity slider uses #textPanelBody instead of the
+     newer text dock. Keep its progress fill permanently visible and on the same blue theme. */
+  #textPanelBody .text-range-line input[type="range"]{
+    -webkit-appearance:none!important;appearance:none!important;accent-color:#2F5CE8!important;
+    height:18px!important;min-height:18px!important;padding:0!important;border:0!important;
+    background:transparent!important;outline:none!important;cursor:pointer;touch-action:pan-y;
+  }
+  #textPanelBody .text-range-line input[type="range"]::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #textPanelBody .text-range-line input[type="range"]::-moz-range-track{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#45495D!important;
+  }
+  #textPanelBody .text-range-line input[type="range"]::-moz-range-progress{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#2F5CE8!important;
+  }
+  #textPanelBody .text-range-line input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none!important;appearance:none!important;width:10px!important;height:10px!important;
+    margin-top:-3px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #textPanelBody .text-range-line input[type="range"]::-moz-range-thumb{
+    width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #toolPanel #evltEnhanceAmount,#chromaTolerance,#chromaSoftness,#ethvelleChromaColorPicker #evckLight{
+    -webkit-appearance:none!important;appearance:none!important;display:block!important;width:100%!important;
+    height:18px!important;min-height:18px!important;margin:0!important;padding:0!important;border:0!important;
+    background:transparent!important;outline:none!important;cursor:pointer;touch-action:pan-y;
+  }
+  #toolPanel #evltEnhanceAmount::-webkit-slider-runnable-track,#chromaTolerance::-webkit-slider-runnable-track,#chromaSoftness::-webkit-slider-runnable-track,#ethvelleChromaColorPicker #evckLight::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #toolPanel #evltEnhanceAmount::-moz-range-track,#chromaTolerance::-moz-range-track,#chromaSoftness::-moz-range-track,#ethvelleChromaColorPicker #evckLight::-moz-range-track{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#45495D!important;
+  }
+  #toolPanel #evltEnhanceAmount::-moz-range-progress,#chromaTolerance::-moz-range-progress,#chromaSoftness::-moz-range-progress,#ethvelleChromaColorPicker #evckLight::-moz-range-progress{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#2F5CE8!important;
+  }
+  #toolPanel #evltEnhanceAmount::-webkit-slider-thumb,#chromaTolerance::-webkit-slider-thumb,#chromaSoftness::-webkit-slider-thumb,#ethvelleChromaColorPicker #evckLight::-webkit-slider-thumb{
+    -webkit-appearance:none!important;appearance:none!important;width:10px!important;height:10px!important;
+    margin-top:-3px!important;border:2px solid #fff!important;border-radius:50%!important;background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #toolPanel #evltEnhanceAmount::-moz-range-thumb,#chromaTolerance::-moz-range-thumb,#chromaSoftness::-moz-range-thumb,#ethvelleChromaColorPicker #evckLight::-moz-range-thumb{
+    width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+</style>
+<script id="ethvelle-text-polish-v21-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const rangeSelector='#ethvellePicsartTextDock input[type="range"],#ethvelleTextComposer input[type="range"],#ethvelleTextStylePanel input[type="range"],#ethvelleColorPicker input[type="range"],#evpaCustomEffectEditor input[type="range"],#textPanelBody .text-range-line input[type="range"],#evltEnhanceAmount,#chromaTolerance,#chromaSoftness,#ethvelleChromaColorPicker #evckLight';
+  function updateProgress(input){
+    if(!input||input.type!=='range')return;
+    const min=Number(input.min===''?0:(input.min||0)),max=Number(input.max===''?100:(input.max||100)),value=Number(input.value||0);
+    const pct=max>min?Math.max(0,Math.min(100,(value-min)/(max-min)*100)):0;
+    const nextProgress=pct+'%';if(input.style.getPropertyValue('--ev-range-progress')!==nextProgress)input.style.setProperty('--ev-range-progress',nextProgress);
+  }
+  function initProgress(root=document){try{root.querySelectorAll(rangeSelector).forEach(updateProgress);}catch(_){}}
+  document.addEventListener('input',e=>{if(e.target&&e.target.matches&&e.target.matches(rangeSelector))updateProgress(e.target);},true);
+  document.addEventListener('change',e=>{if(e.target&&e.target.matches&&e.target.matches(rangeSelector))updateProgress(e.target);},true);
+
+  function currentTarget(){try{return typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;}catch(_){return null;}}
+  function currentColorKey(){try{return typeof window.ethvellePicsartGetColorTarget==='function'?window.ethvellePicsartGetColorTarget():'textColor';}catch(_){return 'textColor';}}
+  function norm(v){return String(v||'').trim().toUpperCase();}
+  function syncColorMarkers(){
+    const t=currentTarget();if(!t)return;
+    const key=currentColorKey();const color=norm(t[key]||t.textColor||'#FFFFFF');
+    const palette=$('evpaPalette');if(palette){/* v222-fix: one owner for palette markers. This used to ignore whether Shadow/Stroke/Background is switched on while ethvelleRefreshDockSwatches (feature-aware) did the opposite, so the two re-triggered each other forever and the active blue border blinked. */ if(typeof window.ethvelleRefreshDockSwatches==='function'){window.ethvelleRefreshDockSwatches();}else palette.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===color));}
+    const composer=$('evtcColorStrip');if(composer)composer.querySelectorAll('.evtc-color-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===norm(t.textColor||'#FFFFFF')));
+  }
+  function syncEffectMarkers(){
+    const controls=$('evpaControls'),tabs=$('evpaTabs'),t=currentTarget();if(!controls||!tabs||!t)return;
+    const active=tabs.querySelector('.evpa-tab.active')?.dataset.tab;
+    if(active!=='gradient'&&active!=='texture')return;
+    const current=String(active==='gradient'?(t.textGradient||''):(t.textTexture||''));
+    controls.querySelectorAll('.evpa-gradient-chip[data-evpa-effect][data-evpa-fill]').forEach(b=>{
+      let fill='';try{fill=decodeURIComponent(b.dataset.evpaFill||'');}catch(_){fill=b.dataset.evpaFill||'';}
+      b.classList.toggle('selected',b.dataset.evpaEffect===active&&fill===current);
+    });
+    // Saved image-texture chips can be created by the separate image-texture module.
+    if(active==='texture'){
+      let saved=[];try{saved=JSON.parse(localStorage.getItem('ethvelleCustomTextTexturesV1')||'[]');}catch(_){saved=[];}
+      controls.querySelectorAll('.evpa-image-texture-chip[data-image-texture-index]').forEach(b=>{
+        const item=saved[Number(b.dataset.imageTextureIndex)];b.classList.toggle('selected',!!item&&String(item.css||'')===current);
+      });
+    }
+  }
+  function syncAll(){initProgress();syncColorMarkers();syncEffectMarkers();}
+
+  const observedRoots=new WeakSet();
+  function observeRoot(root,callback){
+    if(!root||observedRoots.has(root)||typeof MutationObserver==='undefined')return;
+    observedRoots.add(root);
+    new MutationObserver(callback).observe(root,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+  }
+  function bindObservers(){
+    syncAll();
+    const dock=$('ethvellePicsartTextDock');if(dock){dock.dataset.evV21Observed='1';observeRoot(dock,syncAll);}
+    const composer=$('ethvelleTextComposer');if(composer)observeRoot(composer,()=>{initProgress(composer);syncColorMarkers();});
+    const picker=$('ethvelleColorPicker');if(picker)observeRoot(picker,()=>initProgress(picker));
+    const editor=$('evpaCustomEffectEditor');if(editor)observeRoot(editor,()=>initProgress(editor));
+    const textPanel=$('textPanelBody');if(textPanel)observeRoot(textPanel,()=>initProgress(textPanel));
+    const originalSetColor=window.ethvellePicsartSetColor;
+    if(typeof originalSetColor==='function'&&!originalSetColor.__evV21ColorSync){
+      const wrapped=function(){const result=originalSetColor.apply(this,arguments);syncColorMarkers();return result;};wrapped.__evV21ColorSync=true;window.ethvellePicsartSetColor=wrapped;
+    }
+    const originalComposerColor=window.setEthvelleComposerColor;
+    if(typeof originalComposerColor==='function'&&!originalComposerColor.__evV21ColorSync){
+      const wrapped=function(){const result=originalComposerColor.apply(this,arguments);syncColorMarkers();return result;};wrapped.__evV21ColorSync=true;window.setEthvelleComposerColor=wrapped;
+    }
+    const tabs=$('evpaTabs');if(tabs)tabs.querySelectorAll('.evpa-tab').forEach(btn=>{btn.style.touchAction='manipulation';});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',bindObservers,{once:true});else bindObservers();
+  // The dock may be created after this script when the app initializes; bind once when it appears.
+  const bodyObserver=new MutationObserver(()=>{
+    initProgress(document.body);
+    const dock=$('ethvellePicsartTextDock');if(dock&&!dock.dataset.evV21Observed)bindObservers();
+    const textPanel=$('textPanelBody');
+    if(textPanel&&!textPanel.dataset.evV21Observed){
+      textPanel.dataset.evV21Observed='1';observeRoot(textPanel,()=>initProgress(textPanel));initProgress(textPanel);
+    }
+  });
+  if(document.body)bodyObserver.observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
+
+<!-- Ethvelle text composer refinement v22: stable writing viewport, outlined placeholder,
+     two-row swatch/preset galleries, and moving per-item selection borders. -->
+<style id="ethvelle-text-section-update-v22-css">
+  /* Do not blur, darken, transform, or animate the editor behind the text-entry layer. */
+  #screen-editor.ev-text-backdrop-blur,
+  #screen-editor.ev-text-backdrop-blur.active {
+    filter:none!important;
+    -webkit-filter:none!important;
+    backdrop-filter:none!important;
+    -webkit-backdrop-filter:none!important;
+    transform:none!important;
+    zoom:1!important;
+    transition:none!important;
+  }
+  #ethvelleTextComposer.evtc-root {
+    background:transparent!important;
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+    transform:none!important;
+    transition:none!important;
+  }
+  #ethvelleTextComposer .evtc-scrim {
+    background:transparent!important;
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+  }
+
+  /* White placeholder stays readable on a white or light canvas via a black glyph outline.
+     This rule targets the placeholder only; actual user-entered text keeps its chosen styling. */
+  #ethvelleTextComposer #evtcStageText::placeholder {
+    color:#FFFFFF!important;
+    -webkit-text-fill-color:#FFFFFF!important;
+    -webkit-text-stroke:0!important;
+    text-shadow:none!important;
+    opacity:1!important;
+  }
+
+  /* Remove the stationary blue frame from the whole palette. The blue selection outline is
+     attached to each selected swatch/preset itself, so it travels together with that item. */
+  #ethvellePicsartTextDock:not(.evpa-no-palette) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-no-palette:has(#evpaTabs .evpa-tab[data-tab="font"].active) .evpa-palette {
+    border:0!important;
+    border-radius:0!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background:transparent!important;
+    margin:4px 10px 6px!important;
+    padding:0!important;
+  }
+
+  /* Color swatches: two visible rows, still horizontally swipeable by column. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches {
+    display:grid!important;
+    grid-auto-flow:column!important;
+    grid-template-rows:repeat(2,35px)!important;
+    grid-auto-columns:35px!important;
+    grid-auto-rows:35px!important;
+    align-content:center!important;
+    align-items:center!important;
+    justify-content:start!important;
+    gap:10px 11px!important;
+    width:100%!important;
+    min-height:91px!important;
+    max-height:100px!important;
+    padding:8px 8px 9px!important;
+    margin:0!important;
+    overflow-x:auto!important;
+    overflow-y:hidden!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    scroll-behavior:auto!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches::-webkit-scrollbar,
+  #ethvellePicsartTextDock .evpa-gradient-presets::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches > button {
+    grid-row:auto!important;
+    margin:0!important;
+    flex:none!important;
+    align-self:center!important;
+    justify-self:center!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active {
+    outline:2px solid #2F5CE8!important;
+    outline-offset:2px!important;
+    box-shadow:0 0 0 2px #121319,0 0 0 4px #2F5CE8!important;
+    z-index:4!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch:focus-visible,
+  #ethvellePicsartTextDock .evpa-gradient-chip:focus-visible {
+    outline:2px solid #2F5CE8!important;
+    outline-offset:2px!important;
+  }
+
+  /* Gradient and Texture preset galleries: same two-row swipe behaviour and moving blue
+     selection border, including saved/custom presets. */
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets {
+    display:grid!important;
+    grid-auto-flow:row!important;
+    grid-template-columns:repeat(var(--evpa-grid-cols,4),minmax(0,1fr))!important;
+    grid-template-rows:none!important;
+    grid-auto-columns:auto!important;
+    grid-auto-rows:auto!important;
+    align-content:start!important;
+    align-items:start!important;
+    justify-content:stretch!important;
+    gap:6px!important;
+    width:100%!important;
+    max-width:100%!important;
+    min-height:0!important;
+    flex:1 1 0!important;
+    padding:1px 5px 8px!important;
+    margin:0!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+    scroll-behavior:auto!important;
+    scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-gradient-chip {
+    width:auto!important;
+    min-width:0!important;
+    max-width:none!important;
+    height:auto!important;
+    min-height:auto!important;
+    aspect-ratio:1/1!important;
+    margin:0!important;
+    flex:none!important;
+    box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-effect-add {
+    width:auto!important;
+    min-width:0!important;
+    max-width:none!important;
+    height:auto!important;
+    min-height:auto!important;
+    max-height:none!important;
+    aspect-ratio:1/1!important;
+    justify-self:stretch!important;
+    flex:none!important;
+    border-radius:10px!important;
+  }
+  /* Styles / Gradient / Texture tabs: the grid is the only scroller; the controls area just
+     fills the space between the sheet title and the bottom tab bar (sheet height unchanged). */
+  html body #ethvellePicsartTextDock:not(.evpa-in-composer) #evpaControls.evpa-grid-mode {
+    display:flex!important;
+    flex-direction:column!important;
+    flex:1 1 auto!important;
+    min-height:0!important;
+    max-height:none!important;
+    overflow:hidden!important;
+    padding:2px 16px 0!important;
+  }
+  html body #ethvellePicsartTextDock:not(.evpa-in-composer) #evpaControls.evpa-grid-mode > .evpa-style-presets {
+    flex:1 1 0!important;
+    min-height:0!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.active {
+    border:2px solid #2F5CE8!important;
+    outline:2px solid #2F5CE8!important;
+    outline-offset:1px!important;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.9)!important;
+    z-index:4!important;
+  }
+
+  /* Every text-effect section uses per-control selection feedback, not a fixed frame around
+     the scrolling area. Keep the section edges square on the right as requested. */
+  #ethvellePicsartTextDock .evpa-controls,
+  #ethvellePicsartTextDock .evpa-palette,
+  #ethvellePicsartTextDock .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-gradient-presets {
+    border-right:0!important;
+    border-top-right-radius:0!important;
+    border-bottom-right-radius:0!important;
+  }
+  @media(max-width:420px) {
+    #ethvellePicsartTextDock #evpaPalette .evpa-swatches {
+      min-height:91px!important;
+      max-height:100px!important;
+      gap:9px 10px!important;
+      padding-left:7px!important;
+      padding-right:7px!important;
+    }
+    #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets {
+      min-height:0!important;
+      gap:6px!important;
+    }
+  }
+</style>
+<script id="ethvelle-text-section-update-v22-js">
+(function(){
+  'use strict';
+  const body=document.body;
+  const app=document.getElementById('app');
+  if(!body||!app)return;
+  let locked=false;
+  let originalHeight='',originalHeightPriority='',originalMinHeight='',originalMinHeightPriority='';
+  function restoreProperty(el,name,value,priority){
+    if(value)el.style.setProperty(name,value,priority||'');
+    else el.style.removeProperty(name);
+  }
+  function syncComposerViewportLock(){
+    const shouldLock=body.classList.contains('evtc-is-open');
+    if(shouldLock&&!locked){
+      locked=true;
+      originalHeight=app.style.getPropertyValue('height');
+      originalHeightPriority=app.style.getPropertyPriority('height');
+      originalMinHeight=app.style.getPropertyValue('min-height');
+      originalMinHeightPriority=app.style.getPropertyPriority('min-height');
+      const height=Math.max(1,Math.ceil(window.innerHeight||document.documentElement.clientHeight||600));
+      app.style.setProperty('height',height+'px','important');
+      app.style.setProperty('min-height',height+'px','important');
+    }else if(!shouldLock&&locked){
+      restoreProperty(app,'height',originalHeight,originalHeightPriority);
+      restoreProperty(app,'min-height',originalMinHeight,originalMinHeightPriority);
+      locked=false;
+    }
+  }
+  const classObserver=new MutationObserver(syncComposerViewportLock);
+  classObserver.observe(body,{attributes:true,attributeFilter:['class']});
+  syncComposerViewportLock();
+  // If device orientation/window size changes before the keyboard takes focus, refresh the
+  // locked height. While typing, leave it untouched so the keyboard cannot shrink the editor.
+  window.addEventListener('resize',function(){
+    if(!locked)return;
+    const input=document.getElementById('evtcStageText');
+    if(input&&document.activeElement===input)return;
+    const height=Math.max(1,Math.ceil(window.innerHeight||document.documentElement.clientHeight||600));
+    app.style.setProperty('height',height+'px','important');
+    app.style.setProperty('min-height',height+'px','important');
+  },{passive:true});
+})();
+</script>
+
+
+
+<!-- Ethvelle Text UX repair v27: real backdrop blur, taller text sheets, reliable tabs,
+     clear blue swipe guides, blue-only preset selection, and bend-following texture fills. -->
+<style id="ethvelle-text-ux-v27-css">
+  /* The text composer should visibly separate from the editor beneath it. Keep the editor's
+     geometry unchanged; blur only its rendered appearance while the composer is open. */
+  #screen-editor.ev-text-backdrop-blur,
+  #screen-editor.ev-text-backdrop-blur.active {
+    filter:blur(4px)!important;
+    -webkit-filter:blur(4px)!important;
+    transform:none!important;
+    zoom:1!important;
+    transition:filter .16s ease!important;
+  }
+  #ethvelleTextComposer.evtc-root {
+    background:rgba(5,7,15,.10)!important;
+    -webkit-backdrop-filter:blur(5px)!important;
+    backdrop-filter:blur(5px)!important;
+    transform:none!important;
+    transition:none!important;
+  }
+  #ethvelleTextComposer .evtc-scrim {
+    background:rgba(0,0,0,.08)!important;
+    -webkit-backdrop-filter:none!important;
+    backdrop-filter:none!important;
+  }
+  /* Plain placeholder: no artificial stroke/shadow. This does not remove the selected text's
+     real stroke effect after a user enables one in the editor. */
+  #ethvelleTextComposer #evtcStageText::placeholder {
+    -webkit-text-stroke:0 transparent!important;
+    text-shadow:none!important;
+    color:#777B89!important;
+    -webkit-text-fill-color:#777B89!important;
+    opacity:1!important;
+  }
+
+  /* All text-tool sheets rise high enough to cover the playback controls behind them. */
+  body:not(.evtc-is-open) #ethvellePicsartTextDock.evpa-dock {
+    height:min(48dvh,480px)!important;
+    min-height:min(42dvh,420px)!important;
+    max-height:min(72dvh,680px)!important;
+    overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock .evpa-sheet-head {
+    flex:0 0 auto!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls {
+    flex:0 1 auto!important;
+    min-height:54px!important;
+    max-height:min(34dvh,300px)!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  #ethvellePicsartTextDock .evpa-palette {
+    flex:1 1 auto!important;
+    min-height:116px!important;
+    display:flex!important;
+    align-items:center!important;
+    justify-content:stretch!important;
+    padding-top:5px!important;
+    padding-bottom:8px!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette {
+    width:100%!important;
+    flex:1 1 auto!important;
+    align-self:center!important;
+  }
+  #ethvellePicsartTextDock.evpa-no-palette .evpa-controls {
+    flex:1 1 auto!important;
+    min-height:160px!important;
+    max-height:none!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches {
+    align-self:center!important;
+  }
+  #ethvellePicsartTextDock .evpa-tabs {
+    flex:0 0 auto!important;
+    margin-top:auto!important;
+    position:relative!important;
+    z-index:6!important;
+    touch-action:pan-x!important;
+  }
+  /* The legacy Color row is kept at two rows while the panel grows. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches {
+    grid-template-rows:repeat(2,35px)!important;
+    min-height:91px!important;
+  }
+  /* The composer hosts the same dock in a compact sub-panel; don't inherit the tall sheet size. */
+  #ethvellePicsartTextDock.evpa-in-composer {
+    height:auto!important;
+    min-height:0!important;
+    max-height:31dvh!important;
+  }
+  #ethvellePicsartTextDock.evpa-in-composer .evpa-controls {
+    flex:0 1 auto!important;
+    max-height:min(17dvh,150px)!important;
+  }
+  #ethvellePicsartTextDock.evpa-in-composer .evpa-palette {
+    flex:0 0 auto!important;
+    min-height:0!important;
+  }
+
+  /* Give custom style/color sheets the same taller, scrollable bottom-sheet behaviour. */
+  #ethvelleTextStylePanel .evts-sheet {
+    min-height:min(46dvh,460px)!important;
+    max-height:min(86dvh,760px)!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  #ethvelleColorPicker .evcp-sheet,
+  #ethvelleColorPicker .evpa-picker-sheet {
+    min-height:min(44dvh,440px)!important;
+    max-height:min(92dvh,820px)!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+  #evpaCustomEffectEditor .evce-sheet {
+    min-height:min(46dvh,460px)!important;
+    max-height:min(90dvh,800px)!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+  }
+
+  /* A clean blue selection border only: remove the old white inset/second outline from both
+     gradient and texture presets. The selected border follows the chosen preset itself. */
+  #ethvellePicsartTextDock .evpa-gradient-chip,
+  #ethvellePicsartTextDock .evpa-image-texture-chip {
+    outline:0!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.active,
+  #ethvellePicsartTextDock .evpa-controls .evpa-image-texture-chip.selected,
+  #ethvellePicsartTextDock .evpa-controls .evpa-image-texture-chip.active,
+  #ethvellePicsartTextDock .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-gradient-chip.active,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.selected,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.active {
+    border:2px solid #2F5CE8!important;
+    outline:0!important;
+    outline-offset:0!important;
+    box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.selected::after,
+  #ethvellePicsartTextDock .evpa-controls .evpa-image-texture-chip.selected::after,
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.active::after,
+  #ethvellePicsartTextDock .evpa-controls .evpa-image-texture-chip.active::after,
+  #ethvellePicsartTextDock .evpa-gradient-chip.selected::after,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.selected::after,
+  #ethvellePicsartTextDock .evpa-gradient-chip.active::after,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.active::after {
+    content:none!important;
+    display:none!important;
+    border:0!important;
+    box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active {
+    outline:0!important;
+    box-shadow:0 0 0 2px #2F5CE8!important;
+    z-index:4!important;
+  }
+
+  /* No stationary blue start/end guide lines on swatch rows or slider tracks. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets,
+  #ethvelleTextStylePanel .evts-swatches,

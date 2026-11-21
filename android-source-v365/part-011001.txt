@@ -1,0 +1,1000 @@
+  if(!box) return;
+  if(!part.contentBox){ box.style.display = 'none'; return; }
+  const img = document.getElementById('pivotEditorImg');
+  const rect = img.getBoundingClientRect();
+  const wrapRect = img.parentElement.getBoundingClientRect();
+  const { x, y, w, h } = part.contentBox;
+  box.style.display = 'block';
+  box.style.left = (rect.left - wrapRect.left + rect.width*(x/part.w)) + 'px';
+  box.style.top = (rect.top - wrapRect.top + rect.height*(y/part.h)) + 'px';
+  box.style.width = (rect.width*(w/part.w)) + 'px';
+  box.style.height = (rect.height*(h/part.h)) + 'px';
+}
+function closePivotEditor(){
+  document.getElementById('pivotEditorBackdrop').classList.remove('active');
+  renderCustomBuilderGrid();
+}
+function positionPivotDot(fracX, fracY){
+  const img = document.getElementById('pivotEditorImg');
+  const dot = document.getElementById('pivotDot');
+  const rect = img.getBoundingClientRect();
+  const wrapRect = img.parentElement.getBoundingClientRect();
+  dot.style.left = (rect.left - wrapRect.left + rect.width*fracX) + 'px';
+  dot.style.top = (rect.top - wrapRect.top + rect.height*fracY) + 'px';
+}
+function setupPivotDrag(){
+  const dot=document.getElementById('pivotDot');
+  const img=document.getElementById('pivotEditorImg');
+  if(!dot||!img)return;
+  let dragging=false,frame=0,pending=null,geom=null,captureTarget=null,pointerId=null;
+  function applyPoint(x,y){
+    if(!geom||!geom.img.width||!geom.img.height)return;
+    const fx=Math.max(0,Math.min(1,(x-geom.img.left)/geom.img.width));
+    const fy=Math.max(0,Math.min(1,(y-geom.img.top)/geom.img.height));
+    const part=customBuilderParts[customBuilderActiveSlot];
+    if(part){part.pivotX=fx;part.pivotY=fy;}
+    dot.style.left=(geom.img.left-geom.wrap.left+geom.img.width*fx)+'px';
+    dot.style.top=(geom.img.top-geom.wrap.top+geom.img.height*fy)+'px';
+  }
+  function flush(){
+    if(frame){cancelAnimationFrame(frame);frame=0;}
+    const p=pending;pending=null;
+    if(p)applyPoint(p.x,p.y);
+  }
+  function queue(e){pending={x:e.clientX,y:e.clientY};if(!frame)frame=requestAnimationFrame(flush);}
+  function finish(e){
+    if(!dragging|| (e&&pointerId!=null&&e.pointerId!==pointerId))return;
+    flush();dragging=false;geom=null;pointerId=null;captureTarget=null;
+  }
+  dot.onpointerdown=e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    dragging=true;pointerId=e.pointerId;
+    const wrap=img.parentElement;
+    geom={img:img.getBoundingClientRect(),wrap:wrap.getBoundingClientRect()};
+    captureTarget=dot;
+    try{dot.setPointerCapture(e.pointerId);}catch(_e){}
+    e.preventDefault();e.stopPropagation();
+  };
+  dot.onpointermove=e=>{if(dragging&&e.pointerId===pointerId){queue(e);e.preventDefault();}};
+  dot.onpointerup=finish;dot.onpointercancel=finish;dot.onlostpointercapture=finish;
+  // A tap on the picture still places the pivot immediately, then continues as a drag.
+  img.onpointerdown=e=>{
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    dragging=true;pointerId=e.pointerId;
+    const wrap=img.parentElement;
+    geom={img:img.getBoundingClientRect(),wrap:wrap.getBoundingClientRect()};
+    applyPoint(e.clientX,e.clientY);
+    captureTarget=img;
+    try{img.setPointerCapture(e.pointerId);}catch(_e){}
+    e.preventDefault();
+  };
+  img.onpointermove=e=>{if(dragging&&captureTarget===img&&e.pointerId===pointerId){queue(e);e.preventDefault();}};
+  img.onpointerup=finish;img.onpointercancel=finish;img.onlostpointercapture=finish;
+}
+// Wired once at script load — #pivotDot/#pivotEditorImg are static DOM elements present in
+// every modal state (not re-created per slot), so a single listener setup covers every
+// pivot-editing session for the lifetime of the page.
+setupPivotDrag();
+
+// Converts the filled-in customBuilderParts into either a brand-new character (pushed onto
+// `characters`, exactly like addCharacter() does for a stickman) or, when
+// customBuilderEditingExisting is true, writes them back onto the character that was already
+// active when the builder was opened for editing (see openCustomCharBuilder's
+// forActiveCharacter param) — same part shape either way, just a different destination.
+function finishCustomCharacterBuild(){
+  if(!PART_SLOTS.every(s=>customBuilderParts[s.id])){
+    showToast('Upload all 10 parts first', {icon: toastIcons.info, duration:1800});
+    return;
+  }
+  const newParts = {};
+  PART_SLOTS.forEach(slot=>{
+    const p = customBuilderParts[slot.id];
+    newParts[slot.id] = { src:p.src, pivotX:p.pivotX, pivotY:p.pivotY, w:p.w, h:p.h, contentBox:p.contentBox };
+  });
+  if(customBuilderEditingAssetId){
+    const asset = modelAssets.find(a=>a.id===customBuilderEditingAssetId);
+    if(asset){
+      asset.parts = newParts;
+      // The library thumbnail (modelAssetThumbSrc) prefers autoRig.sourceImage when present,
+      // so refresh that too — otherwise an edited part wouldn't show up in the Models grid or
+      // "My models" sheet thumbnail until the asset was re-uploaded from scratch.
+      if(asset.autoRig) asset.autoRig.sourceImage = newParts.torso ? newParts.torso.src : asset.autoRig.sourceImage;
+      saveModelAssetsToStorage();
+    }
+    customBuilderEditingAssetId = null;
+    closeCustomCharBuilder();
+    if(navigator.vibrate) navigator.vibrate(12);
+    showToast('Model updated', {duration:1400});
+    if(document.getElementById('screen-projects').classList.contains('active')) renderModelsTab();
+    return;
+  }
+  if(customBuilderEditingExisting && characters[activeCharIdx]){
+    const c = characters[activeCharIdx];
+    c.type = 'custom';
+    c.parts = newParts;
+    closeCustomCharBuilder();
+    if(navigator.vibrate) navigator.vibrate(12);
+    showToast('Character updated', {duration:1400});
+    // Re-decode any part whose image actually changed (new upload, or a rotate/mirror bake)
+    // before the next drawStick() — unchanged parts hit preloadCustomCharacterImages's own
+    // cache and are skipped, so this is cheap even for a single-part tweak.
+    preloadCustomCharacterImages(ctx, [c]).then(()=>{
+      drawStick();
+      renderCharacterLayers();
+      syncTransformSliders();
+      persistProjectState();
+    });
+    return;
+  }
+  const c = makeCharacter();
+  c.type = 'custom';
+  c.parts = newParts;
+  characters.push(c);
+  activeCharIdx = characters.length - 1;
+  syncActiveCharacterRefs();
+  selectedJoint = null;
+  closeCustomCharBuilder();
+  if(navigator.vibrate) navigator.vibrate(12);
+  showToast('Custom character added', {duration:1400});
+  // Decode this character's 10 part images into the live canvas's own image cache before
+  // the first drawStick() — otherwise the newly-added character would render with limbs
+  // missing for a frame or two while each Image() finishes loading (see
+  // preloadCustomCharacterImages's fuller explanation on the export path).
+  preloadCustomCharacterImages(ctx, [c]).then(()=>{
+    drawStick();
+    renderCharacterLayers();
+    syncTransformSliders();
+    persistProjectState();
+  });
+}
+
+// ---- Rotate / Mirror the part currently open in the pivot editor ----
+// Both bake their transform directly into the part's own stored image pixels (via an offscreen
+// canvas) and algebraically remap its pivot fraction + detected content box to match, rather
+// than tracking a separate rotation/flip flag. That means drawCustomCharacterOnContext, saving,
+// and export all need zero changes — they just draw whatever image/pivot/box is stored, exactly
+// as before; rotating/mirroring twenty times over stays lossless since it's PNG re-encoding,
+// not JPEG. See applyBakedPartTransform for the shared finish-up step.
+function rotatePivotEditorPart(){
+  const part = customBuilderParts[customBuilderActiveSlot];
+  const img = document.getElementById('pivotEditorImg');
+  if(!part || !img.complete || !img.naturalWidth) return;
+  const oldW = part.w, oldH = part.h;
+  const cv = document.createElement('canvas');
+  cv.width = oldH; cv.height = oldW; // 90° rotation swaps width/height
+  const cctx = cv.getContext('2d');
+  cctx.translate(cv.width, 0);
+  cctx.rotate(Math.PI/2);
+  cctx.drawImage(img, 0, 0, oldW, oldH);
+  // A 90° CW rotation maps raw-image fraction (x,y) -> (1-y, x) in the new (swapped) image —
+  // apply the same mapping to the pivot and to the four corners of the content box (in pixels
+  // of the OLD image, since that's what contentBox is stored in).
+  const box = part.contentBox;
+  const newBox = box ? { x: oldH-(box.y+box.h), y: box.x, w: box.h, h: box.w } : null;
+  applyBakedPartTransform(cv.toDataURL('image/png'), oldH, oldW, 1-part.pivotY, part.pivotX, newBox);
+}
+function mirrorPivotEditorPart(){
+  const part = customBuilderParts[customBuilderActiveSlot];
+  const img = document.getElementById('pivotEditorImg');
+  if(!part || !img.complete || !img.naturalWidth) return;
+  const w = part.w, h = part.h;
+  const cv = document.createElement('canvas');
+  cv.width = w; cv.height = h; // dimensions unchanged by a horizontal flip
+  const cctx = cv.getContext('2d');
+  cctx.translate(w, 0);
+  cctx.scale(-1, 1);
+  cctx.drawImage(img, 0, 0, w, h);
+  const box = part.contentBox;
+  const newBox = box ? { x: w-box.x-box.w, y: box.y, w: box.w, h: box.h } : null;
+  applyBakedPartTransform(cv.toDataURL('image/png'), w, h, 1-part.pivotX, part.pivotY, newBox);
+}
+// Shared tail for rotate/mirror above: stores the newly-baked image + remapped pivot/content
+// box on the slot that's currently open, then reopens the pivot editor for that same slot so
+// the on-screen dot and dashed outline immediately reflect the new orientation.
+function applyBakedPartTransform(newSrc, newW, newH, newPivotX, newPivotY, newBox){
+  const slotId = customBuilderActiveSlot;
+  customBuilderParts[slotId] = { src:newSrc, w:newW, h:newH, pivotX:newPivotX, pivotY:newPivotY, contentBox:newBox };
+  if(navigator.vibrate) navigator.vibrate(8);
+  openPivotEditorForSlot(slotId);
+}
+
+/* ============================================================================
+   SKELETAL MESH SKINNING (replaces rigid cut-and-stamp part rendering for
+   auto-rigged characters — see finalizeAutoRiggedCharacter/buildSkinMesh).
+   ----------------------------------------------------------------------------
+   OLD BEHAVIOR (still kept below, in drawCustomCharacterOnContext, as a
+   fallback for characters saved before this existed / manually-built 10-slot
+   characters that have no single source image): the source art was CUT into
+   10 rectangular crops (see generateAutoRigParts/computePartRegions), and
+   each crop was pasted onto its own bone independently. Because a crop is a
+   hard rectangle, the art visibly separated at the joints once limbs rotated
+   away from the pose they were cut in — exactly the "cut body parts" problem
+   reported.
+
+   NEW BEHAVIOR: the character's full original photo (char.autoRig.sourceImage)
+   is kept as ONE texture, never cut. A triangle mesh is laid over it once, and
+   every vertex is given a WEIGHTED blend of influence from the 1-2 nearest
+   bones (a "vertex group", same idea as Blender's Armature modifier). Each
+   frame, every bone's CURRENT transform (translation+rotation, derived from
+   getBoneStart/getBoneEnd) is compared against its REST transform (the pose
+   the mesh was built in) to get a delta transform; a vertex's new position is
+   the weighted blend of every influencing bone's delta applied to that
+   vertex's rest position (linear blend skinning). The deformed mesh is then
+   drawn by warping the source texture one triangle at a time (drawImage's
+   affine-transform trick — canvas has no native triangle-texture-mapping, but
+   any triangle-to-triangle mapping IS an affine transform, so each triangle
+   is clipped and drawn with ctx.setTransform solved for its 3 corners). This
+   is what makes the art stretch/bend continuously FROM the bone points,
+   instead of snapping between disconnected rigid pieces.
+   ============================================================================ */
+
+// One skinning bone per rig bone key, defined by its REST (detection-time) start/end
+// in source-image pixel space — mirrors AUTORIG_BONE_FOR_PART/buildRigOverrideFromJoints'
+// own J-point pairs exactly, just kept as explicit segments instead of folded into angle/
+// length fractions.
+const SKIN_BONE_DEFS = [
+  { key:'head',    a:'neck',      b:'headTop' },
+  { key:'spine',   a:'hip',       b:'neck' },
+  { key:'armL',    a:'shoulderL', b:'elbowL' },
+  { key:'armL_lo', a:'elbowL',    b:'wristL' },
+  { key:'handL',   a:'wristL',    b:'palmL' },
+  { key:'armR',    a:'shoulderR', b:'elbowR' },
+  { key:'armR_lo', a:'elbowR',    b:'wristR' },
+  { key:'handR',   a:'wristR',    b:'palmR' },
+  { key:'legL',    a:'hip',      b:'kneeL' },
+  { key:'legL_lo', a:'kneeL',    b:'ankleL' },
+  { key:'legR',    a:'hip',      b:'kneeR' },
+  { key:'legR_lo', a:'kneeR',    b:'ankleR' },
+];
+['L','R'].forEach(side=>['thumb','index','middle','ring','pinky'].forEach(finger=>{
+  SKIN_BONE_DEFS.push({key:finger+side+'_1',a:finger+'Base'+side,b:finger+'Mid'+side});
+  SKIN_BONE_DEFS.push({key:finger+side+'_2',a:finger+'Mid'+side,b:finger+'Tip'+side});
+}));
+const SKIN_MESH_GRID = 22; // denser than the old 14x14 grid; extra grid lines are inserted around detected joints.
+
+// Builds the once-per-character skin mesh: a regular grid of vertices over the character's
+// opaque silhouette (source-image pixel space), each vertex weighted against every bone
+// segment in SKIN_BONE_DEFS by inverse distance (closer bone = more influence), normalized to
+// sum to 1, then narrowed to its strongest 1-2 bones so a vertex deep inside one limb doesn't
+// get a diluting pull from a distant, unrelated one. Returns null if srcCanvas has no visible
+// pixels (nothing to build a mesh over).
+function buildSkinMesh(srcCanvas, joints, srcW, srcH){
+  let data;
+  try{ data = srcCanvas.getContext('2d').getImageData(0,0,srcW,srcH).data; }
+  catch(e){ return null; }
+  const J = {};
+  for(const k in joints){
+    const pt=joints[k];
+    if(pt && Number.isFinite(pt.x) && Number.isFinite(pt.y)) J[k] = { x:pt.x*srcW, y:pt.y*srcH };
+  }
+  const defs = SKIN_BONE_DEFS.filter(def=>J[def.a] && J[def.b] && Math.hypot(J[def.b].x-J[def.a].x,J[def.b].y-J[def.a].y)>0.5);
+  if(defs.length<8) return null;
+  const height=Math.max(1,Math.max(J.ankleL?.y||0,J.ankleR?.y||0)-(J.headTop?.y||0));
+  const bones = defs.map(def=>({ key:def.key, a:J[def.a], b:J[def.b], len:Math.hypot(J[def.b].x-J[def.a].x,J[def.b].y-J[def.a].y) }));
+  let minX=srcW, minY=srcH, maxX=-1, maxY=-1;
+  for(let y=0;y<srcH;y++) for(let x=0;x<srcW;x++) if(data[(y*srcW+x)*4+3] > AUTORIG_ALPHA_THRESH){
+    if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y;
+  }
+  if(maxX<minX || maxY<minY) return null;
+  const padX=(maxX-minX)*0.025, padY=(maxY-minY)*0.025;
+  minX=Math.max(0,minX-padX); maxX=Math.min(srcW-1,maxX+padX);
+  minY=Math.max(0,minY-padY); maxY=Math.min(srcH-1,maxY+padY);
+  function distToSeg(p,a,b){
+    const dx=b.x-a.x,dy=b.y-a.y,l2=dx*dx+dy*dy||1e-6;
+    const t=Math.max(0,Math.min(1,((p.x-a.x)*dx+(p.y-a.y)*dy)/l2));
+    return Math.hypot(p.x-(a.x+dx*t),p.y-(a.y+dy*t));
+  }
+  function radiusFor(key,len){
+    if(/^((thumb|index|middle|ring|pinky)[LR]_[12])$/.test(key)) return Math.max(2,height*0.008);
+    if(/^hand[LR]$/.test(key)) return Math.max(3,height*0.018);
+    if(key==='spine') return Math.max(5,height*0.105);
+    if(key==='head') return Math.max(4,height*0.075);
+    if(key.startsWith('leg')) return Math.max(3,height*0.035);
+    return Math.max(2,height*0.024);
+  }
+  const keySet=new Set(defs.map(d=>d.key));
+  function adjacent(a,b){
+    if(a===b) return true;
+    const fixed={
+      head:['spine'],spine:['head','armL','armR','legL','legR'],
+      armL:['spine','armL_lo'],armL_lo:['armL','handL'],handL:['armL_lo'],
+      armR:['spine','armR_lo'],armR_lo:['armR','handR'],handR:['armR_lo'],
+      legL:['spine','legL_lo'],legL_lo:['legL'],legR:['spine','legR_lo'],legR_lo:['legR']
+    };
+    if((fixed[a]||[]).includes(b)||(fixed[b]||[]).includes(a)) return true;
+    const ma=a.match(/^(thumb|index|middle|ring|pinky)(L|R)_([12])$/), mb=b.match(/^(thumb|index|middle|ring|pinky)(L|R)_([12])$/);
+    if(ma&&mb) return ma[1]===mb[1]&&ma[2]===mb[2]&&Math.abs(Number(ma[3])-Number(mb[3]))===1;
+    const md=a.match(/^(thumb|index|middle|ring|pinky)(L|R)_1$/), mh=b.match(/^hand([LR])$/);
+    const nd=b.match(/^(thumb|index|middle|ring|pinky)(L|R)_1$/), nh=a.match(/^hand([LR])$/);
+    return !!((md&&mh&&md[2]===mh[1])||(nd&&nh&&nd[2]===nh[1]));
+  }
+  function axisStops(min,max,size,axis){
+    const span=max-min, values=[];
+    for(let i=0;i<=SKIN_MESH_GRID;i++) values.push({v:min+span*i/SKIN_MESH_GRID,pinned:false});
+    for(const key in J){
+      const v=J[key][axis];
+      if(v>min+1 && v<max-1) values.push({v,pinned:true});
+      const nudge=Math.max(1,size*0.004);
+      if(v-nudge>min+1 && v-nudge<max-1) values.push({v:v-nudge,pinned:true});
+      if(v+nudge>min+1 && v+nudge<max-1) values.push({v:v+nudge,pinned:true});
+    }
+    values.sort((a,b)=>a.v-b.v);
+    let out=[];
+    values.forEach(item=>{
+      const prev=out[out.length-1];
+      if(prev && Math.abs(prev.v-item.v)<Math.max(0.75,size*0.0008)){ prev.pinned=prev.pinned||item.pinned; if(item.pinned) prev.v=item.v; }
+      else out.push({...item});
+    });
+    // Keep the landmarks, thin only uniform/non-landmark stops if a very hand-detailed input creates many columns.
+    while(out.length>42){
+      let best=-1,bestGap=Infinity;
+      for(let i=1;i<out.length-1;i++) if(!out[i].pinned){
+        const gap=Math.min(out[i].v-out[i-1].v,out[i+1].v-out[i].v);
+        if(gap<bestGap){bestGap=gap;best=i;}
+      }
+      if(best<0) break;
+      out.splice(best,1);
+    }
+    return [...new Set(out.map(x=>x.v))].sort((a,b)=>a-b);
+  }
+  const xs=axisStops(minX,maxX,srcW,'x'), ys=axisStops(minY,maxY,srcH,'y');
+  const verts=[];
+  for(let ry=0;ry<ys.length;ry++) for(let rx=0;rx<xs.length;rx++){
+    const x=xs[rx],y=ys[ry], point={x,y};
+    const ds=bones.map(bn=>({key:bn.key,d:distToSeg(point,bn.a,bn.b)/radiusFor(bn.key,bn.len)})).sort((a,b)=>a.d-b.d);
+    const first=ds[0], second=ds.find(item=>item.key!==first.key&&keySet.has(item.key)&&adjacent(first.key,item.key));
+    let w2=0;
+    // Blend only a narrow joint seam between connected bones. Distant body parts never pull on one another.
+    if(second){
+      const gap=second.d-first.d;
+      if(gap<0.78) w2=Math.min(0.28,Math.max(0,(0.78-gap)/0.78)*0.28);
+    }
+    const weights=w2>0.015?[{key:first.key,w:1-w2},{key:second.key,w:w2}]:[{key:first.key,w:1}];
+    verts.push({x,y,u:x/srcW,v:y/srcH,weights});
+  }
+  const tris=[];
+  for(let ry=0;ry<ys.length-1;ry++) for(let rx=0;rx<xs.length-1;rx++){
+    const i0=ry*xs.length+rx,i1=i0+1,i2=i0+xs.length,i3=i2+1;
+    tris.push([i0,i1,i2],[i1,i3,i2]);
+  }
+  const restBones={};
+  bones.forEach(bn=>{
+    const dx=bn.b.x-bn.a.x,dy=bn.b.y-bn.a.y;
+    restBones[bn.key]={ax:bn.a.x,ay:bn.a.y,angle:Math.atan2(dy,dx),len:Math.max(1e-6,Math.hypot(dx,dy))};
+  });
+  return {verts,tris,restBones,boneDefs:defs,xs,ys,srcW,srcH,bounds:{minX,minY,maxX,maxY}};
+}
+
+// Re-derives skinMesh for every restored custom character that has autoRig data but no mesh
+// yet (see openEditor's restore path — skinMesh is deliberately never persisted since it's
+// fully rebuildable from autoRig.sourceImage+joints, which ARE persisted). Decodes each
+// character's own source image into a throwaway canvas (buildSkinMesh needs real pixel data
+// for its silhouette bounds, not just an <img> element) and builds the mesh from that. Old
+// projects/characters with no autoRig at all (manual 10-slot builds, or pre-autorig saves)
+// are left untouched and keep rendering via the old cut-part path, same as before this
+// feature existed.
+function rebuildSkinMeshesForCharacters(chars){
+  const targets = chars.filter(c=>c.type==='custom' && c.autoRig && c.autoRig.sourceImage && !c.skinMesh);
+  if(!targets.length) return Promise.resolve();
+  return Promise.all(targets.map(c=>new Promise(resolve=>{
+    const img = new Image();
+    img.onload = ()=>{
+      try{
+        const cnv = document.createElement('canvas');
+        cnv.width = c.autoRig.srcW; cnv.height = c.autoRig.srcH;
+        cnv.getContext('2d').drawImage(img, 0, 0, c.autoRig.srcW, c.autoRig.srcH);
+        c.skinMesh = buildSkinMesh(cnv, c.autoRig.joints, c.autoRig.srcW, c.autoRig.srcH);
+      }catch(e){ c.skinMesh = null; } // falls back to the old cut-part path for this character
+      resolve();
+    };
+    img.onerror = ()=>resolve(); // leave skinMesh null; old cut-part path still renders it
+    img.src = c.autoRig.sourceImage;
+  })));
+}
+
+// Per-frame: deforms every mesh vertex from its rest position using RIGID single-bone posing
+// (each vertex now has exactly one weight of 1 — see buildSkinMesh). The vertex's rest-relative
+// offset from its bone's rest start is rotated by that bone's rest->current rotation delta,
+// scaled only by THAT bone's own length-change (so a joint drag that lengthens/shortens one
+// segment still moves with it), then placed at the bone's CURRENT start position. Because each
+// vertex belongs to only one bone, a joint move never pulls on skin belonging to a neighboring
+// limb — the character reads as rigid cut-out pieces hinged at the joints, not a stretchy blend.
+// `boneStartFn`/`boneEndFn` default to the live global getBoneStart/getBoneEnd (already pointed
+// at the active character), matching drawCustomCharacterOnContext's own pattern, so export can
+// pass bound closures for a non-active character exactly like it already does for the old
+// cut-part path.
+function poseSkinMesh(mesh, boneStartFn, boneEndFn){
+  const bStart=boneStartFn||getBoneStart, bEnd=boneEndFn||getBoneEnd, cur={};
+  (mesh.boneDefs||SKIN_BONE_DEFS).forEach(def=>{
+    if(!mesh.restBones[def.key]) return;
+    const s=bStart(def.key),e=bEnd(def.key),dx=e.x-s.x,dy=e.y-s.y;
+    cur[def.key]={x:s.x,y:s.y,angle:Math.atan2(dy,dx),len:Math.max(1e-6,Math.hypot(dx,dy))};
+  });
+  function safeScale(key,rest,now){
+    const raw=now.len/rest.len;
+    if(key==='spine'||key==='head') return Math.max(0.985,Math.min(1.015,raw));
+    if(/^((thumb|index|middle|ring|pinky)[LR]_[12])$/.test(key)) return Math.max(0.82,Math.min(1.12,raw));
+    return Math.max(0.92,Math.min(1.08,raw));
+  }
+  function transformPoint(v,key,forceRigid){
+    const rest=mesh.restBones[key],now=cur[key];
+    if(!rest||!now) return {x:v.x,y:v.y};
+    const dx=v.x-rest.ax,dy=v.y-rest.ay,cr=Math.cos(-rest.angle),sr=Math.sin(-rest.angle);
+    let lx=dx*cr-dy*sr,ly=dx*sr+dy*cr;
+    const sc=forceRigid?1:safeScale(key,rest,now); lx*=sc;ly*=sc;
+    const cc=Math.cos(now.angle),ss=Math.sin(now.angle);
+    return {x:now.x+lx*cc-ly*ss,y:now.y+lx*ss+ly*cc};
+  }
+  const posed=mesh.verts.map(v=>{
+    let x=0,y=0;
+    v.weights.forEach(w=>{const q=transformPoint(v,w.key,false);x+=q.x*w.w;y+=q.y*w.w;});
+    return {x,y};
+  });
+  posed._currentBones=cur;
+  posed._rigidMapper=(v,key)=>transformPoint(v,key,true);
+  return posed;
+}
+
+// Draws the deformed mesh by warping the source texture one triangle at a time. Any mapping
+// from one triangle to another is an affine transform, so each triangle is clipped (so
+// neighboring triangles never bleed into each other at the seam) and the transform that sends
+// the SOURCE triangle's 3 corners onto the DEFORMED triangle's 3 corners is solved and applied
+// before drawing the full image — canvas clips to the path first, so only that triangle's
+// pixels actually land on the stage. This is the standard 2D canvas equivalent of GPU texture-
+// mapped triangle rendering. Since each vertex now belongs rigidly to a single bone (see
+// buildSkinMesh/poseSkinMesh), a triangle whose 3 corners all share one bone just rotates/
+// translates as a solid piece; only the handful of seam triangles that straddle two different
+// bones' vertex sets get a (mild, joint-local) shear — this is what keeps the joints from
+// visibly tearing apart while the rest of each limb stays perfectly rigid.
+function drawSkinnedMesh(targetCtx, img, mesh, posedVerts){
+  mesh.tris.forEach(tri=>{
+    const [i0,i1,i2] = tri;
+    const s0 = mesh.verts[i0], s1 = mesh.verts[i1], s2 = mesh.verts[i2];
+    let d0 = posedVerts[i0], d1 = posedVerts[i1], d2 = posedVerts[i2];
+    // Prevent inverted/near-collapsed triangles (the usual visual cause of a folded belly or a pinched seam).
+    const srcArea=(s1.x-s0.x)*(s2.y-s0.y)-(s2.x-s0.x)*(s1.y-s0.y);
+    let dstArea=(d1.x-d0.x)*(d2.y-d0.y)-(d2.x-d0.x)*(d1.y-d0.y);
+    const badTriangle=srcArea*dstArea<=0 || Math.abs(dstArea)<Math.abs(srcArea)*0.045;
+    if(badTriangle && posedVerts._rigidMapper){
+      const votes={};
+      [s0,s1,s2].forEach(v=>v.weights.forEach(w=>votes[w.key]=(votes[w.key]||0)+w.w));
+      const rigidKey=Object.keys(votes).sort((a,b)=>votes[b]-votes[a])[0];
+      d0=posedVerts._rigidMapper(s0,rigidKey); d1=posedVerts._rigidMapper(s1,rigidKey); d2=posedVerts._rigidMapper(s2,rigidKey);
+      dstArea=(d1.x-d0.x)*(d2.y-d0.y)-(d2.x-d0.x)*(d1.y-d0.y);
+      if(srcArea*dstArea<=0 || Math.abs(dstArea)<1e-5) return;
+    }
+    // Source triangle in image pixel space.
+    const sx0=s0.x, sy0=s0.y, sx1=s1.x, sy1=s1.y, sx2=s2.x, sy2=s2.y;
+    // Solve the 2x3 affine matrix [a c e; b d f] mapping (sx,sy)->(dx,dy) for all 3 corners.
+    const denom = (sx1-sx0)*(sy2-sy0) - (sx2-sx0)*(sy1-sy0);
+    if(Math.abs(denom) < 1e-8) return; // degenerate triangle (shouldn't happen on a regular grid) — skip rather than divide by ~0
+    const a = ((d1.x-d0.x)*(sy2-sy0) - (d2.x-d0.x)*(sy1-sy0)) / denom;
+    const b = ((d1.y-d0.y)*(sy2-sy0) - (d2.y-d0.y)*(sy1-sy0)) / denom;
+    const c = ((d2.x-d0.x)*(sx1-sx0) - (d1.x-d0.x)*(sx2-sx0)) / denom;
+    const d = ((d2.y-d0.y)*(sx1-sx0) - (d1.y-d0.y)*(sx2-sx0)) / denom;
+    const e = d0.x - (a*sx0 + c*sy0);
+    const f = d0.y - (b*sx0 + d*sy0);
+    targetCtx.save();
+    targetCtx.beginPath();
+    // FIX (visible black crosshatch/"graph" over the character): canvas anti-aliases every
+    // clip path edge, so two triangles whose edges sit pixel-adjacent (not overlapping) each
+    // fade out right at that shared edge — the two independent fades don't cancel, they add
+    // up as a thin dark seam. This was barely visible under the old blended skinning (adjacent
+    // triangles moved almost identically), but rigid single-bone posing (see buildSkinMesh) can
+    // rotate/shear neighboring triangles differently enough that the seam grid became a clearly
+    // visible line pattern across flat-colored art like a shirt. Fix: nudge each of the
+    // triangle's 3 clip corners outward from the triangle's own center by ~0.75px before
+    // clipping, so neighboring triangles now overlap by a fraction of a pixel instead of
+    // butting exactly edge-to-edge — invisible on the art itself, but enough to hide the seam.
+    const cx = (d0.x+d1.x+d2.x)/3, cy = (d0.y+d1.y+d2.y)/3;
+    const OVERLAP = 0.75;
+    function pushOut(p){
+      const vx = p.x-cx, vy = p.y-cy;
+      const len = Math.hypot(vx,vy) || 1;
+      return { x: p.x + (vx/len)*OVERLAP, y: p.y + (vy/len)*OVERLAP };
+    }
+    const p0 = pushOut(d0), p1 = pushOut(d1), p2 = pushOut(d2);
+    targetCtx.moveTo(p0.x, p0.y);
+    targetCtx.lineTo(p1.x, p1.y);
+    targetCtx.lineTo(p2.x, p2.y);
+    targetCtx.closePath();
+    targetCtx.clip();
+    targetCtx.transform(a, b, c, d, e, f);
+    targetCtx.drawImage(img, 0, 0);
+    targetCtx.restore();
+  });
+}
+
+// Draws every uploaded body-part image stamped onto its matching bone segment (see
+// PART_SLOTS' `bone` field). Each part's own pivot point (dragged into place in the pivot
+// editor) is placed at that bone's START joint, then rotated to the bone's current angle —
+// so posing the rig moves the artwork exactly like the stroke-stickman's lines would.
+function drawCustomCharacterOnContext(targetCtx, char, boneStartFn, boneEndFn){
+  // Model Lab part-sheet models use their own 21-bone hierarchical puppet renderer.
+  // All legacy auto-rig and older custom-part models continue through their original paths.
+  if(char && char.sheet && typeof drawSheetCharacter === 'function'){
+    drawSheetCharacter(targetCtx, char);
+    return;
+  }
+  // Live drawStick() calls this with no boneStartFn/boneEndFn — fall back to the global
+  // getBoneStart/getBoneEnd, which read the shared `bones` (already pointed at this
+  // character via syncActiveCharacterRefs since this only ever runs for the active
+  // character in that path). Export's drawCharacterToContext passes its own closures bound
+  // to that specific (possibly non-active) character's bones instead.
+  const bStart = boneStartFn || getBoneStart;
+  const bEnd = boneEndFn || getBoneEnd;
+
+  // NEW: skeletal mesh skinning path (see the SKELETAL MESH SKINNING block above) — used for
+  // every auto-rigged character that has a built skin mesh (char.skinMesh, built once in
+  // finalizeAutoRiggedCharacter from the full original photo). This replaces the old cut-part
+  // stamping below for those characters entirely, so the art stretches/bends continuously from
+  // the bone points instead of being built from separately-rotating rigid crops. Characters
+  // saved before this feature existed have no skinMesh yet and fall through to the old path
+  // unchanged, so old projects keep opening/rendering exactly as before.
+  if(char.skinMesh && char.autoRig && char.autoRig.sourceImage){
+    if(!targetCtx.__skinImgCache) targetCtx.__skinImgCache = {};
+    let simg = targetCtx.__skinImgCache[char.autoRig.sourceImage];
+    if(!simg){
+      simg = new Image();
+      simg.src = char.autoRig.sourceImage;
+      targetCtx.__skinImgCache[char.autoRig.sourceImage] = simg;
+    }
+    if(simg.complete && simg.naturalWidth){
+      const posed = poseSkinMesh(char.skinMesh, bStart, bEnd);
+      drawSkinnedMesh(targetCtx, simg, char.skinMesh, posed);
+    }
+    return;
+  }
+
+  PART_SLOTS.forEach(slot=>{
+    const part = char.parts[slot.id];
+    if(!part || !part.src) return;
+    const s = bStart(slot.bone);
+    const e = bEnd(slot.bone);
+    const dx = e.x-s.x, dy = e.y-s.y;
+    const boneLen = Math.hypot(dx, dy) || 1;
+    const angle = Math.atan2(dy, dx);
+    // FIX (uploaded parts render as the wrong/distorted shape): everything below is now
+    // measured against the part's DETECTED CONTENT BOX (see detectOpaqueBounds) instead of
+    // the raw uploaded image canvas. A phone crop almost never lines up pixel-perfect with
+    // the actual artwork — there's near-always leftover transparent margin — so scaling
+    // "the whole image" to fit a bone length was really scaling "mostly empty space plus a
+    // bit of art" to fit it, which is what produced the squashed/oversized/misplaced limbs.
+    // Parts saved before this fix have no contentBox yet; box falls back to the full raw
+    // image so those old characters keep rendering exactly as before (no surprise resize).
+    const box = part.contentBox || {x:0, y:0, w:part.w, h:part.h};
+    // pivotX/pivotY are stored as fractions of the RAW image (see the pivot dot's own
+    // coordinate space in positionPivotDot/setupPivotDrag) — convert to a fraction of the
+    // content box so the "distance from pivot to the box's far edge" below lines up with
+    // where the art actually starts and ends, not the canvas edges.
+    const pivotPxX = part.pivotX*part.w, pivotPxY = part.pivotY*part.h;
+    const pivotInBoxX = (pivotPxX - box.x)/box.w, pivotInBoxY = (pivotPxY - box.y)/box.h;
+    // Scale so the pixel distance from the pivot to whichever content-box edge is farther
+    // (top or bottom of the ACTUAL ART — the pivot isn't always exactly at 0 or 1) equals
+    // the bone's current length, so posing/resizing the rig scales the art proportionally.
+    const pivotToFar = Math.max(box.h*pivotInBoxY, box.h*(1-pivotInBoxY)) || box.h/2;
+    const scale = boneLen / pivotToFar;
+    const drawW = part.w*scale, drawH = part.h*scale;
+    if(!targetCtx.__partImgCache) targetCtx.__partImgCache = {};
+    let img = targetCtx.__partImgCache[part.src];
+    if(!img){
+      img = new Image();
+      img.src = part.src;
+      targetCtx.__partImgCache[part.src] = img;
+    }
+    if(!img.complete || !img.naturalWidth) return; // not decoded yet; next frame will catch it
+    targetCtx.save();
+    targetCtx.translate(s.x, s.y);
+    // Bone angle 0 points along +x (see getBoneEnd's cos/sin usage: end = start + cos*len,
+    // sin*len). The image's own "down the bone" direction (pivot near the top, art hanging
+    // toward the far edge) is the image's LOCAL +y axis. After ctx.rotate(theta), local +y
+    // maps to world direction (-sin(theta), cos(theta)) — for that to equal the bone's
+    // direction (cos(angle), sin(angle)) we need theta = angle - 90deg, NOT angle + 90deg
+    // (the previous +90deg had the sign backwards, which was rotating every limb to the
+    // wrong side — e.g. an arm meant to hang outward instead swinging up behind the torso).
+    targetCtx.rotate(angle - Math.PI/2);
+    // Draw the FULL raw image (so any margin around the art is preserved exactly as
+    // uploaded — we're not cropping the pixels, just correcting what the scale/pivot math
+    // measures against), positioned so the pivot point itself — not the raw canvas corner —
+    // lands at the bone's start joint.
+    targetCtx.drawImage(img, -drawW*part.pivotX, -drawH*part.pivotY, drawW, drawH);
+    targetCtx.restore();
+  });
+}
+// Decodes every custom character's part images into targetCtx's own __partImgCache ahead of
+// time, so the very first drawCustomCharacterOnContext() call against that context already
+// has every image ready (see startExport's call to this, and initCustomCharacterPreload's
+// live-canvas equivalent below). Returns a promise that resolves once every image has either
+// loaded or failed (a failed part just never draws, same as any other missing-source part).
+function preloadCustomCharacterImages(targetCtx, chars){
+  if(!targetCtx.__partImgCache) targetCtx.__partImgCache = {};
+  if(!targetCtx.__skinImgCache) targetCtx.__skinImgCache = {};
+  const cache = targetCtx.__partImgCache;
+  const skinCache = targetCtx.__skinImgCache;
+  const waits = [];
+  chars.forEach(c=>{
+    if(c.type!=='custom') return;
+    // Skinned characters (see drawCustomCharacterOnContext's skinMesh branch) preload the ONE
+    // full source photo instead of per-part crops.
+    if(c.skinMesh && c.autoRig && c.autoRig.sourceImage && !skinCache[c.autoRig.sourceImage]){
+      const simg = new Image();
+      skinCache[c.autoRig.sourceImage] = simg;
+      waits.push(new Promise(res=>{ simg.onload = res; simg.onerror = res; }));
+      simg.src = c.autoRig.sourceImage;
+    }
+    if(c.sheet && c.sheet.parts){
+      if(!targetCtx.__sheetImg) targetCtx.__sheetImg = {};
+      Object.values(c.sheet.parts).forEach(part=>{
+        if(!part || !part.src || targetCtx.__sheetImg[part.src]) return;
+        const img = new Image();
+        targetCtx.__sheetImg[part.src] = img;
+        waits.push(new Promise(res=>{ img.onload = res; img.onerror = res; }));
+        img.src = part.src;
+      });
+    }
+    if(!c.parts) return;
+    PART_SLOTS.forEach(slot=>{
+      const part = c.parts[slot.id];
+      if(!part || !part.src || cache[part.src]) return;
+      const img = new Image();
+      cache[part.src] = img;
+      waits.push(new Promise(res=>{ img.onload = res; img.onerror = res; }));
+      img.src = part.src;
+    });
+  });
+  return Promise.all(waits);
+}
+
+/* ============================================================================
+   AUTO-RIG: single full-body image -> automatic bone skeleton + body-part rig.
+   Replaces the 10-part manual upload as the default "Custom character" flow
+   (see openAutoRigUploader / the Add Character modal's "Custom character"
+   tile, and openAutoRigEditorForActive / the Bones panel's "Rig my art"
+   tile). The old manual builder (openCustomCharBuilder / PART_SLOTS pivot
+   editor above) is left fully intact and reachable via a secondary "manual
+   mode" link, both so old saved projects keep editing exactly as before and
+   as a fallback for art the auto-detector struggles with.
+
+   HONESTY NOTE: this is a heuristic, alpha-silhouette image-analysis
+   pipeline (row-by-row foreground-run scanning), not a machine-learning
+   model — see detectCharacterSilhouette below. It's designed around a
+   front-facing character with arms extended out to the sides and a
+   transparent background (the classic T/A-pose rigging reference pose);
+   it degrades gracefully (with an on-screen warning + a sane fallback
+   guess) when that assumption doesn't hold, rather than failing silently
+   or fabricating confidence. Every stage is its own function
+   (detectCharacterSilhouette -> buildRigOverrideFromJoints /
+   computePartRegions -> generateAutoRigParts) so a real ML segmentation or
+   pose model could replace just the detection stage later without
+   touching the rig-building, cropping, or rendering code.
+
+   OUTPUT SHAPE: generateAutoRigParts() below produces exactly the same
+   {src, pivotX, pivotY, w, h, contentBox} shape per PART_SLOTS id that the
+   manual pivot editor already produces, and buildRigOverrideFromJoints()
+   produces {lengths, angles, attachAt} consumed by applyRigOverride() (see
+   makeCharacter/openEditor above) — so drawCustomCharacterOnContext,
+   preloadCustomCharacterImages, export, and project save/load all work
+   completely unchanged for an auto-rigged character.
+   ============================================================================ */
+
+const AUTORIG_ALPHA_THRESH = 20;
+const AUTORIG_MAX_SRC_DIM = 1100;     // normalized working/stored image cap
+const AUTORIG_ANALYSIS_MAX_DIM = 420; // downscaled resolution used for detection scanning
+// Default on-stage figure height (fraction of stageH) is AUTO_RIG_FIGURE_HEIGHT_FRAC, defined
+// alongside applyRigOverride() above, next to buildFreshRig — that's the single place scaling
+// from detected-image-space to stage-space actually happens.
+
+function autorigIsFg(data, w, x, y){ return data[(y*w+x)*4+3] > AUTORIG_ALPHA_THRESH; }
+
+// ---- STEP: detect character foreground/silhouette + calculate character bounds ----
+function autorigGlobalBounds(data, w, h){
+  let minX=w, minY=h, maxX=-1, maxY=-1;
+  for(let y=0;y<h;y++){
+    for(let x=0;x<w;x++){
+      if(autorigIsFg(data,w,x,y)){
+        if(x<minX)minX=x; if(x>maxX)maxX=x;
+        if(y<minY)minY=y; if(y>maxY)maxY=y;
+      }
+    }
+  }
+  if(maxX<minX || maxY<minY) return null; // fully transparent
+  return { minX, minY, maxX, maxY };
+}
+// Per-row contiguous foreground runs, only within bounds. rows[y] = [[x0,x1], ...].
+function autorigComputeRowRuns(data, w, bounds){
+  const { minX, maxX, minY, maxY } = bounds;
+  const rows = new Array(maxY+1);
+  for(let y=minY;y<=maxY;y++){
+    const runs=[]; let runStart=-1;
+    for(let x=minX;x<=maxX;x++){
+      const fg = autorigIsFg(data,w,x,y);
+      if(fg && runStart===-1) runStart=x;
+      if(!fg && runStart!==-1){ runs.push([runStart,x-1]); runStart=-1; }
+    }
+    if(runStart!==-1) runs.push([runStart,maxX]);
+    rows[y]=runs;
+  }
+  return rows;
+}
+function autorigRowSpanWidth(runs){ if(!runs||!runs.length) return 0; return runs[runs.length-1][1]-runs[0][0]+1; }
+// Persistent leg-split finder (see STEP: detect major body regions) — a single noisy row
+// (fringe pixel gap) doesn't trigger a false split; it must hold for a short run of rows.
+function autorigFindSplitY(rows, startY, endY){
+  const persist = Math.max(3, Math.round((endY-startY)*0.03));
+  for(let y=startY;y<=endY;y++){
+    const runs = rows[y];
+    if(runs && runs.length>=2){
+      let ok=true;
+      for(let k=1;k<=persist && y+k<=endY;k++){ if(!rows[y+k]||rows[y+k].length<2){ ok=false; break; } }
+      if(ok) return y;
+    }
+  }
+  return -1;
+}
+// Local minimum of row width between headTopY and armBandTopY — typically the neck (narrower
+// than the head above and the shoulders/chest below). Both ends of the search range are
+// trimmed a little first, since a rounded head/hair outline tapers toward zero width right at
+// its own top and bottom edges, which would otherwise look like an even narrower "neck".
+function autorigFindNeckY(rows, headTopY, armBandTopY){
+  const span = armBandTopY-headTopY;
+  const margin = Math.max(2, Math.round(span*0.12));
+  let searchStart = headTopY+margin;
+  const searchEnd = armBandTopY-margin;
+  // Anchor the search start to the head's own widest row (hair/ears/cheeks) instead of trusting
+  // a blind percentage of the head-to-shoulder span. A large/rounded cartoon head can still be
+  // tapering toward its chin well past that fixed 12% margin — without this, the plain global
+  // minimum below used to land ON THE CHIN (part of the face), not the actual neck below it,
+  // which is what put a stray joint dot visibly on the character's face.
+  let headMaxW = 0;
+  for(let y=headTopY; y<=searchEnd; y++) headMaxW = Math.max(headMaxW, autorigRowSpanWidth(rows[y]));
+  if(headMaxW>0){
+    for(let y=searchStart; y<=searchEnd; y++){
+      if(autorigRowSpanWidth(rows[y]) <= headMaxW*0.62){ searchStart = y; break; }
+    }
+  }
+  let minW=Infinity, minY=-1;
+  for(let y=searchStart;y<=searchEnd;y++){
+    const width = autorigRowSpanWidth(rows[y]);
+    if(width>0 && width<minW){ minW=width; minY=y; }
+  }
+  if(minY===-1) return { y: Math.round(headTopY+span*0.55), guessed:true };
+  return { y:minY, guessed:false };
+}
+
+// ---- STEPS: detect body regions -> estimate skeleton -> estimate joints ----
+// Ported 1:1 from a standalone, unit-tested reference implementation (synthetic T-pose,
+// dress/merged-legs, tiny-character, and fully-transparent test cases) — see this feature's
+// summary for where that lives. Returns null only for a fully transparent image. Otherwise
+// always returns a complete, usable joint set (falling back to a proportion-based guess +
+// a warning wherever detection is ambiguous — see the "Do NOT silently produce a broken rig"
+// requirement this is built around) plus `warnings`, user-facing strings for anything guessed.
+function detectCharacterSilhouette(imageData){
+  const { width:w, height:h, data } = imageData;
+  const warnings = [];
+  const gb = autorigGlobalBounds(data,w,h);
+  if(!gb) return null;
+  const { minX,minY,maxX,maxY } = gb;
+  const figH = maxY-minY+1, figW = maxX-minX+1;
+  if(figH < h*0.15 || figW < w*0.08){
+    warnings.push('The character looks very small in this image — results may be less accurate.');
+  }
+  const rows = autorigComputeRowRuns(data,w,gb);
+
+  // Arm band: rows whose span width is close to the overall max span (arms extended out to
+  // the sides make those rows far wider than the head/torso alone).
+  let maxSpan=0;
+  for(let y=minY;y<=maxY;y++) maxSpan=Math.max(maxSpan, autorigRowSpanWidth(rows[y]));
+  let armBandTop=-1, armBandBottom=-1;
+  for(let y=minY;y<=maxY;y++){
+    if(autorigRowSpanWidth(rows[y]) >= maxSpan*0.85){ if(armBandTop===-1) armBandTop=y; armBandBottom=y; }
+  }
+  const torsoProbeY = Math.min(maxY, minY+Math.round(figH*0.35));
+  const torsoProbeWidth = autorigRowSpanWidth(rows[torsoProbeY]) || 1;
+  const armsExtended = maxSpan >= torsoProbeWidth*1.25;
+  if(!armsExtended){
+    warnings.push("Couldn't confidently detect arms extended out to the sides — using an estimated arm pose. Drag the shoulder/elbow/wrist points to fix.");
+  }
+
+  // Leg split (hip/crotch): scan downward from the bottom of the arm band for the silhouette
+  // splitting into two separate leg runs.
+  const legScanStart = Math.min(maxY, armBandBottom+1);
+  let hipY = autorigFindSplitY(rows, legScanStart, maxY);
+  let legsDetected = true;
+  if(hipY===-1){
+    legsDetected = false;
+    warnings.push("Couldn't clearly detect separate legs — splitting the lower body down the middle. Adjust the knee/ankle points if needed.");
+    hipY = minY+Math.round(figH*0.55); // common full-body hip-height proportion
+    if(hipY<=armBandBottom) hipY = armBandBottom+1;
+    if(hipY>=maxY) hipY = maxY-1;
+  }
+
+  const neckInfo = autorigFindNeckY(rows, minY, Math.max(minY+1, armBandTop===-1?Math.round(minY+figH*0.25):armBandTop));
+  const neckY = neckInfo.y;
+  if(neckInfo.guessed) warnings.push("Couldn't clearly find the neck line — using an estimated head size. Adjust the neck point if needed.");
+
+  // Body centerline: measured at the row just above the hip split (still a single torso run
+  // there) — the most stable symmetric reference for a front-facing character.
+  const waistY = Math.max(minY, hipY-1);
+  const waistRuns = rows[waistY] && rows[waistY].length ? rows[waistY] : rows[neckY];
+  const bodyCenterX = waistRuns && waistRuns.length
+    ? (waistRuns[0][0]+waistRuns[waistRuns.length-1][1])/2
+    : (minX+maxX)/2;
+
+  // Arms: leftmost/rightmost foreground pixel within the arm band.
+  let armMinX=maxX, armMaxX=minX;
+  const armBandLo = armBandTop===-1?neckY:armBandTop, armBandHi = armBandBottom===-1?neckY:armBandBottom;
+  for(let y=armBandLo;y<=armBandHi;y++){
+    const runs=rows[y]; if(!runs||!runs.length) continue;
+    armMinX=Math.min(armMinX, runs[0][0]); armMaxX=Math.max(armMaxX, runs[runs.length-1][1]);
+  }
+  if(armMinX>armMaxX){ armMinX=minX; armMaxX=maxX; }
+  const armY = Math.round((armBandLo+armBandHi)/2);
+  const shoulderY = armY; // pure-horizontal-arm simplification (matches the T/A-pose reference)
+
+  // attachAt: fraction from hip up to neck where the shoulder sits on the spine (see
+  // applyRigOverride) — data-driven instead of the stickman's fixed 0.85.
+  let attachAtFrac = (hipY-shoulderY)/Math.max(1,(hipY-neckY));
+  attachAtFrac = Math.max(0.5, Math.min(0.98, attachAtFrac));
+
+  // Legs: split the region below hipY into left/right blobs (or, if no split was detected,
+  // divide each row's own full span down the middle instead — see legsDetected above).
+  let leftMinX=Infinity, leftMaxX=-Infinity, leftBottomY=hipY;
+  let rightMinX=Infinity, rightMaxX=-Infinity, rightBottomY=hipY;
+  for(let y=hipY;y<=maxY;y++){
+    const runs=rows[y]; if(!runs||!runs.length) continue;
+    if(legsDetected && runs.length>=2){
+      const left=runs[0], right=runs[runs.length-1];
+      leftMinX=Math.min(leftMinX,left[0]); leftMaxX=Math.max(leftMaxX,left[1]); leftBottomY=y;
+      rightMinX=Math.min(rightMinX,right[0]); rightMaxX=Math.max(rightMaxX,right[1]); rightBottomY=y;
+    } else {
+      const first=runs[0][0], last=runs[runs.length-1][1];
+      leftMinX=Math.min(leftMinX,first); leftMaxX=Math.max(leftMaxX,bodyCenterX); leftBottomY=y;
+      rightMinX=Math.min(rightMinX,bodyCenterX); rightMaxX=Math.max(rightMaxX,last); rightBottomY=y;
+    }
+  }
+  if(leftMaxX<leftMinX){ leftMinX=minX; leftMaxX=bodyCenterX; }
+  if(rightMaxX<rightMinX){ rightMinX=bodyCenterX; rightMaxX=maxX; }
+
+  const ankleL = { x:(leftMinX+leftMaxX)/2, y:leftBottomY };
+  const ankleR = { x:(rightMinX+rightMaxX)/2, y:rightBottomY };
+  const kneeL = { x:(bodyCenterX+ankleL.x)/2, y:(hipY+ankleL.y)/2 };
+  const kneeR = { x:(bodyCenterX+ankleR.x)/2, y:(hipY+ankleR.y)/2 };
+
+  // Left/right by screen position (smaller x = "L") — matches this app's existing stickman
+  // rig convention (see buildFreshRig: armL/legL default to the -x side), not anatomy, so
+  // there's no photo-vs-mirror ambiguity to correct for.
+  const shoulder = { x:bodyCenterX, y:shoulderY };
+  const wristL = { x:armMinX, y:armY }, wristR = { x:armMaxX, y:armY };
+  const elbowL = { x:(bodyCenterX+wristL.x)/2, y:(shoulderY+armY)/2 };
+  const elbowR = { x:(bodyCenterX+wristR.x)/2, y:(shoulderY+armY)/2 };
+  const headTop = { x:bodyCenterX, y:minY };
+  const neck = { x:bodyCenterX, y:neckY };
+  const hip = { x:bodyCenterX, y:hipY };
+
+  // Sanity clamps so a downstream rig never gets a degenerate (zero-length/inverted) bone.
+  const MIN_GAP = Math.max(2, Math.round(figH*0.02));
+  const hipYc = Math.max(hip.y, neck.y+MIN_GAP);
+  const feetLYc = Math.max(ankleL.y, hipYc+MIN_GAP);
+  const feetRYc = Math.max(ankleR.y, hipYc+MIN_GAP);
+
+  // Torso half-width, measured well below the shoulder/arm line (55% of the way down to the
+  // hip) so the extended arms — which only exist at shoulder height — never widen this reading.
+  // computePartRegions uses this to keep the 'torso' crop to the body's own actual width instead
+  // of defaulting to the full figure width (arms included): without it, the torso crop bakes in
+  // a static copy of both arms UNDERNEATH the separately-rotated arm parts, which is what made
+  // parts like the hands appear to render more than once in the finished rig.
+  const torsoWidthProbeY = Math.max(minY, Math.min(maxY, Math.round(shoulderY + (hipY-shoulderY)*0.55)));
+  const torsoWidthProbePx = autorigRowSpanWidth(rows[torsoWidthProbeY]) || torsoProbeWidth || figW*0.4;
+  const torsoHalfWidthFrac = Math.max(2, torsoWidthProbePx/2) / w;
+
+  // How far down neck sits between headTop and the shoulder line, as a 0-1 fraction — the UI no
+  // longer exposes neck as its own draggable point (see AUTORIG_JOINT_KEYS), so this ratio is
+  // what keeps it sensibly anchored while the user drags headTop/shoulder/hip instead.
+  const neckRatio = Math.max(0, Math.min(1, (neckY-minY) / Math.max(1, (shoulderY-minY))));
+
+  const toFrac = p => ({ x:p.x/w, y:p.y/h });
+  return {
+    warnings, srcW:w, srcH:h, bounds: gb,
+    diagnostics: { armsExtended, legsDetected },
+    torsoHalfWidthFrac, neckRatio,
+    joints: {
+      headTop: toFrac(headTop), neck: toFrac(neck),
+      shoulderL: toFrac(shoulder), shoulderR: toFrac(shoulder),
+      elbowL: toFrac(elbowL), elbowR: toFrac(elbowR),
+      wristL: toFrac(wristL), wristR: toFrac(wristR),
+      hip: toFrac(hip),
+      kneeL: toFrac(kneeL), kneeR: toFrac(kneeR),
+      ankleL: toFrac({ x:ankleL.x, y:feetLYc }), ankleR: toFrac({ x:ankleR.x, y:feetRYc }),
+    },
+    attachAt: { armL: attachAtFrac, armR: attachAtFrac },
+  };
+}
+
+// ---- STEP: generate bones ----
+// Turns detected/user-adjusted joints (fractions of the source image) into the bone
+// length/angle/attachAt fractions applyRigOverride() merges onto a fresh buildFreshRig() rig.
+// Lengths are fractions of the character's OWN detected height (headTop-to-ankle), so
+// applyRigOverride scales them to a fixed target on-stage figure height, independent of the
+// source image's own resolution — a tiny upload and a huge one both come in at a sane size.
+const AUTORIG_MIN_LEN_FRAC = 0.03;
+function buildRigOverrideFromJoints(joints, srcW, srcH, attachAt){
+  const J = {};
+  for(const k in joints) J[k] = { x: joints[k].x*srcW, y: joints[k].y*srcH };
+  const dist = (a,b) => Math.max(AUTORIG_MIN_LEN_FRAC, Math.hypot(b.x-a.x, b.y-a.y));
+  const ang = (a,b) => Math.atan2(b.y-a.y, b.x-a.x);
+  const charHeightPx = Math.max(1, Math.max(J.ankleL.y, J.ankleR.y) - J.headTop.y);
+  const lenFrac = (a,b,min=AUTORIG_MIN_LEN_FRAC) => Math.max(min,Math.hypot(b.x-a.x,b.y-a.y)/charHeightPx);
+  const lengths = {
+    spine: lenFrac(J.hip, J.neck), head: lenFrac(J.neck, J.headTop),
+    armL: lenFrac(J.shoulderL, J.elbowL), armL_lo: lenFrac(J.elbowL, J.wristL),
+    armR: lenFrac(J.shoulderR, J.elbowR), armR_lo: lenFrac(J.elbowR, J.wristR),
+    legL: lenFrac(J.hip, J.kneeL), legL_lo: lenFrac(J.kneeL, J.ankleL),
+    legR: lenFrac(J.hip, J.kneeR), legR_lo: lenFrac(J.kneeR, J.ankleR),
+  };
+  const angles = {
+    spine: ang(J.hip, J.neck), head: ang(J.neck, J.headTop),
+    armL: ang(J.shoulderL, J.elbowL), armL_lo: ang(J.elbowL, J.wristL),
+    armR: ang(J.shoulderR, J.elbowR), armR_lo: ang(J.elbowR, J.wristR),
+    legL: ang(J.hip, J.kneeL), legL_lo: ang(J.kneeL, J.ankleL),
+    legR: ang(J.hip, J.kneeR), legR_lo: ang(J.kneeR, J.ankleR),
+  };
+  const at = { armL: attachAt.armL, armR: attachAt.armR };
+  const attachOffsets = {};
+  // Place each upper arm's root at its detected shoulder instead of the torso centre line.
+  // Offsets are stored in tangent/normal coordinates so they follow torso rotation without
+  // stretching the belly or dragging the chest when an arm bends.
+  ['L','R'].forEach(side=>{
+    const key='arm'+side, shoulder=J['shoulder'+side], t=Math.max(0,Math.min(1,Number(at[key])||0));
+    const base={x:J.hip.x+(J.neck.x-J.hip.x)*t,y:J.hip.y+(J.neck.y-J.hip.y)*t};
+    const dx=shoulder.x-base.x,dy=shoulder.y-base.y,a=angles.spine;
+    attachOffsets[key]={x:(dx*Math.cos(a)+dy*Math.sin(a))/charHeightPx,y:(-dx*Math.sin(a)+dy*Math.cos(a))/charHeightPx};
+  });
+  ['L','R'].forEach(side=>{
+    const wrist=J['wrist'+side], palm=J['palm'+side];
+    if(wrist && palm){
+      lengths['hand'+side]=lenFrac(wrist,palm,0.006);
+      angles['hand'+side]=ang(wrist,palm);
+      at['hand'+side]=1;
+      const hx=palm.x-wrist.x, hy=palm.y-wrist.y, h2=hx*hx+hy*hy||1;
+      ['thumb','index','middle','ring','pinky'].forEach(finger=>{
+        const base=J[finger+'Base'+side], mid=J[finger+'Mid'+side], tip=J[finger+'Tip'+side];
+        if(!base || !mid || !tip) return;
+        const k=finger+side, t=Math.max(0,Math.min(1,((base.x-wrist.x)*hx+(base.y-wrist.y)*hy)/h2));
+        const px=wrist.x+hx*t, py=wrist.y+hy*t;
+        const ux=hx/Math.sqrt(h2), uy=hy/Math.sqrt(h2);
+        const nx=-uy, ny=ux;
+        at[k+'_1']=t;
+        attachOffsets[k+'_1']={x:((base.x-px)*ux+(base.y-py)*uy)/charHeightPx, y:((base.x-px)*nx+(base.y-py)*ny)/charHeightPx};
+        lengths[k+'_1']=lenFrac(base,mid,0.0035); angles[k+'_1']=ang(base,mid);
+        lengths[k+'_2']=lenFrac(mid,tip,0.0035); angles[k+'_2']=ang(mid,tip); at[k+'_2']=1;
+      });
+    }
+  });
+  return { lengths, angles, attachAt:at, attachOffsets };
+}
+// Maps every PART_SLOTS id to the rig bone whose START joint is that part's pivot (see
+// PART_SLOTS' own bone/defaultPivot fields above — this mirrors them exactly).
+const AUTORIG_BONE_FOR_PART = {
+  head:'head', torso:'spine',
+  armL_upper:'armL', armL_lower:'armL_lo', armR_upper:'armR', armR_lower:'armR_lo',
+  legL_upper:'legL', legL_lower:'legL_lo', legR_upper:'legR', legR_lower:'legR_lo',
+};
+
+// ---- STEPS: detect cut areas -> generate joint overlap areas ----
+// Padded pixel-space region rectangles (same coordinate system as the joints passed in) for
+// the 10 PART_SLOTS crop targets, generous enough around each joint that tightenRegion()
+// below can crop tight to the REAL silhouette without clipping any actual artwork. `overlapPx`
+// is how far each region reaches PAST its nominal joint boundary into the neighboring part —
+// since the source art is one continuous drawing with no real gap at a joint, this overlap
+// naturally captures a bit of the same artwork in both neighboring crops, which is what hides
+// the seam once the parts rotate independently (the "stretchy/natural joint" effect) — see
+// generateAutoRigParts/makeRotatedPartCanvas for where that overlap actually gets drawn.
+// Fresh, pixel-accurate torso half-width for generateAutoRigParts to pass into
+// computePartRegions at final-cut time (see torsoHalfWidthFrac in detectCharacterSilhouette,
+// which this mirrors, but measured against the CURRENT — possibly user-dragged — joints and
+// full-resolution art rather than a value cached from initial detection).
+function autorigTorsoHalfWidthAt(data, w, h, J){
+  const probeY = Math.max(0, Math.min(h-1, Math.round(J.shoulderL.y + (J.hip.y-J.shoulderL.y)*0.55)));
+  let lo=-1, hi=-1;
+  for(let x=0;x<w;x++){ if(autorigIsFg(data,w,x,probeY)){ if(lo===-1) lo=x; hi=x; } }
+  if(lo===-1) return Math.max(2, Math.abs(J.elbowL.x-J.hip.x)*0.4);
