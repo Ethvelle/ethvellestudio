@@ -32,7 +32,7 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Rebuild the current v365 HTML asset
+      - name: Rebuild v365 HTML and inject Android SAF bridge
         shell: bash
         run: |
           mkdir -p android/app/src/main/assets
@@ -48,6 +48,23 @@ jobs:
               *) cat "$part" >> "$output"; printf '\n' >> "$output" ;;
             esac
           done
+          python3 - <<'PY'
+          from pathlib import Path
+          html_path = Path("android/app/src/main/assets/index.html")
+          bridge_path = Path("android-native-media-bridge.js")
+          html = html_path.read_text(encoding="utf-8")
+          bridge = bridge_path.read_text(encoding="utf-8")
+          marker = '<script id="ethvelle-android-native-media-bridge">'
+          if marker not in html:
+              closing = html.rfind("</body>")
+              if closing < 0:
+                  raise SystemExit("HTML closing body tag not found")
+              injection = marker + "\n" + bridge + "\n</script>\n"
+              html = html[:closing] + injection + html[closing:]
+              html_path.write_text(html, encoding="utf-8")
+          if marker not in html_path.read_text(encoding="utf-8"):
+              raise SystemExit("Android SAF bridge injection failed")
+          PY
           test -s "$output"
           echo "Bundled HTML bytes: $(wc -c < "$output")"
           grep -q 'ethvelle-android-native-media-bridge' "$output"

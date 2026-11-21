@@ -1,0 +1,131 @@
+(function(){
+  'use strict';
+  if(!window.EthvelleAndroid || typeof window.EthvelleAndroid.pickMedia !== 'function') return;
+  let pickerBusy=false;
+  function notify(message){
+    try{if(typeof showToast==='function')showToast(message,{icon:(typeof toastIcons!=='undefined'?toastIcons.info:undefined),duration:3200});else alert(message);}
+    catch(_e){console.warn('Ethvelle Android:',message);}
+  }
+  function parsePayload(raw){
+    if(raw && typeof raw==='object')return raw;
+    try{return JSON.parse(String(raw||'{}'));}catch(_e){return {};}
+  }
+  function openSourceDB(){
+    return new Promise((resolve,reject)=>{
+      const req=indexedDB.open('ethvelle-source-media-v1',1);
+      req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('assets'))db.createObjectStore('assets');};
+      req.onsuccess=()=>resolve(req.result);
+      req.onerror=()=>reject(req.error||new Error('Could not open media metadata storage.'));
+    });
+  }
+  async function saveNativeMetadata(item){
+    const db=await openSourceDB();
+    await new Promise((resolve,reject)=>{
+      const tx=db.transaction('assets','readwrite');
+      tx.objectStore('assets').put({
+        name:item.name||'Device media',type:item.type||'application/octet-stream',
+        size:Number(item.size)||0,lastModified:Number(item.lastModified)||0,
+        nativeUri:String(item.uri||''),nativeMediaUrl:String(item.url||''),
+        storageMode:'android-saf-uri',savedAt:Date.now()
+      },String(item.key));
+      tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not save media reference.'));
+      tx.onabort=()=>reject(tx.error||new Error('Could not save media reference.'));
+    });
+    try{db.close();}catch(_e){}
+  }
+  function mediaKind(item,target){
+    const type=String(item.type||'').toLowerCase(),name=String(item.name||'').toLowerCase();
+    if(target==='audio'||type.startsWith('audio/')||/\.(mp3|m4a|aac|wav|ogg|opus|flac|aiff?)$/i.test(name))return 'audio';
+    if(type.startsWith('video/')||/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(name))return 'video';
+    if(type.startsWith('image/')||/\.(png|apng|jpe?g|jfif|webp|gif|avif|bmp|dib|heic|heif|tif|tiff|svg|ico|jxl)$/i.test(name))return 'image';
+    return '';
+  }
+  async function importNativeMedia(target,appendAfterGroup){
+    if(pickerBusy)return;
+    pickerBusy=true;
+    try{
+      const raw=await new Promise((resolve,reject)=>{
+        let done=false;
+        const finish=(value)=>{if(done)return;done=true;resolve(value);};
+        window.__evNativePickerPending=finish;
+        try{window.EthvelleAndroid.pickMedia();}
+        catch(err){window.__evNativePickerPending=null;reject(err);}
+      });
+      const item=parsePayload(raw);
+      if(item.cancelled)return;
+      if(item.error)throw new Error(item.error);
+      if(!item.key||!item.url||!item.uri)throw new Error('Android picker did not return a usable file reference.');
+      const kind=mediaKind(item,target);
+      if(!kind)throw new Error('Choose an image, video, or audio file.');
+      if(target==='audio'&&kind!=='audio')throw new Error('Choose an audio file.');
+      if((target==='overlay'||target==='media'||target==='replace-overlay')&&kind==='audio'){
+        notify('Use the Audio tool to add an audio file.');return;
+      }
+      if(typeof window.__ethvelleImportBegin==='function'&&kind==='video')window.__ethvelleImportBegin(item.name||'Video',Number(item.size)||0);
+      try{await saveNativeMetadata(item);}catch(metaErr){console.warn('Ethvelle native media metadata:',metaErr);}
+      const src=String(item.url),name=String(item.name|| (kind==='video'?'Video':kind==='audio'?'Audio':'Image'));
+      let duration=kind==='image'?5:kind==='audio'?3:12;
+      let peaks=[],sourceWidth=0,sourceHeight=0;
+      if(kind==='video'){
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(30,'Reading video details…');
+        const result=await generateVideoThumbnails(src,24,0,null);
+        duration=Math.max(Number(typeof MIN_CLIP_SEC!=='undefined'?MIN_CLIP_SEC:0.1),Number(result&&result.duration)||12);
+        sourceWidth=Number(result&&result.width)||0;sourceHeight=Number(result&&result.height)||0;
+      }else if(kind==='audio'){
+        const result=await generateAudioWaveform(src);
+        peaks=Array.isArray(result&&result.peaks)?result.peaks:[];
+        duration=Math.max(Number(typeof MIN_CLIP_SEC!=='undefined'?MIN_CLIP_SEC:0.1),Number(result&&result.duration)||3);
+      }
+      if(target==='replace-overlay'){
+        const selected=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(o=>String(o.id)===String(replaceTargetId)):null;
+        if(!selected)throw new Error('The selected overlay is no longer available.');
+        selected.type=kind;selected.src=src;selected.deviceMediaKey=String(item.key);
+        selected.deviceMediaName=name;selected.deviceMediaSize=Number(item.size)||undefined;
+        selected.deviceMediaLastModified=Number(item.lastModified)||undefined;
+        selected.name=name;selected.sourceDuration=duration;selected.sourceOffset=0;
+        selected.sourceWidth=sourceWidth;selected.sourceHeight=sourceHeight;
+        selected.thumbs=[];selected.peaks=peaks;selected.speed=Number(selected.speed)||1;
+        selected.volume=(kind==='video'||kind==='audio')?(selected.volume==null?1:selected.volume):undefined;
+        if(kind==='video'||kind==='image')selected.transform=selected.transform||{scale:1,offsetX:0,offsetY:0,rotation:0};
+        else selected.transform=null;
+        if(typeof renderOverlayLayers==='function')renderOverlayLayers();
+        if(typeof renderOverlayListPanel==='function')renderOverlayListPanel();
+        if(typeof renderFrame==='function')renderFrame();
+      }else{
+        if(typeof addMediaOverlay!=='function')throw new Error('The timeline is not ready yet.');
+        addMediaOverlay({type:kind,src,name,duration,thumbs:[],peaks,sourceWidth,sourceHeight,
+          appendAfterGroup:appendAfterGroup||null,deviceMediaKey:String(item.key),
+          deviceMediaInfo:{name,size:Number(item.size)||0,lastModified:Number(item.lastModified)||0,storageMode:'android-saf-uri'}});
+      }
+      try{if(typeof closePanel==='function')closePanel();}catch(_e){}
+      try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+      try{if(typeof saveProjectsToStorage==='function')saveProjectsToStorage();}catch(_e){}
+      try{if(typeof window.__ethvelleDeviceSaveNow==='function')await window.__ethvelleDeviceSaveNow();}catch(saveErr){console.error('Ethvelle Android project save:',saveErr);}
+      if(typeof window.__ethvelleImportComplete==='function'&&kind==='video')window.__ethvelleImportComplete();
+      notify('Added from device storage — original file linked, not copied.');
+    }catch(err){
+      console.error('Ethvelle Android media import:',err);
+      if(typeof window.__ethvelleImportFail==='function')window.__ethvelleImportFail(err&&err.message?err.message:'Could not import this device file.');
+      notify(err&&err.message?err.message:'Could not import this device file.');
+    }finally{pickerBusy=false;}
+  }
+  window.__ethvelleNativePickerResolve=function(raw){
+    const resolver=window.__evNativePickerPending;
+    if(typeof resolver==='function'){window.__evNativePickerPending=null;resolver(raw);}
+  };
+  const previous=window.triggerUpload;
+  if(typeof previous==='function'&&!previous.__ethvelleAndroidNative){
+    const wrapped=function(target,appendAfterGroup){
+      const t=String(target||'');
+      if(['overlay','media','audio','replace-overlay'].includes(t)){
+        try{uploadTarget=t;uploadAppendGroup=appendAfterGroup||null;}catch(_e){}
+        importNativeMedia(t,appendAfterGroup||null);
+        return;
+      }
+      return previous.apply(this,arguments);
+    };
+    wrapped.__ethvelleAndroidNative=true;
+    window.triggerUpload=wrapped;
+  }
+  window.__ethvelleAndroidImportReady=true;
+})();
