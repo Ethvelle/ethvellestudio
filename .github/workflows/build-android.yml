@@ -32,13 +32,26 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Assemble the v365 editor HTML
+      - name: Assemble v365 editor and inject Android media bridge
         shell: bash
         run: |
           mkdir -p android-apk/app/src/main/assets
           cat android-apk/source-parts/part-*.txt > android-apk/app/src/main/assets/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          target = Path("android-apk/app/src/main/assets/index.html")
+          bridge = Path("android-apk/native-bridge.patch.html").read_text(encoding="utf-8")
+          html = target.read_text(encoding="utf-8")
+          close = html.lower().rfind("</body>")
+          if close < 0:
+              raise SystemExit("Could not find the closing body tag in the v365 editor HTML.")
+          if "__ethvelleNativePickerResolve" in html:
+              raise SystemExit("Native media bridge is already present; refusing duplicate injection.")
+          target.write_text(html[:close] + bridge + "\n" + html[close:], encoding="utf-8")
+          PY
           test "$(wc -c < android-apk/app/src/main/assets/index.html)" -gt 9000000
           grep -q "__ethvelleNativePickerResolve" android-apk/app/src/main/assets/index.html
+          grep -q "ethvelle-android-native-media-bridge" android-apk/app/src/main/assets/index.html
 
       - name: Build debug APK
         run: gradle --no-daemon -p android-apk assembleDebug
