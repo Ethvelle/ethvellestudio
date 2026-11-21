@@ -255,12 +255,13 @@ public class MainActivity extends Activity {
             return true;
         }
 
-        @Override public void onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
+        @Override public boolean onRenderProcessGone(WebView view, android.webkit.RenderProcessGoneDetail detail) {
             Log.e(TAG, "WebView renderer exited; didCrash=" + detail.didCrash());
             view.destroy();
             webView = new WebView(MainActivity.this);
             setContentView(webView);
             configureRecoveredWebView();
+            return true;
         }
     }
 
