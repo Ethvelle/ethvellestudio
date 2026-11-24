@@ -1,0 +1,1000 @@
+      if(compareRvfcEl){
+        try{if(compareRvfcId&&typeof compareRvfcEl.cancelVideoFrameCallback==='function')compareRvfcEl.cancelVideoFrameCallback(compareRvfcId);}catch(_e){}
+        try{compareRvfcEl.removeEventListener('seeked',compareFrameHandler);compareRvfcEl.removeEventListener('loadeddata',compareFrameHandler);compareRvfcEl.removeEventListener('pause',compareFrameHandler);}catch(_e){}
+        compareRvfcEl=null;compareRvfcId=0;
+      }
+      if(src&&src.tagName==='VIDEO'){
+        compareRvfcEl=src;
+        src.addEventListener('seeked',compareFrameHandler);src.addEventListener('loadeddata',compareFrameHandler);src.addEventListener('pause',compareFrameHandler);
+        if(typeof src.requestVideoFrameCallback==='function'){
+          const onFrame=()=>{
+            if(compareRvfcEl!==src||!$('ethvelleCanvasCompareRoot'))return;
+            try{syncCanvasCompare(true);}catch(_e){}
+            try{compareRvfcId=src.requestVideoFrameCallback(onFrame);}catch(_e){}
+          };
+          try{compareRvfcId=src.requestVideoFrameCallback(onFrame);}catch(_e){}
+        }
+      }
+    };
+    check();compareLoopTimer=setInterval(check,250);
+  }
+  window.ethvelleSetCompareSplit=function(p){setCanvasComparePosition(p);};
+  function removeCanvasCompare(){detachCompareFrameLoop();if(compareSnap){try{compareSnap.width=compareSnap.height=1;}catch(_e){}compareSnap=null;compareSnapCtx=null;}compareLastSource=null;compareLastKey='';compareLastTime=-1;compareLastPlaybackSyncAt=0;const root=$('ethvelleCanvasCompareRoot');if(root)root.remove();updateBackdropHole();if(comparePipeline){try{comparePipeline.dispose();}catch(_e){}comparePipeline=null;comparePipelineKey='';}canvasCompareDrag=null;}
+  function mountCanvasCompare(){
+    removeCanvasCompare();const stage=$('canvasStage'),target=getEnhanceTarget();if(!stage||!target)return;
+    const root=document.createElement('div');root.id='ethvelleCanvasCompareRoot';root.dataset.targetId=String(target.model.id||selectedClip||'');
+    const before=document.createElement('div');before.className='evcc-layer evcc-before';before.appendChild(makeCompareMedia(target,false));
+    const after=document.createElement('div');after.className='evcc-layer evcc-after';after.appendChild(makeCompareMedia(target,true));
+    const wipe=document.createElement('div');wipe.className='evcc-wipe';wipe.setAttribute('role','slider');wipe.setAttribute('aria-label','Drag the before and after divider');wipe.setAttribute('tabindex','0');wipe.innerHTML='<span class="evcc-handle" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M10 6.5l-5.5 5.5 5.5 5.5M14 6.5l5.5 5.5-5.5 5.5"/></svg></span>';
+    root.append(before,after,wipe);
+    const btag=document.createElement('span');btag.className='evcc-tag before';btag.textContent='BEFORE';const atag=document.createElement('span');atag.className='evcc-tag after';atag.textContent='AFTER';root.append(btag,atag);stage.appendChild(root);
+    const updateFromEvent=e=>{const r=stage.getBoundingClientRect();if(r.width)setCanvasComparePosition((e.clientX-r.left)/r.width*100);};
+    wipe.addEventListener('pointerdown',e=>{
+      // The divider uses a 64px invisible touch target around the restored black handle.
+      // A drag can begin anywhere along the rail, including at 0% and 100%.
+      e.preventDefault();e.stopPropagation();
+      try{if(typeof window.__evSweepCancel==='function')window.__evSweepCancel();}catch(_e){}
+      canvasCompareDrag={id:e.pointerId,startX:e.clientX,startY:e.clientY,moved:false};
+      try{wipe.setPointerCapture(e.pointerId);}catch(_e){}
+    });
+    wipe.addEventListener('pointermove',e=>{if(canvasCompareDrag&&canvasCompareDrag.id===e.pointerId){
+      if(!canvasCompareDrag.moved&&Math.hypot(e.clientX-canvasCompareDrag.startX,e.clientY-canvasCompareDrag.startY)<5)return;
+      canvasCompareDrag.moved=true;updateFromEvent(e);e.preventDefault();e.stopPropagation();
+    }});
+    const end=e=>{if(canvasCompareDrag&&canvasCompareDrag.id===e.pointerId){canvasCompareDrag=null;try{wipe.releasePointerCapture(e.pointerId);}catch(_e){}e.preventDefault();e.stopPropagation();}};
+    wipe.addEventListener('pointerup',end);wipe.addEventListener('pointercancel',end);
+    wipe.addEventListener('keydown',e=>{if(e.key==='ArrowLeft'){setCanvasComparePosition(canvasComparePercent-2);e.preventDefault();}else if(e.key==='ArrowRight'){setCanvasComparePosition(canvasComparePercent+2);e.preventDefault();}});
+    canvasComparePercent=50;setCanvasComparePosition(50);
+    attachCompareFrameLoop();
+  }
+  function renderEnhanceSettings(){
+    const host=$('evltEnhancePanel');if(!host)return;const target=getEnhanceTarget();if(!target){host.innerHTML='<div class="evlt-status">Select a video or image clip first.</div>';return;}
+    const amount=Math.max(0,Math.min(100,Number(target.model.enhanceAmount)||0));
+    host.innerHTML=`<div class="text-editor-controls evlt-enhance-settings">
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceAmount">Enhance amount</label><output id="evltEnhanceAmountValue">${amount}%</output></div><div class="text-range-line"><input id="evltEnhanceAmount" type="range" min="0" max="100" step="1" value="${amount}" oninput="window.ethvelleSetEnhanceAmount(this.value);document.getElementById('evltEnhanceAmountValue').textContent=this.value+'%'" aria-label="Enhance amount"></div></div>
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceQuality">Output quality</label></div><select id="evltEnhanceQuality"><option value="1080">1080p · Full HD</option><option value="1440">1440p · QHD</option><option value="2160">2160p · Ultra HD</option></select></div>
+      <div class="evlt-progress" id="evltEnhanceProgress"><i id="evltEnhanceProgressFill"></i></div><div class="evlt-status" id="evltEnhanceStatus" role="status"></div>
+      <div class="evlt-enhance-actions"><button type="button" id="evltEnhanceStart" class="evlt-primary" onclick="window.ethvelleStartVideoEnhance()">Enhance</button><button type="button" id="evltEnhanceApply" class="evlt-primary evlt-apply" onclick="window.ethvelleApplyVideoEnhance()" ${target.model.__evltPendingEnhancedSrc?'':'disabled'}>Apply</button></div>
+    </div>`;
+    try{const q=Number(target.model.enhancedAssetQuality)||1080;$('evltEnhanceQuality').value=String([1080,1440,2160].includes(q)?q:1080);}catch(_e){}
+    applyEnhanceCapsUi();
+  }
+  /* v294: first time the panel opens, show a loading state while the device comfort test runs (see __evEnhanceCaps). */
+  function applyEnhanceCapsUi(){
+    const host=$('evltEnhancePanel'),settings=host&&host.querySelector('.evlt-enhance-settings');if(!settings)return;
+    const ensure=window.ethvelleEnsureEnhanceCaps;if(typeof ensure!=='function')return;
+    const caps=window.__evEnhanceCaps||{state:'idle'};
+    const busy=caps.state==='idle'||caps.state==='running';
+    let ov=settings.querySelector(':scope > .evlt-caps-loading');
+    const start=$('evltEnhanceStart'),sel=$('evltEnhanceQuality');
+    if(!busy){
+      if(ov)ov.remove();settings.classList.remove('evlt-caps-busy');
+      if(sel)sel.disabled=false;if(start&&!window.__ethvelleV5EnhanceBusy)start.disabled=false;
+      return;
+    }
+    settings.classList.add('evlt-caps-busy');
+    if(!ov){ov=document.createElement('div');ov.className='evlt-caps-loading';ov.setAttribute('role','status');ov.innerHTML='<i class="evlt-caps-spin"></i><b>Checking your device…</b><span>Finding the best Enhance quality for this phone</span>';settings.appendChild(ov);}
+    if(sel)sel.disabled=true;if(start)start.disabled=true;
+    try{ensure().then(()=>applyEnhanceCapsUi(),()=>applyEnhanceCapsUi());}catch(_e){}
+  }
+  const oldSetEnhance=window.ethvelleSetEnhanceAmount;
+  if(typeof oldSetEnhance==='function'&&!oldSetEnhance.__evCanvasCompare){const w=function(v){const r=oldSetEnhance.apply(this,arguments);syncCanvasCompare();return r;};w.__evCanvasCompare=true;window.ethvelleSetEnhanceAmount=w;}
+  const oldStartEnhance=window.ethvelleStartVideoEnhance;
+  if(typeof oldStartEnhance==='function'&&!oldStartEnhance.__evCanvasCompare){const w=async function(){const r=await oldStartEnhance.apply(this,arguments);syncCanvasCompare();return r;};w.__evCanvasCompare=true;window.ethvelleStartVideoEnhance=w;}
+  function positionEnhancePanel(){
+    const panel=$('toolPanel'),editor=$('screen-editor');if(!panel||!editor||!panel.classList.contains('evlt-enhance-compact'))return;
+    const row=editor.querySelector('.transport-row')||editor.querySelector('#transportRow')||editor.querySelector('[data-role="transport-row"]');
+    if(!row)return;const er=editor.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    const top=Math.max(0,Math.round(rr.top-er.top));panel.style.setProperty('--evlt-enhance-panel-top',top+'px');
+  }
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__evCanvasCompare){const w=function(key){if(key==='evltEnhance'){try{if(typeof selectedClip!=='undefined'&&selectedClip!=null)window.__ethvelleTimelineSelectionLockId=String(selectedClip);}catch(_e){}try{if(typeof window.pausePlaybackAtCurrentTime==='function')window.pausePlaybackAtCurrentTime();else if(typeof window.pausePlayback==='function')window.pausePlayback();}catch(_e){}}const r=oldOpenPanel.apply(this,arguments);if(key==='evltEnhance'){const panel=$('toolPanel');panel?.classList.add('evlt-enhance-compact');setTimeout(()=>{positionEnhancePanel();renderEnhanceSettings();mountCanvasCompare();syncCanvasCompare();},45);setTimeout(()=>{positionEnhancePanel();syncCanvasCompare();},240);}else{const panel=$('toolPanel');panel?.classList.remove('evlt-enhance-compact');panel?.style.removeProperty('--evlt-enhance-panel-top');window.__ethvelleTimelineSelectionLockId='';removeCanvasCompare();}return r;};w.__evCanvasCompare=true;window.openPanel=w;}
+  const oldClosePanel=window.closePanel;
+  if(typeof oldClosePanel==='function'&&!oldClosePanel.__evCanvasCompare){const w=function(){const panel=$('toolPanel');if(panel&&panel.classList.contains('evlt-enhance-compact')){try{if(typeof window.__evCancelEnhanceAutoPreview==='function')window.__evCancelEnhanceAutoPreview('panel-close',true,true);}catch(_e){}}const r=oldClosePanel.apply(this,arguments);window.__ethvelleTimelineSelectionLockId='';panel?.classList.remove('evlt-enhance-compact');panel?.style.removeProperty('--evlt-enhance-panel-top');removeCanvasCompare();return r;};w.__evCanvasCompare=true;window.closePanel=w;}
+  window.addEventListener('resize',()=>{positionEnhancePanel();if($('ethvelleCanvasCompareRoot'))syncCanvasCompare();},{passive:true});
+  const oldRenderFrame=window.renderFrame;
+  if(typeof oldRenderFrame==='function'&&!oldRenderFrame.__evLiveEnhancePreview){const w=function(){const result=oldRenderFrame.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))syncCanvasCompare();return result;};w.__evLiveEnhancePreview=true;window.renderFrame=w;}
+  const oldRenderOverlays=window.renderOverlayLayers;
+  if(typeof oldRenderOverlays==='function'&&!oldRenderOverlays.__evCompareRefresh){const w=function(){const r=oldRenderOverlays.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))setTimeout(syncCanvasCompare,0);return r;};w.__evCompareRefresh=true;window.renderOverlayLayers=w;}
+  const oldApplyBg=window.applyBackground;
+  if(typeof oldApplyBg==='function'&&!oldApplyBg.__evCompareRefresh){const w=function(){const r=oldApplyBg.apply(this,arguments);if($('ethvelleCanvasCompareRoot'))setTimeout(syncCanvasCompare,0);return r;};w.__evCompareRefresh=true;window.applyBackground=w;}
+})();
+</script>
+
+
+<style id="ethvelle-v7-long-video-enhance-slider-css">
+  .evlt-enhance-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:2px;}
+  .evlt-enhance-actions button{min-width:0;min-height:44px;}
+  .evlt-enhance-actions .evlt-apply{background:#202027;border:1px solid #3A3A45;color:#F5F5F7;}
+.evlt-enhance-actions .evlt-apply:disabled{opacity:.42;cursor:not-allowed;}
+  /* v294: loading state while the device comfort test runs */
+  .evlt-enhance-settings{position:relative;}
+  .evlt-enhance-settings.evlt-caps-busy > *:not(.evlt-caps-loading){opacity:.28;pointer-events:none;transition:opacity .2s ease;}
+  .evlt-caps-loading{position:absolute;inset:0;z-index:3;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:8px;text-align:center;padding:18px;background:transparent;}
+  .evlt-caps-loading b{font-size:14px;font-weight:800;color:#F5F5F7;}
+  .evlt-caps-loading span{font-size:12px;color:#A5A5B2;line-height:1.4;}
+  .evlt-caps-spin{width:30px;height:30px;border-radius:50%;border:3px solid rgba(255,255,255,.16);border-top-color:var(--accent,#2F5CE8);animation:evltCapsSpin .8s linear infinite;}
+  @keyframes evltCapsSpin{to{transform:rotate(360deg);}}
+</style>
+
+
+<script id="ethvelle-v7-device-media-and-thumb-drag-fixes">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+  function toast(msg){try{if(typeof window.showToast==='function')window.showToast(msg,{duration:2800});else console.info('Ethvelle:',msg);}catch(_e){}}
+
+  // Store long local video files as Blob records, never convert them into enormous Base64 strings.
+  let sourceDbPromise=null;
+  function openSourceDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('IndexedDB is not available in this browser view.'));
+    if(!sourceDbPromise){
+      sourceDbPromise=new Promise((resolve,reject)=>{
+        const req=indexedDB.open('ethvelle-source-media-v1',1);
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('assets'))db.createObjectStore('assets');};
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not access device media storage.'));
+      }).catch(err=>{sourceDbPromise=null;throw err;});
+    }
+    return sourceDbPromise;
+  }
+  async function storeVideoFile(file,handle=null){
+    const key='media-'+Date.now().toString(36)+'-'+Math.random().toString(36).slice(2,10);
+    const db=await openSourceDb();
+    // Keep the selected File as a Blob even when File System Access is supported. File handles
+    // can become invalid when the original source is moved/deleted; the Blob is the durable copy
+    // that lets the clip survive refresh. The handle remains optional metadata only.
+    async function writeRecord(record){await new Promise((resolve,reject)=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put(record,key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not save this media to device storage.'));tx.onabort=()=>reject(tx.error||new Error('Device storage ran out of space or aborted the save.'));});}
+    if(navigator.storage&&typeof navigator.storage.estimate==='function'){
+      try{const estimate=await navigator.storage.estimate(),remaining=Number(estimate.quota)-Number(estimate.usage||0);if(Number.isFinite(remaining)&&file.size>Math.max(0,remaining-16*1024*1024))throw new Error('Not enough estimated browser storage for this video. Use the direct device-file picker if your browser supports it, or free storage space.');}catch(err){if(err&&/Not enough estimated/.test(err.message||''))throw err;}
+    }
+    const base={name:file.name,type:file.type||'application/octet-stream',size:file.size,lastModified:file.lastModified||0,savedAt:Date.now()};
+    // Do not let the project clip be created until this Blob transaction commits.
+    try{await writeRecord({...base,blob:file,handle:handle||null,storageMode:'indexeddb-blob'});}
+    catch(err){
+      if(!handle)throw err;
+      await writeRecord({...base,blob:file,handle:null,storageMode:'indexeddb-blob'});
+    }
+    return key;
+  }
+  // Expose the same IndexedDB asset store to the standard Android file-input path too.
+  // This keeps image/video/audio overlays as Blob records instead of huge Base64 strings.
+  window.__ethvelleStoreMediaFile=(file,handle=null)=>storeVideoFile(file,handle);
+  window.__ethvelleDeleteStoredMediaFile=deleteVideoFile;
+  async function deleteVideoFile(key){try{const db=await openSourceDb();await new Promise(resolve=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').delete(key);tx.oncomplete=tx.onerror=tx.onabort=resolve;});}catch(e){}}
+  async function prepareFrames(src,file,key,meta){
+    try{
+      if(window.__evSourceFrames&&typeof window.__evSourceFrames.prepare==='function'){
+        await window.__evSourceFrames.prepare(src,{key,name:file&&file.name,size:file&&file.size,lastModified:file&&file.lastModified,
+          duration:Number(meta&&meta.duration)||0,width:Number(meta&&meta.width)||0,height:Number(meta&&meta.height)||0,
+          onProgress:p=>{if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(Math.round(24+p*0.70),'Capturing timeline frames… '+Math.round(p)+'%');}});
+      }
+    }catch(err){console.warn('Ethvelle frames before import:',err);}
+  }
+  async function createFilmstrip(src,file){
+    // Metadata only: return as soon as the browser knows duration and aspect ratio.
+    // Actual frames are captured later by the single lazy timeline thumbnail decoder.
+    return await new Promise(resolve=>{
+      const video=document.createElement('video');
+      let settled=false,timer=0;
+      video.muted=true;video.playsInline=true;video.preload='metadata';
+      video.setAttribute('playsinline','');
+      if(/^https?:/i.test(String(src||'')))video.crossOrigin='anonymous';
+      const finish=()=>{
+        if(settled)return;settled=true;clearTimeout(timer);
+        const result={frames:[],duration:Number(video.duration)||0,width:Number(video.videoWidth)||0,height:Number(video.videoHeight)||0};
+        try{video.pause();video.removeAttribute('src');video.load();}catch(_e){}
+        resolve(result);
+      };
+      video.addEventListener('loadedmetadata',finish,{once:true});
+      video.addEventListener('error',finish,{once:true});
+      timer=setTimeout(finish,15000);
+      try{video.src=String(src||'');video.load();}catch(_e){finish();}
+    });
+  }
+  // Prefer a browser-native file handle picker for the normal Clips/Media import path.
+  // This grants access to the actual chosen file (where supported) and avoids copying huge
+  // videos into IndexedDB. Older Android WebViews use the standard picker + IndexedDB Blob.
+  const previousTriggerUpload=window.triggerUpload;
+  async function handlePickedWithDeviceAccess(target,appendAfterGroup){
+    let handles;
+    try{
+      handles=await window.showOpenFilePicker({multiple:false,types:[{description:'Common images and videos',accept:{
+        'image/jpeg':['.jpg','.jpeg','.jfif'],'image/png':['.png','.apng'],'image/webp':['.webp'],'image/gif':['.gif'],'image/avif':['.avif'],
+        'image/bmp':['.bmp','.dib'],'image/tiff':['.tif','.tiff'],'image/svg+xml':['.svg'],'image/heic':['.heic'],'image/heif':['.heif'],'image/vnd.microsoft.icon':['.ico'],'image/jxl':['.jxl'],
+        'video/mp4':['.mp4','.m4v','.f4v'],'video/quicktime':['.mov'],'video/webm':['.webm'],'video/x-matroska':['.mkv'],
+        'video/x-msvideo':['.avi'],'video/3gpp':['.3gp','.3gpp'],'video/3gpp2':['.3g2'],'video/mpeg':['.mpeg','.mpg','.mpe','.m2v'],'video/ogg':['.ogv'],
+        'video/mp2t':['.ts','.mts','.m2ts'],'video/x-ms-wmv':['.wmv'],'video/x-flv':['.flv']
+      }}]});
+    }catch(err){
+      if(err&&err.name==='AbortError')return;
+      console.warn('Ethvelle direct device picker unavailable; using normal media picker:',err);
+      if(typeof previousTriggerUpload==='function')previousTriggerUpload.call(window,target,appendAfterGroup);
+      return;
+    }
+    const handle=handles&&handles[0];if(!handle)return;
+    const file=await handle.getFile();const isVideo=/^video\//i.test(file.type||'')||/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(file.name||'');
+    const isImage=/^image\//i.test(file.type||'')||/\.(png|apng|jpe?g|jfif|webp|gif|avif|bmp|dib|heic|heif|tif|tiff|svg|ico|jxl)$/i.test(file.name||'');
+    if(!isVideo&&!isImage){toast('Choose an image or video file.');return;}
+    if(isVideo&&typeof window.__ethvelleImportBegin==='function')window.__ethvelleImportBegin(file.name,file.size);
+    let key=null,src=null,sessionOnly=false;
+    try{
+      if(isVideo&&typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(12,'Linking the original video file…');
+      try{key=await window.__ethvelleStoreMediaFile(file,handle);}catch(storageError){
+        console.warn('Ethvelle device persistence unavailable; using a safe project/session fallback:',storageError);
+        if(file.size<=3*1024*1024){
+          src=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(reader.error||new Error('Could not read the selected media.'));reader.readAsDataURL(file);});
+        }else{src=URL.createObjectURL(file);sessionOnly=true;}
+      }
+      if(!src)src=URL.createObjectURL(file);
+      if(isVideo){
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(23,'Preparing the timeline preview…');
+        const tr=await createFilmstrip(src,file),duration=Number(tr&&tr.duration)||0;
+        await prepareFrames(src,file,key,tr);
+        if(typeof addMediaOverlay!=='function')throw new Error('The timeline is unavailable.');
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Adding the clip to your timeline…');
+        addMediaOverlay({type:'video',src,name:file.name,duration:duration||12,sourceDuration:duration||12,sourceWidth:tr&&tr.width,sourceHeight:tr&&tr.height,thumbs:[],peaks:[],appendAfterGroup:appendAfterGroup||null,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+        if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+        if(sessionOnly||!key)toast(sessionOnly?'Video added for this session only. Export a backup before leaving.':'Video added to project data. Keep an exported backup.');
+      }else{
+        if(typeof addMediaOverlay!=='function')throw new Error('The timeline is unavailable.');
+        addMediaOverlay({type:'image',src,name:file.name,duration:5,thumbs:[],peaks:[],appendAfterGroup:appendAfterGroup||null,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+        if(sessionOnly||!key)toast(sessionOnly?'Image added for this session only. Export a backup before leaving.':'Image added to project data. Keep an exported backup.');
+      }
+      try{if(typeof closePanel==='function')closePanel();}catch(_e){}
+      try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+      try{if(typeof window.__ethvelleDeviceSaveNow==='function')await window.__ethvelleDeviceSaveNow();}catch(err){console.warn('Device project snapshot save:',err);}
+    }catch(err){
+      if(key)await deleteVideoFile(key);if(src){try{URL.revokeObjectURL(src);}catch(_e){}}
+      if(typeof window.__ethvelleImportFail==='function')window.__ethvelleImportFail(err&&err.message?err.message:'Could not import this media file.');
+      console.error('Ethvelle direct device import:',err);
+      toast(err&&err.message?err.message:'Could not import this media file.');
+    }
+  }
+  if(typeof previousTriggerUpload==='function'&&!previousTriggerUpload.__evV7DevicePicker){
+    const wrappedTriggerUpload=function(target,appendAfterGroup){
+      const t=String(target||'');
+      try{uploadTarget=t;uploadAppendGroup=appendAfterGroup||null;}catch(_e){}
+      if(['overlay','media'].includes(t)&&typeof window.showOpenFilePicker==='function'){
+        // The native picker API must be invoked synchronously from the user's button gesture.
+        handlePickedWithDeviceAccess(t,appendAfterGroup).catch(err=>{console.error(err);toast('Could not open the device file picker.');});
+        return;
+      }
+      return previousTriggerUpload.apply(this,arguments);
+    };
+    wrappedTriggerUpload.__evV7DevicePicker=true;window.triggerUpload=wrappedTriggerUpload;
+  }
+
+  const input=$('fileInput');
+  if(input)input.addEventListener('change',function(e){
+    const file=input.files&&input.files[0];if(!file||(!/^video\//i.test(file.type||'')&&!/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(file.name||'')))return;
+    let target='';try{target=String(uploadTarget||'');}catch(_e){}
+    if(!['overlay','media','replace-overlay'].includes(target))return;
+    // Prevent the old bubbling listener from FileReader-reading the whole video as Base64.
+    e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    const appendGroup=typeof uploadAppendGroup!=='undefined'?uploadAppendGroup:null;
+    const replaceId=typeof replaceTargetId!=='undefined'?replaceTargetId:null;
+    input.value='';
+    if(typeof window.__ethvelleImportBegin==='function')window.__ethvelleImportBegin(file.name,file.size);
+    if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(12,'Saving the original video on this device…');
+    (async()=>{
+      let key=null,src=null;
+      try{
+        try{key=await window.__ethvelleStoreMediaFile(file);}catch(storageError){console.warn('Ethvelle video persistence unavailable; adding a session-only clip:',storageError);key=null;}
+        src=URL.createObjectURL(file);
+        if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(23,'Preparing the timeline preview…');
+        const thumbsResult=await createFilmstrip(src,file);
+        await prepareFrames(src,file,key,thumbsResult);
+        const frames=[];
+        const duration=Number(thumbsResult&&thumbsResult.duration)||0;
+        if(target==='replace-overlay'){
+          const ov=(typeof overlays!=='undefined'?overlays:[]).find(o=>String(o.id)===String(replaceId));
+          if(!ov)throw new Error('The selected clip no longer exists.');
+          ov.type='video';ov.src=src;ov.deviceMediaKey=key;ov.deviceMediaName=file.name;ov.deviceMediaSize=Number(file.size)||ov.deviceMediaSize||0;ov.deviceMediaLastModified=Number(file.lastModified)||ov.deviceMediaLastModified||0;ov.name=file.name;ov.sourceDuration=duration||ov.sourceDuration||1;ov.sourceWidth=Number(thumbsResult&&thumbsResult.width)||ov.sourceWidth||0;ov.sourceHeight=Number(thumbsResult&&thumbsResult.height)||ov.sourceHeight||0;ov.thumbs=[];ov.peaks=[];
+          if(!ov.transform)ov.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+          try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();if(typeof renderOverlayListPanel==='function')renderOverlayListPanel();if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState();}catch(err){throw err;}
+          if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Updating the selected timeline clip…');
+          if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+          if(typeof window.showToast==='function')window.showToast(key?'Video replaced and saved on this device':'Video replaced for this session. Export a backup before leaving.',{duration:2800});
+        }else{
+          if(typeof addMediaOverlay!=='function')throw new Error('The media timeline is unavailable.');
+          if(typeof window.__ethvelleImportProgress==='function')window.__ethvelleImportProgress(96,'Adding the clip to your timeline…');
+          addMediaOverlay({type:'video',src,name:file.name,duration:duration||12,sourceDuration:duration||12,sourceWidth:thumbsResult&&thumbsResult.width,sourceHeight:thumbsResult&&thumbsResult.height,thumbs:[],peaks:[],appendAfterGroup:appendGroup,deviceMediaKey:key,deviceMediaInfo:{name:file.name,size:file.size,lastModified:file.lastModified}});
+          if(typeof window.__ethvelleImportComplete==='function')window.__ethvelleImportComplete();
+          if(!key&&typeof window.showToast==='function')window.showToast('Video added for this session. Export a backup before leaving.',{duration:2800});
+        }
+        if(typeof closePanel==='function')closePanel();
+      }catch(err){
+        const attached=!!(typeof overlays!=='undefined'&&Array.isArray(overlays)&&overlays.some(o=>o&&((key&&String(o.deviceMediaKey||'')===String(key))||(src&&String(o.src||'')===String(src)))));
+        if(!attached){if(key)await deleteVideoFile(key);if(src){try{URL.revokeObjectURL(src);}catch(_e){}}}
+        if(typeof window.__ethvelleImportFail==='function')window.__ethvelleImportFail(err&&err.message?err.message:'Could not add this video.');
+        console.error('Ethvelle long-video import:',err);
+        const msg=file.size>25*1024*1024?'This browser view could not save the large video in device storage. Open the HTML in a supported browser or free storage space, then retry.':(err&&err.message?err.message:'Could not add this video.');
+        if(typeof window.showToast==='function')window.showToast(msg,{duration:3500});
+      }finally{try{if(typeof uploadAppendGroup!=='undefined')uploadAppendGroup=null;}catch(_e){}try{if(typeof replaceTargetId!=='undefined'&&target==='replace-overlay')replaceTargetId=null;}catch(_e){}}
+    })();
+  },true);
+
+  // Slider input is guarded by the single shared thumb-only handler earlier in this file.
+})();
+</script>
+
+
+
+<!-- Ethvelle V9/V230 repair: short clips eager once; long clips lazy/windowed; persisted frame cache; text loading + scrub-lag fixes. -->
+<style id="ethvelle-v9-filmstrip-ratio-slider-css">
+  /* Video strips are position-addressed tiles: one tile is lane-height x source aspect.
+     The parent remains a neutral placeholder until the sequential decoder paints a frame. */
+  #timelineInner .clip-thumb-strip.ev-video-thumbs{
+    position:absolute!important;inset:0!important;width:100%!important;height:100%!important;
+    display:block!important;overflow:hidden!important;white-space:normal!important;gap:0!important;
+    background:#383943!important;background-image:none!important;pointer-events:none!important;
+    contain:paint!important;
+  }
+  #timelineInner .ev-video-thumb-tile{
+    position:absolute!important;left:0;top:0;bottom:0;height:100%!important;min-width:0!important;
+    max-width:none!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    display:block!important;box-sizing:border-box!important;overflow:hidden!important;
+    background-color:#41434D!important;background-position:center center!important;
+    background-repeat:no-repeat!important;background-size:100% 100%!important;pointer-events:none!important;
+  }
+  #timelineInner .ev-video-thumb-tile.ev-video-thumb-ready{background-color:transparent!important;}
+  /* v231: capped eager tiles wider than their natural aspect use cover to avoid gaps. */
+  .ev-video-thumbs-wide .ev-video-thumb-tile{background-size:cover!important;}
+  /* v231: match the base #timelineInner id specificity so cover wins over the stretch rule. */
+  #timelineInner .ev-video-thumbs-wide .ev-video-thumb-tile{background-size:cover!important;}
+  input[type="range"]{touch-action:none!important;-webkit-tap-highlight-color:transparent!important;}
+</style>
+<script id="ethvelle-v9-filmstrip-ratio-slider-js">
+(function(){
+  'use strict';
+  /* v231: retain enough decoded frames for eager strips without evicting visible tiles. */
+  const CACHE_LIMIT=900,DOM_TILE_LIMIT=60,DEFAULT_ASPECT=16/9;
+  /* v231: every trimmed source span up to five minutes is eager, capped at 240 natural tiles. */
+  const SHORT_VIDEO_EAGER_MAX_SOURCE_SEC=300,EAGER_MAX_TILES=240;
+  const cache=new Map();                 // LRU object-URL cache: src|source-time -> {url,blob}
+  const pending=new Map();               // coalesced seek/capture jobs
+  const queue=[];                        // one sequential seek queue for every source
+  const sourceMeta=new Map();
+  const primed=new Set();
+  let activeVideo=null,activeVideoSrc='',workerRunning=false;
+  let scheduleTimer=0,scheduleRaf=0,retryTimer=0;
+  // Keep the LRU small, but persist completed JPEG blobs so moving a clip or scrolling
+  // away and back never decodes an already-captured source-time again in this session.
+  let frameDbPromise=null;
+  function openFrameDb(){
+    if(!('indexedDB' in window))return Promise.resolve(null);
+    if(!frameDbPromise){
+      frameDbPromise=new Promise(resolve=>{
+        let req;
+        try{req=indexedDB.open('ethvelle-filmstrip-frames-v1',1);}catch(_e){resolve(null);return;}
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('frames'))db.createObjectStore('frames');};
+        req.onsuccess=()=>resolve(req.result);
+        req.onerror=()=>resolve(null);
+        req.onblocked=()=>resolve(null);
+      });
+    }
+    return frameDbPromise;
+  }
+  async function readSavedFrame(key){
+    try{
+      const db=await openFrameDb();if(!db)return null;
+      return await new Promise(resolve=>{
+        const tx=db.transaction('frames','readonly'),req=tx.objectStore('frames').get(key);
+        req.onsuccess=()=>resolve(req.result instanceof Blob?req.result:null);
+        req.onerror=()=>resolve(null);
+        tx.onabort=()=>resolve(null);
+      });
+    }catch(_e){return null;}
+  }
+  async function saveFrameBlob(key,blob){
+    try{
+      const db=await openFrameDb();if(!db||!blob)return;
+      await new Promise(resolve=>{
+        const tx=db.transaction('frames','readwrite');
+        tx.objectStore('frames').put(blob,key);
+        tx.oncomplete=tx.onerror=tx.onabort=()=>resolve();
+      });
+    }catch(_e){}
+  }
+
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const delay=ms=>new Promise(resolve=>setTimeout(resolve,ms));
+  function sourceOf(ov){
+    let src=String(ov&&ov.src||'').trim();
+    const m=src.match(/^url\((.*)\)$/i);
+    if(m)src=m[1].trim().replace(/^['"]|['"]$/g,'');
+    return src;
+  }
+  function cacheKey(src,t){return src+'|'+(Math.round(Number(t)*1000)/1000).toFixed(3);}
+  function cached(key){
+    const hit=cache.get(key);if(!hit)return null;
+    cache.delete(key);cache.set(key,hit);return hit;
+  }
+  function cachePut(key,blob){
+    const url=URL.createObjectURL(blob);
+    cache.set(key,{url,blob});
+    while(cache.size>CACHE_LIMIT){
+      const first=cache.keys().next().value,old=cache.get(first);cache.delete(first);
+      try{if(old&&old.url)URL.revokeObjectURL(old.url);}catch(_e){}
+    }
+    return cache.get(key);
+  }
+  function paintNode(node,key,entry){
+    if(!node||!node.isConnected||node.dataset.evThumbKey!==key||!entry)return;
+    node.style.backgroundImage='url("'+entry.url.replace(/"/g,'%22')+'")';
+    node.classList.add('ev-video-thumb-ready');
+  }
+  function teardownVideo(){
+    const v=activeVideo;activeVideo=null;activeVideoSrc='';
+    if(!v)return;
+    try{v.pause();v.removeAttribute('src');v.load();}catch(_e){}
+    try{v.remove();}catch(_e){}
+  }
+  function loadedEvent(video,eventName,timeout){
+    return new Promise(resolve=>{
+      let settled=false,timer=0;
+      const finish=ok=>{if(settled)return;settled=true;clearTimeout(timer);video.removeEventListener(eventName,onEvent);video.removeEventListener('error',onError);resolve(ok);};
+      const onEvent=()=>finish(true),onError=()=>finish(false);
+      video.addEventListener(eventName,onEvent,{once:true});video.addEventListener('error',onError,{once:true});
+      timer=setTimeout(()=>finish(false),timeout);
+      if((eventName==='loadedmetadata'&&video.readyState>=1)||(eventName==='loadeddata'&&video.readyState>=2))finish(true);
+    });
+  }
+  function externalDecoderCount(){
+    let count=0;
+    document.querySelectorAll('video').forEach(v=>{
+      if(v===activeVideo)return;
+      try{if((v.currentSrc||v.src)&&v.readyState>0&&!v.error)count++;}catch(_e){}
+    });
+    return count;
+  }
+  function canCreateDecoder(){
+    const budget=Number(window.__evDecoderBudget&&window.__evDecoderBudget.pool)||3;
+    return externalDecoderCount()<Math.max(1,budget);
+  }
+  function applyMetadata(src,video){
+    const width=Number(video.videoWidth)||0,height=Number(video.videoHeight)||0,duration=Number(video.duration)||0;
+    if(width>0&&height>0){
+      const prev=sourceMeta.get(src),next={width,height,duration,aspect:width/height};
+      sourceMeta.set(src,next);
+      let changed=!prev||Math.abs(prev.aspect-next.aspect)>.002;
+      try{
+        (Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+          if(!ov||ov.type!=='video'||sourceOf(ov)!==src)return;
+          if(Number(ov.sourceWidth)!==width||Number(ov.sourceHeight)!==height){ov.sourceWidth=width;ov.sourceHeight=height;changed=true;}
+          if(!(Number(ov.sourceDuration)>0)&&duration>0)ov.sourceDuration=duration;
+        });
+      }catch(_e){}
+      /* v231: use the eager path immediately after the real aspect ratio arrives. */
+      if(changed)schedule(true);
+    }
+  }
+  async function ensureSourceVideo(src,force){
+    if(activeVideo&&activeVideoSrc===src&&activeVideo.readyState>=1&&!activeVideo.error)return activeVideo;
+    if(activeVideo)teardownVideo();
+    if(!force&&!canCreateDecoder())return null;
+    const video=document.createElement('video');
+    video.muted=true;video.defaultMuted=true;video.volume=0;video.playsInline=true;video.preload='auto';
+    video.setAttribute('muted','');video.setAttribute('playsinline','');video.setAttribute('disablepictureinpicture','');
+    video.setAttribute('aria-hidden','true');video.tabIndex=-1;
+    video.style.cssText='position:fixed!important;left:-10000px!important;top:0!important;width:160px!important;height:90px!important;opacity:.001!important;pointer-events:none!important;z-index:-1!important;contain:strict!important;';
+    if(/^https?:/i.test(src))video.crossOrigin='anonymous';
+    activeVideo=video;activeVideoSrc=src;
+    document.body.appendChild(video);
+    const meta=loadedEvent(video,'loadedmetadata',15000);
+    try{video.src=src;video.load();}catch(_e){teardownVideo();return null;}
+    if(!await meta||!video.videoWidth||!video.videoHeight){if(activeVideo===video)teardownVideo();return null;}
+    applyMetadata(src,video);
+    if(video.readyState<2){
+      const data=await loadedEvent(video,'loadeddata',12000);
+      if(!data||activeVideo!==video){if(activeVideo===video)teardownVideo();return null;}
+    }
+    return activeVideo===video?video:null;
+  }
+  function waitPaint(video){
+    return new Promise(resolve=>{
+      let settled=false,timer=0;
+      const finish=ok=>{if(settled)return;settled=true;clearTimeout(timer);resolve(ok);};
+      timer=setTimeout(()=>finish(video.readyState>=2&&activeVideo===video),420);
+      if(typeof video.requestVideoFrameCallback==='function'){
+        try{video.requestVideoFrameCallback(()=>finish(video.readyState>=2&&activeVideo===video));}catch(_e){}
+      }
+      requestAnimationFrame(()=>requestAnimationFrame(()=>finish(video.readyState>=2&&activeVideo===video)));
+    });
+  }
+  async function seekVideo(video,wanted,attempt){
+    if(!video||activeVideo!==video||video.readyState<2)return false;
+    const target=clamp(wanted,0,Math.max(0,(Number(video.duration)||.1)-.045));
+    if(!video.seeking&&Math.abs((Number(video.currentTime)||0)-target)<.012){
+      if(await waitPaint(video))return true;
+    }else{
+      const ok=await new Promise(resolve=>{
+        let settled=false,guard=0,timer=0;
+        const finish=value=>{if(settled)return;settled=true;clearInterval(guard);clearTimeout(timer);video.removeEventListener('seeked',onSeek);video.removeEventListener('error',onError);resolve(value);};
+        const onSeek=()=>finish(video.readyState>=2&&activeVideo===video&&Math.abs(video.currentTime-target)<.18);
+        const onError=()=>finish(false);
+        video.addEventListener('seeked',onSeek,{once:true});video.addEventListener('error',onError,{once:true});
+        try{video.currentTime=target;}catch(_e){finish(false);return;}
+        guard=setInterval(()=>{if(activeVideo!==video)finish(false);else if(video.readyState>=2&&!video.seeking&&Math.abs(video.currentTime-target)<.10)finish(true);},65);
+        timer=setTimeout(()=>finish(video.readyState>=2&&!video.seeking&&Math.abs(video.currentTime-target)<.20),attempt===0?1700:1300);
+      });
+      if(!ok)return false;
+      if(await waitPaint(video))return true;
+    }
+    return false;
+  }
+  function isBlackFrame(video){
+    try{
+      const probe=document.createElement('canvas');probe.width=16;probe.height=9;
+      const ctx=probe.getContext('2d',{willReadFrequently:true});if(!ctx)return false;
+      ctx.drawImage(video,0,0,video.videoWidth,video.videoHeight,0,0,16,9);
+      const pixels=ctx.getImageData(0,0,16,9).data;let max=0,sum=0;
+      for(let i=0;i<pixels.length;i+=4){const m=Math.max(pixels[i],pixels[i+1],pixels[i+2]);max=Math.max(max,m);sum+=m;}
+      return max<12||sum/(16*9)<3.5;
+    }catch(_e){return true;}
+  }
+  async function captureBlob(video,targetH,quality){
+    if(!video||activeVideo!==video||!video.videoWidth||!video.videoHeight)return null;
+    const sw=video.videoWidth,sh=video.videoHeight,aspect=sw/sh;
+    const h=Math.max(16,Math.round(Number(targetH)||144)),w=Math.max(1,Math.round(h*aspect));
+    const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+    const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)return null;
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    try{ctx.drawImage(video,0,0,sw,sh,0,0,w,h);}catch(_e){return null;}
+    return await new Promise(resolve=>{
+      try{canvas.toBlob(blob=>resolve(blob&&blob.size?blob:null),'image/jpeg',Number(quality)||.8);}catch(_e){resolve(null);}
+    });
+  }
+  async function decodeFrame(src,time){
+    const video=await ensureSourceVideo(src);if(!video)return null;
+    let ok=false;
+    for(let attempt=0;attempt<2;attempt++){
+      if(activeVideo!==video)return null;
+      if(await seekVideo(video,time,attempt)){
+        if(!isBlackFrame(video)){ok=true;break;}
+      }
+      if(attempt===0)await delay(110);
+    }
+    if(!ok)return null;
+    return await captureBlob(video);
+  }
+  /* ===================== v234 source-frame store =====================
+     Frames belong to the SOURCE MEDIA (stable id + fixed source-time samples), never to a clip or tile.
+     - prepare(): runs BEFORE addMediaOverlay at import (progress callback), persists to IndexedDB.
+     - paintAll(): fills every strip synchronously from stored frames (nearest source time). Never decodes.
+     - Background fill (sources > 5 min): one shared decoder, per-frame lock, yields to playback. */
+  const SF_DB='ethvelle-source-frames-v2',LONG_SOURCE_SEC=300,SHORT_H=216,LONG_H=144,DENSE_MAX=1500;
+  const sets=new Map(),aliasMap=new Map(),srcToId=new Map(),loading=new Map(),bgGen=new Set(),filling=new Set();
+  const failedSets=new Set();
+  const stats={decodes:0,saves:0,paints:0,restored:0};
+  let sfDbPromise=null,lockTail=Promise.resolve(),fgBusy=0,restoreDone=false;
+  function sfDb(){
+    if(!('indexedDB' in window))return Promise.resolve(null);
+    if(!sfDbPromise)sfDbPromise=new Promise(resolve=>{
+      let req;try{req=indexedDB.open(SF_DB,1);}catch(_e){resolve(null);return;}
+      req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('frames'))db.createObjectStore('frames');if(!db.objectStoreNames.contains('meta'))db.createObjectStore('meta');};
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>resolve(null);req.onblocked=()=>resolve(null);
+    });
+    return sfDbPromise;
+  }
+  async function idbGet(store,key){
+    try{const db=await sfDb();if(!db)return null;
+      return await new Promise(res=>{const r=db.transaction(store,'readonly').objectStore(store).get(key);r.onsuccess=()=>res(r.result||null);r.onerror=()=>res(null);});
+    }catch(_e){return null;}
+  }
+  async function idbPut(store,key,val){
+    try{const db=await sfDb();if(!db)return;
+      await new Promise(res=>{const tx=db.transaction(store,'readwrite');tx.objectStore(store).put(val,key);tx.oncomplete=tx.onerror=tx.onabort=()=>res();});
+    }catch(_e){}
+  }
+  async function idbFrames(setId){
+    try{const db=await sfDb();if(!db)return [];
+      return await new Promise(res=>{const r=db.transaction('frames','readonly').objectStore('frames').getAll(IDBKeyRange.bound(setId+'\u0001',setId+'\u0002'));r.onsuccess=()=>res(r.result||[]);r.onerror=()=>res([]);});
+    }catch(_e){return [];}
+  }
+  const fkey=(id,ms)=>id+'\u0001'+ms;
+  function withLock(fn){const run=lockTail.then(fn,fn);lockTail=run.catch(()=>{});return run;}
+  function fingerprintOf(o){
+    const n=o&&(o.deviceMediaName||o.name),s=o&&(o.deviceMediaSize||o.size),m=o&&(o.deviceMediaLastModified||o.lastModified),d=Number(o&&(o.sourceDuration||o.duration))||0;
+    return (n&&s)?'f:'+n+'|'+s+'|'+(m||0)+'|'+d.toFixed(2):'';
+  }
+  function idOf(ov){
+    if(ov.deviceMediaKey)return 'k:'+ov.deviceMediaKey;
+    const src=sourceOf(ov);if(srcToId.has(src))return srcToId.get(src);
+    const fp=fingerprintOf(ov);if(fp)return fp;
+    return 'n:'+(ov.name||'')+'|'+(Number(ov.sourceDuration)||0).toFixed(2)+'|'+(ov.sourceWidth||0)+'x'+(ov.sourceHeight||0);
+  }
+  const resolveId=id=>aliasMap.get(id)||id;
+  const setFor=ov=>sets.get(resolveId(idOf(ov)))||null;
+  function newSet(meta){
+    return {id:meta.id,duration:Number(meta.duration)||0,width:Number(meta.width)||0,height:Number(meta.height)||0,
+      aspect:Number(meta.aspect)||0,mode:meta.mode==='long'?'long':'short',complete:!!meta.complete,fillDone:!!meta.fillDone,
+      times:[],urls:new Map(),imgs:[],saving:0,fillRetryAt:0};
+  }
+  function addFrame(set,ms,blob){
+    if(set.urls.has(ms)||!blob)return false;
+    const url=URL.createObjectURL(blob);set.urls.set(ms,url);
+    const a=set.times;let lo=0,hi=a.length;while(lo<hi){const mid=(lo+hi)>>1;if(a[mid]<ms)lo=mid+1;else hi=mid;}a.splice(lo,0,ms);
+    try{const img=new Image();img.decoding='async';img.src=url;if(img.decode)img.decode().catch(()=>{});set.imgs.push(img);}catch(_e){}
+    return true;
+  }
+  function nearest(set,t){
+    const a=set.times,n=a.length;if(!n)return '';const ms=t*1000;
+    let lo=0,hi=n-1;while(lo<hi){const mid=(lo+hi)>>1;if(a[mid]<ms)lo=mid+1;else hi=mid;}
+    if(lo>0&&Math.abs(a[lo-1]-ms)<=Math.abs(a[lo]-ms))lo--;
+    return set.urls.get(a[lo])||'';
+  }
+  function saveMeta(set){
+    return idPutMeta(set);
+  }
+  function idPutMeta(set){
+    return idbPut('meta',set.id,{id:set.id,duration:set.duration,width:set.width,height:set.height,aspect:set.aspect,mode:set.mode,
+      complete:set.complete,fillDone:set.fillDone,count:set.times.length,updated:Date.now()});
+  }
+  async function loadSet(id){
+    const rid=resolveId(id);if(sets.has(rid))return sets.get(rid);
+    if(loading.has(id))return loading.get(id);
+    const job=(async()=>{
+      let setId=id;
+      const al=await idbGet('meta','alias|'+id);if(al&&al.target){setId=String(al.target);aliasMap.set(id,setId);}
+      if(sets.has(setId))return sets.get(setId);
+      const meta=await idbGet('meta',setId);if(!meta||!meta.id)return null;
+      const set=newSet(meta);
+      const rows=await idbFrames(setId);
+      rows.forEach(r=>{if(r&&r.blob&&Number.isFinite(r.ms))addFrame(set,r.ms,r.blob);});
+      if(!set.times.length)return null;
+      sets.set(setId,set);stats.restored++;return set;
+    })().finally(()=>loading.delete(id));
+    loading.set(id,job);return job;
+  }
+  async function restoreForProjects(projects){
+    const ids=new Set(),walk=ovs=>{(Array.isArray(ovs)?ovs:[]).forEach(o=>{if(o&&o.type==='video'&&(o.deviceMediaKey||o.src))ids.add(idOf(o));});};
+    try{(Array.isArray(projects)?projects:[]).forEach(p=>{if(p&&p.savedState)walk(p.savedState.overlays);});}catch(_e){}
+    try{walk(overlays);}catch(_e){}
+    await Promise.race([Promise.all([...ids].map(id=>loadSet(id).catch(()=>null))),delay(6000)]);
+    restoreDone=true;
+  }
+  /* ---- decoding (single shared decoder; every real seek is counted in stats.decodes) ---- */
+  async function grab(src,t,h,q){
+    const video=await ensureSourceVideo(src,true);if(!video)return null;
+    for(let attempt=0;attempt<2;attempt++){
+      if(activeVideo!==video)return null;
+      stats.decodes++;
+      if(await seekVideo(video,t,attempt)){if(!isBlackFrame(video))return await captureBlob(video,h,q);}
+      if(attempt===0)await delay(110);
+    }
+    return null;
+  }
+  function playbackActive(){
+    let busy=false;
+    document.querySelectorAll('video').forEach(v=>{if(v!==activeVideo&&!v.paused&&!v.ended&&v.readyState>=2)busy=true;});
+    return busy;
+  }
+  async function idleWait(){while(playbackActive()||document.hidden||fgBusy>0)await delay(500);}
+  const msList=(span,n,from)=>{const o=[];for(let i=0;i<n;i++)o.push(Math.round(1000*((from||0)+(n===1?0:span*i/(n-1)))));return o;};
+  function planShort(dur){const n=Math.round(clamp(Math.ceil(dur*3),6,60));return msList(Math.max(.08,dur-.08),n,0);}
+  function planCoarse(dur){return msList(Math.max(.08,dur-.08),24,0);}
+  function denseStep(dur){return Math.max(2,dur/DENSE_MAX);}
+  function planDense(dur){const st=denseStep(dur),o=[];for(let t=0;t<dur-.08;t+=st)o.push(Math.round(t*1000));return o;}
+  async function persistFrame(set,ms,blob){stats.saves++;await idbPut('frames',fkey(set.id,ms),{ms,blob});}
+  /* Runs a capture plan. fg=true holds the decoder for the whole run (import); fg=false takes the lock per frame and yields to playback. */
+  async function runPlan(set,src,times,opt){
+    const h=opt.h,q=opt.q,total=times.length;let done=0,okCount=0;const retry=[];
+    const queue=times.filter(ms=>!set.urls.has(ms));const skipped=total-queue.length;done=skipped;
+    const step=async ms=>{
+      if(!opt.fg)await idleWait();
+      const blob=opt.fg?await grab(src,ms/1000,h,q):await withLock(()=>grab(src,ms/1000,h,q));
+      if(blob){if(addFrame(set,ms,blob)){await persistFrame(set,ms,blob);okCount++;}}else return false;
+      return true;
+    };
+    let failStreak=0;
+    for(let i=0;i<queue.length;i++){
+      if(opt.deadline&&Date.now()>opt.deadline)break;
+      if(opt.shouldStop&&opt.shouldStop())break;
+      const ok=await step(queue[i]);
+      if(!ok){retry.push(queue[i]);failStreak++;}else failStreak=0;
+      done++;
+      try{if(opt.onProgress)opt.onProgress(Math.min(100,done/Math.max(1,total)*100));}catch(_e){}
+      if(opt.onBatch&&okCount&&okCount%25===0)opt.onBatch();
+      if(failStreak>=6&&!opt.fg){opt.aborted=true;break;}
+      await delay(opt.fg?0:40);
+    }
+    if(!opt.aborted&&retry.length&&!(opt.deadline&&Date.now()>opt.deadline)){
+      for(const ms of retry){if(opt.shouldStop&&opt.shouldStop())break;await step(ms);}
+    }
+    return okCount;
+  }
+  function liveSrcFor(set){
+    try{const o=(Array.isArray(overlays)?overlays:[]).find(x=>x&&x.type==='video'&&resolveId(idOf(x))===set.id&&sourceOf(x)&&sourceOf(x).indexOf('ethvelle-device-media://')!==0);return o?sourceOf(o):'';}catch(_e){return '';}
+  }
+  function usedWindows(set){
+    const w=[];try{(Array.isArray(overlays)?overlays:[]).forEach(o=>{if(o&&o.type==='video'&&resolveId(idOf(o))===set.id){
+      const sp=Math.max(0,((Number(o.trimEnd)||0)-(Number(o.trimStart)||0))*(Math.max(.05,Number(o.speed)||1)));const s=Math.max(0,Number(o.sourceOffset)||0);w.push([s,s+sp]);}});}catch(_e){}
+    return w.length?w:[[0,0]];
+  }
+  async function ensureFill(set){
+    if(!set||set.fillDone||filling.has(set.id)||Date.now()<set.fillRetryAt||set.mode!=='long')return;
+    filling.add(set.id);
+    try{
+      const src=liveSrcFor(set);if(!src)return;
+      const win=usedWindows(set),dist=ms=>{const t=ms/1000;let d=1e9;win.forEach(([a,b])=>{d=Math.min(d,t<a?a-t:t>b?t-b:0);});return d;};
+      const times=planDense(set.duration).filter(ms=>!set.urls.has(ms)).sort((a,b)=>dist(a)-dist(b));
+      const opt={fg:false,h:LONG_H,q:.7,shouldStop:()=>!liveSrcFor(set),onBatch:()=>{idPutMeta(set);schedule();}};
+      await runPlan(set,src,times,opt);
+      if(opt.aborted){set.fillRetryAt=Date.now()+30000;}
+      else if(liveSrcFor(set)){set.fillDone=true;}
+      await idPutMeta(set);
+    }catch(err){console.warn('Ethvelle background frame fill:',err);set.fillRetryAt=Date.now()+30000;}
+    finally{filling.delete(set.id);try{if(!playbackActive())teardownVideo();}catch(_e){}schedule();}
+  }
+  /* Import-time preparation. Resolves (never rejects) once the first strip is ready. */
+  async function prepare(src,info){
+    info=info||{};
+    const clean=sourceOf({src}),fp=fingerprintOf(info),key=info.key?'k:'+info.key:'';
+    const id=key||fp||'s:'+clean;
+    srcToId.set(clean,id);
+    try{
+      let existing=await loadSet(id);
+      if(!existing&&fp&&fp!==id)existing=await loadSet(fp);
+      if(existing&&existing.complete){
+        if(existing.id!==id){aliasMap.set(id,existing.id);await idbPut('meta','alias|'+id,{target:existing.id});}
+        if(info.onProgress)try{info.onProgress(100);}catch(_e){}
+        schedule(true);
+        return {id:existing.id,reused:true,frames:existing.times.length};
+      }
+      if(failedSets.has(id)&&info.background)return {id,failed:true};
+      const bg=!!info.background;
+      if(!bg)fgBusy++;
+      let set=existing||null;
+      try{
+        const probe=await withLock(async()=>{const v=await ensureSourceVideo(clean,true);return v?{d:Number(v.duration)||0,w:v.videoWidth,h:v.videoHeight}:null;});
+        if(!probe){failedSets.add(id);return {id,failed:true};}
+        const dur=probe.d>0?probe.d:(Number(info.duration)||1),w=probe.w||Number(info.width)||0,h=probe.h||Number(info.height)||0;
+        const mode=dur>LONG_SOURCE_SEC?'long':'short';
+        if(!set){set=newSet({id,duration:dur,width:w,height:h,aspect:w>0&&h>0?w/h:16/9,mode,complete:false,fillDone:mode==='short'});sets.set(id,set);}
+        const started=Date.now();
+        let times,deadline=0,fg=!bg;
+        if(mode==='short'){times=planShort(dur);}
+        else{
+          const dense=planDense(dur).filter(ms=>ms<=22000);
+          times=planCoarse(dur).concat(dense);deadline=bg?0:started+7000;
+        }
+        const ok=await (fg?withLock(()=>runPlan(set,clean,times,{fg:true,h:mode==='short'?SHORT_H:LONG_H,q:mode==='short'?.86:.72,deadline,onProgress:info.onProgress,onBatch:()=>idPutMeta(set)}))
+                          :runPlan(set,clean,times,{fg:false,h:mode==='short'?SHORT_H:LONG_H,q:mode==='short'?.86:.72,deadline,onProgress:info.onProgress,onBatch:()=>idPutMeta(set)}));
+        if(!set.times.length){sets.delete(id);failedSets.add(id);return {id,failed:true};}
+        set.complete=true;if(mode==='short')set.fillDone=true;
+        await idPutMeta(set);
+        if(fp&&fp!==id)await idbPut('meta','alias|'+fp,{target:id});
+        if(key)await idbPut('meta','alias|'+key,{target:id});
+        if(info.onProgress)try{info.onProgress(100);}catch(_e){}
+        return {id,reused:false,frames:set.times.length,mode};
+      }finally{
+        if(!bg)fgBusy--;
+        try{if(!playbackActive())teardownVideo();}catch(_e){}
+        schedule(true);
+        if(set&&set.mode==='long'&&!set.fillDone)setTimeout(()=>ensureFill(set),800);
+      }
+    }catch(err){console.warn('Ethvelle frame preparation:',err);failedSets.add(id);return {id,failed:true};}
+  }
+  function ensureSetFor(ov,src){
+    const id=idOf(ov);if(failedSets.has(id)||bgGen.has(id)||sets.has(resolveId(id)))return;
+    bgGen.add(id);
+    (async()=>{
+      try{
+        const found=await loadSet(id);
+        if(found){if(found.mode==='long'&&!found.fillDone)ensureFill(found);return;}
+        if(!restoreDone)await Promise.race([window.__ethvelleProjectsRestorePromise||Promise.resolve(),delay(4000)]);
+        if(sets.has(resolveId(id)))return;
+        await prepare(src,{key:ov.deviceMediaKey,name:ov.deviceMediaName||ov.name,size:ov.deviceMediaSize,lastModified:ov.deviceMediaLastModified,
+          duration:ov.sourceDuration,width:ov.sourceWidth,height:ov.sourceHeight,background:true});
+      }catch(_e){}finally{bgGen.delete(id);schedule(true);}
+    })();
+  }
+  /* ---- synchronous painter (no decode, no debounce, no placeholder-then-fill) ---- */
+  let hasLong=false,painting=false,paintRaf=0;
+  function paintAll(){
+    if(painting)return;painting=true;
+    try{
+      const inner=document.getElementById('timelineInner');if(!inner)return;
+      const scroller=document.getElementById('timelineScroll');
+      const dragging=inner.classList.contains('clip-drag-active');
+      const pps=Math.max(1,Number(typeof window.pxPerSecond==='function'?window.pxPerSecond():90)||90);
+      const sr=scroller?scroller.getBoundingClientRect():{left:0,right:window.innerWidth||360};
+      const screenW=Math.max(1,(scroller&&scroller.clientWidth)||window.innerWidth||360);
+      const expandedLeft=sr.left-screenW,expandedRight=sr.left+screenW*2,viewportCenter=sr.left+screenW/2;
+      const clips=Array.isArray(overlays)?overlays.filter(ov=>ov&&ov.type==='video'&&ov.src):[];
+      const recs=[],frozen=new Set();let anyLong=false;
+      clips.forEach(ov=>{
+        const id=String(ov.id),safeId=id.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+        const clipEl=inner.querySelector('.overlay-clip[data-overlay-id="'+safeId+'"]');if(!clipEl)return;
+        const strip=clipEl.querySelector('.ev-video-thumbs');if(!strip)return;
+        const src=sourceOf(ov);if(!src||src.indexOf('ethvelle-device-media://')===0)return;
+        const set=setFor(ov);
+        if(!set||!set.times.length){ensureSetFor(ov,src);return;}
+        if(set.mode==='long'&&!set.fillDone)ensureFill(set);
+        // A normal clip move keeps its existing filmstrip frozen to avoid spending work
+        // repainting tiles while the whole clip is being repositioned. A trim/extend is
+        // different: its source-time window and visible width are changing under the finger,
+        // so let the already-decoded frame tiles repaint in real time for this clip only.
+        const trimPreviewActive=clipEl.classList.contains('ev-trim-preview-active');
+        if(dragging&&strip.firstChild&&!trimPreviewActive){frozen.add(strip);return;}
+        const cr=clipEl.getBoundingClientRect();
+        const sw=Number(ov.sourceWidth)||set.width||0,sh=Number(ov.sourceHeight)||set.height||0;
+        const aspect=sw>0&&sh>0?sw/sh:(set.aspect||DEFAULT_ASPECT);
+        const laneH=Math.max(1,strip.clientHeight||clipEl.clientHeight||30);
+        const timeStart=Number(ov.trimStart)||0,timeEnd=Math.max(timeStart,Number(ov.trimEnd)||timeStart);
+        const speed=Math.max(.05,Number(ov.speed)||1),srcOffset=Math.max(0,Number(ov.sourceOffset)||0);
+        const sourceSpan=Math.max(0,(timeEnd-timeStart)*speed);
+        const knownDuration=Number(ov.sourceDuration)||set.duration||0;
+        const isShort=sourceSpan<=SHORT_VIDEO_EAGER_MAX_SOURCE_SEC;if(!isShort)anyLong=true;
+        const clipW=Math.max(1,clipEl.clientWidth||cr.width||((timeEnd-timeStart)*pps));
+        recs.push({ov,strip,set,cr,aspect,laneH,timeStart,timeEnd,srcOffset,sourceSpan,knownDuration,isShort,clipW});
+      });
+      hasLong=anyLong;
+      const keep=new Map(),writes=[];
+      recs.forEach(r=>{
+        const {ov,strip,set,cr,aspect,laneH,timeStart,timeEnd,srcOffset,sourceSpan,knownDuration,isShort,clipW}=r;
+        const naturalTileW=Math.max(1,laneH*aspect);let tileW=naturalTileW,tileCount=Math.max(1,Math.ceil(clipW/tileW));
+        if(isShort&&tileCount>EAGER_MAX_TILES){tileCount=EAGER_MAX_TILES;tileW=clipW/tileCount;}
+        strip.classList.toggle('ev-video-thumbs-short',isShort);
+        strip.classList.toggle('ev-video-thumbs-wide',tileW>naturalTileW*1.02);
+        if(!isShort&&(cr.right<expandedLeft||cr.left>expandedRight)){keep.set(strip,new Set());return;}
+        const first=isShort?0:Math.max(0,Math.floor(clamp(expandedLeft-cr.left,0,clipW)/tileW));
+        const last=isShort?tileCount-1:Math.min(tileCount-1,Math.ceil(clamp(expandedRight-cr.left,0,clipW)/tileW));
+        const timeOf=index=>{
+          const fraction=(index*tileW/pps)/Math.max(.0001,timeEnd-timeStart);
+          const elapsed=Math.max(0,Math.min(1,fraction))*sourceSpan;
+          const raw=ov.reversePlayback?srcOffset+sourceSpan-elapsed:srcOffset+elapsed;
+          return clamp(raw,0,knownDuration>0?Math.max(0,knownDuration-.045):Math.max(raw,0));
+        };
+        let idxs=[];for(let i=first;i<=last;i++)idxs.push(i);
+        if(!isShort&&idxs.length>DOM_TILE_LIMIT){
+          idxs.sort((a,b)=>Math.abs(cr.left+a*tileW+tileW/2-viewportCenter)-Math.abs(cr.left+b*tileW+tileW/2-viewportCenter));
+          idxs=idxs.slice(0,DOM_TILE_LIMIT);
+        }
+        keep.set(strip,new Set(idxs));
+        writes.push({strip,set,idxs,tileW,timeOf});
+      });
+      inner.querySelectorAll('.ev-video-thumbs').forEach(strip=>{
+        if(frozen.has(strip))return;
+        const ids=keep.get(strip);if(!ids)return;
+        if(strip.__evTiles){strip.__evTiles.forEach((node,index)=>{if(!ids.has(index)){try{node.remove();}catch(_e){}strip.__evTiles.delete(index);}});}
+      });
+      writes.forEach(w=>{
+        const {strip,set,idxs,tileW,timeOf}=w;
+        let tiles=strip.__evTiles;if(!tiles||!tiles.size||![...tiles.values()].every(n=>n.parentNode===strip)){strip.textContent='';tiles=new Map();strip.__evTiles=tiles;}
+        const frag=document.createDocumentFragment();
+        idxs.forEach(index=>{
+          let node=tiles.get(index);
+          if(!node){node=document.createElement('div');node.className='ev-video-thumb-tile';node.dataset.evThumbIndex=String(index);tiles.set(index,node);frag.appendChild(node);}
+          const left=(index*tileW)+'px',width=(tileW+.35)+'px';
+          if(node.style.left!==left)node.style.left=left;
+          if(node.style.width!==width)node.style.width=width;
+          const url=nearest(set,timeOf(index));
+          if(url&&node.dataset.evThumbUrl!==url){node.style.backgroundImage='url("'+url+'")';node.dataset.evThumbUrl=url;node.classList.add('ev-video-thumb-ready');}
+        });
+        if(frag.firstChild)strip.appendChild(frag);
+      });
+      stats.paints++;
+    }catch(err){console.warn('Ethvelle frame paint:',err);}
+    finally{painting=false;}
+  }
+  function schedule(immediate){
+    if(immediate===true){paintAll();return;}
+    if(paintRaf)return;paintRaf=requestAnimationFrame(()=>{paintRaf=0;paintAll();});
+  }
+  function onScrollPaint(){if(hasLong)schedule();}
+  function observeStrips(){
+    const host=document.getElementById('timelineScroll')||document.body;
+    const isStrip=n=>n&&n.nodeType===1&&(n.classList.contains('ev-video-thumbs')||(n.querySelector&&n.querySelector('.ev-video-thumbs')));
+    new MutationObserver(records=>{
+      for(const rec of records){for(const n of rec.addedNodes){if(n.nodeType===1&&n.classList.contains('ev-video-thumb-tile'))continue;if(isStrip(n)){paintAll();return;}}}
+    }).observe(host,{childList:true,subtree:true});
+  }
+
+  function wire(){
+    const scroller=document.getElementById('timelineScroll');
+    if(scroller&&!scroller.dataset.evLazyThumbScroll){scroller.dataset.evLazyThumbScroll='1';scroller.addEventListener('scroll',onScrollPaint,{passive:true});}
+    window.addEventListener('resize',schedule,{passive:true});
+    // Playback owns the active decoder budget. Release our paused thumbnail decoder as soon
+    // as another video starts so the app's three-decoder playback pool remains available.
+    document.addEventListener('play',event=>{
+      if(event.target!==activeVideo){teardownVideo();setTimeout(function(){try{schedule();}catch(_e){}},180);}
+    },true);
+    // If another part of the editor claims the final decoder slot while a thumbnail
+    // source is paused, release the thumbnail decoder as soon as that video has metadata.
+    document.addEventListener('loadedmetadata',event=>{
+      if(activeVideo&&event.target!==activeVideo){
+        const budget=Number(window.__evDecoderBudget&&window.__evDecoderBudget.pool)||3;
+        if(externalDecoderCount()>=budget){teardownVideo();setTimeout(function(){try{schedule();}catch(_e){}},180);}
+      }
+    },true);
+    document.addEventListener('visibilitychange',()=>{if(document.hidden){teardownVideo();}else schedule();});
+    window.addEventListener('pagehide',()=>{teardownVideo();});
+    const oldRender=window.renderOverlayLayers;
+    if(typeof oldRender==='function'&&!oldRender.__evV9LazyVideoThumbs){
+      /* v231: the first render containing a new video id kicks off the eager strip now. */
+      const seenVideoOverlayIds=new Set();
+      const wrapped=function(){
+        const result=oldRender.apply(this,arguments);let hasNewVideo=false;
+        try{
+          const list=Array.isArray(window.overlays)?window.overlays:(Array.isArray(overlays)?overlays:[]);
+          list.forEach(ov=>{if(!ov||ov.type!=='video'||!ov.src)return;const id=String(ov.id);if(!seenVideoOverlayIds.has(id)){seenVideoOverlayIds.add(id);hasNewVideo=true;}});
+        }catch(_e){}
+        paintAll();
+        return result;
+      };
+      wrapped.__evV9LazyVideoThumbs=true;window.renderOverlayLayers=wrapped;
+    }
+    observeStrips();
+    schedule();
+  }
+  window.__evSourceFrames={prepare,restoreForProjects,sets,stats,idOf,setFor,ensureFill,paintAll,nearest};
+  window.__evTimelineVideoThumbs={schedule,paintAll,stats,sets,debug:()=>{const tiles=[...document.querySelectorAll('.ev-video-thumb-tile')];return {sets:sets.size,frames:[...sets.values()].reduce((n,s)=>n+s.times.length,0),decodes:stats.decodes,saves:stats.saves,paints:stats.paints,domTiles:tiles.length,blankTiles:tiles.filter(n=>!n.classList.contains('ev-video-thumb-ready')).length,decoderAlive:!!activeVideo,src:activeVideoSrc,filling:filling.size};}};
+  try{if(window.__evFramesGateResolve)window.__evFramesGateResolve();}catch(_e){}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',wire,{once:true});else wire();
+})();
+</script>
+
+
+
+<!-- Ethvelle V10: hard drag-only range controls. The native input is kept for existing
+     application code/value events, but never receives pointer input. A transparent sibling
+     intercepts all gestures and changes the value only after a real thumb-originating drag. -->
+<style id="ethvelle-v10-drag-only-sliders-css">
+  .ev-range-drag-only-wrap {
+    position:relative!important;box-sizing:border-box!important;overflow:visible!important;
+    align-items:stretch!important;vertical-align:middle!important;isolation:isolate!important;
+  }
+  .ev-range-drag-only-wrap > input[type="range"] {
+    position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    transform:none!important;margin:0!important;width:100%!important;height:100%!important;
+    min-width:0!important;max-width:none!important;flex:none!important;pointer-events:none!important;
+    touch-action:none!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  .ev-range-drag-only-surface {
+    position:absolute!important;inset:0!important;display:block!important;width:100%!important;height:100%!important;
+    margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    background:transparent!important;box-shadow:none!important;opacity:1!important;visibility:visible!important;
+    z-index:2!important;pointer-events:auto!important;touch-action:none!important;
+    user-select:none!important;-webkit-user-select:none!important;-webkit-tap-highlight-color:transparent!important;
+    cursor:grab!important;outline:none!important;
+  }
+  .ev-range-drag-only-surface.ev-dragging {cursor:grabbing!important;}
+</style>
+<script id="ethvelle-v10-drag-only-sliders-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV10NativeRangeBridge)return;
+  window.__ethvelleV10NativeRangeBridge=true;
+  function normalize(root){
+    if(!root)return;
+    const ranges=[];
+    if(root.nodeType===1&&root.matches?.('input[type="range"]'))ranges.push(root);
+    root.querySelectorAll?.('input[type="range"]').forEach(el=>ranges.push(el));
+    ranges.forEach(input=>{
+      // v191: text-panel sliders are owned by ethvelle-v191-text-slider-js (row-level drag).
+      if(input.closest&&input.closest('#ethvellePicsartTextDock,#ethvelleTextStylePanel,#ethvelleTextComposer,#evpaCustomEffectEditor,#ethvelleColorPicker,#textPanelBody')){
+        input.style.setProperty('pointer-events','none','important');
+        input.style.setProperty('touch-action','pan-y','important');
+        return;
+      }
+      // A single capture-phase controller handles thumb drags for every range in the editor.
+      // Keeping the real input as the hit target avoids invisible overlays and stale geometry.
+      input.style.setProperty('pointer-events','auto','important');
+      input.style.setProperty('touch-action','none','important');
+      input.style.setProperty('-webkit-tap-highlight-color','transparent','important');
+    });
+  }
+  function boot(){
+    normalize(document);
+    const observer=new MutationObserver(records=>{
+      for(const record of records)for(const node of record.addedNodes||[])if(node.nodeType===1)normalize(node);
+    });
+    observer.observe(document.documentElement,{childList:true,subtree:true});
+    const previous=window.__ethvelleRefreshRangeOverlays;
+    window.__ethvelleRefreshRangeOverlays=function(){
+      try{if(typeof previous==='function')previous();}catch(_e){}
+      normalize(document);
+    };

@@ -1,0 +1,1000 @@
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame {
+    display:block!important;
+    border:1.5px solid rgba(255,255,255,.99)!important;
+    border-radius:0!important;
+    box-shadow:none!important;
+    outline:none!important;
+    opacity:1!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content>.evpa-text-effect-layer {
+    display:inline-block;
+    text-shadow:inherit;
+  }
+</style>
+<script id="ethvelle-text-editing-repair-v29-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  function allTextOverlays(){
+    try{return (typeof overlays!=='undefined'?overlays:(window.overlays||[])).filter(o=>o&&o.type==='text');}
+    catch(_e){return (window.overlays||[]).filter(o=>o&&o.type==='text');}
+  }
+  function selectedId(){
+    try{return String(typeof selectedClip==='undefined'?(window.selectedClip??''):(selectedClip??''));}
+    catch(_e){return String(window.selectedClip??'');}
+  }
+  function rgbaFromHex(hex,opacity){
+    let h=String(hex||'#000000').trim().replace(/^#/,'');
+    if(/^[0-9a-f]{3}$/i.test(h))h=h.split('').map(c=>c+c).join('');
+    if(!/^[0-9a-f]{6}$/i.test(h))h='000000';
+    const a=Math.max(0,Math.min(100,Number(opacity==null?100:opacity)))/100;
+    return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`;
+  }
+  function getTextNode(ov){
+    if(!ov)return null;
+    let host=null;
+    try{host=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[ov.id]:null;}catch(_e){}
+    if(!host){const layer=$('overlayMediaLayer');if(layer)host=Array.from(layer.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id))||null;}
+    return host?.querySelector?.('.ethvelle-overlay-text-content')||null;
+  }
+  // CSS text-shadow paints behind the glyph. A positive, visible Y offset prevents it from
+  // reading like a dark fill over the letters; X=0 is preserved instead of being replaced by 4.
+  function applyDownwardTextShadows(){
+    allTextOverlays().forEach(ov=>{
+      const node=getTextNode(ov);if(!node)return;
+      const glyph=node.querySelector(':scope > .evpa-text-effect-layer');
+      const x=Number.isFinite(Number(ov.shadowX))?Number(ov.shadowX):0;
+      const rawY=Number(ov.shadowY);
+      const y=Math.max(4,Number.isFinite(rawY)?rawY:6);
+      const blur=Math.max(0,Number.isFinite(Number(ov.shadowBlur))?Number(ov.shadowBlur):4);
+      const shadow=ov.shadowEnabled?`${x}px ${y}px ${blur}px ${rgbaFromHex(ov.shadowColor||'#000000',ov.shadowOpacity)}`:'none';
+      if(glyph){
+        if(node.dataset.evV29ShadowNode!=='none'){node.style.setProperty('text-shadow','none','important');node.dataset.evV29ShadowNode='none';}
+        const _evFill=!!(String(ov.textGradient||'').trim()||String(ov.textTexture||'').trim()),_evKey=shadow+(_evFill?'|fill':'');
+        if(glyph.dataset.evV29Shadow!==_evKey){window.ethvelleApplyTextShadow(glyph,shadow,_evFill,true);glyph.dataset.evV29Shadow=_evKey;}
+      }else if(node.dataset.evV29Shadow!==shadow){
+        node.style.setProperty('text-shadow',shadow,'important');node.dataset.evV29Shadow=shadow;
+      }
+    });
+  }
+  // Re-apply after every canvas refresh so legacy renderers cannot put the shadow back on the wrapper.
+  const oldRenderFrame=window.renderFrame;
+  if(typeof oldRenderFrame==='function'&&!oldRenderFrame.__ethvelleV29Shadow){
+    const wrapped=function(){const result=oldRenderFrame.apply(this,arguments);if(!window.__ethvelleTimelineScrubbing)applyDownwardTextShadows();return result;};
+    wrapped.__ethvelleV29Shadow=true;window.renderFrame=wrapped;
+  }
+  const oldSetColor=window.ethvellePicsartSetColor;
+  if(typeof oldSetColor==='function'&&!oldSetColor.__ethvelleV29Shadow){
+    const wrapped=function(){const result=oldSetColor.apply(this,arguments);applyDownwardTextShadows();return result;};
+    wrapped.__ethvelleV29Shadow=true;window.ethvellePicsartSetColor=wrapped;
+  }
+  // Selecting a split text segment is selection-only. The previous workaround nudged the
+  // playhead inside the split segment and rendered a frame whenever selection was outside it.
+  // That made switching layers unexpectedly seek the timeline and could trigger a heavy media
+  // render while the user was still interacting. Keep the selected text's style/frame updates,
+  // but never change absolute time as a side effect of selecting it.
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__ethvelleV29SplitFrame){
+    const wrapped=function(which){
+      const result=oldSelect.apply(this,arguments);
+      const id=String(which??selectedId());
+      const ov=allTextOverlays().find(o=>String(o.id)===id);
+      if(!ov)return result;
+      requestAnimationFrame(()=>{
+        if(selectedId()!==String(ov.id))return;
+        applyDownwardTextShadows();
+        try{if(typeof updateSelBox==='function')updateSelBox();}catch(_e){}
+        const layer=$('selBoxLayer');
+        if(layer&&selectedId()===String(ov.id))layer.classList.add('ethvelle-text-selected-box');
+      });
+      return result;
+    };
+    wrapped.__ethvelleV29SplitFrame=true;window.selectClipForChrome=wrapped;
+  }
+  // Keep the frame in sync when a repaint creates a split segment's DOM text node after selection.
+  const oldUpdateSelBox=window.updateSelBox;
+  if(typeof oldUpdateSelBox==='function'&&!oldUpdateSelBox.__ethvelleV29Frame){
+    const wrapped=function(){const out=oldUpdateSelBox.apply(this,arguments);const ov=allTextOverlays().find(o=>String(o.id)===selectedId());const layer=$('selBoxLayer');if(layer)layer.classList.toggle('ethvelle-text-selected-box',!!ov);return out;};
+    wrapped.__ethvelleV29Frame=true;window.updateSelBox=wrapped;
+  }
+  function boot(){applyDownwardTextShadows();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+
+
+<!-- Ethvelle text section update v28: native touch controls, clean swatches, white placeholder. -->
+<style id="ethvelle-text-section-update-v28-css">
+  #ethvelleTextComposer #evtcStageText::placeholder{color:#fff!important;-webkit-text-fill-color:#fff!important;-webkit-text-stroke:0!important;text-shadow:none!important;opacity:1!important}
+  .evpa-range-interceptor{display:none!important;pointer-events:none!important}
+  #ethvellePicsartTextDock input[type="range"],#ethvelleTextStylePanel input[type="range"],#ethvelleTextComposer input[type="range"],#evpaCustomEffectEditor input[type="range"],#ethvelleColorPicker input[type="range"]{pointer-events:auto!important;touch-action:pan-y!important}
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches,#ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets,#ethvelleTextStylePanel .evts-swatches,#ethvelleTextComposer .evtc-color-strip,#ethvellePicsartTextDock .evpa-font-gallery,#ethvellePicsartTextDock .evpa-style-presets{background-image:none!important}
+  #ethvellePicsartTextDock .evpa-range,#ethvelleTextStylePanel .evts-field:has(input[type="range"]),#ethvelleColorPicker .evpa-picker-range,#ethvelleColorPicker .evcp-field{border-left:0!important;border-right:0!important}
+  /* Default galleries remain two rows; slider/effect editors can opt into a single row. */
+  #ethvellePicsartTextDock.evpa-slider-color-mode #evpaPalette .evpa-swatches{grid-template-rows:35px!important;grid-auto-rows:35px!important;min-height:54px!important;max-height:62px!important;}
+  #ethvellePicsartTextDock.evpa-slider-color-mode #evpaPalette .evpa-swatches>button{grid-row:1!important}
+</style>
+<script id="ethvelle-text-section-update-v28-js">
+(function(){
+  function syncSliderColorMode(){
+    const dock=document.getElementById('ethvellePicsartTextDock');
+    const palette=document.getElementById('evpaPalette');
+    const tabs=document.getElementById('evpaTabs');
+    if(!dock||!palette||!tabs)return;
+    const active=tabs.querySelector('.evpa-tab.active')?.dataset.tab||'';
+    const controls=document.getElementById('evpaControls')||dock.querySelector('.evpa-controls');
+    const hasSlider=!!(controls&&controls.querySelector('input[type="range"]'));
+    const paletteVisible=!dock.classList.contains('evpa-no-palette')&&active!=='font';
+    dock.classList.toggle('evpa-slider-color-mode',hasSlider&&paletteVisible);
+  }
+  function boot(){
+    const tabs=document.getElementById('evpaTabs');
+    if(tabs&&!tabs.dataset.evV28Mode){tabs.dataset.evV28Mode='1';tabs.addEventListener('click',()=>requestAnimationFrame(syncSliderColorMode),true);}
+    const dock=document.getElementById('ethvellePicsartTextDock');
+    if(dock){new MutationObserver(syncSliderColorMode).observe(dock,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style']});}
+    syncSliderColorMode();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+<!-- Ethvelle editor repair v30: live selection, stable split clips, text-only color grid, thumb-only sliders. -->
+<style id="ethvelle-editor-repair-v30-css">
+  /* Keep clip geometry authoritative through selection, dragging, and touch reflow. */
+  #timelineInner .anim-clip,
+  #timelineInner .anim-clip.selected,
+  #timelineInner .anim-clip.dragging {
+    position:absolute!important;
+    height:58px!important;min-height:58px!important;max-height:58px!important;
+    min-width:0!important;box-sizing:border-box!important;
+  }
+  #timelineInner .overlay-clip,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .overlay-clip.dragging {
+    position:absolute!important;
+    height:48px!important;min-height:48px!important;max-height:48px!important;
+    min-width:0!important;box-sizing:border-box!important;
+  }
+  #timelineInner .track-clip[data-bg-id],
+  #timelineInner .track-clip[data-bg-id].selected,
+  #timelineInner .track-clip[data-bg-id].dragging {
+    position:absolute!important;
+    height:60px!important;min-height:60px!important;max-height:60px!important;
+    min-width:0!important;box-sizing:border-box!important;
+  }
+
+  /* Non-Color text tabs retain a single complete swatch row, pinned immediately above tabs. */
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) {
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) .evpa-controls {
+    flex:1 1 auto!important;min-height:0!important;max-height:none!important;overflow-y:auto!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) .evpa-palette {
+    order:1!important;flex:0 0 50px!important;height:50px!important;min-height:50px!important;max-height:50px!important;
+    margin:0 10px 0!important;padding:0!important;display:flex!important;align-items:center!important;
+    overflow:hidden!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    flex:1 1 auto!important;width:100%!important;height:50px!important;min-height:0!important;max-height:50px!important;
+    display:flex!important;align-items:center!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;grid-auto-flow:initial!important;
+    grid-template-columns:none!important;grid-template-rows:none!important;grid-auto-columns:auto!important;grid-auto-rows:auto!important;
+    align-items:center!important;justify-content:flex-start!important;gap:8px!important;
+    width:100%!important;height:48px!important;min-height:48px!important;max-height:48px!important;
+    padding:0 8px!important;margin:0!important;overflow-x:auto!important;overflow-y:hidden!important;
+    touch-action:pan-x!important;-webkit-overflow-scrolling:touch!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches>button {
+    display:flex!important;position:relative!important;flex:0 0 35px!important;width:35px!important;min-width:35px!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;grid-row:auto!important;grid-column:auto!important;
+    margin:0!important;touch-action:pan-x!important;
+  }
+
+  /* The full-height 8-column vertical palette is active only on the Text Editing > Color tab. */
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) {
+    height:min(58dvh,560px)!important;min-height:min(50dvh,460px)!important;max-height:min(80dvh,700px)!important;
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-controls {
+    flex:0 0 0!important;height:0!important;min-height:0!important;max-height:0!important;padding:0!important;margin:0!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-palette {
+    order:1!important;flex:1 1 auto!important;min-height:0!important;max-height:none!important;height:auto!important;
+    margin:0 10px 0!important;padding:5px 4px 8px!important;display:flex!important;align-items:stretch!important;
+    overflow:hidden!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette {
+    flex:1 1 auto!important;width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;
+    display:flex!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex:1 1 auto!important;flex-direction:column!important;align-items:stretch!important;justify-content:flex-start!important;
+    grid-auto-flow:initial!important;grid-template-columns:none!important;grid-template-rows:none!important;grid-auto-rows:auto!important;
+    width:100%!important;height:100%!important;min-height:0!important;max-height:none!important;gap:0!important;
+    padding:0 4px!important;margin:0!important;overflow:hidden!important;touch-action:auto!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {
+    flex:0 0 35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;margin:0 0 8px!important;padding:0!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    display:grid!important;flex:1 1 auto!important;min-height:0!important;width:100%!important;
+    grid-template-columns:repeat(8,minmax(0,1fr))!important;grid-auto-flow:row!important;grid-auto-rows:35px!important;
+    align-content:start!important;align-items:center!important;justify-items:center!important;gap:6px 3px!important;
+    overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior-y:contain!important;touch-action:pan-y!important;
+    -webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities>button {
+    flex:0 0 35px!important;width:35px!important;min-width:35px!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;margin:0!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>button.evpa-swatch {
+    flex:none!important;width:min(35px,100%)!important;min-width:0!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;margin:0!important;grid-row:auto!important;grid-column:auto!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-tabs {flex:0 0 auto!important;margin-top:0!important;}
+  @media(max-width:380px) {
+    #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {gap:5px 1px!important;grid-auto-rows:33px!important;}
+    #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>button.evpa-swatch {height:33px!important;min-height:33px!important;max-height:33px!important;}
+  }
+</style>
+<script id="ethvelle-editor-repair-v30-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  let layoutQueued=false;
+  function activeDockTab(dock){return dock?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';}
+  function isColorGridActive(dock){return !!dock && !dock.classList.contains('evpa-in-composer') && !dock.classList.contains('evpa-no-palette') && activeDockTab(dock)==='color';}
+  function restoreOriginalSwatchOrder(swatches){
+    const utilities=swatches.querySelector(':scope > .evpa-color-utilities');
+    const grid=swatches.querySelector(':scope > .evpa-color-grid');
+    if(!utilities&&!grid)return;
+    const nodes=[...(utilities?[...utilities.children]:[]),...(grid?[...grid.children]:[])];
+    nodes.sort((a,b)=>(Number(a.dataset.evpaColorOrder)||0)-(Number(b.dataset.evpaColorOrder)||0));
+    nodes.forEach(node=>{delete node.dataset.evpaColorOrder;swatches.appendChild(node);});
+    utilities?.remove();grid?.remove();
+  }
+  function arrangeColorSwatches(swatches){
+    if(swatches.querySelector(':scope > .evpa-color-utilities')||swatches.querySelector(':scope > .evpa-color-grid'))return;
+    const nodes=[...swatches.children];
+    if(!nodes.length)return;
+    nodes.forEach((node,index)=>node.dataset.evpaColorOrder=String(index));
+    const utilities=document.createElement('div');utilities.className='evpa-color-utilities';utilities.setAttribute('aria-label','Color tools');
+    const grid=document.createElement('div');grid.className='evpa-color-grid';grid.setAttribute('aria-label','Color swatches');
+    nodes.forEach(node=>{if(node.classList.contains('evpa-swatch'))grid.appendChild(node);else utilities.appendChild(node);});
+    swatches.append(utilities,grid);
+  }
+  function syncColorLayout(){
+    const dock=$('ethvellePicsartTextDock');if(!dock)return;
+    const colorMode=isColorGridActive(dock);
+    const tab=activeDockTab(dock);
+    const bottomPaletteMode=!dock.classList.contains('evpa-in-composer') && !dock.classList.contains('evpa-no-palette') && ['highlight','stroke','shadow'].includes(tab);
+    dock.classList.toggle('evpa-color-grid-mode',colorMode);
+    dock.classList.toggle('evpa-bottom-palette-mode',bottomPaletteMode);
+    const palette=$('evpaPalette');if(!palette)return;
+    palette.querySelectorAll('.evpa-swatches').forEach(swatches=>{
+      if(colorMode)arrangeColorSwatches(swatches);else restoreOriginalSwatchOrder(swatches);
+    });
+  }
+  function queueSync(){if(layoutQueued)return;layoutQueued=true;requestAnimationFrame(()=>{layoutQueued=false;syncColorLayout();});}
+  function boot(){
+    syncColorLayout();
+    const dock=$('ethvellePicsartTextDock');
+    if(dock&&!dock.dataset.evV30LayoutObserver){
+      dock.dataset.evV30LayoutObserver='1';
+      new MutationObserver(queueSync).observe(dock,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style']});
+    }
+    const tabs=$('evpaTabs');
+    if(tabs&&!tabs.dataset.evV30ColorTap){tabs.dataset.evV30ColorTap='1';tabs.addEventListener('click',queueSync,true);}
+    // Final frame refresh after the target canvas handler has applied each movement step.
+    const canvas=$('canvasStage')||$('stickCanvas');
+    if(canvas&&!canvas.dataset.evV30FrameFollow){
+      canvas.dataset.evV30FrameFollow='1';
+      const refreshFrame=()=>requestAnimationFrame(()=>{try{if(typeof window.updateSelBox==='function')window.updateSelBox();}catch(_e){}});
+      // canvasStage contains both the drawing canvas and DOM text/image overlays, so the
+      // selection frame is refreshed even while a finger is over a rendered overlay layer.
+      canvas.addEventListener('pointermove',refreshFrame,{passive:true});
+      canvas.addEventListener('pointerup',refreshFrame,{passive:true});
+      canvas.addEventListener('pointercancel',refreshFrame,{passive:true});
+    }
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  const bodyObserver=new MutationObserver(queueSync);
+  if(document.body)bodyObserver.observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
+
+<!-- Ethvelle text-section repair v32: selection-follow, reliable split-clip pinch, 32-colour layout, glyph-only effects. -->
+<style id="ethvelle-text-section-update-v32-css">
+  /* Font tab: keep the font colour swatches in one left-to-right strip, with eight visible. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex-direction:column!important;align-items:stretch!important;justify-content:flex-start!important;
+    flex-wrap:nowrap!important;gap:6px!important;overflow:visible!important;overflow-x:visible!important;overflow-y:visible!important;
+    width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;padding:0!important;margin:0!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-tools {
+    flex:0 0 26px!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:7px!important;
+    width:100%!important;height:26px!important;min-height:26px!important;max-height:26px!important;
+    padding:0 2px!important;margin:0!important;overflow:hidden!important;background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-tools>button {
+    flex:0 0 26px!important;width:26px!important;min-width:26px!important;max-width:26px!important;
+    height:26px!important;min-height:26px!important;max-height:26px!important;margin:0!important;padding:0!important;border-radius:50%!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-row {
+    display:flex!important;flex:0 0 36px!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;
+    gap:6px!important;width:100%!important;height:36px!important;min-height:36px!important;max-height:36px!important;
+    padding:0 1px!important;margin:0!important;overflow-x:auto!important;overflow-y:hidden!important;touch-action:pan-x!important;
+    overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-row::-webkit-scrollbar{display:none!important;}
+  #ethvellePicsartTextDock .evpa-font-color-row>.evpa-swatch {
+    display:block!important;position:relative!important;flex:0 0 calc((100% - 42px)/8)!important;
+    width:calc((100% - 42px)/8)!important;min-width:0!important;max-width:35px!important;
+    height:32px!important;min-height:32px!important;max-height:32px!important;margin:0!important;padding:0!important;
+    grid-row:auto!important;grid-column:auto!important;touch-action:pan-x!important;
+  }
+
+  /* Colour tab: no surrounding panel/card behind the tools or swatches; show an 8 x 4 grid. */
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    background:transparent!important;background-image:none!important;border:0!important;outline:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    grid-template-columns:repeat(8,minmax(0,1fr))!important;grid-auto-flow:row!important;grid-auto-rows:35px!important;
+    align-content:start!important;align-items:center!important;justify-items:center!important;gap:6px 3px!important;
+    overflow-x:hidden!important;overflow-y:auto!important;touch-action:pan-y!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-swatch {
+    flex:none!important;width:min(35px,100%)!important;min-width:0!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;margin:0!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {order:1!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {
+    order:2!important;flex:0 0 35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    margin:8px 0 0!important;padding:0!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:8px!important;
+    background:transparent!important;border:0!important;outline:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities>button {
+    background-color:transparent!important;box-shadow:none!important;outline:0!important;
+  }
+
+  /* The text wrapper/backplate must stay untransformed; only the glyph child gets effects. */
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate {transform:none!important;filter:none!important;}
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate::before {
+    transform:none!important;filter:none!important;box-shadow:none!important;outline:none!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content>.evpa-text-effect-layer {
+    display:inline-block!important;position:relative;transform-origin:center center!important;transform-style:preserve-3d;
+  }
+</style>
+<script id="ethvelle-text-section-update-v32-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const raf=fn=>requestAnimationFrame(()=>{try{fn();}catch(_e){}});
+  const safeSelectedId=()=>{try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip??''));}catch(_e){return String(window.selectedClip??'');}};
+  const allOverlays=()=>{try{return Array.isArray(overlays)?overlays:(window.overlays||[]);}catch(_e){return window.overlays||[];}};
+  const allBackgrounds=()=>{try{return Array.isArray(backgrounds)?backgrounds:(window.backgrounds||[]);}catch(_e){return window.backgrounds||[];}};
+  function activeTab(dock){return dock?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';}
+
+  /* Rehouse Font-tab tools into a compact action row so 8 actual colour swatches fit on-screen. */
+  function restoreFontPalette(swatches){
+    if(!swatches)return;
+    const tools=swatches.querySelector(':scope > .evpa-font-color-tools');
+    const row=swatches.querySelector(':scope > .evpa-font-color-row');
+    if(!tools&&!row)return;
+    const nodes=[...(tools?[...tools.children]:[]),...(row?[...row.children]:[])];
+    nodes.sort((a,b)=>(Number(a.dataset.evpaFontOrder)||0)-(Number(b.dataset.evpaFontOrder)||0));
+    nodes.forEach(el=>{delete el.dataset.evpaFontOrder;swatches.appendChild(el);});
+    tools?.remove();row?.remove();
+  }
+  function layoutFontPalette(){
+    const dock=$('ethvellePicsartTextDock');if(!dock)return;
+    const fontMode=!dock.classList.contains('evpa-in-composer')&&activeTab(dock)==='font';
+    dock.classList.toggle('evpa-font-palette-mode',fontMode);
+    const swatches=$('evpaPalette')?.querySelector('.evpa-swatches');if(!swatches)return;
+    if(!fontMode){restoreFontPalette(swatches);return;}
+    if(swatches.querySelector(':scope > .evpa-font-color-row'))return;
+    const children=[...swatches.children];if(!children.length)return;
+    children.forEach((el,index)=>el.dataset.evpaFontOrder=String(index));
+    const tools=children.filter(el=>!el.classList.contains('evpa-swatch'));
+    const colours=children.filter(el=>el.classList.contains('evpa-swatch'));
+    const toolsRow=document.createElement('div');toolsRow.className='evpa-font-color-tools';toolsRow.setAttribute('aria-label','Colour actions');
+    const colourRow=document.createElement('div');colourRow.className='evpa-font-color-row';colourRow.setAttribute('aria-label','Text colours; swipe left or right');
+    tools.forEach(el=>toolsRow.appendChild(el));colours.forEach(el=>colourRow.appendChild(el));
+    swatches.replaceChildren(toolsRow,colourRow);
+  }
+  let paletteQueued=false;
+  function queuePaletteLayout(){if(paletteQueued)return;paletteQueued=true;raf(()=>{paletteQueued=false;layoutFontPalette();});}
+
+  /* Keep visual effects on glyph paint only. The background/highlight is an independent backplate. */
+  function rgba(hex,opacity){
+    let h=String(hex||'#000000').trim().replace(/^#/,'');if(/^[0-9a-f]{3}$/i.test(h))h=h.split('').map(c=>c+c).join('');
+    if(!/^[0-9a-f]{6}$/i.test(h))h='000000';const a=Math.max(0,Math.min(100,Number(opacity==null?100:opacity)))/100;
+    return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`;
+  }
+  function glyphFor(node){
+    let glyph=node.querySelector(':scope > .evpa-text-effect-layer');
+    if(!glyph){glyph=document.createElement('span');glyph.className='evpa-text-effect-layer';while(node.firstChild)glyph.appendChild(node.firstChild);node.appendChild(glyph);}
+    return glyph;
+  }
+  function syncGlyphEffects(){
+    const list=allOverlays();
+    list.filter(ov=>ov&&ov.type==='text').forEach(ov=>{
+      let host=null;try{host=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[ov.id]:null;}catch(_e){}
+      if(!host){const layer=$('overlayMediaLayer');if(layer)host=[...layer.children].find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id))||null;}
+      const node=host?.querySelector?.('.ethvelle-overlay-text-content');if(!node)return;
+      const glyph=glyphFor(node);
+      const px=Number(ov.textPerspectiveX)||0,py=Number(ov.textPerspectiveY)||0;
+      node.style.setProperty('transform','none','important');
+      node.style.setProperty('filter','none','important');
+      glyph.style.setProperty('transform',(px||py)?`perspective(700px) rotateX(${py}deg) rotateY(${px}deg)`:'none','important');
+      glyph.style.setProperty('transform-origin','center center','important');
+      glyph.style.setProperty('transform-style','preserve-3d','important');
+      window.ethvelleApplyTextShadow(glyph,ov.shadowEnabled?`${Number.isFinite(Number(ov.shadowX))?Number(ov.shadowX):0}px ${Math.max(4,Number.isFinite(Number(ov.shadowY))?Number(ov.shadowY):6)}px ${Math.max(0,Number.isFinite(Number(ov.shadowBlur))?Number(ov.shadowBlur):4)}px ${rgba(ov.shadowColor||'#000000',ov.shadowOpacity)}`:'none',!!(String(ov.textGradient||'').trim()||String(ov.textTexture||'').trim()),true);
+      glyph.style.setProperty('-webkit-text-stroke',Number(ov.strokeWidth)>0?`${Number(ov.strokeWidth)}px ${rgba(ov.strokeColor||'#000000',ov.strokeOpacity)}`:'0 transparent','important');
+      node.style.setProperty('text-shadow','none','important');
+      node.style.setProperty('-webkit-text-stroke','0 transparent','important');
+      /* Do not let any legacy wrapper styles cast a shadow or transform onto the backplate. */
+      if(ov.textBackgroundEnabled||ov.textHighlightEnabled){
+        node.classList.add('ev-text-highlight-plate');
+        node.style.setProperty('background-color','transparent','important');
+        node.style.setProperty('background-image','none','important');
+      }
+    });
+  }
+  function wrapRender(name){
+    const prior=window[name];
+    if(typeof prior!=='function'||prior.__evV32EffectsAndSelection)return;
+    // renderFrame is the high-frequency path during playback/scrubbing. A full scan of every
+    // clip and a palette DOM rebuild after each frame was needlessly expensive on Android.
+    if(name==='renderFrame')return;
+    const wrapped=function(){
+      const result=prior.apply(this,arguments);
+      if(name==='renderOverlayMedia'){
+        // Text effects are static during a scrub. Reapply them once on release rather than
+        // on every frame; overlay creation/removal is separately observed below.
+        if(!window.__ethvelleTimelineScrubbing)raf(()=>{if(!window.__ethvelleTimelineScrubbing)syncGlyphEffects();});
+        return result;
+      }
+      // These are structural redraws, not per-frame preview ticks. Selection sync stays here;
+      // palette layout is triggered by palette events/observers, never by timeline playback.
+      raf(()=>{
+        if(name==='renderOverlayLayers')syncGlyphEffects();
+        if(name==='renderOverlayLayers'||name==='renderTimelineClip'||name==='renderBackgroundTrack')syncTimelineSelection();
+      });
+      return result;
+    };
+    wrapped.__evV32EffectsAndSelection=true;window[name]=wrapped;
+  }
+
+  /* Retain the selection on whichever timeline clip is under a user's slide, across all tracks. */
+  function setSelectedClassForAll(){
+    const id=safeSelectedId();
+    const rawOwner=window.__ethvelleTimelineSelectionCharacterIndex;
+    const ownerIndex=rawOwner==null?null:Number(rawOwner);
+    const hasOwner=Number.isInteger(ownerIndex)&&ownerIndex>=0;
+    document.querySelectorAll('#timelineInner .anim-clip').forEach(el=>{
+      const key=el.id==='animClipEl'?'main':(el.dataset.segIdx!=null?'seg'+el.dataset.segIdx:(el.dataset.readonlyClipRef!=null?String(el.dataset.readonlyClipRef):''));
+      const row=el.closest('.char-row');
+      const rowIndex=row&&row.dataset.charIdx!=null?Number(row.dataset.charIdx):null;
+      const ownerMatches=!hasOwner||rowIndex==null||rowIndex===ownerIndex;
+      if(key)el.classList.toggle('selected',key===id&&ownerMatches);
+    });
+    document.querySelectorAll('#timelineInner .overlay-clip[data-overlay-id]').forEach(el=>el.classList.toggle('selected',String(el.dataset.overlayId)===id));
+    document.querySelectorAll('#timelineInner .track-clip[data-bg-id]').forEach(el=>el.classList.toggle('selected',String(el.dataset.bgId)===id));
+    document.querySelectorAll('#timelineInner .char-row').forEach(el=>el.classList.toggle('chrome-selected','char'+el.dataset.charIdx===id));
+  }
+  function setLightTimelineSelection(id,characterIndex=null){
+    if(id==null||String(id)==='')return false;
+    const key=String(id);
+    const owner=characterIndex==null?null:(Number.isInteger(Number(characterIndex))?Number(characterIndex):null);
+    const pending=window.__ethvelleTimelinePendingSelection;
+    if(String(safeSelectedId())===key&&window.__ethvelleTimelineSelectionCharacterIndex===owner&&pending&&String(pending.id)===key)return false;
+    selectedClip=id;
+    selectedKfIdx=null;
+    window.__ethvelleSelectedObjectKeyframe=null;
+    window.__ethvelleTimelineSelectionCharacterIndex=owner;
+    window.__ethvelleTimelinePendingSelection={id,characterIndex:owner};
+    setSelectedClassForAll();
+    try{if(typeof updateSelBox==='function')updateSelBox();}catch(_e){}
+    const ovNow=selectedOverlay(key);
+    const box=$('selBoxLayer');
+    if(box)box.classList.toggle('ethvelle-text-selected-box',!!ovNow&&ovNow.type==='text');
+    return true;
+  }
+  function commitLightTimelineSelection(){
+    const pending=window.__ethvelleTimelinePendingSelection;
+    if(!pending)return false;
+    window.__ethvelleTimelinePendingSelection=null;
+    const owner=pending.characterIndex;
+    try{
+      if(owner!=null&&Number.isInteger(Number(owner))&&Number(owner)!==Number(activeCharIdx)&&typeof window.selectCharacter==='function')window.selectCharacter(Number(owner));
+      if(typeof window.selectClipForChrome==='function')window.selectClipForChrome(pending.id);
+    }catch(_e){}
+    return true;
+  }
+  window.__ethvelleLightSelectTimelineClip=setLightTimelineSelection;
+  window.__ethvelleCommitTimelineSelection=commitLightTimelineSelection;
+  function selectedOverlay(id){return allOverlays().find(o=>String(o?.id)===String(id))||null;}
+  function focusFrameOnSelected(id){
+    // Selection chrome is visual only. Selecting a clip must never seek the playhead,
+    // render a new frame, or move timelineScroll; taps have their own explicit seek path.
+    raf(()=>{
+      if(safeSelectedId()!==String(id))return;
+      setSelectedClassForAll();
+      try{if(typeof updateSelBox==='function')updateSelBox();}catch(_e){}
+      const ovNow=selectedOverlay(safeSelectedId());
+      const box=$('selBoxLayer');
+      if(box)box.classList.toggle('ethvelle-text-selected-box',!!ovNow&&ovNow.type==='text');
+    });
+  }
+  function syncTimelineSelection(){setSelectedClassForAll();}
+  const priorSelect=window.selectClipForChrome;
+  if(typeof priorSelect==='function'&&!priorSelect.__evV32FollowSelection){
+    const wrapped=function(which){
+      const result=priorSelect.apply(this,arguments);
+      const id=String(which??safeSelectedId());
+      window.__ethvelleTimelinePendingSelection=null;
+      window.__ethvelleTimelineSelectionCharacterIndex=(id==='main'||/^seg\d+$/.test(id))?Number(activeCharIdx):null;
+      raf(()=>{if(safeSelectedId()===id)focusFrameOnSelected(id);});
+      return result;
+    };
+    wrapped.__evV32FollowSelection=true;window.selectClipForChrome=wrapped;
+  }
+
+  function wireSlideSelection(){
+    const scroller=$('timelineScroll');if(!scroller||scroller.dataset.evV32SlideSelection)return;
+    scroller.dataset.evV32SlideSelection='1';let tracking=null;
+    const targetAt=(x,y)=>{
+      const el=document.elementFromPoint(x,y);if(!el)return null;
+      let target=null;try{target=typeof timelineClipTargetAt==='function'?timelineClipTargetAt(el):null;}catch(_e){}
+      if(!target){
+        const readonly=el.closest&&el.closest('.anim-clip-readonly[data-readonly-clip-ref]');
+        if(readonly)return String(readonly.dataset.readonlyClipRef);
+      }
+      if(!target)return null;
+      return target.type==='main'?'main':target.type==='seg'?'seg'+target.index:String(target.model?.id??'');
+    };
+    scroller.addEventListener('pointerdown',e=>{
+      if(e.button>0)return;
+      const id=targetAt(e.clientX,e.clientY);if(!id)return;
+      tracking={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,lastId:id,moved:false};
+      const startRow=(document.elementFromPoint(e.clientX,e.clientY)||e.target).closest?.('.overlay-track-row,#backgroundRow,.char-row')||null;
+      window.__ethvelleTimelineSelectionPointer={pointerId:e.pointerId,x:e.clientX,y:e.clientY,active:true,moved:false,startRow};
+    },{capture:true,passive:true});
+    // Track only the live finger coordinates here. v76 owns the single RAF-coalesced
+    // trimStart/trimEnd lookup and light selection update, triggered by the scrub's
+    // setCurrentAbsoluteTime wrapper. This avoids doing the same model scan twice per frame.
+    scroller.addEventListener('pointermove',e=>{
+      const d=tracking;if(!d||d.pointerId!==e.pointerId)return;
+      if(Math.hypot(e.clientX-d.startX,e.clientY-d.startY)>=7)d.moved=true;
+      if(!d.moved)return;
+      const prevRow=window.__ethvelleTimelineSelectionPointer&&window.__ethvelleTimelineSelectionPointer.startRow;
+      window.__ethvelleTimelineSelectionPointer={pointerId:e.pointerId,x:e.clientX,y:e.clientY,active:true,moved:true,startRow:prevRow};
+    },{passive:true});
+    const finish=e=>{
+      if(!tracking||tracking.pointerId!==e.pointerId)return;
+      const d=tracking;
+      tracking=null;
+      // Keep the last row/pointer coordinates available until v76's single pointer-up
+      // RAF resolves the final clip and commits its heavy selection synchronization.
+      if(window.__ethvelleTimelineSelectionPointer&&window.__ethvelleTimelineSelectionPointer.pointerId===e.pointerId)window.__ethvelleTimelineSelectionPointer.ending=true;
+    };
+    scroller.addEventListener('pointerup',finish,{capture:true,passive:true});
+    scroller.addEventListener('pointercancel',e=>{
+      if(tracking&&tracking.pointerId===e.pointerId)tracking=null;
+      if(window.__ethvelleTimelineSelectionPointer&&window.__ethvelleTimelineSelectionPointer.pointerId===e.pointerId)window.__ethvelleTimelineSelectionPointer.active=false;
+    },{capture:true,passive:true});
+  }
+
+  function wireClipTapSeek(){
+    const scroller=$('timelineScroll');if(!scroller||scroller.dataset.evV32ClipTapSeek)return;
+    scroller.dataset.evV32ClipTapSeek='1';
+    let tap=null;
+    const clipSelector='.anim-clip,.overlay-clip,.track-clip[data-bg-id]';
+    const excludedSelector='.kf-marker,.anim-clip-handle,[data-ov-handle],[data-seg-handle],[data-bg-handle],.sel-edge-left,.sel-edge-right,.sel-edge-top,.sel-edge-bottom';
+    scroller.addEventListener('pointerdown',e=>{
+      if(e.button>0){tap=null;return;}
+      const clip=e.target&&e.target.closest?e.target.closest(clipSelector):null;
+      if(!clip||!clip.closest('#timelineInner')||(e.target.closest&&e.target.closest(excludedSelector))){tap=null;return;}
+      tap={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,clientX:e.clientX,startedAt:performance.now(),moved:false,clip};
+    },{capture:true,passive:true});
+    scroller.addEventListener('pointermove',e=>{
+      if(!tap||tap.pointerId!==e.pointerId)return;
+      tap.clientX=e.clientX;
+      if(Math.hypot(e.clientX-tap.startX,e.clientY-tap.startY)>=7)tap.moved=true;
+    },{capture:true,passive:true});
+    document.addEventListener('pointerup',e=>{
+      if(!tap||tap.pointerId!==e.pointerId)return;
+      const d=tap;tap=null;
+      if(d.moved||performance.now()-d.startedAt>=240||!d.clip.isConnected)return;
+      const duration=typeof totalProjectDuration==='function'?totalProjectDuration():0;
+      const requested=typeof getAbsoluteTimeFromPointer==='function'?getAbsoluteTimeFromPointer(e.clientX):Number(currentAbsoluteTimeSec)||0;
+      const target=Math.max(0,Math.min(Number(duration)||0,Number(requested)||0));
+      try{
+        const current=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+        // A tap directly under the fixed playhead may select a different layer without
+        // changing time. In that case there is no new preview frame to render; forcing a
+        // full renderOverlayMedia pass here caused a visible pause on media-heavy projects.
+        if(!Number.isFinite(current)||Math.abs(current-target)>0.000001){
+          if(typeof setCurrentAbsoluteTime==='function')setCurrentAbsoluteTime(target);
+          if(typeof renderFrame==='function')renderFrame();
+        }
+      }catch(_e){}
+    },false);
+    document.addEventListener('pointercancel',e=>{if(tap&&tap.pointerId===e.pointerId)tap=null;},false);
+  }
+
+  function boot(){
+    queuePaletteLayout();syncGlyphEffects();syncTimelineSelection();wireSlideSelection();
+    ['renderFrame','renderOverlayMedia','renderOverlayLayers','renderTimelineClip','renderBackgroundTrack'].forEach(wrapRender);
+    const dock=$('ethvellePicsartTextDock');
+    if(dock&&!dock.dataset.evV32PaletteObserver){dock.dataset.evV32PaletteObserver='1';new MutationObserver(queuePaletteLayout).observe(dock,{subtree:true,childList:true,attributes:true,attributeFilter:['class']});}
+    const layer=$('overlayMediaLayer');
+    if(layer&&!layer.dataset.evV32EffectsObserver){layer.dataset.evV32EffectsObserver='1';new MutationObserver(()=>raf(syncGlyphEffects)).observe(layer,{subtree:true,childList:true});}
+    const scroller=$('timelineScroll');if(!scroller){const bodyObserver=new MutationObserver(()=>{wireSlideSelection();});bodyObserver.observe(document.body,{childList:true,subtree:true});}
+    document.addEventListener('click',e=>{const tab=e.target?.closest?.('#evpaTabs .evpa-tab');if(!tab)return;const dock=$('ethvellePicsartTextDock');if(tab.dataset.tab!=='font'){restoreFontPalette($('evpaPalette')?.querySelector('.evpa-swatches'));dock?.classList.remove('evpa-font-palette-mode');}queuePaletteLayout();},true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  /* Ensure if the editor/timeline is assembled after this layer loads, it still receives the handlers. */
+  const readyObserver=new MutationObserver(()=>{wireSlideSelection();queuePaletteLayout();});
+  if(document.body)readyObserver.observe(document.body,{childList:true,subtree:true});
+})();
+</script>
+
+
+<!-- Ethvelle text-section update v33: circular colour chips, tools on top, thumb-only sliders, stable dock. -->
+<style id="ethvelle-text-section-update-v33-css">
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches > button,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-color-wheel,
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent,
+  #ethvellePicsartTextDock #evpaPalette .evpa-eye,
+  #ethvellePicsartTextDock .evpa-font-color-tools > button,
+  #ethvellePicsartTextDock .evpa-font-color-row > .evpa-swatch,
+  #ethvellePicsartTextDock .evpa-color-utilities > button,
+  #ethvellePicsartTextDock .evpa-color-grid > .evpa-swatch{
+    width:35px!important;min-width:35px!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;
+    aspect-ratio:1/1!important;border-radius:50%!important;
+    box-sizing:border-box!important;flex:0 0 35px!important;
+    padding:0!important;margin:0!important;overflow:visible!important;
+    pointer-events:auto!important;
+    -webkit-appearance:none!important;appearance:none!important;
+  }
+
+  #ethvellePicsartTextDock,
+  #ethvellePicsartTextDock *,
+  #ethvellePicsartTextDock .evpa-tabs,
+  #ethvellePicsartTextDock .evpa-tab,
+  #ethvellePicsartTextDock .evpa-controls,
+  #ethvellePicsartTextDock .evpa-palette,
+  #ethvellePicsartTextDock #evpaPalette,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-sheet-footer {
+    pointer-events:auto!important;
+  }
+
+  /* Colour tab: custom + transparent ABOVE the grid. */
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    overflow:visible!important;background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex-direction:column!important;align-items:stretch!important;gap:8px!important;
+    height:auto!important;min-height:0!important;max-height:none!important;padding:4px 4px 6px!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {
+    order:0!important;flex:0 0 35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    margin:0!important;padding:0 2px!important;display:flex!important;align-items:center!important;
+    justify-content:flex-start!important;gap:8px!important;overflow:visible!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    order:1!important;display:grid!important;flex:1 1 auto!important;min-height:0!important;width:100%!important;
+    grid-template-columns:repeat(8,minmax(0,1fr))!important;grid-auto-flow:row!important;grid-auto-rows:35px!important;
+    align-content:start!important;align-items:center!important;justify-items:center!important;gap:8px 4px!important;
+    overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior-y:contain!important;touch-action:pan-y!important;
+    padding:2px 2px 4px!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid > .evpa-swatch {
+    width:min(35px,100%)!important;height:35px!important;min-width:0!important;max-width:35px!important;
+    min-height:35px!important;max-height:35px!important;border-radius:50%!important;aspect-ratio:1/1!important;
+    justify-self:center!important;pointer-events:auto!important;
+  }
+
+  /* Font tab: tools + leading colours on top row. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex-direction:column!important;gap:6px!important;overflow:visible!important;
+    height:auto!important;min-height:0!important;max-height:none!important;padding:0!important;margin:0!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-tools {
+    flex:0 0 35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    display:flex!important;align-items:center!important;gap:8px!important;padding:0 2px!important;
+    overflow:visible!important;background:transparent!important;border:0!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-tools > button {
+    flex:0 0 35px!important;width:35px!important;height:35px!important;border-radius:50%!important;
+    pointer-events:auto!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-row {
+    display:flex!important;flex:0 0 35px!important;flex-flow:row nowrap!important;align-items:center!important;
+    gap:8px!important;width:100%!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    padding:0 2px!important;margin:0!important;overflow-x:auto!important;overflow-y:hidden!important;
+    touch-action:pan-x!important;-webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;
+    background:transparent!important;border:0!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-color-row::-webkit-scrollbar{display:none!important;}
+  #ethvellePicsartTextDock .evpa-font-color-row > .evpa-swatch {
+    flex:0 0 35px!important;width:35px!important;min-width:35px!important;max-width:35px!important;
+    height:35px!important;min-height:35px!important;max-height:35px!important;
+    border-radius:50%!important;aspect-ratio:1/1!important;pointer-events:auto!important;
+  }
+
+  /* Highlight / Stroke / Shadow strip. */
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    overflow:visible!important;background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex-direction:row!important;flex-wrap:nowrap!important;align-items:center!important;
+    gap:8px!important;height:48px!important;min-height:48px!important;max-height:48px!important;
+    padding:0 8px!important;overflow-x:auto!important;overflow-y:visible!important;touch-action:pan-x!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-bottom-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches > button {
+    flex:0 0 35px!important;width:35px!important;height:35px!important;border-radius:50%!important;aspect-ratio:1/1!important;
+    pointer-events:auto!important;
+  }
+
+  /* Ranges stay interactive; JS only rejects track taps away from the thumb. */
+  #ethvellePicsartTextDock input[type="range"],
+  #ethvelleTextStylePanel input[type="range"],
+  #ethvelleTextComposer input[type="range"],
+  #evpaCustomEffectEditor input[type="range"],
+  #ethvelleColorPicker input[type="range"]{
+    pointer-events:auto!important;
+    touch-action:none!important;
+    -webkit-tap-highlight-color:transparent!important;
+  }
+  .evpa-range-interceptor{display:none!important;pointer-events:none!important;}
+  /* Remove any leftover full-screen hit layers from the broken v33. */
+  .ev-v33-thumb-hit{display:none!important;pointer-events:none!important;width:0!important;height:0!important;}
+</style>
+<script id="ethvelle-text-section-update-v33-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const raf=fn=>requestAnimationFrame(()=>{try{fn();}catch(_e){}});
+  const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+  const RANGE_ROOTS='body';
+
+  /* Clear broken overlays from the previous build that blocked the whole panel. */
+  document.querySelectorAll('.ev-v33-thumb-hit').forEach(el=>el.remove());
+
+  function isToolButton(el){
+    if(!el||el.nodeType!==1)return false;
+    if(el.classList.contains('evpa-swatch')&&el.hasAttribute('data-color'))return false;
+    return el.classList.contains('evpa-color-wheel')||el.classList.contains('evpa-transparent')||
+      el.classList.contains('evpa-eye')||el.classList.contains('evpa-save-swatch')||
+      el.classList.contains('evpa-swatch-action')||!el.classList.contains('evpa-swatch');
+  }
+  function activeTab(dock){return dock?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';}
+
+  function restoreSwatchChildren(swatches){
+    if(!swatches)return;
+    const tools=swatches.querySelector(':scope > .evpa-color-utilities, :scope > .evpa-font-color-tools');
+    const grid=swatches.querySelector(':scope > .evpa-color-grid, :scope > .evpa-font-color-row');
+    if(!tools&&!grid)return;
+    const nodes=[...(tools?[...tools.children]:[]),...(grid?[...grid.children]:[])];
+    nodes.sort((a,b)=>(Number(a.dataset.evV33Order)||0)-(Number(b.dataset.evV33Order)||0));
+    nodes.forEach(n=>{delete n.dataset.evV33Order;swatches.appendChild(n);});
+    tools?.remove();grid?.remove();
+  }
+
+  function layoutColorTab(swatches){
+    if(swatches.querySelector(':scope > .evpa-color-utilities')&&swatches.querySelector(':scope > .evpa-color-grid')){
+      const u=swatches.querySelector(':scope > .evpa-color-utilities');
+      const g=swatches.querySelector(':scope > .evpa-color-grid');
+      if(u&&g&&u.nextElementSibling!==g){swatches.insertBefore(u,g);}
+      return;
+    }
+    const kids=[...swatches.children].filter(el=>el.tagName==='BUTTON'||el.classList.contains('evpa-swatch'));
+    if(!kids.length)return;
+    kids.forEach((el,i)=>el.dataset.evV33Order=String(i));
+    const utilities=document.createElement('div');utilities.className='evpa-color-utilities';utilities.setAttribute('aria-label','Color tools');
+    const grid=document.createElement('div');grid.className='evpa-color-grid';grid.setAttribute('aria-label','Color swatches');
+    kids.forEach(el=>{if(el.classList.contains('evpa-swatch')&&el.hasAttribute('data-color'))grid.appendChild(el);else utilities.appendChild(el);});
+    swatches.replaceChildren(utilities,grid);
+  }
+
+  function layoutFontTab(swatches){
+    if(swatches.querySelector(':scope > .evpa-font-color-row'))return;
+    const kids=[...swatches.children];
+    if(!kids.length)return;
+    kids.forEach((el,i)=>el.dataset.evV33Order=String(i));
+    const tools=kids.filter(isToolButton);
+    const colours=kids.filter(el=>!isToolButton(el));
+    const toolsRow=document.createElement('div');toolsRow.className='evpa-font-color-tools';toolsRow.setAttribute('aria-label','Colour actions');
+    const colourRow=document.createElement('div');colourRow.className='evpa-font-color-row';colourRow.setAttribute('aria-label','Text colours');
+    tools.forEach(el=>toolsRow.appendChild(el));
+    colours.forEach(el=>colourRow.appendChild(el));
+    while(colourRow.children.length>0&&toolsRow.children.length<8){
+      toolsRow.appendChild(colourRow.firstElementChild);
+    }
+    swatches.replaceChildren(toolsRow,colourRow);
+  }
+
+  function layoutBottomStrip(swatches){
+    const buttons=[...swatches.children].filter(el=>el.tagName==='BUTTON');
+    if(!buttons.length)return;
+    const tools=buttons.filter(isToolButton);
+    const colours=buttons.filter(el=>!isToolButton(el));
+    if(!tools.length)return;
+    const ordered=[...tools,...colours];
+    let dirty=false;
+    ordered.forEach((el,i)=>{if(swatches.children[i]!==el)dirty=true;});
+    if(dirty)ordered.forEach(el=>swatches.appendChild(el));
+  }
+
+  function syncPaletteLayout(){
+    const dock=$('ethvellePicsartTextDock');if(!dock)return;
+    const tab=activeTab(dock);
+    const colorMode=!dock.classList.contains('evpa-in-composer')&&!dock.classList.contains('evpa-no-palette')&&tab==='color';
+    const fontMode=!dock.classList.contains('evpa-in-composer')&&tab==='font';
+    const bottomMode=!dock.classList.contains('evpa-in-composer')&&!dock.classList.contains('evpa-no-palette')&&['highlight','stroke','shadow'].includes(tab);
+    dock.classList.toggle('evpa-color-grid-mode',colorMode);
+    dock.classList.toggle('evpa-font-palette-mode',fontMode);
+    dock.classList.toggle('evpa-bottom-palette-mode',bottomMode);
+    const swatches=$('evpaPalette')?.querySelector('.evpa-swatches');
+    if(!swatches)return;
+    if(colorMode){layoutColorTab(swatches);}
+    else if(fontMode){layoutFontTab(swatches);}
+    else if(bottomMode){restoreSwatchChildren(swatches);layoutBottomStrip(swatches);}
+    else {restoreSwatchChildren(swatches);}
+  }
+  let layoutQueued=false;
+  function queueLayout(){if(layoutQueued)return;layoutQueued=true;raf(()=>{layoutQueued=false;syncPaletteLayout();});}
+
+  /* Thumb-only ranges: no overlay layers. Reject track taps; allow thumb drags only. */
+  function geometry(input){
+    const r=input.getBoundingClientRect();
+    let thumbW=0;
+    try{thumbW=parseFloat(getComputedStyle(input,'::-webkit-slider-thumb').width)||0;}catch(_e){}
+    if(!thumbW)try{thumbW=parseFloat(getComputedStyle(input,'::-moz-range-thumb').width)||0;}catch(_e){}
+    const half=Math.max(7,Math.min(16,(thumbW||18)/2));
+    const cs=getComputedStyle(input);
+    const padLeft=parseFloat(cs.paddingLeft)||0,padRight=parseFloat(cs.paddingRight)||0;
+    const trackLeft=r.left+padLeft+half;
+    const trackRight=Math.max(trackLeft+1,r.right-padRight-half);
+    const min=Number.isFinite(parseFloat(input.min))?parseFloat(input.min):0;
+    const max=Number.isFinite(parseFloat(input.max))?parseFloat(input.max):100;
+    const value=Number.isFinite(parseFloat(input.value))?parseFloat(input.value):min;
+    let frac=max===min?0:clamp((value-min)/(max-min),0,1);
+    const rtl=cs.direction==='rtl';
+    if(rtl)frac=1-frac;
+    return {r,trackLeft,trackRight,min,max,step:input.step==='any'?0:(Number(input.step)||1),thumbX:trackLeft+frac*(trackRight-trackLeft),thumbY:r.top+r.height/2,half,rtl};
+  }
+  function nearThumb(input,x,y,g){
+    g=g||geometry(input);
+    // Generous finger hit-area around the visible circular thumb, never on the rest of the rail.
+    const hitX=Math.max(9,Math.min(12,g.half+2));
+    const hitY=Math.max(10,Math.min(13,g.r.height/2+3));
+    return Math.abs(x-g.thumbX)<=hitX && Math.abs(y-g.thumbY)<=hitY;
+  }
+  function dispatch(input,type){input.dispatchEvent(new Event(type,{bubbles:true}));}
+  function setFromX(input,clientX,g){
+    g=g||geometry(input);
+    let frac=clamp((clientX-g.trackLeft)/(g.trackRight-g.trackLeft),0,1);
+    if(g.rtl)frac=1-frac;
+    let value=g.min+frac*(g.max-g.min);
+    if(g.step>0)value=g.min+Math.round((value-g.min)/g.step)*g.step;
+    value=clamp(value,g.min,g.max);
+    const decimals=(String(input.step||'1').split('.')[1]||'').length;
+    const next=String(Number(value.toFixed(Math.min(7,decimals||0))));
+    if(input.value!==next){input.value=next;dispatch(input,'input');}
+  }
+  function isEditorRange(el){return !!(el&&el.type==='range'&&el.closest&&el.closest(RANGE_ROOTS));}
+  let drag=null,dragRaf=0;
+  function stopPointer(e){
+    if(e.cancelable)e.preventDefault();
+    e.stopPropagation();
+    if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+  }
+  function paintPendingDrag(){
+    dragRaf=0;
+    const d=drag;
+    if(!d||!d.moved)return;
+    setFromX(d.input,d.lastX-d.pointerOffset,d.geometry);
+  }
+  function flushDrag(cancelled){
+    const d=drag;if(!d)return;
+    if(dragRaf){cancelAnimationFrame(dragRaf);dragRaf=0;}
+    drag=null;
+    if(cancelled){
+      if(d.input.value!==d.startValue){d.input.value=d.startValue;dispatch(d.input,'input');dispatch(d.input,'change');}
+    }else if(d.moved){
+      setFromX(d.input,d.lastX-d.pointerOffset,d.geometry);
+      dispatch(d.input,'change');
+    }
+    try{d.input.releasePointerCapture(d.pointerId);}catch(_e){}
+  }
+  function onPointerDown(e){
+    const input=e.target;
+    if(!isEditorRange(input)||input.disabled||input.matches(':disabled'))return;
+    if(e.pointerType==='mouse'&&e.button!==0)return;
+    const g=geometry(input);
+    if(!nearThumb(input,e.clientX,e.clientY,g)){
+      stopPointer(e);return;
+    }
+    drag={pointerId:e.pointerId,input,geometry:g,startX:e.clientX,startY:e.clientY,lastX:e.clientX,
+      pointerOffset:e.clientX-g.thumbX,startValue:String(input.value),moved:false,downEvent:e,startedInline:false};
+    try{input.setPointerCapture(e.pointerId);}catch(_e){}
+    stopPointer(e);
+  }
+  function onPointerMove(e){
+    const d=drag;if(!d||d.pointerId!==e.pointerId)return;
+    stopPointer(e);
+    d.lastX=e.clientX;
+    if(!d.moved&&Math.hypot(e.clientX-d.startX,e.clientY-d.startY)<2)return;
+    d.moved=true;
+    // Preserve the legacy Position-slider start hook, but run it only once a real drag begins.
+    if(!d.startedInline){
+      d.startedInline=true;
+      try{if(typeof d.input.onpointerdown==='function')d.input.onpointerdown.call(d.input,d.downEvent);}catch(err){console.warn('Slider start hook:',err);}
+    }
+    if(!dragRaf)dragRaf=requestAnimationFrame(paintPendingDrag);
+  }
+  function onPointerUp(e,cancelled){
+    if(!drag||drag.pointerId!==e.pointerId)return;
+    stopPointer(e);
+    if(Number.isFinite(e.clientX))drag.lastX=e.clientX;
+    flushDrag(!!cancelled);
+  }
+
+  function boot(){
+    document.querySelectorAll('.ev-v33-thumb-hit').forEach(el=>el.remove());
+    queueLayout();
+    window.addEventListener('pointerdown',onPointerDown,{capture:true,passive:false});
+    window.addEventListener('pointermove',onPointerMove,{capture:true,passive:false});
+    window.addEventListener('pointerup',e=>onPointerUp(e,false),{capture:true,passive:false});
+    window.addEventListener('pointercancel',e=>onPointerUp(e,true),{capture:true,passive:false});
+    window.addEventListener('touchstart',function(e){
+      const t=e.target;
+      if(!t || t.type!=='range' || !t.closest('#ethvellePicsartTextDock,#ethvelleTextStylePanel,#ethvelleTextComposer,#evpaCustomEffectEditor,#ethvelleColorPicker,#textPanelBody')) return;
+      const tc=e.touches && e.touches[0]; if(!tc) return;
+      if(!nearThumb(t,tc.clientX,tc.clientY)){ e.preventDefault(); e.stopPropagation(); }
+    },{capture:true,passive:false});
+    window.addEventListener('lostpointercapture',e=>{if(drag&&drag.pointerId===e.pointerId)flushDrag(true);},{capture:true});
+    // Never let a synthetic/native click change a range after the pointerdown guard.
+    // Keyboard arrow-key changes still work because they do not produce pointer clicks.
+    window.addEventListener('click',e=>{
+      if(isEditorRange(e.target)){
+        e.preventDefault();e.stopPropagation();
+        if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+      }
+    },{capture:true,passive:false});
+    // Keep older interceptor refresh from re-enabling track-jump shields.
+    const prevRefresh=window.__ethvelleRefreshRangeOverlays;
+    window.__ethvelleRefreshRangeOverlays=function(){
+      try{if(typeof prevRefresh==='function')prevRefresh();}catch(_e){}
