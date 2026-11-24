@@ -1,0 +1,1000 @@
+  },true);
+})();
+</script>
+
+<style id="ethvelle-v219-fix-keyframe-highlight-selected-only-css">
+  /* v219-fix: keyframe diamonds on a clip that is NOT selected always use the plain (white) look.
+     The blue "active" and red "under playhead" highlights now only appear on the clip you selected,
+     so reopening / refreshing a project no longer shows highlighted keyframes without any selection. */
+  html body #screen-editor #timelineInner .anim-clip:not(.selected) .kf-marker.active,
+  html body #screen-editor #timelineInner .anim-clip:not(.selected) .kf-marker.under-playhead,
+  html body #screen-editor #timelineInner .track-clip:not(.selected) .kf-marker.active,
+  html body #screen-editor #timelineInner .track-clip:not(.selected) .kf-marker.under-playhead,
+  html body #screen-editor #timelineInner .overlay-clip:not(.selected) .kf-marker.active,
+  html body #screen-editor #timelineInner .overlay-clip:not(.selected) .kf-marker.under-playhead{
+    background:#fff!important;border:2px solid #fff!important;box-shadow:none!important;
+  }
+</style>
+<style id="ethvelle-v219-color-row-order-css">
+  /* Tool buttons always lead every colour row in this fixed order: eyedropper, custom wheel, transparent. */
+  #ethvellePicsartTextDock #evpaPalette .ev-eyedrop-text{order:-3!important;}
+  #ethvellePicsartTextDock #evpaPalette .evpa-color-wheel{order:-2!important;}
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent{order:-1!important;}
+</style>
+<script id="ethvelle-v219-color-row-order-js">
+(function(){
+  'use strict';
+  /* Several older layers rebuild the colour row (open, tab change, Transparent tap) and each rebuild
+     dropped the eyedropper button and re-created it a frame later, so the row visibly jumped
+     (eyedropper / wheel / transparent changed places). This guard runs as a MutationObserver
+     microtask, i.e. BEFORE the browser paints, and puts the eyedropper straight back in front of
+     the wheel, with transparent right after it. It is idempotent, so it never loops. */
+  let proto=null, observed=null, observer=null, busy=false;
+  const $=id=>document.getElementById(id);
+  function inComposer(d){return d.classList.contains('evpa-in-composer')||!!($('ethvelleTextComposer')&&$('ethvelleTextComposer').classList.contains('active'));}
+  function fix(){
+    if(busy)return;
+    const d=$('ethvellePicsartTextDock'),pal=$('evpaPalette');
+    if(!d||!pal||inComposer(d))return;
+    const live=pal.querySelector('.ev-eyedrop-text');
+    if(live){proto=live.cloneNode(true);proto.setAttribute('aria-pressed','false');}
+    busy=true;
+    try{
+      pal.querySelectorAll('.evpa-color-wheel').forEach(wheel=>{
+        const parent=wheel.parentElement;if(!parent)return;
+        let eye=parent.querySelector(':scope > .ev-eyedrop-text');
+        if(!eye&&proto)eye=proto.cloneNode(true);
+        if(eye&&eye.nextElementSibling!==wheel)parent.insertBefore(eye,wheel);
+        const clear=parent.querySelector(':scope > .evpa-transparent');
+        if(clear&&wheel.nextElementSibling!==clear)wheel.after(clear);
+      });
+    }catch(_e){}
+    busy=false;
+  }
+  function attach(){
+    const d=$('ethvellePicsartTextDock');
+    if(!d||typeof MutationObserver!=='function')return false;
+    if(observed===d)return true;
+    if(observer)observer.disconnect();
+    observer=new MutationObserver(fix);
+    observer.observe(d,{childList:true,subtree:true});
+    observed=d;fix();return true;
+  }
+  function boot(){
+    if(attach())return;
+    const wait=new MutationObserver(()=>{if(attach())wait.disconnect();});
+    wait.observe(document.body,{childList:true,subtree:true});
+  }
+  ['openEthvelleTextStylePanel','openEthvelleTextComposer'].forEach(name=>{
+    const old=window[name];
+    if(typeof old!=='function'||old.__ev219Order)return;
+    const wrapped=function(){const r=old.apply(this,arguments);attach();return r;};
+    wrapped.__ev219Order=true;window[name]=wrapped;
+  });
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+<style id="ethvelle-v220-keyframe-toolbar-even-css">
+  /* v220: Media / Frame / Done / Delete key in the keyframe row used 25%-wide cells, so they sat far
+     apart from the mirrored tools (Duplicate, FX ...). Same width, padding, icon and label size now. */
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{
+    flex:0 0 auto!important;flex-basis:auto!important;width:auto!important;min-width:68px!important;max-width:none!important;
+    display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:flex-start!important;
+    gap:5px!important;padding:10px 7px 8px!important;margin:0!important;box-sizing:border-box!important;text-align:center!important;
+  }
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool svg,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe svg,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool svg,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool svg{width:21px!important;height:21px!important;flex:0 0 21px!important;margin:0!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool span,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe span,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool span,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool span{font-size:10px!important;font-weight:600!important;line-height:1.15!important;white-space:nowrap!important;margin:0!important;}
+</style>
+
+
+<script id="ethvelle-v222-audio-speed-tool">
+/* v222: Speed button on the bottom toolbar for a selected audio clip.
+   The Speed panel, timeline length, live preview (playbackRate) and export already support audio clips through
+   speedTargetClip(); only the audio-exclusive toolbar was hiding the button. Runs last so earlier audio-toolbar
+   patches (v66/v67/v68) cannot hide it again. */
+(function(){
+  'use strict';
+  function selAudio(){try{return Array.isArray(overlays)?overlays.find(o=>String(o.id)===String(selectedClip)&&o.type==='audio')||null:null;}catch(_e){return null;}}
+  function apply(){
+    const tool=document.getElementById('clipSpeedTool'),row=document.getElementById('bottomToolsClip');
+    if(!tool||!row)return;
+    const clip=selAudio();
+    if(!clip)return;
+    tool.classList.add('evca-audio-only-tool');
+    if(tool.style.display!=='flex')tool.style.display='flex';
+    tool.dataset.evcaV66Hidden&&delete tool.dataset.evcaV66Hidden;
+    const sp=Number(clip.speed)||1,lab=document.getElementById('clipSpeedLabel');
+    if(lab){const t=Math.abs(sp-1)<0.01?'Speed':(sp.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')+'x');if(lab.textContent!==t)lab.textContent=t;}
+    /* keep it right after Split so it sits with the other audio tools */
+    const split=document.getElementById('clipSplitTool');
+    if(split&&split.nextElementSibling!==tool&&split.parentNode===tool.parentNode)split.parentNode.insertBefore(tool,split.nextElementSibling);
+  }
+  function install(){
+    const prev=window.syncBottomToolsMode;
+    if(typeof prev!=='function'||prev.__evV222AudioSpeed)return;
+    const w=function(){const r=prev.apply(this,arguments);apply();return r;};
+    w.__evV222AudioSpeed=true;window.syncBottomToolsMode=w;
+    try{syncBottomToolsMode=w;}catch(_e){}
+    const tool=document.getElementById('clipSpeedTool');
+    if(tool&&!tool.__evV222Obs){tool.__evV222Obs=true;new MutationObserver(()=>{if(selAudio()&&tool.style.display!=='flex')apply();}).observe(tool,{attributes:true,attributeFilter:['style']});}
+  }
+  install();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',install,{once:true});
+  window.addEventListener('load',()=>{install();apply();});
+})();
+</script>
+
+<script id="ethvelle-v223-outer-stroke">
+/* v227: text stroke is drawn as its OWN layer behind the text, so it only shows OUTSIDE the letters.
+   v227 fixes: (1) the stroke layer is now updated IN PLACE instead of being deleted and re-created, and the
+   change check no longer uses glyph.style.cssText (other scripts re-write the stroke every frame, which reorders
+   cssText, so the layer was rebuilt ~100x per second while playing = the blinking), (2) the layer takes its width and
+   height from the exact fractional layout size, so it can no longer wrap onto different lines than the text. */
+(function(){
+  'use strict';
+  const NEUTRAL='0.001px transparent';
+  const CLS='evpa-stroke-clone';
+  const S=(el,k,v)=>{if(el.style.getPropertyValue(k)!==String(v)||el.style.getPropertyPriority(k)!=='important')el.style.setProperty(k,v,'important');};
+  function parseStroke(v){
+    v=String(v||'').trim();if(!v)return null;
+    const m=v.match(/^(-?[\d.]+)(?:px)?\s*(.*)$/);if(!m)return null;
+    const w=parseFloat(m[1])||0;if(Math.abs(w-0.001)<1e-6)return 'mine';
+    let col=m[2]||'transparent',op=1;
+    const r=col.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)$/i);
+    if(r){op=r[4]==null?1:Math.max(0,Math.min(1,parseFloat(r[4])));col='rgb('+r[1]+','+r[2]+','+r[3]+')';}
+    else if(/^transparent$/i.test(col)){op=0;}
+    return {w:w,color:col,op:op};
+  }
+  /* v233: 3D stroke. The outline gets a solid extrusion (depth) toward the bottom-right, built from a few hard
+     drop-shadow steps that get darker the farther they go, so the letters look like thick 3D cut-outs instead of a flat
+     2D outline. The very same step geometry/colours are used by the canvas export (ethvelleDrawStrokeDepth) so the exported
+     video matches the preview. */
+  function rgbOf(col){
+    col=String(col||'').trim();
+    let m=col.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+)\s*)?\)/i);
+    if(m)return {r:+m[1],g:+m[2],b:+m[3],a:m[4]==null?1:parseFloat(m[4])};
+    m=col.match(/^#([0-9a-f]{6})$/i);if(m){const h=m[1];return {r:parseInt(h.slice(0,2),16),g:parseInt(h.slice(2,4),16),b:parseInt(h.slice(4,6),16),a:1};}
+    m=col.match(/^#([0-9a-f]{3})$/i);if(m){const h=m[1];return {r:parseInt(h[0]+h[0],16),g:parseInt(h[1]+h[1],16),b:parseInt(h[2]+h[2],16),a:1};}
+    return null;
+  }
+  window.ethvelleStrokeExtrude=function(w,unit,col){
+    unit=Number(unit)||1;w=Math.max(0,Number(w)||0);
+    const depth=Math.max(2*unit,Math.min(14*unit,w*0.7+1.5*unit));
+    const n=Math.max(2,Math.min(7,Math.ceil(depth/(1.5*unit))));
+    const c=rgbOf(col)||{r:0,g:0,b:0,a:1};
+    const steps=[];
+    for(let k=1;k<=n;k++){
+      const f=0.38+0.34*(k/n);
+      steps.push({k:k,x:depth*0.32*k/n,y:depth*0.9*k/n,r:Math.round(c.r*(1-f)),g:Math.round(c.g*(1-f)),b:Math.round(c.b*(1-f)),a:c.a});
+    }
+    return {depth:depth,n:n,steps:steps};
+  };
+  window.ethvelleDrawStrokeDepth=function(ctx,line,x,y,maxWidth,w,unit){
+    try{
+      if(!ctx||!(w>0))return;
+      const ex=window.ethvelleStrokeExtrude(w,unit,ctx.strokeStyle);
+      ctx.save();
+      ctx.shadowColor='transparent';ctx.shadowBlur=0;ctx.shadowOffsetX=0;ctx.shadowOffsetY=0;
+      ctx.lineWidth=w*2;ctx.lineJoin='round';
+      for(let i=ex.steps.length-1;i>=0;i--){
+        const st=ex.steps[i];
+        ctx.strokeStyle='rgba('+st.r+','+st.g+','+st.b+','+st.a+')';
+        ctx.strokeText(line,x+st.x,y+st.y,maxWidth);
+      }
+      ctx.restore();
+    }catch(_e){try{ctx.restore();}catch(__){}}
+  };
+  function depthFilter(st){
+    const ex=window.ethvelleStrokeExtrude(st.w,1,st.color);
+    const sx=ex.steps.length?ex.steps[0].x:0,sy=ex.steps.length?ex.steps[0].y:0;
+    return ex.steps.map(p=>'drop-shadow('+sx.toFixed(3)+'px '+sy.toFixed(3)+'px 0 rgb('+p.r+','+p.g+','+p.b+'))').join(' ');
+  }
+  function applyStrokeProps(c,st){
+    S(c,'-webkit-text-stroke',(st.w*2)+'px '+st.color);
+    /* v306: bent text is one span per letter. A span with its own '0 transparent' stroke hides the outline, so every
+       bent letter of the stroke copy carries the same outline (this is why the stroke vanished when Bend was used). */
+    if(c.firstElementChild){
+      c.querySelectorAll('*').forEach(function(ch){S(ch,'-webkit-text-stroke',(st.w*2)+'px '+st.color);S(ch,'paint-order','normal');});
+    }
+    S(c,'opacity',String(st.op));
+    S(c,'filter',depthFilter(st));
+  }
+  /* v233: the stroke layer mirrors the glyph's layout props IN PLACE (no clone rebuild) and in the same task as the write
+     (microtask), so dragging Letter/Line spacing moves the stroke and the letters together instead of vibrating. */
+  const LAYOUT=['fontFamily','fontSize','fontWeight','fontStyle','letterSpacing','lineHeight','textAlign','whiteSpace','textTransform'];
+  const kebab=n=>n.replace(/[A-Z]/g,m=>'-'+m.toLowerCase());
+  function layout(c,glyph,cs){
+    LAYOUT.forEach(n=>S(c,kebab(n),cs[n]));
+    /* v294: copy the SPECIFIED line-height (e.g. '1.26'), not the computed px string - a rounded px value could land on a different pixel row than the glyph. */
+    if(glyph.style.lineHeight)S(c,'line-height',glyph.style.lineHeight);
+    if(glyph.style.letterSpacing)S(c,'letter-spacing',glyph.style.letterSpacing);
+    S(c,'text-decoration',glyph.style.textDecoration||'none');
+    S(c,'transform',glyph.style.transform||'none');
+    S(c,'transform-origin',glyph.style.transformOrigin||'center center');
+    /* v296: the stroke copy is an absolutely-positioned paint twin. Its measured layout-box
+       origin/size and text metrics match the real glyph, but it is removed from line layout entirely:
+       it can never narrow the shrink-to-fit text container, create a second wrap, or move the fill.
+       offsetLeft/offsetTop are layout coordinates (not transformed screen coordinates), so the copied
+       transform/transform-origin is then applied exactly once to both twins. */
+    let left=0,top=0;
+    try{
+      if(glyph.offsetParent===glyph.parentElement){left=Number(glyph.offsetLeft)||0;top=Number(glyph.offsetTop)||0;}
+      else if(glyph.offsetParent){
+        const gr=glyph.getBoundingClientRect(),pr=glyph.parentElement.getBoundingClientRect();
+        const ox=(parseFloat(cs.transformOrigin)||0),oy=(String(cs.transformOrigin||'').split(/\s+/)[1]&&parseFloat(String(cs.transformOrigin).split(/\s+/)[1]))||0;
+        const tr=cs.transform&&cs.transform!=='none'?new DOMMatrixReadOnly(cs.transform):null;
+        if(tr){
+          const q=tr.transformPoint(new DOMPoint(-ox,-oy,0,1)),w=q.w||1;
+          left=(gr.left-pr.left)-ox-q.x/w;top=(gr.top-pr.top)-oy-q.y/w;
+        }else{left=gr.left-pr.left;top=gr.top-pr.top;}
+      }else{left=Number(glyph.offsetLeft)||0;top=Number(glyph.offsetTop)||0;}
+    }catch(_e){left=Number(glyph.offsetLeft)||0;top=Number(glyph.offsetTop)||0;}
+    S(c,'position','absolute');S(c,'display','inline-block');S(c,'float','none');S(c,'vertical-align',cs.verticalAlign);
+    S(c,'left',left+'px');S(c,'top',top+'px');S(c,'right','auto');S(c,'bottom','auto');
+    S(c,'margin','0');S(c,'box-sizing',cs.boxSizing);S(c,'padding',cs.padding);S(c,'border',cs.border);
+    S(c,'width',cs.width);S(c,'height',cs.height);S(c,'max-width','none');
+    S(c,'white-space',cs.whiteSpace);S(c,'overflow-wrap',cs.overflowWrap);S(c,'word-break',cs.wordBreak);
+    S(c,'text-indent',cs.textIndent);S(c,'direction',cs.direction);
+  }
+  /* v232: stop the stroke "blink" while the Amount slider is dragged. Other scripts write the REAL stroke onto the glyph
+     on every slider tick; this layer then had to swap it for NEUTRAL from a MutationObserver, and the observer wrapper
+     (v189) delivers late when the frame budget is used up, so one frame was painted with the real stroke on top of the
+     fill = flash. Now the write itself is intercepted on the glyph's style object: the real value is only remembered
+     (node.__evStroke) and NEUTRAL is what ever reaches the glyph, so the real stroke can never be painted there. */
+  const WATCH_KEBAB=new Set(['letter-spacing','line-height','transform','transform-origin','font-size','font-family','font-weight','font-style','text-align','white-space','text-decoration','width','height']);
+  const WATCH_CAMEL=['letterSpacing','lineHeight','transform','transformOrigin','fontSize','fontFamily','fontWeight','fontStyle','textAlign','whiteSpace','textDecoration','width','height'];
+  function guard(node,glyph){
+    if(glyph.__evStrokeGuard)return;
+    glyph.__evStrokeGuard=true;
+    const st=glyph.style,origSet=st.setProperty.bind(st);
+    const owner=()=>{const p=glyph.parentNode;return (p&&p.classList&&p.classList.contains('ethvelle-overlay-text-content'))?p:node;};
+    function take(v){
+      const str=String(v==null?'':v).trim();if(!str)return false;
+      const cur=parseStroke(str);if(!cur)return false;
+      const n=cur!=='mine'?owner():null;
+      if(n)n.__evStroke=cur;
+      origSet('-webkit-text-stroke',NEUTRAL,'important');
+      if(n)schedule(n);                 /* same-task sync after the real glyph is neutral */
+      return true;
+    }
+    st.setProperty=function(k,v,p){
+      const key=String(k).toLowerCase();
+      if(key==='-webkit-text-stroke'&&take(v))return;
+      const r=origSet(k,v,p);
+      if(WATCH_KEBAB.has(key))schedule(owner());
+      return r;
+    };
+    const origGet=st.getPropertyValue.bind(st);
+    /* Chromium exposes CSSStyleDeclaration's named CSS properties as dynamic properties, not
+       prototype accessors. Defining an own accessor is therefore required to catch assignments
+       such as glyph.style.letterSpacing = ... in the same task. */
+    ['webkitTextStroke','WebkitTextStroke'].forEach(function(name){
+      try{Object.defineProperty(st,name,{configurable:true,enumerable:true,get:function(){return origGet('-webkit-text-stroke');},set:function(v){if(!take(v))origSet('-webkit-text-stroke',v);}});}catch(_e){}
+    });
+    WATCH_CAMEL.forEach(function(name){
+      const cssName=name.replace(/[A-Z]/g,function(ch){return '-'+ch.toLowerCase();});
+      try{Object.defineProperty(st,name,{configurable:true,enumerable:true,get:function(){return origGet(cssName);},set:function(v){origSet(cssName,v);schedule(owner());}});}catch(_e){}
+    });
+  }
+  function sync(node){
+    if(!node||!node.querySelector)return;
+    const glyph=node.querySelector(':scope > .evpa-text-effect-layer');
+    if(!glyph)return;
+    guard(node,glyph);watchSize(node,glyph);
+    const raw=glyph.style.getPropertyValue('-webkit-text-stroke');
+    const cur=parseStroke(raw);
+    if(cur&&cur!=='mine')node.__evStroke=cur;           /* others just (re)wrote a stroke: take it as the truth */
+    else if(!cur&&!node.__evStroke)node.__evStroke={w:0,color:'transparent',op:0};
+    if(raw!==NEUTRAL||glyph.style.getPropertyPriority('-webkit-text-stroke')!=='important'){
+      glyph.style.setProperty('-webkit-text-stroke',NEUTRAL,'important');
+    }
+    const st=node.__evStroke||{w:0,color:'transparent',op:0};
+    let old=node.querySelector(':scope > .'+CLS);
+    if(!(st.w>0)||st.op<=0){if(old)old.remove();node.__evSig='';return;}
+    /* Force the glyph's new shrink-to-fit width/line layout to resolve before the absolute
+       stroke twin copies it. Without this read, getComputedStyle can still report the previous
+       parent-constrained width during the same task as a spacing/font write. */
+    glyph.getBoundingClientRect();
+    const cs=getComputedStyle(glyph);
+    const sig=glyph.innerHTML;
+    if(!old||node.__evSig!==sig){                         /* only the text/bend content needs a rebuild */
+      node.__evSig=sig;
+      const c=glyph.cloneNode(true);
+      c.className=CLS;c.removeAttribute('id');c.setAttribute('aria-hidden','true');
+      c.querySelectorAll('[id]').forEach(e=>e.removeAttribute('id'));
+      [c].concat([...c.querySelectorAll('*')]).forEach(e=>{
+        S(e,'color','transparent');S(e,'-webkit-text-fill-color','transparent');S(e,'background','none');S(e,'background-image','none');
+        S(e,'text-shadow','none');S(e,'box-shadow','none');S(e,'-webkit-text-stroke','0 transparent');S(e,'animation','none');S(e,'transition','none');
+        if(e!==c){S(e,'-webkit-background-clip','border-box');S(e,'background-clip','border-box');}
+      });
+      S(c,'max-width','none');S(c,'margin','0');
+      S(c,'pointer-events','none');S(c,'user-select','none');S(c,'mix-blend-mode','normal');
+      S(c,'paint-order','normal');S(c,'stroke-linejoin','round');
+      layout(c,glyph,cs);applyStrokeProps(c,st);
+      if(old)old.replaceWith(c);else node.insertBefore(c,glyph);
+      return;
+    }
+    layout(old,glyph,cs);applyStrokeProps(old,st);        /* same text: just follow size/spacing/colour/opacity */
+  }
+  /* v294: layout changes that do not touch any style inside the text (the overlay box being resized to fit the new spacing,
+     stage zoom, font load) used to reach the stroke only from the 600ms timer, so the stroke lagged behind the letters = shaking.
+     ResizeObserver callbacks run after layout and BEFORE paint, so the stroke now follows in the very same frame. */
+  let sro=null;
+  function watchSize(node,glyph){
+    if(typeof ResizeObserver!=='function')return;
+    if(!sro)sro=new ResizeObserver(es=>{es.forEach(e=>{const n=nodeOf(e.target)||(e.target.classList&&e.target.classList.contains('ethvelle-overlay-text-content')?e.target:null);if(n)schedule(n);});});
+    if(!node.__evRO){node.__evRO=true;sro.observe(node);}
+    if(!glyph.__evRO){glyph.__evRO=true;sro.observe(glyph);}
+  }
+  function syncAll(root){(root||document).querySelectorAll('.ethvelle-overlay-text-content').forEach(sync);}
+  let queued=false;
+  const pending=new Set();
+  const syncing=new WeakSet();
+  function flush(){queued=false;const list=[...pending];pending.clear();list.forEach(sync);}
+  function schedule(n){
+    if(!n)return;
+    try{followKick();}catch(_e){}
+    /* The setter that changed spacing/line-height/transform/font has already written its value.
+       Sync the clone before returning from that setter, so Chromium cannot paint a stale frame. */
+    if(!syncing.has(n)){
+      syncing.add(n);
+      try{sync(n);}catch(_e){}
+      finally{syncing.delete(n);}
+    }
+    pending.add(n);
+    if(!queued){queued=true;(window.queueMicrotask||Promise.resolve().then.bind(Promise.resolve()))(flush);}
+  }
+  function nodeOf(el){return el&&el.closest?el.closest('.ethvelle-overlay-text-content'):null;}
+  /* v294 FRAME FOLLOWER. The editor's MutationObserver wrapper (v189) only spends ~6ms per frame on observers, so while a slider is being
+     dragged the stroke layer was often synced a frame or more LATE, and the old stroke was painted next to the new letters = shaking.
+     While the user is interacting (and for a moment after) this loop checks, once per frame and BEFORE paint, whether any text layer's
+     glyph style changed (spacing, line height, angle/perspective, size...) and re-syncs the stroke in that very frame. It reads inline
+     style strings only (no layout), so it is cheap, and it stops by itself ~0.8s after the last interaction. */
+  const FOLLOW=['letter-spacing','line-height','transform','transform-origin','font-size','font-family','font-weight','font-style','text-align','white-space','text-decoration','width','height','padding','margin','opacity'];
+  let followRaf=0,followUntil=0;
+  function followTick(){
+    followRaf=0;
+    const root=document.getElementById('overlayMediaLayer')||document;
+    root.querySelectorAll('.ethvelle-overlay-text-content').forEach(node=>{
+      const glyph=node.querySelector(':scope > .evpa-text-effect-layer');if(!glyph)return;
+      const stl=glyph.style;let sig='';
+      for(let i=0;i<FOLLOW.length;i++)sig+=stl.getPropertyValue(FOLLOW[i])+'|';
+      sig+=glyph.textContent.length+'|'+(node.__evStroke?node.__evStroke.w+','+node.__evStroke.color+','+node.__evStroke.op:'');
+      if(node.__evFollowSig!==sig){node.__evFollowSig=sig;try{sync(node);}catch(_e){}}
+    });
+    if(performance.now()<followUntil)followRaf=requestAnimationFrame(followTick);
+  }
+  function followKick(){followUntil=performance.now()+800;if(!followRaf)followRaf=requestAnimationFrame(followTick);}
+  ['input','change','pointerdown','pointermove','pointerup','touchmove','keydown'].forEach(ev=>document.addEventListener(ev,followKick,{capture:true,passive:true}));
+  function boot(){
+    const host=document.getElementById('overlayMediaLayer')||document.body;
+    new MutationObserver(ms=>{
+      ms.forEach(m=>{
+        const t=m.target;if(t&&t.nodeType===1&&t.closest&&t.closest('.'+CLS))return;
+        if(m.type==='attributes'||m.type==='characterData'){const n=nodeOf(t.nodeType===1?t:t.parentElement);if(n)schedule(n);}
+        else{
+          const n=nodeOf(t.nodeType===1?t:t.parentElement);if(n)schedule(n);
+          m.addedNodes.forEach(a=>{if(a.nodeType!==1)return;if(a.classList&&a.classList.contains(CLS))return;
+            if(a.matches&&a.matches('.ethvelle-overlay-text-content'))schedule(a);
+            else if(a.querySelectorAll)a.querySelectorAll('.ethvelle-overlay-text-content').forEach(schedule);});
+        }
+      });
+    }).observe(host,{subtree:true,childList:true,attributes:true,attributeFilter:['style','class'],characterData:true});
+    syncAll();
+    setInterval(()=>syncAll(),600);   /* font loading / resize change the glyph box without any DOM mutation */
+    window.addEventListener('resize',()=>syncAll(),{passive:true});
+    window.ethvelleSyncStrokeLayers=()=>syncAll();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+<script id="ethvelle-v226-chroma-row-js">
+(function(){
+  'use strict';
+  /* v226: the Key color row used to be built as [green, white, black ...] and re-arranged one frame later by the
+     eyedropper patch ([eyedropper, wheel, green, white, black ...]), so every swatch jumped sideways (the black block
+     "blinked"). Arrange it in the same task that builds it, before the browser paints. */
+  function arrange(){try{if(typeof window.__ev226EnsureChromaPalette==='function')window.__ev226EnsureChromaPalette();}catch(_e){}}
+  ['renderChromaKeyPanel','resetChromaSettings','applyEthvelleChromaCustomColor','saveEthvelleChromaCustomColor'].forEach(function(name){
+    var orig=window[name];
+    if(typeof orig!=='function'||orig.__ev226)return;
+    var w=function(){var r=orig.apply(this,arguments);arrange();return r;};
+    w.__ev226=true;window[name]=w;
+  });
+})();
+</script>
+<script id="ethvelle-v225-swatch-pick-js">
+(function(){
+  'use strict';
+  /* v225: remember which colour (or Transparent) the user explicitly tapped for each effect of each text layer,
+     recorded BEFORE the stacked colour patches run so the single marker owner (syncMarkers) agrees with them. */
+  function note(key,val){try{const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;if(!t)return;(window.__ev224Picked=window.__ev224Picked||{})[String(t.id||'')+'|'+key]=val;}catch(_e){}}
+  const oc=window.ethvellePicsartSetColor;
+  if(typeof oc==='function'&&!oc.__ev225){const w=function(key,color){note(key,String(color||'').trim().toUpperCase());return oc.apply(this,arguments);};w.__ev225=true;window.ethvellePicsartSetColor=w;}
+  const on=window.ethvellePicsartSetNone;
+  if(typeof on==='function'&&!on.__ev225){const w=function(key){note(key,'__none__');return on.apply(this,arguments);};w.__ev225=true;window.ethvellePicsartSetNone=w;}
+})();
+</script>
+<style id="ethvelle-v227-text-quality-css">
+/* v227 quality: do NOT pin text to a fixed-resolution GPU layer. will-change:transform / preserve-3d / hidden backface
+   made the browser rasterize the text once at its first size and then stretch that bitmap when the text is enlarged
+   (blurry text). Without them the text is redrawn sharp at its real on-screen size. */
+#overlayMediaLayer .overlay-text-render,
+#overlayMediaLayer .ethvelle-overlay-text-content,
+#overlayMediaLayer .evpa-text-effect-layer,
+#overlayMediaLayer .evpa-stroke-clone{
+  will-change:auto!important;
+  transform-style:flat!important;
+  -webkit-backface-visibility:visible!important;backface-visibility:visible!important;
+  text-rendering:geometricPrecision;-webkit-font-smoothing:antialiased;
+}
+/* v227 italic / tilt corner cut: gradient & texture text is painted with background-clip:text, which only paints
+   INSIDE the text box. Italic and tilted letters overhang that box (top-right of f, arm of T ...) and were cut off.
+   Extra padding with the same negative margin makes the box bigger without moving the text or changing its layout. */
+#overlayMediaLayer .ethvelle-overlay-text-content > .evpa-text-effect-layer,
+#overlayMediaLayer .ethvelle-overlay-text-content > .evpa-stroke-clone{
+  padding:.16em .34em!important;
+  margin:-.16em -.34em!important;
+  box-sizing:content-box;
+  background-origin:content-box;
+}
+</style>
+<script id="ethvelle-v228-fixes-js">
+(function(){
+  'use strict';
+  /* v228 fix 1  -  Transparent colour lock.
+     "Transparent" sets the layer's opacity (textOpacity / strokeOpacity / shadowOpacity / textBackgroundOpacity) to 0 and
+     leaves it there, so picking any other colour afterwards changed only the (invisible) colour. Picking a colour,
+     using the colour wheel or the eyedropper now brings the opacity back (to the value it had before Transparent,
+     or the normal default) so the chosen colour is visible straight away. Nothing else about the editors changes. */
+  var PAIRS={textColor:'textOpacity',strokeColor:'strokeOpacity',shadowColor:'shadowOpacity',textBackgroundColor:'textBackgroundOpacity'};
+  var ALPHA_KEYS={textOpacity:1,strokeOpacity:1,shadowOpacity:1,textBackgroundOpacity:1};
+  var DEFAULTS={textOpacity:100,strokeOpacity:100,shadowOpacity:100,textBackgroundOpacity:78};
+  var last={};
+  function target(){try{return typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;}catch(_e){return null;}}
+  function slot(t,a){return String(t&&t.id!=null?t.id:'')+'|'+a;}
+  function remember(t,a){try{if(t&&Number(t[a])>0)last[slot(t,a)]=Number(t[a]);}catch(_e){}}
+  function isZero(t,a){return !!t&&t[a]!=null&&Number(t[a])===0;}
+  function restoreValue(t,a){var v=last[slot(t,a)];return v>0?v:DEFAULTS[a];}
+  function syncUi(a,val){
+    try{
+      var dk=document.getElementById('ethvellePicsartTextDock');
+      if(dk){dk.querySelectorAll('input[type="range"]').forEach(function(r){var oi=String(r.getAttribute('oninput')||'');if(oi.indexOf("'"+a+"'")>-1){r.value=val;r.style.setProperty('--ev-range-progress',val+'%');}});}
+      var o=document.getElementById('evpa-v-'+a);if(o)o.textContent=val+'%';
+      var ps=document.getElementById('evts-'+a);if(ps){ps.value=val;var po=document.getElementById('evts-'+a+'-value');if(po)po.textContent=String(val);}
+    }catch(_e){}
+    try{if(typeof window.ethvelleRefreshDockSwatches==='function')window.ethvelleRefreshDockSwatches();}catch(_e){}
+  }
+  function revive(colorKey){
+    var a=PAIRS[colorKey];if(!a)return;
+    var t=target();if(!t||!isZero(t,a))return;
+    var v=restoreValue(t,a);
+    window.__evKeepDock=true;
+    try{
+      if(typeof window.ethvellePicsartSetValue==='function')window.ethvellePicsartSetValue(a,v);
+      else{t[a]=v;if(typeof window.renderFrame==='function')window.renderFrame();}
+    }catch(err){console.warn('Ethvelle v228 transparent restore:',err);}
+    finally{window.__evKeepDock=false;}
+    syncUi(a,v);
+  }
+
+  function wrapOnce(name,make){
+    var fn=window[name];
+    if(typeof fn!=='function'||fn.__ev228)return;
+    var w=make(fn);w.__ev228=true;window[name]=w;
+  }
+  function installColorFix(){
+    // Remember the visible opacity right before it becomes Transparent.
+    wrapOnce('ethvellePicsartSetNone',function(orig){return function(key){try{var a=PAIRS[key];if(a)remember(target(),a);}catch(_e){}return orig.apply(this,arguments);};});
+    // Swatch tap / eyedropper / saved colour: restore opacity after the colour is applied.
+    wrapOnce('ethvellePicsartSetColor',function(orig){return function(key){var r=orig.apply(this,arguments);try{revive(key);}catch(_e){}return r;};});
+    // Older text-style panel path (opened from the composer).
+    wrapOnce('ethvelleTextStyleChanged',function(orig){return function(key,value){
+      try{if(ALPHA_KEYS[key]&&Number(value)===0){var t0=target();if(t0)remember(t0,key);}}catch(_e){}
+      var r=orig.apply(this,arguments);
+      try{if(PAIRS[key]&&typeof value==='string'&&/^#[0-9a-f]{6}$/i.test(value))revive(key);}catch(_e){}
+      return r;};});
+    // Custom colour wheel: when it opens on a Transparent layer, restore opacity the moment a colour is actually chosen.
+    wrapOnce('openEthvelleColorPicker',function(orig){return function(key){
+      var out=orig.apply(this,arguments);
+      try{
+        var a=PAIRS[key]||'textOpacity',t=target(),host=document.getElementById('ethvelleColorPicker');
+        if(host&&t&&isZero(t,a)&&typeof window.ethvellePicsartSetPickerOpacity==='function'){
+          if(host.__ev228Arm){host.removeEventListener('pointerdown',host.__ev228Arm,true);host.removeEventListener('input',host.__ev228Arm,true);}
+          var arm=function(e){
+            var el=e.target;if(!el||!el.closest)return;
+            if(!el.closest('#evpaHueRing,#evpaSatSquare,#evpaPickHex'))return;
+            host.removeEventListener('pointerdown',arm,true);host.removeEventListener('input',arm,true);host.__ev228Arm=null;
+            var cur=target();if(!cur||!isZero(cur,a))return;
+            try{window.ethvellePicsartSetPickerOpacity(restoreValue(cur,a));}catch(_e){}
+          };
+          host.__ev228Arm=arm;host.addEventListener('pointerdown',arm,true);host.addEventListener('input',arm,true);
+        }
+      }catch(_e){}
+      return out;};});
+  }
+
+  function installAll(){try{installColorFix();}catch(e){console.warn(e);}}
+  installAll();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',installAll,{once:true});
+  window.addEventListener('load',installAll,{once:true});
+  setTimeout(installAll,1500);setTimeout(installAll,5000);
+})();
+</script>
+
+<script id="ethvelle-v234-scrubber-js">
+(function(){
+  'use strict';
+  if(window.__ev234Pill) return; window.__ev234Pill = true;
+  var st = document.createElement('style');
+  st.textContent = '.ev-clip-dur-pill{position:absolute;top:2px;left:6px;z-index:6;pointer-events:none;padding:1px 5px;border-radius:4px;background:rgba(20,20,22,.72);color:#fff;font:600 9px/12px system-ui,sans-serif;letter-spacing:.2px;white-space:nowrap;will-change:left}'
+    + 'body.ev-pill-hide .ev-clip-dur-pill{display:none}';
+  document.head.appendChild(st);
+  function fmt(sec){
+    sec = Math.max(0, Number(sec)||0);
+    if(sec < 60) return sec.toFixed(1)+'s';
+    var m = Math.floor(sec/60), s = sec - m*60;
+    return m+':'+(s<10?'0':'')+s.toFixed(1);
+  }
+  var raf = 0;
+  function sync(){
+    raf = 0;
+    var scroller = document.getElementById('timelineScroll');
+    if(!scroller || typeof overlays === 'undefined' || !Array.isArray(overlays)) return;
+    var sRect = scroller.getBoundingClientRect();
+    document.querySelectorAll('.ev-clip-dur-pill').forEach(function(p){
+      var host = p.parentElement;
+      if(!host || !host.classList.contains('selected')) p.remove();
+    });
+    document.querySelectorAll('#timelineInner .overlay-clip.selected[data-overlay-id]').forEach(function(clip){
+      var id = clip.getAttribute('data-overlay-id');
+      var ov = overlays.find(function(o){ return o && String(o.id) === id; });
+      var pill = clip.querySelector(':scope > .ev-clip-dur-pill');
+      if(!ov || (ov.type !== 'video' && ov.type !== 'image')){ if(pill) pill.remove(); return; }
+      var len = Number(ov.trimEnd) - Number(ov.trimStart);
+      if(!(len > 0)) return;
+      if(!pill){ pill = document.createElement('div'); pill.className = 'ev-clip-dur-pill'; clip.appendChild(pill); }
+      var txt = fmt(len);
+      if(pill.textContent !== txt) pill.textContent = txt;
+      var cRect = clip.getBoundingClientRect();
+      var want = (sRect.left + 6) - cRect.left;              // keep pill at the visible left edge
+      var max = Math.max(6, cRect.width - pill.offsetWidth - 6);
+      var left = Math.max(6, Math.min(max, want));
+      if(pill.style.left !== left+'px') pill.style.left = left+'px';
+    });
+  }
+  function queue(){ if(!raf) raf = requestAnimationFrame(sync); }
+  function boot(){
+    var scroller = document.getElementById('timelineScroll');
+    var rows = document.getElementById('overlayRows');
+    if(!scroller || !rows){ setTimeout(boot, 400); return; }
+    scroller.addEventListener('scroll', queue, {passive:true});
+    new MutationObserver(queue).observe(rows, {childList:true, subtree:true, attributes:true, attributeFilter:['class','style','data-overlay-id']});
+    // The CapCut recording hides the pill while an edge handle is being dragged.
+    document.addEventListener('pointerdown', function(e){
+      if(e.target && e.target.closest && e.target.closest('.anim-clip-handle, [data-ov-handle]')) document.body.classList.add('ev-pill-hide');
+    }, true);
+    var show = function(){ document.body.classList.remove('ev-pill-hide'); queue(); };
+    document.addEventListener('pointerup', show, true);
+    document.addEventListener('pointercancel', show, true);
+    queue();
+  }
+  boot();
+})();
+</script>
+
+
+<style id="ethvelle-v237-tracking-picker-css">
+  #panelBody .evv-tracking-compact{gap:12px!important;padding:2px 0 8px!important;}
+  #panelBody .evv-track-enable-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;color:#fff;font-size:13px;font-weight:800;}
+  #panelBody .evv-track-enable-switch{position:relative;flex:0 0 46px;width:46px;height:27px;padding:0;border:1px solid #555865;border-radius:99px;background:#34343D;cursor:pointer;}
+  #panelBody .evv-track-enable-switch:disabled{opacity:.42;cursor:not-allowed;}
+  #panelBody .evv-track-enable-switch i{position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;background:#E7E9F0;transition:transform .16s;}
+  #panelBody .evv-track-enable-switch.on{background:#2F5CE8;border-color:#2F5CE8;}
+  #panelBody .evv-track-enable-switch.on i{transform:translateX(19px);background:#fff;}
+  #panelBody .evv-track-source-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;width:100%;}
+  #panelBody .evv-track-source-card{display:block;min-width:0;width:100%;aspect-ratio:16/9;padding:0;overflow:hidden;border:1.5px solid #343746;border-radius:9px;background:#191B24;box-shadow:none;cursor:pointer;}
+  #panelBody .evv-track-source-card.selected{border:2px solid #2F5CE8;background:#202A48;}
+  #panelBody .evv-track-source-card img{display:block;width:100%;height:100%;object-fit:cover;background:#20232E;}
+</style>
+<script id="ethvelle-v237-keyframe-tracking-selection-fixes">
+(function(){
+  'use strict';
+  const render=window.ethvelleRenderCharacterTrackingPanel;
+  if(typeof render==='function')window.ethvelleRenderCharacterTrackingPanel=render;
+  const oldOpen=window.openPanel;
+  if(typeof oldOpen==='function'&&!oldOpen.__evv236TrackingRender){
+    const wrapped=function(key){const result=oldOpen.apply(this,arguments);if(key==='characterTracking')requestAnimationFrame(()=>{try{if(typeof window.ethvelleRenderCharacterTrackingPanel==='function')window.ethvelleRenderCharacterTrackingPanel();}catch(_e){}});return result;};
+    wrapped.__evv236TrackingRender=true;window.openPanel=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evv236TrackingRender){
+    const wrapped=function(){const result=oldSelect.apply(this,arguments);const panel=document.getElementById('toolPanel');const title=document.getElementById('panelTitle');const open=!!(panel&&panel.classList.contains('open')&&title&&/clip tracking/i.test(title.textContent||''));if(open)requestAnimationFrame(()=>{try{if(typeof window.ethvelleRenderCharacterTrackingPanel==='function')window.ethvelleRenderCharacterTrackingPanel();}catch(_e){}});return result;};
+    wrapped.__evv236TrackingRender=true;window.selectClipForChrome=wrapped;
+  }
+})();
+</script>
+
+
+<script id="ethvelle-v239-canonical-keyframe-contact-sync">
+(function(){
+  'use strict';
+  if(window.__ethvelleV239KeyframeSyncInstalled)return;
+  window.__ethvelleV239KeyframeSyncInstalled=true;
+  let raf=0;
+  const $=id=>document.getElementById(id);
+  function currentTime(){
+    try{
+      const t=typeof window.getCurrentAbsoluteTime==='function'?Number(window.getCurrentAbsoluteTime()):Number(window.currentAbsoluteTimeSec);
+      return Number.isFinite(t)?t:0;
+    }catch(_e){return Number(window.currentAbsoluteTimeSec)||0;}
+  }
+  function nearest(keys,property,t,tolerance){
+    let best=-1,distance=Infinity;
+    for(let i=0;i<keys.length;i++){
+      const key=keys[i];if(!key||(property&&key.property!==property))continue;
+      const d=Math.abs(Number(key.t)-t);
+      if(Number.isFinite(d)&&d<=tolerance&&d<distance){best=i;distance=d;}
+    }
+    return best;
+  }
+  function paint(track,attribute,index){
+    if(!track)return;
+    track.querySelectorAll('.kf-marker['+attribute+']').forEach(marker=>{
+      const active=Number(marker.getAttribute(attribute))===index&&index>=0;
+      marker.classList.toggle('active',active);
+      marker.classList.toggle('under-playhead',active);
+    });
+  }
+  function sync(){
+    raf=0;
+    try{
+      const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+      if(!id)return;
+      const t=currentTime();
+      const objectClip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;
+      if(objectClip){
+        const prop=typeof window.ethvelleObjectKeyframeProperty==='function'?window.ethvelleObjectKeyframeProperty(objectClip):(objectClip.type==='audio'?'volume':'transform');
+        const keys=Array.isArray(objectClip.ethvelleMediaKeyframes)?objectClip.ethvelleMediaKeyframes:[];
+        const tol=typeof window.ethvelleObjectKeyframeContactWindow==='function'?Number(window.ethvelleObjectKeyframeContactWindow()):Math.max(.05,9/(typeof pxPerSecond==='function'?pxPerSecond():100));
+        const idx=nearest(keys,prop,t,Math.max(.001,tol));
+        const prior=window.__ethvelleSelectedObjectKeyframe;
+        if(idx>=0)window.__ethvelleSelectedObjectKeyframe={id,index:idx,source:'playhead'};
+        else if(prior&&String(prior.id)===id)window.__ethvelleSelectedObjectKeyframe=null;
+        const track=Array.from(document.querySelectorAll('[data-object-kf-track]')).find(node=>String(node.dataset.objectKfTrack||'')===id)||null;
+        paint(track,'data-object-kf-idx',idx);
+        if(prior&&String(prior.id)===id&&Number(prior.index)!==idx&&typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+        return;
+      }
+      let clip=null,track=null;
+      if(id==='main'||/^seg\d+$/.test(id)){
+        clip=typeof window.getClipByRef==='function'?window.getClipByRef(id):null;
+        track=$(id==='main'?'kfTrack':'kfTrack-'+id);
+      }else if(/^char\d+$/.test(id)){
+        clip=typeof activeClip!=='undefined'?activeClip:null;
+        track=$('kfTrack');
+      }
+      if(!track)return;
+      const keys=clip&&Array.isArray(clip.keyframes)?clip.keyframes:[];
+      const tol=typeof window.keyframeContactWindow==='function'?Number(window.keyframeContactWindow()):Math.max(.05,9/(typeof pxPerSecond==='function'?pxPerSecond():100));
+      const idx=nearest(keys,null,t,Math.max(.001,tol));
+      const previous=typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null?Number(selectedKfIdx):-1;
+      if(typeof selectedKfIdx!=='undefined')selectedKfIdx=idx>=0?idx:null;
+      paint(track,'data-kf-idx',idx);
+      if(previous!==idx&&typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+    }catch(err){console.warn('Ethvelle canonical keyframe sync:',err);}
+  }
+  function schedule(){if(raf)return;raf=requestAnimationFrame(sync);}
+  // The clock setter is called on every accepted scrub frame, after moved clips' keyframe
+  // timestamps have already been committed. This schedules one time-based selection pass.
+  ['setCurrentAbsoluteTime','seekAbsoluteTimelineSeconds','renderTimelineScrubPreview','movePlayhead'].forEach(name=>{
+    const prior=window[name];
+    if(typeof prior!=='function'||prior.__evv239KeyframeSync)return;
+    const wrapped=function(){const result=prior.apply(this,arguments);schedule();return result;};
+    wrapped.__evv239KeyframeSync=true;window[name]=wrapped;
+  });
+  document.addEventListener('pointerup',schedule,{capture:true,passive:true});
+  document.addEventListener('pointercancel',schedule,{capture:true,passive:true});
+  const scroller=$('timelineScroll');if(scroller)scroller.addEventListener('scroll',schedule,{passive:true});
+  schedule();
+})();
+</script>
+
+
+<style id="ethvelle-v238-tracking-list-css">
+  #panelBody .evv-track-source-list{display:flex!important;flex-direction:column!important;gap:8px!important;width:100%!important;}
+  #panelBody .evv-track-source-card{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;width:100%!important;min-width:0!important;min-height:66px!important;aspect-ratio:auto!important;padding:7px 9px 7px 12px!important;overflow:hidden!important;border:1.5px solid #343746!important;border-radius:9px!important;background:#191B24!important;box-shadow:none!important;text-align:left!important;}
+  #panelBody .evv-track-source-card.selected{border:2px solid #2F5CE8!important;background:#202A48!important;}
+  #panelBody .evv-track-source-label{display:block!important;flex:1 1 auto!important;min-width:0!important;color:#F4F5F8!important;font-size:12px!important;font-weight:700!important;line-height:1.3!important;text-align:left!important;white-space:normal!important;}
+  #panelBody .evv-track-source-thumb{display:block!important;flex:0 0 76px!important;width:76px!important;height:50px!important;overflow:hidden!important;border-radius:6px!important;background:#252936!important;}
+  #panelBody .evv-track-source-thumb img{display:block!important;width:100%!important;height:100%!important;object-fit:cover!important;background:#20232E!important;}
+</style>
+
+
+<style id="ethvelle-v239-tracking-natural-ratio-css">
+  #panelBody .evv-track-source-card{display:flex!important;flex-direction:row!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;padding:7px 10px!important;}
+  #panelBody .evv-track-source-thumb{display:block!important;flex:0 0 auto!important;width:auto;height:auto;max-width:none!important;max-height:none!important;overflow:hidden!important;border-radius:6px!important;background:#252936!important;}
+  #panelBody .evv-track-source-thumb img{display:block!important;width:100%!important;height:100%!important;object-fit:contain!important;object-position:center!important;background:#20232E!important;}
+  #panelBody .evv-track-source-label{display:block!important;flex:1 1 auto!important;min-width:0!important;text-align:left!important;}
+</style>
+
+
+
+<!-- Ethvelle v240: preserve clip taps, keep keyframes attached to reflowed clips, and add optimized animated scene FX. -->
+<script id="ethvelle-v240-selection-keyframe-final-guard">
+(function(){
+  'use strict';
+  if(window.__ethvelleV240FinalGuard)return;
+  window.__ethvelleV240FinalGuard=true;
+  const priorSelect=window.selectClipForChrome;
+  if(typeof priorSelect==='function'&&!priorSelect.__evv240KeepTapSelection){
+    const wrapped=function(which){
+      const result=priorSelect.apply(this,arguments);
+      // The v76 playhead auto-select helper may run on pointer-up even for a simple tap.
+      // Keep a tap's explicitly selected clip stable; real timeline scrubbing is exempt.
+      if(!window.__ethvelleTimelineScrubbing){
+        const selectedValue=which==null?(typeof selectedClip!=='undefined'?selectedClip:null):which;
+        window.__ethvelleTimelineSelectionLockId=selectedValue==null?'':String(selectedValue);
+      }
+      return result;
+    };
+    wrapped.__evv240KeepTapSelection=true;
+    window.selectClipForChrome=wrapped;
+  }
+  // When the playhead moves during an actual scrub, v76 remains free to update the selection.
+  // A non-scrub programmatic render/scroll should not erase the last explicitly selected clip.
+  const timeline=document.getElementById('timelineScroll');
+  if(timeline&&!timeline.dataset.evv240TapGuard){
+    timeline.dataset.evv240TapGuard='1';
+    let pointer=null;
+    timeline.addEventListener('pointerdown',e=>{
+      const clip=e.target&&e.target.closest?e.target.closest('#timelineInner .overlay-clip[data-overlay-id],#timelineInner .track-clip[data-bg-id],#timelineInner .anim-clip'):null;
+      pointer=clip?{id:clip.dataset.overlayId||clip.dataset.bgId||(clip.id==='animClipEl'?'main':clip.dataset.segIdx!=null?'seg'+clip.dataset.segIdx:''),x:e.clientX,y:e.clientY,moved:false,pointerId:e.pointerId}:null;
+    },{capture:true,passive:true});
+    timeline.addEventListener('pointermove',e=>{
+      if(!pointer||pointer.pointerId!==e.pointerId)return;
+      if(Math.hypot(e.clientX-pointer.x,e.clientY-pointer.y)>=7)pointer.moved=true;
+    },{capture:true,passive:true});
+    const clear=e=>{if(pointer&&pointer.pointerId===e.pointerId)pointer=null;};
+    timeline.addEventListener('pointerup',clear,{capture:false,passive:true});
+    timeline.addEventListener('pointercancel',clear,{capture:false,passive:true});
+  }
+})();
+</script>
+
+
+
+
+
+
+
+<style id="ethvelle-v243-effect-label-pointer-css">
+  #timelineInner .overlay-clip .overlay-clip-label{pointer-events:none!important;}
+</style>
+
+<!-- Ethvelle v242: restore timeline watermarks, remove only clip-length timer chips, apply FX per layer, and add shape clips. -->
+<style id="ethvelle-v242-clip-duration-only-css">
+  /* v242 deliberately does NOT hide clip names, audio labels, or quality/watermark badges. */
+  #timelineInner .evv-hide-clip-duration,
+  #timelineInner .evv-hide-clip-duration-badge{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}
+  #timelineInner .evv-hide-clip-duration-before::before,
+  #timelineInner .evv-hide-clip-duration-after::after{content:none!important;display:none!important;}
+  /* Restore the timeline's filename watermark and enhanced-quality badge. */
+  #timelineInner .overlay-clip .clip-media-label,
+  #timelineInner .overlay-clip .clip-media-label-audio,
+  #timelineInner .overlay-clip .overlay-clip-label{display:block!important;visibility:visible!important;opacity:.76!important;}
+  #timelineInner .overlay-clip .evlt-quality-row-badge{display:inline-flex!important;visibility:visible!important;opacity:1!important;}
+</style>
+<script id="ethvelle-v242-media-shapes-and-clip-duration-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const safeText=(s)=>String(s||'').trim().replace(/[\u200e\u200f]/g,'');
+  const looksLikeDuration=(value)=>{
+    const v=safeText(value).replace(/^['"]|['"]$/g,'');
+    return /^(?:\d{1,2}:)?\d{1,2}:\d{2}(?:[.,]\d{1,2})?(?:\s*s)?$|^\d+(?:[.,]\d+)?\s*(?:s|sec|secs|seconds)$/i.test(v);
+  };
+  function hideClipDurationBadges(){
+    document.querySelectorAll('#timelineInner .overlay-clip,#timelineInner .anim-clip,#timelineInner .track-clip').forEach(clip=>{
+      ['::before','::after'].forEach(pseudo=>{
+        try{
+          const value=getComputedStyle(clip,pseudo).content;
+          const attrs=String(value||'').match(/attr\((data-[a-z0-9_-]+)\)/ig)||[];
+          const attrValue=attrs.map(a=>{const m=a.match(/attr\((data-[a-z0-9_-]+)\)/i);return m?clip.getAttribute(m[1]):'';}).join(' ');
+          if((value&&value!=='none'&&value!=='normal'&&looksLikeDuration(value))||looksLikeDuration(attrValue))
+            clip.classList.add(pseudo==='::before'?'evv-hide-clip-duration-before':'evv-hide-clip-duration-after');
+        }catch(_e){}
+      });
+      const cr=clip.getBoundingClientRect();
+      clip.querySelectorAll(':scope > *, :scope > * *').forEach(node=>{
+        if(!node||node.nodeType!==1)return;
+        if(node.matches('.evlt-quality-row-badge,.clip-media-label,.clip-media-label-audio,.overlay-clip-label,[data-ev-quality-badge]'))return;
+        if(node.matches('.anim-clip-handle,.sel-edge-top,.sel-edge-bottom,.sel-edge-left,.sel-edge-right,.keyframe-track,.kf-marker'))return;
+        const classes=String(node.className&&node.className.baseVal!==undefined?node.className.baseVal:node.className||'');
+        const named=/\b(timer|duration|timecode|clip-time|cliptime|clip-timer)\b/i.test(classes);
+        const attrText=[node.getAttribute('data-duration'),node.getAttribute('data-time'),node.getAttribute('data-clip-time'),node.getAttribute('aria-label'),node.getAttribute('title')].filter(Boolean).join(' ');
+        const txt=safeText((node.textContent||'')+' '+attrText);
+        const r=node.getBoundingClientRect();
+        const topRight=r.width>0&&r.height>0&&r.width<=120&&r.height<=32&&r.right>=cr.right-Math.max(28,Math.min(48,cr.width*.12))&&r.top<=cr.top+Math.max(22,cr.height*.25);
+        if(topRight&&(named||looksLikeDuration(txt)))node.classList.add(looksLikeDuration(txt)?'evv-hide-clip-duration-badge':'evv-hide-clip-duration');
+      });
+    });
+  }
+  let durationRaf=0;
+  function scheduleDurationSweep(){if(durationRaf)return;durationRaf=requestAnimationFrame(()=>{durationRaf=0;hideClipDurationBadges();});}
+  const timeline=$('timelineInner');
+  if(timeline&&typeof MutationObserver==='function')new MutationObserver(scheduleDurationSweep).observe(timeline,{childList:true,subtree:true,characterData:true,attributes:true,attributeFilter:['class','data-duration','data-time','aria-label','title']});
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',scheduleDurationSweep,{once:true});else scheduleDurationSweep();
+
+  // Applying a scene effect to a selected visual clip creates a normal five-second
+  // timeline effect layer. It overlaps (uses a free sub-lane) and tracks the selected
+  // media clip, so it never washes the entire canvas or pushes the source clip away.
+  const sceneEffectTypes=['rain','storm','clouds','snow','lightning','flash','fog','sunrise','blur'];
+  const priorSetVisualEffect=window.setEthvelleVisualEffect;
+  function clonePlain(value){try{return value==null?value:JSON.parse(JSON.stringify(value));}catch(_e){return value;}}
+  function transformAt(clip,time){
+    let tr=null;
+    try{const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',time):null;tr=typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(clip,time,keyed):null;tr=tr||keyed||clip.transform||{};}catch(_e){tr=clip.transform||{};}
+    let motion={};try{motion=typeof window.getEthvelleClipAnimationState==='function'?(window.getEthvelleClipAnimationState(clip,time)||{}):{};}catch(_e){}
+    return {scale:(Number(tr.scale)||1)*(Number(motion.scale)||1),offsetX:(Number(tr.offsetX)||0)+(Number(motion.x)||0),offsetY:(Number(tr.offsetY)||0)+(Number(motion.y)||0),rotation:(Number(tr.rotation)||0)+(Number(motion.rotation)||0)};
+  }
+  function effectThumb(type){
+    const glyph={rain:'≋',storm:'ϟ',clouds:'☁',snow:'✳',lightning:'ϟ',flash:'✦',fog:'〰',sunrise:'◉',blur:'◌'}[type]||'FX';
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" width="96" height="48" viewBox="0 0 96 48"><defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#243B80"/><stop offset="1" stop-color="#503B8D"/></linearGradient></defs><rect width="96" height="48" rx="7" fill="url(#g)"/><text x="48" y="32" text-anchor="middle" font-size="25" fill="#FFFFFF" font-family="Arial">'+glyph+'</text></svg>';
+    return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+  }
+  function addTrackedEffectClip(source,type){
+    const startNow=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+    const start=startNow>=Number(source.trimStart)&&startNow<Number(source.trimEnd)?startNow:Number(source.trimStart)||0;
+    const base=transformAt(source,start);
+    const id='ovfx'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const transparent='<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="none"/></svg>';
+    const src='data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(transparent);
+    const thumb=effectThumb(type);
+    const typeLabels={rain:'Rain',storm:'Storm',clouds:'Clouds',snow:'Snow',lightning:'Lightning',flash:'Flash Lighting',fog:'Fog',sunrise:'Cloud Sunrise',blur:'Blur'};
+    const clip={
+      id,name:(typeLabels[type]||'Video')+' Effect',color:'#5578F5',type:'image',src,
+      sourceDuration:5,sourceOffset:0,sourceWidth:Number(source.sourceWidth)||512,sourceHeight:Number(source.sourceHeight)||512,
+      trimStart:start,trimEnd:start+5,thumbs:[thumb],peaks:[],speed:1,
+      transform:{...base},mirrorX:!!source.mirrorX,mirrorY:!!source.mirrorY,
+      crop:clonePlain(source.crop),visualMask:null, // v391: an effect starts unmasked; a mask applied to this effect later remains independent.
+      visualEffects:{type,intensity:135,density:145,speed:115,scale:100,x:0,y:0},
+      ethvelleEffectClip:true,ethvelleEffectType:type,ethvelleEffectLabel:typeLabels[type]||'Effect',ethvelleEffectTargetId:String(source.id),
+      clipTracking:{enabled:true,targetId:'ov:'+String(source.id),targetBaseTransform:{...base},offsetX:0,offsetY:0,followScale:true,followRotation:true}
+    };
+    overlays.push(clip);
+    timelineDuration=Math.max(Number(timelineDuration)||0,clip.trimEnd);
+    try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();}catch(_e){}
+    try{if(typeof syncTimelineInnerWidth==='function')syncTimelineInnerWidth();if(typeof renderRuler==='function')renderRuler();}catch(_e){}
+    try{if(typeof renderOverlayListPanel==='function')renderOverlayListPanel();}catch(_e){}
+    try{if(typeof window.selectClipForChrome==='function')window.selectClipForChrome(id);}catch(_e){}
+    try{if(typeof renderFrame==='function')renderFrame();}catch(_e){}
+    try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+    try{if(typeof showToast==='function')showToast((typeLabels[type]||'Effect')+' effect added · 5 seconds',{duration:1500});}catch(_e){}
+    return clip;
+  }
+  window.ethvelleGetActiveClipBlurEffect=function(clip,time){
+    if(!clip||clip.ethvelleEffectClip)return null;
+    if(clip.visualEffects&&clip.visualEffects.type==='blur')return clip.visualEffects;
+    const t=Number(time)||0,id=String(clip.id||'');
+    const layer=(Array.isArray(overlays)?overlays:[]).find(o=>o&&o.ethvelleEffectClip&&o.ethvelleEffectType==='blur'&&String(o.ethvelleEffectTargetId)===id&&t>=Number(o.trimStart||0)&&t<Number(o.trimEnd||0)&&t>=Number(clip.trimStart||0)&&t<Number(clip.trimEnd||0));
+    return layer?layer.visualEffects:null;
+  };
+  if(typeof priorSetVisualEffect==='function'){
+    window.setEthvelleVisualEffect=function(type){
+      const selected=(Array.isArray(overlays)?overlays:[]).find(o=>o&&String(o.id)===String(typeof selectedClip!=='undefined'?selectedClip:''));
+      if(type==='none'&&selected&&['video','image'].includes(selected.type)){
+        (Array.isArray(overlays)?overlays:[]).forEach(layer=>{if(layer&&layer.ethvelleEffectClip&&String(layer.ethvelleEffectTargetId)===String(selected.id)){layer.visualEffects=Object.assign({},layer.visualEffects||{},{type:'none'});layer.ethvelleEffectType='none';}});
+        return priorSetVisualEffect.apply(this,arguments);
+      }
+      if(type==='none'||!sceneEffectTypes.includes(String(type))||!selected)return priorSetVisualEffect.apply(this,arguments);
+      if(selected.ethvelleEffectClip){selected.visualEffects=Object.assign({},selected.visualEffects||{},{type:String(type)});selected.ethvelleEffectType=String(type);try{renderFrame();persistProjectState();renderVisualPanel('visualEffects');}catch(_e){}return selected;}
+      if(['video','image'].includes(selected.type))return addTrackedEffectClip(selected,String(type));
+      return priorSetVisualEffect.apply(this,arguments);
+    };
+  }
+
+  // Add a readable label inside effect clips so they remain identifiable among image layers.
+  const priorClipFill=window.clipFillMarkup;
+  if(typeof priorClipFill==='function'&&!priorClipFill.__evv243EffectLabel){
+    const wrapped=function(ov,width){
+      if(ov&&ov.ethvelleEffectClip&&ov.type==='image'){
+        const src=(ov.thumbs&&ov.thumbs.length)?ov.thumbs[0]:ov.src;
+        return (src?`<div class="clip-thumb-strip" style="background-image:url(&quot;${escapeHtml(String(src))}&quot;);background-size:100% 100%;background-repeat:no-repeat"></div>`:'')+`<div class="overlay-clip-label">${escapeHtml(ov.ethvelleEffectLabel||ov.name||'Effect')}</div>`;
+      }
+      return priorClipFill.apply(this,arguments);
+    };
+    wrapped.__evv243EffectLabel=true;window.clipFillMarkup=wrapped;
+  }
+
+})();
+</script>
+
+
+
+<style id="ethvelle-v244-effect-clip-and-duration-css">
+  /* Hide ONLY the selected clip-length chip (e.g. 3.7s). The FULL HD watermark,
+     filename labels, export watermark and all other clip metadata remain visible. */
+  #timelineInner .ev-clip-dur-pill,
+  #timelineInner .ev-clip-dur-pill *{display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;}
+  #timelineInner .overlay-clip .evlt-quality-row-badge{display:inline-flex!important;visibility:visible!important;opacity:1!important;}
+  #timelineInner .overlay-clip .clip-media-label,
+  #timelineInner .overlay-clip .clip-media-label-audio,
+  #timelineInner .overlay-clip .overlay-clip-label{visibility:visible!important;}
+  /* Effect layers use the same standard overlay row geometry and square-corner clip body. */
+  #timelineInner .overlay-clip.ev-v244-effect-clip{
+    position:absolute!important;height:30px!important;min-height:30px!important;max-height:30px!important;
+    border-radius:0!important;overflow:hidden!important;box-sizing:border-box!important;
+  }
+  #timelineInner .overlay-clip.ev-v244-effect-clip .clip-thumb-strip{inset:0!important;width:100%!important;height:100%!important;}
+  #timelineInner .overlay-clip.ev-v244-effect-clip .overlay-clip-label{pointer-events:none!important;z-index:3!important;}
+  .evv-fx-adjustments{display:flex;flex-direction:column;gap:9px;margin-top:12px;padding-top:10px;border-top:1px solid rgba(255,255,255,.09);}
+  .evv-fx-adjustments .evv-slider-card{margin:0!important;}
+</style>
+
+
+<script id="ethvelle-v244-effect-clip-mosaic-replace-and-preview-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const list=()=>Array.isArray(window.overlays)?window.overlays:(typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[]);
+  const selectedId=()=>String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip||''));
+  const getSelected=()=>list().find(o=>o&&String(o.id)===selectedId())||null;
+  const labels={rain:'Rain',storm:'Storm',clouds:'Clouds',snow:'Snow',lightning:'Lightning',flash:'Flash Lighting',fog:'Fog',sunrise:'Cloud Sunrise',blur:'Blur',mosaic:'Mosaic Blur'};
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  /* stageW/stageH and overlayMediaEls are top-level lexical bindings in Ethvelle's
+     classic scripts. Read them directly (window.stageW/window.overlayMediaEls are not
+     guaranteed to exist in Android WebView). */
+  function stageWidthValue(fallback){try{if(typeof stageW!=='undefined'&&Number(stageW)>0)return Number(stageW);}catch(_e){}return Number(fallback)||1;}
+  function stageHeightValue(fallback){try{if(typeof stageH!=='undefined'&&Number(stageH)>0)return Number(stageH);}catch(_e){}return Number(fallback)||1;}
+  function liveMediaFor(id){try{return typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[String(id)]||null:null;}catch(_e){return null;}}
+
+  /* The v234 pill updater can keep recreating the node after a selection or scroll.
+     Remove it at insertion time too; CSS above is the final visual safety net. */
+  function removeDurationPills(root){
+    const scope=root&&root.querySelectorAll?root:document;
+    scope.querySelectorAll('.ev-clip-dur-pill').forEach(n=>n.remove());
+  }
+  removeDurationPills(document);
+  const timerRoot=$('timelineInner');
+  if(timerRoot&&typeof MutationObserver==='function'){
+    const timerObserver=new MutationObserver(records=>{
+      for(const rec of records){
+        if(rec.addedNodes)rec.addedNodes.forEach(n=>{if(n.nodeType===1){if(n.matches&&n.matches('.ev-clip-dur-pill'))n.remove();removeDurationPills(n);}});
+      }
+    });
+    timerObserver.observe(timerRoot,{childList:true,subtree:true});
+  }
+
+  function markEffectClipNodes(){
+    const arr=list();
+    document.querySelectorAll('#timelineInner .overlay-clip[data-overlay-id]').forEach(el=>{
+      const item=arr.find(o=>o&&String(o.id)===String(el.dataset.overlayId));
+      const yes=!!(item&&item.ethvelleEffectClip);
+      el.classList.toggle('ev-v244-effect-clip',yes);
+      if(yes){el.dataset.evEffectType=String(item.ethvelleEffectType||'effect');el.title=(item.ethvelleEffectLabel||item.name||'Effect')+' · 5 seconds';}
+      else{delete el.dataset.evEffectType;}
+    });
+  }
+  const oldRenderLayers=window.renderOverlayLayers;
+  if(typeof oldRenderLayers==='function'&&!oldRenderLayers.__evv244MarkEffects){
+    const wrapped=function(){const r=oldRenderLayers.apply(this,arguments);requestAnimationFrame(markEffectClipNodes);return r;};
+    wrapped.__evv244MarkEffects=true;window.renderOverlayLayers=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',markEffectClipNodes,{once:true});else requestAnimationFrame(markEffectClipNodes);
+
+  /* Replacing an effect clip means choosing another effect for that SAME five-second clip,
+     not opening the device media picker and not creating a duplicate layer. */
+  const oldReplace=window.replaceSelectedClip;
+  if(typeof oldReplace==='function'&&!oldReplace.__evv244EffectReplace){
+    const wrapped=function(){
