@@ -1,0 +1,1000 @@
+    if(typeof prev!=='function'||prev.__evV199Open)return;
+    const wrapped=function(proj){
+      cancelPending(false);hidePill();
+      const r=prev.apply(this,arguments);
+      try{beginOpenPreload(proj);}catch(err){overlayUI(false);}
+      return r;
+    };
+    wrapped.__evV199Open=true;
+    window.openEditor=wrapped;try{openEditor=wrapped;}catch(_e){}
+  }
+  // leaving the editor must never leave the card or pill hanging
+  const origGoTo=window.goTo;
+  if(typeof origGoTo==='function'&&!origGoTo.__evV199){
+    const w=function(name){if(name!=='editor'){cancelPending(false);hidePill();openSerial++;overlayUI(false);}return origGoTo.apply(this,arguments);};
+    w.__evV199=true;window.goTo=w;try{goTo=w;}catch(_e){}
+  }
+  document.addEventListener('visibilitychange',()=>{if(document.hidden&&pending){cancelPending(true);}});
+
+  installStartGate();installStartStamp();installPauseGuards();installTickHook();installOpenHook();
+
+  window.__evPreload={readiness,waitReady,lookaheadFor,get pending(){return !!pending;},stallCount};
+})();
+</script>
+
+
+<script id="ethvelle-v203-playback-report-js">
+(function(){
+  'use strict';
+  const diag=window.__evPlaybackDiagnostics;
+  if(!diag||!diag.enabled)return; // no button, observers or monitor loop without ?evdebug=1
+  const STYLE_ID='ev-v203-report-style';
+  if(!document.getElementById(STYLE_ID)){
+    const style=document.createElement('style');style.id=STYLE_ID;
+    style.textContent='#evV203CopyPlaybackReport{position:fixed;right:12px;bottom:14px;z-index:2147483646;border:1px solid rgba(255,255,255,.28);border-radius:8px;background:#152b56;color:#fff;padding:9px 12px;font:600 12px/1.2 Inter,system-ui,sans-serif;box-shadow:0 4px 16px rgba(0,0,0,.28);cursor:pointer;display:flex;align-items:center;gap:7px}#evV203CopyPlaybackReport:active{transform:translateY(1px)}#evV203CopyPlaybackReport[disabled]{opacity:.7;cursor:default}';
+    document.head.appendChild(style);
+  }
+  const button=document.createElement('button');button.type='button';button.id='evV203CopyPlaybackReport';button.textContent='Copy playback report';button.setAttribute('aria-label','Copy playback report');
+  (document.body||document.documentElement).appendChild(button);
+
+  const stats={gap34:0,gap100:0,maxRafGap:0,longTaskCount:0,longTaskMs:0,maxClockDrift:0,clockOffset:null,lastRaf:null,playingSince:null};
+  const safe=(fn,fallback)=>{try{return fn();}catch(_e){return fallback;}};
+  const fmt=(v,d=3)=>Number.isFinite(Number(v))?Number(v).toFixed(d):'n/a';
+  const trunc=(v,n)=>String(v==null?'':v).slice(0,n);
+  let observer=null;
+  if(typeof PerformanceObserver!=='undefined'){
+    try{
+      observer=new PerformanceObserver(list=>{
+        const entries=list.getEntries();
+        for(let i=0;i<entries.length;i++){
+          const e=entries[i];
+          const playing=safe(()=>{const d=window.__ethvelleAudioSchedulerDiagnostics;return !!(d&&d.getPlaybackState().playing);},false);
+          if(playing){stats.longTaskCount++;stats.longTaskMs+=Number(e.duration)||0;}
+        }
+      });
+      observer.observe({type:'longtask',buffered:true});
+    }catch(_e){observer=null;}
+  }
+  function playbackState(){
+    const d=window.__ethvelleAudioSchedulerDiagnostics;
+    return safe(()=>d&&d.getPlaybackState?d.getPlaybackState():{playing:!!(window.__evPlaybackState&&window.__evPlaybackState.playing),time:NaN},{playing:false,time:NaN});
+  }
+  function monitor(){
+    const now=performance.now(),state=playbackState();
+    if(state.playing){
+      if(stats.lastRaf!==null){
+        const gap=now-stats.lastRaf;
+        if(gap>34)stats.gap34++;
+        if(gap>100)stats.gap100++;
+        if(gap>stats.maxRafGap)stats.maxRafGap=gap;
+      }
+      stats.lastRaf=now;
+      const d=window.__ethvelleAudioSchedulerDiagnostics;
+      const ctx=safe(()=>d&&d.getContext&&d.getContext(),null);
+      if(ctx&&ctx.state==='running'&&Number.isFinite(ctx.currentTime)){
+        const offset=ctx.currentTime*1000-now;
+        if(stats.clockOffset===null)stats.clockOffset=offset;
+        else stats.maxClockDrift=Math.max(stats.maxClockDrift,Math.abs(offset-stats.clockOffset));
+      }
+    }else{
+      stats.lastRaf=null;stats.clockOffset=null;
+    }
+    requestAnimationFrame(monitor);
+  }
+  requestAnimationFrame(monitor);
+
+  function buildReport(){
+    const now=performance.now(),elapsed=Math.max(.001,(now-(diag.startedAt||now))/1000);
+    const d=window.__ethvelleAudioSchedulerDiagnostics;
+    const state=playbackState();
+    const ctx=safe(()=>d&&d.getContext&&d.getContext(),null);
+    const pool=safe(()=>d&&d.getPoolState?d.getPoolState():null,null)||{};
+    const budget=window.__evDecoderBudget||{};
+    const stop=diag.stopCounts||{};
+    const times=(diag.sourceNodeTimes||[]).filter(t=>now-t<=10000);
+    const lastSecond=times.filter(t=>now-t<=1000).length;
+    const rateWindowSec=Math.max(1,Math.min(10,times.length?((now-Math.max(now-10000,times[0]))/1000):1));
+    const rate10=times.length/rateWindowSec;
+    let playbackStatsText='unavailable';
+    if(ctx){
+      const ps=safe(()=>ctx.playbackStats,null);
+      if(ps!==null&&ps!==undefined){
+        const get=(...keys)=>{for(const k of keys){const v=safe(()=>ps[k],undefined);if(v!==undefined&&v!==null)return v;}return 'n/a';};
+        const count=get('underrunCount','totalUnderrunCount','underruns','underrun_count');
+        const duration=get('underrunDuration','totalUnderrunDuration','underrunTime','underrun_time');
+        playbackStatsText='underrun count='+count+', duration='+duration+'; raw='+trunc(safe(()=>JSON.stringify(ps),String(ps)),500);
+      }
+    }
+    const videos=Array.from(document.querySelectorAll('video'));
+    const playingVideos=videos.filter(v=>!v.paused&&!v.ended).length;
+    const sourceRows=[];
+    const srcs=safe(()=>d&&d.getProjectAudioSources?d.getProjectAudioSources():[],[]);
+    const grouped=new Map();
+    srcs.forEach(src=>{
+      const key=String(src.src||'');
+      if(!grouped.has(key))grouped.set(key,{ids:[],types:[],src:key});
+      const row=grouped.get(key);row.ids.push(src.id);row.types.push(src.type);
+    });
+    grouped.forEach(row=>{
+      const entry=safe(()=>d&&d.cache&&d.cache.get(row.src),null);
+      const status=entry&&entry.status?entry.status:'not requested';
+      const error=entry&&entry.error?'  -  '+trunc(entry.error,140):'';
+      sourceRows.push('  clips=['+row.ids.join(',')+'] types='+Array.from(new Set(row.types)).join(',')+' status='+status+error);
+    });
+    let lines=[];
+    lines.push('ETHVELLE PLAYBACK DIAGNOSTICS v203');
+    lines.push('Captured: '+new Date().toISOString());
+    lines.push('Debug URL flag: evdebug=1; monitoring age: '+fmt(elapsed,1)+' s');
+    lines.push('');
+    lines.push('[Scheduler]');
+    lines.push('stopScheduledAll total='+Number(stop.total||0)+'; drift='+Number(stop.drift||0)+', pause='+Number(stop.pause||0)+', start='+Number(stop.start||0)+', edit='+Number(stop.edit||0)+', other='+Number(stop.other||0));
+    lines.push('AudioBufferSource nodes: '+lastSecond+' in last 1 s; '+fmt(rate10,2)+' nodes/s over the last '+fmt(rateWindowSec,1)+' s (max 10 s)');
+    lines.push('Anchor re-creations: '+Number(diag.anchorRecreations||0));
+    lines.push('');
+    lines.push('[AudioContext]');
+    lines.push('state='+(ctx?ctx.state:'unavailable')+'; baseLatency='+(ctx?fmt(ctx.baseLatency,6)+' s':'n/a')+'; outputLatency='+(ctx?fmt(ctx.outputLatency,6)+' s':'n/a'));
+    lines.push('currentTime='+(ctx?fmt(ctx.currentTime,6)+' s':'n/a')+'; max |ctx/performance clock drift|='+fmt(stats.maxClockDrift,3)+' ms');
+    lines.push('playbackStats: '+playbackStatsText);
+    lines.push('');
+    lines.push('[Main thread]');
+    lines.push('rAF gaps >34 ms: '+stats.gap34+'; >100 ms: '+stats.gap100+'; max gap: '+fmt(stats.maxRafGap,1)+' ms');
+    lines.push('PerformanceObserver longtask: '+(observer?'available':'unavailable')+'; count='+stats.longTaskCount+'; total='+fmt(stats.longTaskMs,1)+' ms');
+    lines.push('');
+    lines.push('[Video]');
+    lines.push('DOM video elements: '+videos.length+'; currently playing: '+playingVideos);
+    lines.push('decoder budget pool='+Number(budget.pool||3)+' / warm='+Number(budget.warm||2)+'; pool state size='+Number(pool.size||0)+' (free='+Number(pool.free||0)+', busy='+Number(pool.busy||0)+')');
+    lines.push('rebuffer count='+Number(diag.rebufferCount||0)+'; kick count='+Number(diag.kickCount||0)+'; __evRebuffer='+String(window.__evRebuffer));
+    lines.push('');
+    lines.push('[Audio decode source status]');
+    lines.push(sourceRows.length?sourceRows.join('\n'):'  no video/audio sources found in project');
+    return lines.join('\n');
+  }
+  async function copyReport(){
+    const report=buildReport();
+    try{
+      if(navigator.clipboard&&navigator.clipboard.writeText){await navigator.clipboard.writeText(report);button.textContent='Playback report copied';}
+      else throw new Error('Clipboard API unavailable');
+    }catch(_e){
+      try{
+        const ta=document.createElement('textarea');ta.value=report;ta.setAttribute('readonly','');ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();
+        const ok=document.execCommand('copy');ta.remove();
+        button.textContent=ok?'Playback report copied':'Copy failed';
+      }catch(_err){button.textContent='Copy failed';}
+    }
+    button.disabled=true;setTimeout(()=>{button.disabled=false;button.textContent='Copy playback report';},1800);
+  }
+  button.addEventListener('click',copyReport);
+})();
+</script>
+
+
+
+<!-- Ethvelle v204: animation search matches Asset search, unified solid focus blue, stable end-frame preview. -->
+<style id="ethvelle-v204-search-selection-and-project-border">
+  /* Animation search uses the same field component as the Asset library: same icon position,
+     42px field height, 11px corners, padding, clear control and input typography. */
+  #screen-editor #evcaAnimSearchBar{
+    position:relative!important;display:block!important;width:100%!important;min-width:0!important;
+    margin:0 0 12px!important;padding:0!important;border:0!important;border-radius:0!important;
+    outline:0!important;box-shadow:none!important;background:transparent!important;background-image:none!important;
+    overflow:visible!important;
+  }
+  #screen-editor #evcaAnimSearchBar .editor-asset-search-icon{left:13px!important;}
+  #screen-editor #evcaAnimSearchInput,
+  #screen-editor #evcaAnimSearchInput[type="search"]{
+    display:block!important;width:100%!important;min-width:0!important;min-height:42px!important;height:42px!important;
+    box-sizing:border-box!important;margin:0!important;padding:11px 44px 11px 40px!important;
+    border:1px solid var(--line)!important;border-radius:11px!important;border-style:solid!important;
+    border-image:none!important;background:var(--panel)!important;background-image:none!important;
+    color:var(--text)!important;-webkit-text-fill-color:var(--text)!important;
+    font:inherit!important;font-size:13px!important;line-height:normal!important;
+    outline:0!important;box-shadow:none!important;-webkit-box-shadow:none!important;
+    appearance:none!important;-webkit-appearance:none!important;
+    -webkit-tap-highlight-color:transparent!important;
+  }
+  #screen-editor #evcaAnimSearchInput::placeholder{color:#B8C0D0!important;-webkit-text-fill-color:#B8C0D0!important;opacity:1!important;}
+  #screen-editor #evcaAnimSearchInput::-webkit-search-decoration,
+  #screen-editor #evcaAnimSearchInput::-webkit-search-cancel-button{display:none!important;-webkit-appearance:none!important;}
+  #screen-editor #evcaAnimSearchBar .editor-asset-search-clear{
+    position:absolute!important;right:8px!important;top:21px!important;transform:translateY(-50%)!important;
+    z-index:2!important;
+  }
+
+  /* One true focus color across all search components. No gradients, inner rims, outlines,
+     shadows, filters or pseudo-element highlights are allowed to alter the solid border. */
+  #app .tutorial-search-bar:focus-within,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within,
+  #app #screen-projects .projects-search-field:focus-within,
+  #app .editor-asset-search:focus,
+  #app .editor-asset-search:focus-visible,
+  #app #screen-editor #evcaAnimSearchInput:focus,
+  #app #screen-editor #evcaAnimSearchInput:focus-visible,
+  #app :is(.tutorial-search-bar,.prompt-search-box,.projects-search-field):focus-within{
+    border:2px solid #0068FF!important;border-top:2px solid #0068FF!important;
+    border-right:2px solid #0068FF!important;border-bottom:2px solid #0068FF!important;
+    border-left:2px solid #0068FF!important;border-style:solid!important;border-image:none!important;
+    outline:0!important;outline-offset:0!important;box-shadow:none!important;-webkit-box-shadow:none!important;
+    background-image:none!important;filter:none!important;
+  }
+  #app .editor-asset-search-wrap,
+  #app .evca-search-wrap,
+  #app .evca-anim-search-wrap{border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important;background-image:none!important;}
+  #app .tutorial-search-bar:focus-within input,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within input,
+  #app #screen-projects .projects-search-field:focus-within input{
+    border:0!important;outline:0!important;box-shadow:none!important;-webkit-box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app .editor-asset-search-wrap:focus-within::before,
+  #app .editor-asset-search-wrap:focus-within::after,
+  #app .evca-search-wrap:focus-within::before,
+  #app .evca-search-wrap:focus-within::after,
+  #app .evca-anim-search-wrap:focus-within::before,
+  #app .evca-anim-search-wrap:focus-within::after,
+  #app .tutorial-search-bar:focus-within::before,
+  #app .tutorial-search-bar:focus-within::after,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::before,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::after,
+  #app #screen-projects .projects-search-field:focus-within::before,
+  #app #screen-projects .projects-search-field:focus-within::after{
+    content:none!important;display:none!important;border:0!important;outline:0!important;
+    box-shadow:none!important;filter:none!important;background:none!important;background-image:none!important;
+  }
+
+  /* Slightly thicker selected-project frame, without changing card dimensions or fill. */
+  #app #screen-projects .project-card.selected{
+    box-sizing:border-box!important;border:2px solid #0068FF!important;
+    border-style:solid!important;border-image:none!important;outline:0!important;
+    /* Preserve the card's existing depth shadow; only the selection border gets thicker. */
+  }
+</style>
+
+
+<style id="ethvelle-v205-walk-audio-reverse-scrub-and-animation-selection">
+  /* Use the same solid blue as the Character Animation search field (#0068FF). */
+  #screen-editor .anim-toggle.on,
+  #screen-editor .anim-toggle.on:hover,
+  #screen-editor .anim-toggle.on:focus-visible{
+    background:#0068FF!important;
+    border:1.5px solid #0068FF!important;
+    border-color:#0068FF!important;
+    box-shadow:none!important;
+    outline:0!important;
+  }
+  #screen-editor .anim-toggle.on::before{
+    background:#FFFFFF!important;
+    box-shadow:none!important;
+  }
+  #screen-editor .anim-item.selected{
+    border:2px solid #0068FF!important;
+    border-style:solid!important;border-image:none!important;
+    outline:0!important;
+    box-shadow:0 0 0 1px rgba(0,104,255,.16),0 3px 10px rgba(0,0,0,.20)!important;
+  }
+  #screen-editor .anim-item.selected .anim-play-mini{
+    background:#0068FF!important;
+    border:0!important;
+    box-shadow:none!important;
+    color:#FFFFFF!important;
+  }
+  #screen-editor .anim-item.selected .anim-play-mini svg{fill:#FFFFFF!important;}
+
+  /* Slightly thicker 2px blue selection perimeter around the chosen timeline animation clip. */
+  html body #screen-editor #timelineInner .anim-clip.selected{
+    box-sizing:border-box!important;
+    border:2px solid #0068FF!important;
+    border-style:solid!important;border-image:none!important;
+    outline:0!important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v206: CapCut-style audio library, shared blue-underlined filter tabs,
+     clean character-clip selection edges, and left-start contextual toolbar. -->
+<style id="ethvelle-v206-audio-library-and-filter-tabs-css">
+  /* The animation clip keeps its original white trim edges. Remove only the extra blue
+     perimeter introduced around a selected character animation clip in v205. */
+  html body #screen-editor #timelineInner #characterRows .anim-clip.selected,
+  html body #screen-editor #timelineInner #characterRows .anim-clip.selected:focus,
+  html body #screen-editor #timelineInner #characterRows .anim-clip.selected:focus-visible{
+    border:2px solid transparent!important;
+    border-color:transparent!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+  }
+
+  /* Asset categories become a compact, horizontally swipeable tab strip. The blue
+     underline is the same #0068FF used by focused search fields. */
+  #screen-editor #editorAssetFilters.editor-asset-filters{
+    display:flex!important;align-items:stretch!important;gap:22px!important;
+    width:100%!important;min-height:42px!important;padding:0 1px!important;margin:0!important;
+    overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;
+    border-bottom:1px solid rgba(255,255,255,.09)!important;
+    scrollbar-width:none!important;-webkit-overflow-scrolling:touch!important;
+  }
+  #screen-editor #editorAssetFilters.editor-asset-filters::-webkit-scrollbar{display:none!important;}
+  #screen-editor #editorAssetFilters .editor-asset-filter,
+  #screen-editor #editorAssetFilters .editor-asset-filter.active,
+  #screen-editor #editorAssetFilters .editor-asset-filter.user-selected,
+  #screen-editor #editorAssetFilters .editor-asset-filter.active.user-selected{
+    position:relative!important;display:inline-flex!important;flex:0 0 auto!important;
+    align-items:center!important;justify-content:center!important;
+    min-height:42px!important;height:42px!important;padding:0 1px 10px!important;margin:0!important;
+    border:0!important;border-radius:0!important;background:transparent!important;background-image:none!important;
+    color:#9296A2!important;-webkit-text-fill-color:#9296A2!important;
+    font-size:12px!important;font-weight:700!important;line-height:1!important;
+    box-shadow:none!important;outline:0!important;filter:none!important;transform:none!important;
+  }
+  #screen-editor #editorAssetFilters .editor-asset-filter.active,
+  #screen-editor #editorAssetFilters .editor-asset-filter.user-selected,
+  #screen-editor #editorAssetFilters .editor-asset-filter.active.user-selected{
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+  }
+  #screen-editor #editorAssetFilters .editor-asset-filter::after{
+    content:""!important;position:absolute!important;left:50%!important;bottom:-1px!important;
+    width:0!important;height:3px!important;border-radius:999px!important;
+    background:#0068FF!important;transform:translateX(-50%)!important;
+    transition:width .16s ease!important;box-shadow:none!important;
+  }
+  #screen-editor #editorAssetFilters .editor-asset-filter.active::after,
+  #screen-editor #editorAssetFilters .editor-asset-filter.user-selected::after{width:32px!important;}
+
+  /* Audio Library search field deliberately matches the Asset search field. */
+  #toolPanel #ethvelleAudioSearchWrap{position:relative!important;width:100%!important;min-width:0!important;}
+  #toolPanel #ethvelleAudioLibrarySearch{
+    display:block!important;width:100%!important;min-height:43px!important;box-sizing:border-box!important;
+    padding:11px 42px 11px 40px!important;border:1px solid var(--line)!important;
+    border-radius:11px!important;background:var(--panel)!important;color:var(--text)!important;
+    font:inherit!important;font-size:13px!important;outline:0!important;box-shadow:none!important;
+  }
+  #toolPanel #ethvelleAudioLibrarySearch:focus,
+  #toolPanel #ethvelleAudioLibrarySearch:focus-visible{
+    border:2px solid #0068FF!important;border-color:#0068FF!important;
+    border-image:none!important;outline:0!important;box-shadow:none!important;background-image:none!important;
+  }
+  #toolPanel #ethvelleAudioLibrarySearch::-webkit-search-cancel-button{-webkit-appearance:none!important;appearance:none!important;}
+  #toolPanel .ethvelle-audio-library-head{margin:1px 0 13px!important;}
+  #toolPanel .ethvelle-audio-library-heading{font-size:15px!important;font-weight:800!important;letter-spacing:-.02em!important;}
+  #toolPanel .ethvelle-audio-tabs{
+    display:flex!important;align-items:stretch!important;gap:23px!important;width:100%!important;
+    min-height:43px!important;margin:10px 0 4px!important;padding:0 1px!important;
+    overflow-x:auto!important;overflow-y:hidden!important;white-space:nowrap!important;
+    border-bottom:1px solid rgba(255,255,255,.09)!important;
+    scrollbar-width:none!important;-webkit-overflow-scrolling:touch!important;
+  }
+  #toolPanel .ethvelle-audio-tabs::-webkit-scrollbar{display:none!important;}
+  #toolPanel .ethvelle-audio-tab{
+    position:relative!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;
+    flex:0 0 auto!important;min-height:43px!important;padding:0 1px 11px!important;margin:0!important;
+    border:0!important;border-radius:0!important;background:transparent!important;color:#9296A2!important;
+    font:700 12px/1 Inter,Arial,sans-serif!important;box-shadow:none!important;outline:0!important;
+  }
+  #toolPanel .ethvelle-audio-tab.active{color:#FFFFFF!important;}
+  #toolPanel .ethvelle-audio-tab::after{
+    content:"";position:absolute;left:50%;bottom:-1px;width:0;height:3px;border-radius:999px;
+    background:#0068FF;transform:translateX(-50%);transition:width .16s ease;
+  }
+  #toolPanel .ethvelle-audio-tab.active::after{width:32px;}
+  #toolPanel .ethvelle-audio-library-list{display:flex!important;flex-direction:column!important;gap:0!important;padding:1px 0 16px!important;}
+  #toolPanel .ethvelle-audio-row{
+    display:grid!important;grid-template-columns:34px minmax(0,1fr) 38px 34px 34px minmax(42px,auto)!important;
+    align-items:center!important;gap:8px!important;min-width:0!important;min-height:62px!important;
+    padding:7px 1px!important;border:0!important;border-bottom:1px solid rgba(255,255,255,.075)!important;
+    border-radius:0!important;background:transparent!important;box-shadow:none!important;
+  }
+  #toolPanel .ethvelle-audio-preview{
+    width:31px!important;height:31px!important;min-width:31px!important;min-height:31px!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;padding:0!important;
+    border:0!important;border-radius:50%!important;background:transparent!important;color:#AEB4C2!important;
+  }
+  #toolPanel .ethvelle-audio-preview svg{width:17px!important;height:17px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:1.7!important;stroke-linecap:round!important;stroke-linejoin:round!important;}
+  #toolPanel .ethvelle-audio-preview.is-playing{color:#FFFFFF!important;background:rgba(0,104,255,.16)!important;}
+  #toolPanel .ethvelle-audio-info{min-width:0!important;display:flex!important;flex-direction:column!important;gap:4px!important;}
+  #toolPanel .ethvelle-audio-name{display:block!important;min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#E7EAF1!important;font-size:12px!important;font-weight:600!important;line-height:1.25!important;}
+  #toolPanel .ethvelle-audio-meta{display:block!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#858B99!important;font-size:10px!important;font-weight:500!important;line-height:1.2!important;}
+  #toolPanel .ethvelle-audio-duration{color:#969CAA!important;font-size:10.5px!important;font-weight:600!important;text-align:center!important;font-variant-numeric:tabular-nums!important;white-space:nowrap!important;}
+  #toolPanel .ethvelle-audio-action{
+    width:31px!important;height:34px!important;min-width:31px!important;min-height:34px!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;padding:0!important;
+    border:0!important;border-radius:8px!important;background:transparent!important;color:#A0A7B5!important;
+  }
+  #toolPanel .ethvelle-audio-action svg{width:18px!important;height:18px!important;display:block!important;fill:none!important;stroke:currentColor!important;stroke-width:1.7!important;stroke-linecap:round!important;stroke-linejoin:round!important;}
+  #toolPanel .ethvelle-audio-action.is-saved{color:#FFFFFF!important;}
+  #toolPanel .ethvelle-audio-action.add{color:#B8C2D8!important;}
+  #toolPanel .ethvelle-audio-action.download:active{color:#0068FF!important;background:rgba(0,104,255,.12)!important;}
+  #toolPanel .ethvelle-audio-action.download.is-busy{opacity:.45!important;pointer-events:none!important;}
+  #toolPanel .ethvelle-audio-action.add:active{color:#0068FF!important;background:rgba(0,104,255,.12)!important;}
+  #toolPanel .ethvelle-audio-empty{padding:26px 12px!important;text-align:center!important;color:#9096A4!important;font-size:12px!important;line-height:1.5!important;}
+  #toolPanel .ethvelle-audio-empty strong{display:block!important;margin-bottom:5px!important;color:#E6EAF2!important;font-size:13px!important;}
+  @media(max-width:360px){
+    #toolPanel .ethvelle-audio-tabs{gap:18px!important;}
+    #toolPanel .ethvelle-audio-row{grid-template-columns:30px minmax(0,1fr) 34px 28px 30px minmax(42px,auto)!important;gap:5px!important;}
+    #toolPanel .ethvelle-audio-action{width:28px!important;min-width:28px!important;}
+  }
+</style>
+<style id="ethvelle-v207-audio-saved-and-add-css">
+  /* Saved bookmark: a fully solid white shape (no hollow centre) once the sound is saved. */
+  #toolPanel .ethvelle-audio-action.favorite.is-saved{color:#FFFFFF!important;}
+  #toolPanel .ethvelle-audio-action.favorite.is-saved svg{
+    fill:#FFFFFF!important;stroke:#FFFFFF!important;stroke-width:1.7!important;stroke-linejoin:round!important;
+  }
+  /* Add-to-timeline switch: same control as the "Add animation" switch on the Character
+     Animation blocks (.anim-toggle), with the same #0068FF "on" colour. */
+  #toolPanel .ethvelle-audio-add{
+    position:relative!important;justify-self:center!important;align-self:center!important;
+    margin:0!important;padding:0!important;-webkit-appearance:none;appearance:none;
+  }
+  #toolPanel .ethvelle-audio-add::after{content:"";position:absolute;inset:-12px -6px;}
+  #toolPanel .ethvelle-audio-add.on,
+  #toolPanel .ethvelle-audio-add.on:hover,
+  #toolPanel .ethvelle-audio-add.on:focus-visible{
+    background:#0068FF!important;border-color:#0068FF!important;box-shadow:none!important;outline:0!important;
+  }
+  #toolPanel .ethvelle-audio-add.on::before{background:#FFFFFF!important;box-shadow:none!important;}
+  #toolPanel .ethvelle-audio-add:focus-visible{outline:2px solid #0068FF!important;outline-offset:3px!important;}
+</style>
+<script id="ethvelle-v206-audio-library-js">
+(function(){
+  'use strict';
+  let activeTab='trending',searchQuery='',preview=null,previewSource='',favorites=new Set();
+  const favKey='ethvelleAudioFavoritesV206';
+  try{favorites=new Set(JSON.parse(localStorage.getItem(favKey)||'[]').map(String));}catch(_e){}
+  const $=id=>document.getElementById(id);
+  const esc=value=>String(value==null?'':value).replace(/[&<>"']/g,ch=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[ch]));
+  const assets=()=>{try{return (typeof getEditorAssets==='function'?getEditorAssets():[]).filter(a=>a&&editorAssetCategory(a)==='audio'&&String(a.src||'').trim());}catch(_e){return [];}};
+  const fmt=value=>{const n=Math.max(0,Math.floor(Number(value)||0));return '00:'+String(n%60).padStart(2,'0');};
+  const searchIcon='<svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>';
+  const playIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5.5v13l10-6.5z" fill="currentColor" stroke="none"/></svg>';
+  const pauseIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14M16 5v14" stroke-width="2.8"/></svg>';
+  const bookmarkIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 4.8A1.8 1.8 0 0 1 7.8 3h8.4A1.8 1.8 0 0 1 18 4.8V21l-6-4-6 4z"/></svg>';
+  const downloadIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5M5 19.5h14"/></svg>';
+  const tabDefs=[['trending','Trending'],['sfx','Sound FX'],['voice','Voice'],['saved','Saved'],['music','Music Clip'],['funny','Funny'],['swooshes','Swooshes'],['asmr','ASMR']];
+  function tagsFor(item){return [item.name,item.description,item.keywords,item.tags,item.category,item.type].flat().map(v=>String(v||'')).join(' ').toLowerCase();}
+  function matchesTab(item){
+    const t=tagsFor(item);
+    if(item&&item.audioSection&&activeTab!=='trending'&&activeTab!=='saved')return String(item.audioSection)===activeTab;
+    if(activeTab==='trending')return true;
+    if(activeTab==='saved')return favorites.has(String(item.id));
+    if(activeTab==='music')return /music|song|bgm|soundtrack|track|melody|instrumental/.test(t);
+    if(activeTab==='funny')return /funny|comedy|meme|cartoon|pop|boing|comic/.test(t);
+    if(activeTab==='swooshes')return /swoosh|whoosh|swish|transition|sweep|whip/.test(t);
+    if(activeTab==='asmr')return /asmr|whisper|tap|click|texture|ambient|soft|close.?up/.test(t);
+    if(activeTab==='voice')return /voice|vocal/.test(t);
+    if(activeTab==='sfx')return /sound effect|sfx|whoosh|swoosh|metallic|spooky|horror|flash|impact|zap|pop/.test(t);
+    return true;
+  }
+  function currentItems(){
+    const list=assets();
+    const q=searchQuery.trim().toLowerCase();
+    return list.filter(item=>{
+      if(!matchesTab(item))return false;
+      if(!q)return true;
+      return tagsFor(item).includes(q);
+    });
+  }
+  /* ---------- Plan access (same rule as the animation clips) ----------
+     An admin ticks the plans allowed to use a clip (asset.accessPlans). The CHEAPEST ticked plan
+     is the floor: visitors on a cheaper plan see a lock and can neither preview, download nor add it. */
+  function accessPlans(item){
+    const plans=(typeof getPlans==='function'?getPlans():[])||[];
+    const free=plans.find(p=>Number(p.price)===0)||{id:'p_free',name:'Free',price:0};
+    const raw=item&&item.accessPlans;
+    const ids=Array.isArray(raw)?raw.map(String).filter(Boolean):(raw==null||raw==='')?[]:[String(raw)];
+    if(!ids.length)return [free];
+    const res=ids.map(id=>{const n=id.toLowerCase();return plans.find(p=>String(p.id)===id)||plans.find(p=>String(p.name||'').toLowerCase()===n)||((n==='free'||n==='p_free')?free:null);}).filter(Boolean);
+    return res.length?res:[free];
+  }
+  function requiredPlan(item){return accessPlans(item).slice().sort((a,b)=>Number(a.price||0)-Number(b.price||0))[0];}
+  function isLocked(item){
+    const req=requiredPlan(item);if(!req||Number(req.price)<=0)return false;
+    const cur=typeof getMyPlanData==='function'?getMyPlanData():{id:'p_free',name:'Free',price:0};
+    if(accessPlans(item).some(p=>String(p.id)===String(cur.id)))return false;
+    return Number(cur.price||0)<Number(req.price||0);
+  }
+  function upgrade(item){
+    const req=requiredPlan(item);
+    try{if(typeof closePanel==='function')closePanel();}catch(_e){}
+    if(typeof goTo==='function')goTo('payment');
+    try{
+      const p=(typeof getPlans==='function'?getPlans():[]).find(x=>req&&String(x.id)===String(req.id));
+      if(p){const card=document.querySelector('#screen-payment .plan-card[data-plan="'+p.id+'"]');if(card&&typeof selectPlan==='function')selectPlan(card);}
+    }catch(_e){}
+    if(typeof showToast==='function')showToast('Upgrade to '+((req&&req.name)||'a paid plan')+' to use this audio.',{icon:toastIcons.info,duration:2400});
+  }
+  window.evAudioIsLocked=isLocked;window.evAudioUpgrade=upgrade;
+
+  /* ---------- On-device storage ----------
+     Nothing is downloaded in the background. A clip is fetched only when the visitor taps play or
+     download; it is then kept in this browser's IndexedDB so every later play / download is served
+     from the device with no network use. */
+  const DB_NAME='ethvelle-audio-device',STORE='files';
+  const mem=new Map(),objUrls=new Map(),pending=new Map();
+  let dbPromise=null;
+  function openDb(){
+    if(dbPromise)return dbPromise;
+    dbPromise=new Promise((resolve,reject)=>{
+      try{
+        const req=indexedDB.open(DB_NAME,1);
+        req.onupgradeneeded=()=>{req.result.createObjectStore(STORE);};
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error);
+      }catch(e){reject(e);}
+    });
+    return dbPromise;
+  }
+  function idbGet(key){return openDb().then(db=>new Promise((res,rej)=>{const q=db.transaction(STORE,'readonly').objectStore(STORE).get(key);q.onsuccess=()=>res(q.result||null);q.onerror=()=>rej(q.error);})).catch(()=>null);}
+  function idbPut(key,val){return openDb().then(db=>new Promise((res,rej)=>{const tx=db.transaction(STORE,'readwrite');tx.objectStore(STORE).put(val,key);tx.oncomplete=()=>res(true);tx.onerror=()=>rej(tx.error);tx.onabort=()=>rej(tx.error);})).catch(()=>false);}
+  const keyOf=item=>String(item&&item.src||'');
+  async function localBlob(item){
+    const key=keyOf(item);if(!key)return null;
+    if(mem.has(key))return mem.get(key);
+    const rec=await idbGet(key);
+    if(rec&&rec.blob){mem.set(key,rec.blob);return rec.blob;}
+    return null;
+  }
+  const typeByExt={mp3:'audio/mpeg',m4a:'audio/mp4',aac:'audio/aac',wav:'audio/wav',ogg:'audio/ogg',oga:'audio/ogg',opus:'audio/ogg',flac:'audio/flac',webm:'audio/webm'};
+  function guessType(src,given){
+    const g=String(given||'').split(';')[0].trim().toLowerCase();
+    if(/^audio\//.test(g))return g;
+    const m=String(src).split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);
+    return (m&&typeByExt[m[1].toLowerCase()])||'audio/mpeg';
+  }
+  async function fetchBlob(src,onProgress){
+    const res=await fetch(src,{mode:'cors',credentials:'omit'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const total=Number(res.headers.get('content-length'))||0,type=guessType(src,res.headers.get('content-type'));
+    if(!res.body||!res.body.getReader){const b=await res.blob();onProgress(1);return new Blob([b],{type});}
+    const reader=res.body.getReader(),chunks=[];let got=0;
+    for(;;){const r=await reader.read();if(r.done)break;chunks.push(r.value);got+=r.value.length;onProgress(total?Math.min(.98,got/total):-1);}
+    onProgress(1);return new Blob(chunks,{type});
+  }
+  // Returns the clip as a Blob from the device, downloading it (with the popup) the first time only.
+  function ensureBlob(item){
+    const key=keyOf(item);
+    if(pending.has(key))return pending.get(key);
+    const p=(async()=>{
+      const have=await localBlob(item);if(have)return have;
+      openPop(item.name||'Audio');
+      try{
+        const blob=await fetchBlob(key,setPop);
+        await idbPut(key,{blob,type:blob.type,savedAt:Date.now()});
+        mem.set(key,blob);
+        try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(_e){}
+        await donePop();
+        return blob;
+      }catch(err){closePop();throw err;}
+    })().finally(()=>pending.delete(key));
+    pending.set(key,p);return p;
+  }
+  function urlFor(item,blob){
+    const key=keyOf(item);if(objUrls.has(key))return objUrls.get(key);
+    const u=URL.createObjectURL(blob);objUrls.set(key,u);return u;
+  }
+
+  /* ---------- Download popup (with animation) ---------- */
+  let popEl=null,popHide=0;
+  function ensurePop(){
+    if(popEl&&popEl.isConnected)return popEl;
+    popEl=document.createElement('div');popEl.id='evAudioDl';popEl.setAttribute('role','status');popEl.setAttribute('aria-live','polite');
+    popEl.innerHTML='<div class="evad-card"><div class="evad-ring"><svg class="evad-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/></svg><svg class="evad-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><i class="evad-tray"></i></div><div class="evad-title">Downloading audio…</div><div class="evad-name"></div><div class="evad-bar"><b></b></div><div class="evad-pct">0%</div></div>';
+    document.body.appendChild(popEl);return popEl;
+  }
+  function openPop(name){
+    clearTimeout(popHide);const el=ensurePop();
+    el.classList.remove('done','indet');el.querySelector('.evad-title').textContent='Downloading audio…';
+    el.querySelector('.evad-name').textContent=String(name||'');el.querySelector('.evad-bar b').style.width='0%';el.querySelector('.evad-pct').textContent='0%';
+    void el.offsetWidth;el.classList.add('show');
+  }
+  function setPop(frac){
+    const el=popEl;if(!el)return;
+    if(frac<0){el.classList.add('indet');el.querySelector('.evad-pct').textContent='';return;}
+    el.classList.remove('indet');const pct=Math.max(0,Math.min(100,Math.round(frac*100)));
+    el.querySelector('.evad-bar b').style.width=pct+'%';el.querySelector('.evad-pct').textContent=pct+'%';
+  }
+  function donePop(){
+    const el=popEl;if(!el)return Promise.resolve();
+    el.classList.remove('indet');el.classList.add('done');el.querySelector('.evad-title').textContent='Saved to your device';
+    el.querySelector('.evad-bar b').style.width='100%';el.querySelector('.evad-pct').textContent='100%';
+    return new Promise(resolve=>{popHide=setTimeout(()=>{el.classList.remove('show');resolve();},850);});
+  }
+  function closePop(){clearTimeout(popHide);if(popEl)popEl.classList.remove('show');}
+
+  /* ---------- Preview / download / add ---------- */
+  let previewToken=0;
+  function stopPreview(){
+    previewToken++;
+    if(preview){try{preview.pause();preview.currentTime=0;}catch(_e){};preview=null;previewSource='';}
+    document.querySelectorAll('#ethvelleAudioLibraryResults .ethvelle-audio-preview.is-playing').forEach(btn=>{
+      btn.classList.remove('is-playing');btn.innerHTML=playIcon;btn.setAttribute('aria-label','Preview sound');
+    });
+  }
+  async function previewItem(item,button){
+    if(isLocked(item)){upgrade(item);return;}
+    const src=String(item.src||'');if(!src)return;
+    if(preview&&previewSource===src&&!preview.paused){stopPreview();return;}
+    stopPreview();
+    const token=previewToken;
+    let url=src;
+    try{url=urlFor(item,await ensureBlob(item));}
+    catch(_e){if(typeof showToast==='function')showToast('Could not save this audio to your device. Playing it online.',{icon:toastIcons.info,duration:2200});}
+    if(token!==previewToken)return;            // another tap happened while it was downloading
+    try{
+      preview=new Audio();previewSource=src;preview.preload='auto';preview.volume=1;preview.muted=false;preview.src=url;
+      preview.setAttribute('playsinline','');
+      if(button&&button.isConnected){button.classList.add('is-playing');button.innerHTML=pauseIcon;button.setAttribute('aria-label','Pause preview');}
+      preview.addEventListener('ended',stopPreview,{once:true});
+      preview.addEventListener('error',()=>{stopPreview();if(typeof showToast==='function')showToast('Could not preview this audio file',{icon:toastIcons.info,duration:1800});},{once:true});
+      const p=preview.play();if(p&&typeof p.catch==='function')p.catch(()=>{stopPreview();if(typeof showToast==='function')showToast('Tap the play button again to start the preview.',{icon:toastIcons.info,duration:2200});});
+    }catch(_e){stopPreview();}
+    markDeviceState();
+  }
+  const audioExt={'audio/mpeg':'mp3','audio/mp3':'mp3','audio/wav':'wav','audio/x-wav':'wav','audio/wave':'wav','audio/ogg':'ogg','audio/webm':'webm','audio/mp4':'m4a','audio/x-m4a':'m4a','audio/aac':'aac','audio/flac':'flac'};
+  function downloadName(item,src,blobType){
+    const base=String(item.name||'audio').replace(/\s*\(\d+(\.\d+)?s\)/g,'').replace(/[\\/:*?"<>|\u0000-\u001f]+/g,'').trim().replace(/\s+/g,'-')||'audio';
+    let ext=audioExt[String(blobType||'').split(';')[0].toLowerCase()];
+    if(!ext){const m=String(src).split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);ext=m?m[1].toLowerCase():'mp3';}
+    return /\.[a-z0-9]{2,5}$/i.test(base)?base:base+'.'+ext;
+  }
+  function saveBlob(blob,filename){
+    const url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=filename;a.rel='noopener';a.style.display='none';document.body.appendChild(a);a.click();
+    setTimeout(()=>{a.remove();URL.revokeObjectURL(url);},4000);
+  }
+  // Runs only when the visitor taps the download icon. First time: popup + save on device; later: instant.
+  async function downloadItem(item,btn){
+    if(isLocked(item)){upgrade(item);return;}
+    const src=String(item.src||'');if(!src)return;
+    if(btn)btn.classList.add('is-busy');
+    try{
+      const blob=await ensureBlob(item);
+      saveBlob(blob,downloadName(item,src,blob.type));
+      if(typeof showToast==='function')showToast('Download started',{icon:toastIcons.check,duration:1400});
+      markDeviceState();
+    }catch(_e){
+      // Host without CORS: the page cannot read the bytes, so let the browser fetch the file itself.
+      try{const a=document.createElement('a');a.href=src;a.download=downloadName(item,src,'');a.target='_blank';a.rel='noopener';a.style.display='none';document.body.appendChild(a);a.click();setTimeout(()=>a.remove(),1000);}
+      catch(_e2){if(typeof showToast==='function')showToast('Could not download this audio file',{icon:toastIcons.info,duration:1800});}
+    }finally{if(btn)btn.classList.remove('is-busy');}
+  }
+  function saveFavorites(){try{localStorage.setItem(favKey,JSON.stringify(Array.from(favorites)));}catch(_e){}}
+  function addItem(item){
+    if(isLocked(item)){upgrade(item);return;}
+    if(typeof addAdminAssetToProject==='function')addAdminAssetToProject(item.id);
+  }
+  // Marks rows whose clip is already stored on this device.
+  async function markDeviceState(){
+    const host=$('ethvelleAudioLibraryResults');if(!host)return;
+    for(const row of host.querySelectorAll('.ethvelle-audio-row')){
+      const item=assets().find(a=>String(a.id)===String(row.dataset.audioRow));if(!item)continue;
+      const on=!!(await localBlob(item));
+      row.classList.toggle('on-device',on);
+      const meta=row.querySelector('.ethvelle-audio-meta');if(meta)meta.textContent=metaFor(item,on);
+    }
+  }
+  function metaFor(item,onDevice){
+    const req=requiredPlan(item),paid=req&&Number(req.price)>0;
+    return 'Audio'+(paid?' · '+req.name:'')+(onDevice?' · On this device':'');
+  }
+  const lockIcon='<svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>';
+  function renderResults(){
+    const host=$('ethvelleAudioLibraryResults');if(!host)return;
+    const rows=currentItems();
+    if(!rows.length){
+      host.innerHTML=activeTab==='saved'
+        ?(searchQuery.trim()
+          ?'<div class="ethvelle-audio-empty"><strong>No saved sounds match</strong>Try another search term.</div>'
+          :'<div class="ethvelle-audio-empty"><strong>No saved sounds yet</strong>Tap the bookmark on any sound to save it here.</div>')
+        :'<div class="ethvelle-audio-empty"><strong>No audio clips here</strong>Try another category or search term. Audio added from the admin panel appears here automatically.</div>';
+      return;
+    }
+    host.innerHTML='<div class="ethvelle-audio-library-list">'+rows.map(item=>{
+      const id=esc(item.id),name=esc(item.name||'Audio'),duration=fmt(item.duration||item.sourceDuration||3);
+      const saved=favorites.has(String(item.id)),locked=isLocked(item),req=requiredPlan(item);
+      const lockBtn=locked?`<button type="button" class="anim-lock-btn ethvelle-audio-lock" data-ev-audio-action="upgrade" data-ev-audio-id="${id}" aria-label="Upgrade to ${esc(req.name||'a paid plan')} to use ${name}">🔒 ${esc(req.name||'Paid')}</button>`
+        :`<button type="button" class="anim-toggle ethvelle-audio-add" role="switch" aria-checked="false" data-ev-audio-action="add" data-ev-audio-id="${id}" aria-label="Add ${name} to timeline" title="Add to timeline"></button>`;
+      return `<article class="ethvelle-audio-row${locked?' is-locked':''}" data-audio-row="${id}">
+        <button type="button" class="ethvelle-audio-preview" data-ev-audio-action="preview" data-ev-audio-id="${id}" aria-label="${locked?'Locked  -  upgrade to preview':'Preview sound'}">${locked?lockIcon:playIcon}</button>
+        <div class="ethvelle-audio-info"><span class="ethvelle-audio-name" title="${name}">${name}</span><span class="ethvelle-audio-meta">${esc(metaFor(item,false))}</span></div>
+        <span class="ethvelle-audio-duration">${duration}</span>
+        <button type="button" class="ethvelle-audio-action download" data-ev-audio-action="download" data-ev-audio-id="${id}" aria-label="${locked?'Locked  -  upgrade to download':'Download '+name}" title="${locked?'Upgrade to download':'Download'}">${downloadIcon}</button>
+        <button type="button" class="ethvelle-audio-action favorite ${saved?'is-saved':''}" data-ev-audio-action="favorite" data-ev-audio-id="${id}" aria-label="${saved?'Remove saved sound':'Save sound'}" title="${saved?'Saved':'Save'}">${bookmarkIcon}</button>
+        ${lockBtn}
+      </article>`;
+    }).join('')+'</div>';
+    markDeviceState();
+  }
+  function renderTabs(){
+    const host=$('ethvelleAudioTabs');if(!host)return;
+    host.innerHTML=tabDefs.map(([id,label])=>`<button type="button" class="ethvelle-audio-tab ${activeTab===id?'active':''}" role="tab" aria-selected="${activeTab===id?'true':'false'}" data-audio-tab="${id}">${label}</button>`).join('');
+    host.querySelectorAll('[data-audio-tab]').forEach(btn=>btn.addEventListener('click',()=>{
+      activeTab=btn.dataset.audioTab||'trending';renderTabs();renderResults();
+      const strip=$('ethvelleAudioTabs');const active=strip&&strip.querySelector('.active');if(active)active.scrollIntoView({block:'nearest',inline:'nearest'});
+    }));
+  }
+  window.filterEthvelleAudioLibrary=function(value){
+    searchQuery=String(value||'');
+    const wrap=$('ethvelleAudioSearchWrap');if(wrap)wrap.classList.toggle('has-query',!!searchQuery);
+    renderResults();
+  };
+  window.clearEthvelleAudioLibrarySearch=function(){const input=$('ethvelleAudioLibrarySearch');if(input){input.value='';window.filterEthvelleAudioLibrary('');try{input.focus({preventScroll:true});}catch(_e){input.focus();}}};
+  window.renderEthvelleAudioLibraryResults=renderResults;
+  window.renderEthvelleAudioLibrary=function(){
+    const body=$('panelBody');if(!body)return;
+    body.innerHTML=`
+      <div class="editor-asset-toolbar">
+        <div class="editor-asset-search-wrap" id="ethvelleAudioSearchWrap">
+          ${searchIcon}
+          <input class="editor-asset-search" id="ethvelleAudioLibrarySearch" type="search" aria-label="Search audio files" autocomplete="off" placeholder="Search sounds and effects…" oninput="filterEthvelleAudioLibrary(this.value)">
+          <button type="button" class="editor-asset-search-clear" id="ethvelleAudioSearchClear" onclick="clearEthvelleAudioLibrarySearch()" aria-label="Clear search">×</button>
+        </div>
+      </div>
+      <div class="ethvelle-audio-tabs" id="ethvelleAudioTabs" role="tablist" aria-label="Audio categories"></div>
+      <div id="ethvelleAudioLibraryResults" class="editor-asset-results"></div>`;
+    renderTabs();renderResults();
+    const host=$('ethvelleAudioLibraryResults');
+    if(host&&!host.dataset.evV206Actions){
+      host.dataset.evV206Actions='1';
+      host.addEventListener('click',e=>{
+        const btn=e.target&&e.target.closest?e.target.closest('[data-ev-audio-action]'):null;if(!btn)return;
+        const id=String(btn.dataset.evAudioId||'');
+        const item=assets().find(a=>String(a.id)===id);if(!item)return;
+        const action=btn.dataset.evAudioAction;
+        if(action==='preview'){previewItem(item,btn);return;}
+        if(action==='download'){downloadItem(item,btn);return;}
+        if(action==='upgrade'){upgrade(item);return;}
+        if(action==='favorite'){
+          if(favorites.has(id))favorites.delete(id);else favorites.add(id);
+          saveFavorites();
+          const nowSaved=favorites.has(id);
+          btn.classList.toggle('is-saved',nowSaved);
+          btn.setAttribute('aria-label',nowSaved?'Remove saved sound':'Save sound');
+          btn.setAttribute('title',nowSaved?'Saved':'Save');
+          // Inside the Saved filter an un-saved sound leaves the list straight away.
+          if(activeTab==='saved')renderResults();
+          return;
+        }
+        if(action==='add'){
+          // Same behaviour as the animation switch: it flips on while the sound is added.
+          btn.classList.add('on');btn.setAttribute('aria-checked','true');
+          stopPreview();addItem(item);
+          setTimeout(()=>{if(btn.isConnected){btn.classList.remove('on');btn.setAttribute('aria-checked','false');}},700);
+        }
+      });
+    }
+  };
+  window.openEthvelleAudioLibrary=function(){
+    stopPreview();activeTab='trending';searchQuery='';
+    const panel=$('toolPanel'),backdrop=$('panelBackdrop');if(!panel||!backdrop)return;
+    const title=$('panelTitle'),body=$('panelBody');if(title)title.textContent='Audio Library';
+    if(body){body.innerHTML='';window.renderEthvelleAudioLibrary();}
+    panel.classList.add('open');backdrop.classList.add('active');
+  };
+  // The bottom contextual toolbar should always reveal its first tools when a character
+  // animation row/clip is selected, rather than inheriting a stale right-end scroll offset.
+  const previousSelect=window.selectClipForChrome;
+  if(typeof previousSelect==='function'&&!previousSelect.__evv206ToolbarStart){
+    const wrappedSelect=function(which){
+      const result=previousSelect.apply(this,arguments);
+      const key=String(which==null?'':which);
+      if(key==='main'||/^seg\d+$/.test(key)||/^char\d+$/.test(key)){
+        const reset=()=>{
+          ['bottomToolsClip','bottomToolsDefault','bottomToolsKeyframe'].forEach(id=>{const row=$(id);if(row)row.scrollLeft=0;});
+        };
+        requestAnimationFrame(()=>requestAnimationFrame(reset));
+      }
+      return result;
+    };
+    wrappedSelect.__evv206ToolbarStart=true;window.selectClipForChrome=wrappedSelect;
+  }
+})();
+</script>
+
+
+<style id="ethvelle-v210-consent-option-no-selection-chrome">
+  /* Keep both consent cards visually identical before and after checking/tapping.
+     The checkbox itself still shows its checked tick; the surrounding card never changes. */
+  .ev-login-consent-option,
+  .ev-login-consent-option:hover,
+  .ev-login-consent-option:active,
+  .ev-login-consent-option:focus,
+  .ev-login-consent-option:focus-within,
+  .ev-login-consent-option:has(input:checked),
+  .ev-login-consent-option:has(input:checked):hover,
+  .ev-login-consent-option:has(input:checked):active,
+  .ev-login-consent-option:has(input:checked):focus-within {
+    border-color:rgba(255,255,255,.13)!important;
+    background:rgba(0,0,0,.20)!important;
+    color:#E6ECF8!important;
+    box-shadow:none!important;
+    outline:none!important;
+    transform:none!important;
+    filter:none!important;
+    -webkit-tap-highlight-color:transparent!important;
+  }
+  /* No extra focus ring around the checkbox when the card is tapped. */
+  .ev-login-consent-option input:focus,
+  .ev-login-consent-option input:focus-visible {
+    outline:none!important;
+  }
+</style>
+
+
+
+<style id="ethvelle-v211-consent-side-selection-and-audio-title-cleanup">
+  /* Checked consent cards get only two blue side rails; keep their fill unchanged. */
+  .ev-login-consent-option:has(input:checked),
+  .ev-login-consent-option:has(input:checked):hover,
+  .ev-login-consent-option:has(input:checked):active,
+  .ev-login-consent-option:has(input:checked):focus,
+  .ev-login-consent-option:has(input:checked):focus-within {
+    border-top:1px solid rgba(255,255,255,.13)!important;
+    border-bottom:1px solid rgba(255,255,255,.13)!important;
+    border-left:2px solid #2F5CE8!important;
+    border-right:2px solid #2F5CE8!important;
+    background:rgba(0,0,0,.20)!important;
+    box-shadow:none!important;
+    outline:none!important;
+  }
+
+  /* All headings inside the audio editing bottom-toolbar panels use clean white. */
+  #evcaAudioPanel .evca-audio-panel-title,
+  .evca-audio-panel .evca-audio-panel-title {
+    color:#FFFFFF!important;
+    -webkit-text-fill-color:#FFFFFF!important;
+  }
+</style>
+
+
+
+<style id="ethvelle-v212-consent-full-selection-and-audio-switch-labels">
+  /* The checked consent option gets a complete rounded blue outline on all four sides.
+     Keep the card fill and text unchanged; only the border indicates selection. */
+  .ev-login-consent-option:has(input:checked),
+  .ev-login-consent-option:has(input:checked):hover,
+  .ev-login-consent-option:has(input:checked):active,
+  .ev-login-consent-option:has(input:checked):focus,
+  .ev-login-consent-option:has(input:checked):focus-within {
+    box-sizing:border-box!important;
+    border:2px solid #2F5CE8!important;
+    border-radius:15px!important;
+    background:rgba(0,0,0,.20)!important;
+    color:#E6ECF8!important;
+    box-shadow:none!important;
+    outline:none!important;
+  }
+
+  /* These are the two switch labels in the audio Noise / Enhancement panels. */
+  #evcaAudioPanel .evca-small-switch > span {
+    color:#FFFFFF!important;
+    -webkit-text-fill-color:#FFFFFF!important;
+  }
+</style>
+
+<style id="ethvelle-v216-text-styles-and-speech-bubbles-css">
+  #ethvellePicsartTextDock .evpa-bg-shapes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;padding:8px 0 10px;}
+  #ethvellePicsartTextDock .evpa-bg-shape-btn{min-width:0;min-height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px 3px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#202431;color:#DCE3F2;font:600 9px/1.1 Inter,Arial,sans-serif;}
+  #ethvellePicsartTextDock .evpa-bg-shape-btn svg{width:38px;height:28px;display:block;overflow:visible;}
+  #ethvellePicsartTextDock .evpa-bg-shape-btn.active{border:1.5px solid #2F5CE8;background:rgba(47,92,232,.16);color:#FFFFFF;box-shadow:0 0 0 1px rgba(47,92,232,.12);}
+  #ethvelleTextStylePanel .evpa-bg-shapes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px;margin:8px 0 12px;}
+  #ethvelleTextStylePanel .evpa-bg-shape-btn{min-width:0;min-height:62px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;padding:6px 3px;border:1px solid rgba(255,255,255,.12);border-radius:10px;background:#202431;color:#DCE3F2;font:600 9px/1.1 Inter,Arial,sans-serif;}
+  #ethvelleTextStylePanel .evpa-bg-shape-btn svg{width:38px;height:28px;display:block;}
+  #ethvelleTextStylePanel .evpa-bg-shape-btn.active{border:1.5px solid #2F5CE8;background:rgba(47,92,232,.16);color:#FFFFFF;}
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate::before{
+    -webkit-mask-image:var(--ev-text-highlight-mask,none)!important;mask-image:var(--ev-text-highlight-mask,none)!important;
+    -webkit-mask-size:100% 100%!important;mask-size:100% 100%!important;
+    -webkit-mask-repeat:no-repeat!important;mask-repeat:no-repeat!important;
+    -webkit-mask-position:center!important;mask-position:center!important;
+  }
+  #ethvelleTextComposer .evtc-stage-backplate{position:fixed;z-index:100001;pointer-events:none;display:none;background:#182A66;opacity:.78;}
+  #ethvelleTextComposer #evtcStageText{background:transparent!important;z-index:100002!important;}
+  #ethvelleTextComposer .evtc-stage-backplate{-webkit-mask-size:100% 100%;mask-size:100% 100%;-webkit-mask-repeat:no-repeat;mask-repeat:no-repeat;}
+  @media(max-width:420px){#ethvellePicsartTextDock .evpa-bg-shapes{grid-template-columns:repeat(4,minmax(0,1fr));gap:5px}#ethvellePicsartTextDock .evpa-bg-shape-btn{min-height:58px;font-size:8px}}
+</style>
+<script id="ethvelle-v216-text-style-and-speech-shape-engine">
+(function(){
+  'use strict';
+  const PATHS={
+    oval:'M50 3 C76 3 97 23 97 50 C97 77 76 97 50 97 C24 97 3 77 3 50 C3 23 24 3 50 3 Z',
+    pill:'M22 5 H78 C91 5 98 22 98 50 C98 78 91 95 78 95 H22 C9 95 2 78 2 50 C2 22 9 5 22 5 Z',
+    'speech-bottom':'M17 5 Q7 5 7 16 V69 Q7 80 18 80 H38 L29 96 Q28 99 32 97 L56 80 H82 Q93 80 93 69 V16 Q93 5 82 5 Z',
+    'speech-bottom-left':'M18 5 Q7 5 7 16 V69 Q7 80 18 80 H25 L12 97 Q10 100 15 98 L43 80 H82 Q93 80 93 69 V16 Q93 5 82 5 Z',
+    'speech-bottom-right':'M18 5 Q7 5 7 16 V69 Q7 80 18 80 H57 L85 98 Q90 100 87 95 L75 80 H82 Q93 80 93 69 V16 Q93 5 82 5 Z',
+    'speech-top':'M17 20 Q7 20 7 31 V83 Q7 94 18 94 H82 Q93 94 93 83 V31 Q93 20 82 20 H56 L32 3 Q28 1 29 6 L38 20 Z',
+    'speech-left':'M20 7 H83 Q94 7 94 18 V82 Q94 93 83 93 H20 Q9 93 9 82 V62 L2 39 Q1 35 6 37 L20 43 Z',
+    'speech-right':'M17 7 H80 Q91 7 91 18 V43 L98 63 Q99 67 94 65 L80 59 V82 Q80 93 69 93 H17 Q6 93 6 82 V18 Q6 7 17 7 Z',
+    cloud:'M24 77 C12 77 5 68 5 57 C5 47 12 40 22 38 C20 22 33 10 48 12 C57 1 78 8 80 24 C94 24 99 39 92 50 C101 65 88 80 74 78 C62 91 44 89 37 80 Z',
+    'cloud-callout':'M24 70 C10 70 5 60 8 49 C2 38 11 27 23 27 C25 11 43 7 53 18 C65 5 85 13 83 29 C99 32 100 52 88 60 C88 72 75 79 62 74 L43 74 L32 96 Q29 100 28 95 L30 74 Z',
+    thought:'M20 70 C7 66 5 51 15 43 C12 29 25 21 36 25 C43 10 63 11 69 26 C83 18 96 31 90 44 C102 56 90 72 77 70 C64 85 45 82 39 73 Z M20 83 C16 83 13 86 13 90 C13 94 16 97 20 97 C24 97 27 94 27 90 C27 86 24 83 20 83 Z M35 91 C32 91 30 94 30 97 C30 99 32 100 35 100 C38 100 40 98 40 95 C40 93 38 91 35 91 Z',
+    burst:'M50 2 L58 16 L72 7 L72 23 L92 20 L82 39 L99 50 L82 61 L92 80 L72 77 L72 94 L58 84 L50 99 L42 84 L28 94 L28 77 L8 80 L18 61 L1 50 L18 39 L8 20 L28 23 L28 7 L42 16 Z',
+    tag:'M4 50 L27 7 Q29 4 34 4 H84 Q96 4 96 16 V84 Q96 96 84 96 H34 Q29 96 27 92 Z'
+  };
+  const SHAPES=[
+    ['rounded','Rounded'],['square','Square'],['pill','Capsule'],['oval','Oval'],
+    ['speech-bottom','Speech ↓'],['speech-bottom-left','Speech ↙'],['speech-bottom-right','Speech ↘'],['speech-top','Speech ↑'],
+    ['speech-left','Speech ←'],['speech-right','Speech →'],['cloud','Cloud'],['cloud-callout','Cloud tail'],
+    ['thought','Thought'],['burst','Comic burst'],['tag','Point label']
+  ];
+  const escapeAttr=s=>String(s).replace(/&/g,'&amp;').replace(/"/g,'&quot;').replace(/</g,'&lt;');
+  function pathFor(shape){return PATHS[shape]||'';}
+  // Largest rectangle (fractions of the 100x100 shape box, 2.5-unit safety margin) that lies fully
+  // inside each shape. The padded text box is fitted into it, so the shape always wraps all text.
+  const SAFE={
+    oval:[0.18,0.185,0.82,0.815],pill:[0.13,0.115,0.87,0.885],
+    'speech-bottom':[0.125,0.085,0.875,0.765],'speech-bottom-left':[0.125,0.085,0.875,0.765],'speech-bottom-right':[0.125,0.085,0.875,0.765],
+    'speech-top':[0.125,0.235,0.875,0.905],'speech-left':[0.225,0.105,0.885,0.895],'speech-right':[0.095,0.125,0.765,0.875],
+    cloud:[0.255,0.27,0.85,0.735],'cloud-callout':[0.28,0.2,0.79,0.7],thought:[0.215,0.29,0.85,0.665],
+    burst:[0.205,0.255,0.795,0.745],tag:[0.29,0.09,0.915,0.91]
+  };
+  function fitRect(key,x,y,w,h){
+    const S=SAFE[key];if(!S)return {x,y,w,h};
+    const W=w/(S[2]-S[0]),H=h/(S[3]-S[1]);
+    return {x:x-S[0]*W,y:y-S[1]*H,w:W,h:H};
+  }
+  function svgMarkup(shape){
+    const d=pathFor(shape);
+    if(shape==='rounded')return '<rect x="4" y="4" width="92" height="92" rx="17"/>';
+    if(shape==='square')return '<rect x="5" y="5" width="90" height="90" rx="3"/>';
+    if(!d)return '<rect x="4" y="4" width="92" height="92" rx="12"/>';
+    return '<path d="'+d+'"/>';
+  }
+  function svgDoc(shape){return '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" preserveAspectRatio="none"><g fill="#fff">'+svgMarkup(shape)+'</g></svg>';}
+  window.ethvelleTextBgMaskCss=function(shape){
+    const key=String(shape||'rounded');
+    if(key==='rounded'||key==='square'||!PATHS[key])return 'none';
+    const uri='data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svgDoc(key));
+    return 'url("'+uri+'")';
+  };
+  window.ethvelleTextBackgroundShapePicker=function(model){
+    const t=model||{};const chosen=String(t.textBackgroundShape||'rounded');
+    return '<div class="evpa-shape-group-label" style="font-size:11px;font-weight:750;color:#DCE3F2;margin:6px 0 2px">Background shape</div><div class="evpa-bg-shapes" role="group" aria-label="Text background shapes">'+SHAPES.map(([key,label])=>'<button type="button" class="evpa-bg-shape-btn '+(chosen===key?'active':'')+'" data-bg-shape="'+key+'" title="'+escapeAttr(label)+'" aria-pressed="'+(chosen===key?'true':'false')+'" onclick="ethvellePicsartSetValue(\'textBackgroundShape\',\''+key+'\')"><svg viewBox="0 0 100 100" aria-hidden="true"><g fill="currentColor">'+svgMarkup(key)+'</g></svg><span>'+label+'</span></button>').join('')+'</div>';
+  };
+  window.ethvelleDrawTextBackplate=function(ctx,x,y,w,h,radius,shape){
+    if(!ctx||!(w>0)||!(h>0))return false;
+    const key=String(shape||'rounded');
+    if(key==='square'){ctx.fillRect(x,y,w,h);return true;}
+    if(SAFE[key]){const q=fitRect(key,x,y,w,h);x=q.x;y=q.y;w=q.w;h=q.h;}
+    if(key==='rounded'){
+      const r=Math.max(0,Math.min(Number(radius)||8,w/2,h/2));
+      if(typeof ctx.roundRect==='function'){ctx.beginPath();ctx.roundRect(x,y,w,h,r);ctx.fill();}
+      else{ctx.beginPath();ctx.moveTo(x+r,y);ctx.lineTo(x+w-r,y);ctx.quadraticCurveTo(x+w,y,x+w,y+r);ctx.lineTo(x+w,y+h-r);ctx.quadraticCurveTo(x+w,y+h,x+w-r,y+h);ctx.lineTo(x+r,y+h);ctx.quadraticCurveTo(x,y+h,x,y+h-r);ctx.lineTo(x,y+r);ctx.quadraticCurveTo(x,y,x+r,y);ctx.closePath();ctx.fill();}
+      return true;
+    }
+    const d=pathFor(key);if(!d)return false;
+    try{
+      if(typeof Path2D==='undefined')return false;
+      const path=new Path2D(d);ctx.save();try{ctx.translate(x,y);ctx.scale(w/100,h/100);ctx.fill(path);}finally{ctx.restore();}return true;
+    }catch(err){return false;}
+  };
+  // Public synchronizer used by the live text renderer and older saved text nodes.
+  window.ethvelleSyncTextBackplateShape=function(node,t){
+    if(!node||!t)return;
+    const key=SHAPES.some(x=>x[0]===String(t.textBackgroundShape))?String(t.textBackgroundShape):'rounded';
+    node.dataset.evTextBackgroundShape=key;
+    node.style.setProperty('--ev-text-highlight-mask',window.ethvelleTextBgMaskCss(key));
+    const S=SAFE[key];
+    if(S){
+      const pad=Math.max(0,Number(t.textBackgroundPadding==null?(t.textHighlightPadding==null?8:t.textHighlightPadding):t.textBackgroundPadding))||0;
+      const kx=1/(S[2]-S[0]),ky=1/(S[3]-S[1]),f=v=>(+v).toFixed(4);
+      const edge=(frac,k)=>'calc(-'+pad+'px - '+f(frac*k)+' * (100% + '+(2*pad)+'px))';
+      node.style.setProperty('--ev-text-highlight-inset',edge(S[1],ky)+' '+edge(1-S[2],kx)+' '+edge(1-S[3],ky)+' '+edge(S[0],kx));
+    }
+  };
+  window.ethvelleSyncComposerBackplate=function(model){
+    const input=document.getElementById('evtcStageText'),plate=document.getElementById('evtcStageBackplate'),t=model||{};
+    if(!input||!plate)return;
+    if(!t.textBackgroundEnabled){plate.style.display='none';return;}
+    const r0=input.getBoundingClientRect(),shp0=String(t.textBackgroundShape||'rounded');
+    const r=SAFE[shp0]?(q=>({left:q.x,top:q.y,width:q.w,height:q.h}))(fitRect(shp0,r0.left,r0.top,r0.width,r0.height)):r0;
+    plate.style.display='block';plate.style.left=r.left+'px';plate.style.top=r.top+'px';plate.style.width=r.width+'px';plate.style.height=r.height+'px';
+    const h=String(t.textBackgroundColor||'#182A66').replace('#','');
+    const rgb=/^[0-9a-f]{6}$/i.test(h)?[0,2,4].map(i=>parseInt(h.slice(i,i+2),16)):[24,42,102];
+    plate.style.backgroundColor='rgba('+rgb.join(',')+',1)';plate.style.borderRadius=(Number(t.textBackgroundRadius)||8)+'px';
+    const shape=String(t.textBackgroundShape||'rounded'),mask=window.ethvelleTextBgMaskCss(shape);
+    plate.style.webkitMaskImage=mask;plate.style.maskImage=mask;plate.style.webkitMaskSize='100% 100%';plate.style.maskSize='100% 100%';plate.style.webkitMaskRepeat='no-repeat';plate.style.maskRepeat='no-repeat';
+    plate.style.opacity=String(Math.max(0,Math.min(100,Number(t.textBackgroundOpacity==null?78:t.textBackgroundOpacity)))/100);
+  };
+  // Keep the selection visuals in sync after each shape tap.
+  document.addEventListener('click',function(e){
+    const btn=e.target&&e.target.closest?e.target.closest('.evpa-bg-shape-btn'):null;if(!btn)return;
+    const container=btn.parentElement;if(container)container.querySelectorAll('.evpa-bg-shape-btn').forEach(b=>{const on=b===btn;b.classList.toggle('active',on);b.setAttribute('aria-pressed',on?'true':'false');});

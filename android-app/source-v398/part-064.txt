@@ -1,0 +1,1000 @@
+</style>
+<script id="ethvelle-v221-pitch-safe-speed-js">
+/* Ethvelle v221: pitch-safe clip speed.
+   Speeding up or slowing down a clip used to play its audio buffer with a faster/slower
+   playbackRate, which also raises/lowers the pitch. This module time-stretches the decoded audio
+   (WSOLA: waveform-similarity overlap-add) so the speed changes but the pitch stays the same.
+   Live playback and export both use it. Results are cached, computed in small async slices so
+   the UI never freezes, and stale jobs are dropped when the speed changes again. */
+(function(){
+  'use strict';
+  if(window.ethvellePitchSafeStretch)return;
+  const MAX_ENTRIES=5,FULL_BUFFER_MAX_SEC=150,PAD_SEC=4,MAX_RANGE_SEC=900;
+  const cache=[];
+  const nextSlice=()=>new Promise(r=>setTimeout(r,0));
+
+  /* Pure WSOLA core: channels = Float32Array[], returns Float32Array[] of length round(inLen/speed). */
+  async function wsola(chans,sr,speed,shouldAbort){
+    const nch=chans.length,inLen=chans[0].length,D=4;
+    let N=Math.round(sr*0.046/(2*D))*(2*D);N=Math.max(256,N);
+    const Hs=N/2,Ha=Hs*speed,tol=Math.max(D*8,Math.round(sr*0.012/D)*D);
+    const outLen=Math.max(1,Math.round(inLen/speed));
+    const out=chans.map(()=>new Float32Array(outLen+N+4));
+    const decLen=Math.floor(inLen/D);
+    const dec=new Float32Array(decLen+N/D+8);
+    for(let i=0;i<decLen;i++){let s=0;const b=i*D;for(let c=0;c<nch;c++){const ch=chans[c];s+=ch[b]+ch[b+1]+ch[b+2]+ch[b+3];}dec[i]=s/(4*nch);}
+    const win=new Float32Array(N);for(let i=0;i<N;i++)win[i]=0.5-0.5*Math.cos(2*Math.PI*i/N);
+    const L=Hs/D,frames=Math.ceil(outLen/Hs)+1,ch0=chans[0];
+    let prev=0,lastYield=(typeof performance!=='undefined'?performance.now():Date.now());
+    for(let k=0;k<frames;k++){
+      let pos=0;
+      if(k>0){
+        const target=Math.round(k*Ha);
+        pos=Math.min(target,Math.max(0,inLen-1));
+        const refStart=prev+Hs,r0=Math.floor(refStart/D);
+        if(r0+L<=decLen){
+          let lo=Math.max(0,target-tol),hi=Math.min(target+tol,inLen-1);
+          lo=Math.ceil(lo/D)*D;
+          let best=-Infinity,bestP=pos;
+          for(let p=lo;p<=hi;p+=D){
+            const q=p/D;if(q+L>decLen)break;
+            let dot=0,en=0;
+            for(let j=0;j<L;j++){const a=dec[q+j];dot+=a*dec[r0+j];en+=a*a;}
+            const score=dot/Math.sqrt(en+1e-6);
+            if(score>best){best=score;bestP=p;}
+          }
+          /* fine alignment at full resolution (channel 0, +-D samples) */
+          let fineBest=-Infinity,fineP=bestP;
+          if(refStart+Hs<=inLen){
+            for(let p=Math.max(0,bestP-D);p<=Math.min(hi,bestP+D);p++){
+              if(p+Hs>inLen)break;
+              let dot=0,en=0;
+              for(let j=0;j<Hs;j+=2){const a=ch0[p+j];dot+=a*ch0[refStart+j];en+=a*a;}
+              const score=dot/Math.sqrt(en+1e-6);
+              if(score>fineBest){fineBest=score;fineP=p;}
+            }
+          }
+          pos=fineP;
+        }
+      }
+      const base=k*Hs;
+      for(let c=0;c<nch;c++){
+        const ch=chans[c],o=out[c];
+        for(let i=0;i<N;i++){
+          const idx=pos+i;if(idx>=inLen)break;
+          const w=(k===0&&i<Hs)?1:win[i];
+          o[base+i]+=ch[idx]*w;
+        }
+      }
+      prev=pos;
+      if((k&15)===15){
+        const now=(typeof performance!=='undefined'?performance.now():Date.now());
+        if(now-lastYield>14){await nextSlice();lastYield=(typeof performance!=='undefined'?performance.now():Date.now());if(shouldAbort&&shouldAbort())return null;}
+      }
+    }
+    return out.map(o=>o.subarray(0,outLen));
+  }
+
+  function makeBuffer(nch,len,sr){
+    try{return new AudioBuffer({numberOfChannels:nch,length:len,sampleRate:sr});}
+    catch(_e){const C=window.OfflineAudioContext||window.webkitOfflineAudioContext;return new C(nch,Math.max(1,len),sr).createBuffer(nch,len,sr);}
+  }
+  function liveWanted(entry){
+    try{
+      if(typeof overlays==='undefined'||!Array.isArray(overlays))return true;
+      return overlays.some(o=>o&&(o.type==='video'||o.type==='audio')&&Math.abs((Number(o.speed)||1)-entry.speed)<.0005);
+    }catch(_e){return true;}
+  }
+  async function runJob(entry,transient){
+    const buf=entry.src,sr=buf.sampleRate;
+    const s0=Math.max(0,Math.floor(entry.start*sr)),s1=Math.min(buf.length,Math.ceil(entry.end*sr));
+    if(s1-s0<64){entry.failed=true;return null;}
+    const chans=[];for(let c=0;c<buf.numberOfChannels;c++)chans.push(buf.getChannelData(c).subarray(s0,s1));
+    const res=await wsola(chans,sr,entry.speed,transient?null:()=>entry.dead||!liveWanted(entry));
+    if(!res){entry.dead=true;return null;}
+    const out=makeBuffer(res.length,res[0].length,sr);
+    for(let c=0;c<res.length;c++){if(out.copyToChannel)out.copyToChannel(res[c],c,0);else out.getChannelData(c).set(res[c]);}
+    entry.out=out;entry.originSec=s0/sr;entry.start=s0/sr;entry.end=s1/sr;
+    return entry;
+  }
+  let queue=Promise.resolve();
+  function enqueue(entry,transient){
+    const job=()=>runJob(entry,transient).catch(err=>{entry.failed=true;try{console.warn('Ethvelle pitch-safe stretch failed:',err);}catch(_e){}return null;});
+    if(transient)return job();
+    entry.promise=queue.then(()=>{if(entry.dead||!liveWanted(entry)){entry.dead=true;return null;}return job();});
+    queue=entry.promise.catch(()=>null);
+    return entry.promise;
+  }
+  function evict(){
+    cache.sort((a,b)=>b.last-a.last);
+    while(cache.length>MAX_ENTRIES){const i=cache.findIndex((e,idx)=>idx>=MAX_ENTRIES-1&&(e.out||e.dead||e.failed));if(i<0)break;cache.splice(i,1);}
+    for(let i=cache.length-1;i>=0;i--){if(cache[i].dead)cache.splice(i,1);}
+  }
+  function plan(buf,startSec,endSec){
+    const total=buf.duration;
+    if(total<=FULL_BUFFER_MAX_SEC)return {start:0,end:total};
+    return {start:Math.max(0,startSec-PAD_SEC),end:Math.min(total,endSec+PAD_SEC)};
+  }
+  function find(buf,speed,a,b){
+    return cache.find(e=>!e.dead&&!e.failed&&e.src===buf&&Math.abs(e.speed-speed)<.0005&&e.start<=a+.002&&e.end>=b-.002);
+  }
+  function toResult(e){return {buffer:e.out,originSec:e.originSec};}
+  /* Synchronous lookup for the live scheduler: result object when ready, null while computing,
+     false when this range cannot be stretched (caller then uses the legacy playbackRate path). */
+  function getReady(buf,speed,startSec,endSec){
+    if(!buf||!(speed>0))return false;
+    const a=Math.max(0,startSec),b=Math.min(buf.duration,Math.max(a+.01,endSec));
+    let e=find(buf,speed,a,b);
+    if(e){e.last=Date.now();return e.out?toResult(e):null;}
+    if(b-a>MAX_RANGE_SEC)return false;
+    const p=plan(buf,a,b);
+    e={src:buf,speed,start:p.start,end:p.end,out:null,promise:null,last:Date.now(),dead:false,failed:false};
+    cache.push(e);evict();enqueue(e,false);
+    return null;
+  }
+  /* Async lookup for export (never cached, never aborted). */
+  async function request(buf,speed,startSec,endSec){
+    if(!buf||!(speed>0))return null;
+    const a=Math.max(0,startSec),b=Math.min(buf.duration,Math.max(a+.01,endSec));
+    if(b-a<=0)return null;
+    const e={src:buf,speed,start:a,end:b,out:null,last:Date.now(),dead:false,failed:false};
+    const r=await enqueue(e,true);
+    return r&&r.out?toResult(r):null;
+  }
+  /* Debounced: pre-compute the stretch for every clip whose speed is not 1x, so playback starts instantly. */
+  let prewarmTimer=0;
+  function prewarm(resolveBuffer){
+    clearTimeout(prewarmTimer);
+    prewarmTimer=setTimeout(()=>{
+      try{
+        if(typeof overlays==='undefined'||!Array.isArray(overlays))return;
+        overlays.forEach(ov=>{
+          if(!ov||!ov.src||ov.reversePlayback||!['video','audio'].includes(ov.type))return;
+          const speed=Number(ov.speed)||1;if(Math.abs(speed-1)<.001)return;
+          const buf=resolveBuffer(ov);if(!buf)return;
+          const off=Math.max(0,Number(ov.sourceOffset)||0);
+          const len=Math.max(0,(Number(ov.trimEnd)||0)-(Number(ov.trimStart)||0))*speed;
+          getReady(buf,speed,off,off+len+.1);
+        });
+      }catch(_e){}
+    },350);
+  }
+  window.ethvellePitchSafeStretch={getReady,request,prewarm,_wsola:wsola};
+})();
+</script>
+
+<script id="ethvelle-v221-media-perspective-js">
+/* Ethvelle v221: Perspective for normal media clips (video / image / background), same idea as the text editor's Perspective tool.
+   Preview: a CSS "perspective() rotateX() rotateY()" suffix is appended to the clip's transform (innermost, so it tilts the clip in place).
+   Export: canvas has no 3D transforms, so the clip is drawn as a small triangle mesh projected with the same maths. */
+(function(){
+  'use strict';
+  const LIMIT=55,DIST=900;
+  const SUFFIX_RE=/\s*perspective\(\d+(?:\.\d+)?px\)\s*rotateX\([^)]*\)\s*rotateY\([^)]*\)\s*$/;
+  const num=v=>{v=Number(v);return Number.isFinite(v)?Math.max(-LIMIT,Math.min(LIMIT,v)):0;};
+  window.ethvellePerspectiveSuffix=function(clip){
+    const x=num(clip&&clip.mediaPerspectiveX),y=num(clip&&clip.mediaPerspectiveY);
+    return (x||y)?` perspective(${DIST}px) rotateX(${y}deg) rotateY(${x}deg)`:'';
+  };
+  window.ethvelleStripPerspective=function(value){return String(value||'').replace(SUFFIX_RE,'');};
+  window.ethvelleMediaPerspectiveDistance=DIST;
+  function project(x,y,a,b,d){
+    const cb=Math.cos(b),sb=Math.sin(b),ca=Math.cos(a),sa=Math.sin(a);
+    const x1=x*cb,z1=-x*sb;
+    const y2=y*ca-z1*sa,z2=y*sa+z1*ca;
+    const f=d/(d-z2);
+    return [x1*f,y2*f];
+  }
+  /* Draw img's source rect (sx,sy,sw,sh) into dest rect (dx,dy,dw,dh) tilted around (cx,cy); px/py are degrees like the CSS version. */
+  window.ethvelleDrawPerspectiveImage=function(ctx,img,sx,sy,sw,sh,dx,dy,dw,dh,px,py,cx,cy,dist){
+    const a=num(py)*Math.PI/180,b=num(px)*Math.PI/180,d=Math.max(50,Number(dist)||DIST);
+    const N=12,M=12,V=[];
+    for(let j=0;j<=M;j++){
+      for(let i=0;i<=N;i++){
+        const u=i/N,v=j/M;
+        const p=project(dx+u*dw-cx,dy+v*dh-cy,a,b,d);
+        V.push({X:cx+p[0],Y:cy+p[1],S:sx+u*sw,T:sy+v*sh});
+      }
+    }
+    const at=(i,j)=>V[j*(N+1)+i];
+    function tri(p0,p1,p2){
+      const det=(p1.S-p0.S)*(p2.T-p0.T)-(p2.S-p0.S)*(p1.T-p0.T);
+      if(!det)return;
+      const A=((p1.X-p0.X)*(p2.T-p0.T)-(p2.X-p0.X)*(p1.T-p0.T))/det;
+      const B=((p1.Y-p0.Y)*(p2.T-p0.T)-(p2.Y-p0.Y)*(p1.T-p0.T))/det;
+      const C=((p2.X-p0.X)*(p1.S-p0.S)-(p1.X-p0.X)*(p2.S-p0.S))/det;
+      const D=((p2.Y-p0.Y)*(p1.S-p0.S)-(p1.Y-p0.Y)*(p2.S-p0.S))/det;
+      const E=p0.X-A*p0.S-C*p0.T,F=p0.Y-B*p0.S-D*p0.T;
+      const gx=(p0.X+p1.X+p2.X)/3,gy=(p0.Y+p1.Y+p2.Y)/3;
+      const grow=pt=>{const vx=pt.X-gx,vy=pt.Y-gy,l=Math.hypot(vx,vy)||1;return [pt.X+vx/l*.7,pt.Y+vy/l*.7];};
+      const g0=grow(p0),g1=grow(p1),g2=grow(p2);
+      const minS=Math.min(p0.S,p1.S,p2.S),maxS=Math.max(p0.S,p1.S,p2.S),minT=Math.min(p0.T,p1.T,p2.T),maxT=Math.max(p0.T,p1.T,p2.T);
+      const bx=Math.max(0,Math.floor(minS)),by=Math.max(0,Math.floor(minT));
+      const bw=Math.max(1,Math.ceil(maxS)-bx+1),bh=Math.max(1,Math.ceil(maxT)-by+1);
+      ctx.save();
+      ctx.beginPath();ctx.moveTo(g0[0],g0[1]);ctx.lineTo(g1[0],g1[1]);ctx.lineTo(g2[0],g2[1]);ctx.closePath();ctx.clip();
+      ctx.transform(A,B,C,D,E,F);
+      try{ctx.drawImage(img,bx,by,bw,bh,bx,by,bw,bh);}catch(_e){}
+      ctx.restore();
+    }
+    for(let j=0;j<M;j++){
+      for(let i=0;i<N;i++){
+        const p00=at(i,j),p10=at(i+1,j),p01=at(i,j+1),p11=at(i+1,j+1);
+        tri(p00,p10,p01);tri(p10,p11,p01);
+      }
+    }
+  };
+})();
+</script>
+
+<script id="ethvelle-v187-all-text-opacity-bend-js">
+(function(){
+  'use strict';
+  const allOv=()=>{try{return Array.isArray(overlays)?overlays:(window.overlays||[]);}catch(_e){return window.overlays||[];}};
+  const texts=()=>allOv().filter(o=>o&&o.type==='text');
+  function hostFor(o){
+    let h=null;try{h=overlayMediaEls&&overlayMediaEls[o.id];}catch(_e){}
+    if(!h){const l=document.getElementById('overlayMediaLayer');if(l)h=[...l.children].find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(o.id))||null;}
+    return h;
+  }
+  /* ---- Opacity tab: one slider fades EVERY text layer (fill, stroke, shadow and background plate together). ---- */
+  const prevSet=window.ethvellePicsartSetValue;
+  if(typeof prevSet==='function'&&!prevSet.__ev187){
+    const wrapped=function(key,value,unit,live){
+      const out=prevSet.apply(this,arguments);
+      if(key==='textOverallOpacity'){
+        const v=Math.max(0,Math.min(100,Number(value)));
+        if(Number.isFinite(v)){
+          texts().forEach(o=>{
+            o.textOverallOpacity=v;
+            const h=hostFor(o);if(h)h.style.opacity=String(v/100);
+          });
+          if(!live){
+            try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+            try{if(typeof renderFrame==='function')renderFrame();}catch(_e){}
+          }
+        }
+      }
+      requestAnimationFrame(fixBend);
+      return out;
+    };
+    wrapped.__ev187=true;window.ethvellePicsartSetValue=wrapped;
+  }
+  /* ---- Bend: draw bent letters with plain 2D transforms (3D layers made letters vanish on Android). ---- */
+  function fixBend(){
+    try{
+      texts().forEach(o=>{
+        const h=hostFor(o);if(!h||!h.querySelector)return;
+        const node=h.querySelector('.ethvelle-overlay-text-content');if(!node)return;
+        const g=node.querySelector(':scope > .evpa-text-effect-layer');
+        if(!g||!g.dataset.evpaBendRaw||!g.children.length)return;
+        const num=v=>Math.max(0,Math.min(100,Number(v)||0));
+        const up=num(o.textBendUp),down=num(o.textBendDown),front=num(o.textBendFront),back=num(o.textBendBack);
+        const legacy=Number(o.textCurve)||0;
+        const curve=Math.max(-100,Math.min(100,(up||down)?(down-up):(legacy*(o.textCurveReverse?-1:1))));
+        const spans=Array.from(g.children).filter(sp=>sp.tagName==='SPAN');
+        const den=Math.max(1,spans.length-1);
+        const needs3d=front!==back;
+        node.style.setProperty('transform-style','flat','important');
+        node.style.setProperty('will-change','auto','important');
+        node.style.setProperty('backface-visibility','visible','important');
+        node.style.setProperty('-webkit-backface-visibility','visible','important');
+        g.style.setProperty('transform-style','flat','important');
+        g.style.setProperty('visibility','visible','important');
+        spans.forEach((sp,i)=>{
+          const x=i/den-.5,y=x*x*curve*.45,rot=x*curve*.42,rx=x*x*(back-front)*.52,ry=x*(front-back)*.72;
+          let t=`translateY(${y}px) rotate(${rot}deg)`;
+          if(needs3d)t=`perspective(700px) ${t} rotateX(${rx}deg) rotateY(${ry}deg)`;
+          if(sp.style.transform!==t)sp.style.transform=t;
+          sp.style.setProperty('visibility','visible','important');
+          sp.style.setProperty('opacity','1','important');
+          sp.style.setProperty('backface-visibility','visible','important');
+          sp.style.setProperty('-webkit-backface-visibility','visible','important');
+        });
+      });
+    }catch(_e){}
+  }
+  ['renderFrame','renderOverlayLayers'].forEach(name=>{
+    const orig=window[name];if(typeof orig!=='function'||orig.__ev187)return;
+    const w=function(){const r=orig.apply(this,arguments);fixBend();return r;};
+    w.__ev187=true;window[name]=w;
+  });
+})();
+</script>
+
+<style id="ethvelle-v189-export-blue-and-panel-scroll-css">
+  /* ---------- Export-finished page: bluish radial glow instead of the flat/warm backdrop ---------- */
+  html body #capDone.cap-screen{
+    background:
+      radial-gradient(120% 62% at 50% -10%,rgba(47,92,232,.46) 0%,rgba(47,92,232,.20) 34%,rgba(47,92,232,0) 68%),
+      radial-gradient(90% 55% at 100% 105%,rgba(0,104,255,.26) 0%,rgba(0,104,255,0) 62%),
+      radial-gradient(70% 45% at 0% 60%,rgba(76,110,244,.14) 0%,rgba(76,110,244,0) 70%),
+      #090C16!important;
+    background-repeat:no-repeat!important;
+  }
+  html body #capDone .cap-card{
+    background:linear-gradient(165deg,rgba(47,92,232,.16),rgba(23,23,28,.92) 62%)!important;
+    border-color:rgba(76,110,244,.38)!important;
+  }
+  html body #capDone .cap-quick i{
+    background:linear-gradient(165deg,rgba(47,92,232,.18),rgba(23,23,28,.9))!important;
+    border-color:rgba(76,110,244,.34)!important;
+  }
+  html body #capDone .cap-tip{
+    background:linear-gradient(160deg,rgba(47,92,232,.30),rgba(23,23,28,.9))!important;
+    border-color:rgba(76,110,244,.42)!important;
+  }
+  html body #capDone .cap-btn.s{background:rgba(47,92,232,.22)!important;}
+
+  /* ---------- Text editing panel: let the browser scroll it natively ---------- */
+  /* Slider rows were touch-action:none, so any swipe that started on a slider could not scroll
+     the panel natively and fell back to a JS scroller. Vertical pans now belong to the browser;
+     horizontal drags still reach the slider thumb. */
+  html body #ethvellePicsartTextDock .evpa-controls,
+  html body #ethvellePicsartTextDock #evpaControls{
+    overflow-y:auto!important;overflow-x:hidden!important;
+    touch-action:pan-y!important;overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch!important;scroll-behavior:auto!important;
+  }
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-range,
+  html body #ethvellePicsartTextDock .evpa-controls label.evpa-range,
+  html body #ethvelleTextStylePanel .evpa-range,
+  html body #ethvelleTextComposer .evpa-range{touch-action:pan-y!important;}
+  html body #ethvellePicsartTextDock input[type="range"],
+  html body #ethvelleTextStylePanel input[type="range"],
+  html body #ethvelleTextComposer input[type="range"],
+  html body #textPanelBody input[type="range"]{touch-action:pan-y!important;}
+  /* Nothing in the scrolling area should animate layout while it moves. */
+  html body #ethvellePicsartTextDock .evpa-controls *{scroll-snap-type:none;}
+</style>
+
+<style id="ethvelle-v190-text-panel-vertical-swipe-css">
+  /* Rows of presets, fonts, swatches and option buttons inside the text panel were
+     touch-action:pan-x, so a vertical swipe that STARTED on any of them was ignored by the
+     panel (it only scrolled when the finger happened to land on empty space). Allow both
+     axes: horizontal rows still scroll sideways, vertical swipes now scroll the panel. */
+  html body #ethvellePicsartTextDock #evpaControls :not(input[type="range"]):not(.evpa-range):not(.evcp-wheel):not(.evpa-hue-ring):not(.evpa-sat-square):not(canvas):not(.evpa-gradient-presets):not(.evpa-style-presets):not(.evpa-gradient-chip):not(.evpa-style-card):not(.evpa-effect-add),
+  html body #ethvellePicsartTextDock .evpa-controls :not(input[type="range"]):not(.evpa-range):not(.evcp-wheel):not(.evpa-hue-ring):not(.evpa-sat-square):not(canvas):not(.evpa-gradient-presets):not(.evpa-style-presets):not(.evpa-gradient-chip):not(.evpa-style-card):not(.evpa-effect-add){
+    touch-action:pan-x pan-y!important;
+  }
+  html body #ethvellePicsartTextDock #evpaControls .evpa-font-gallery,
+  html body #ethvellePicsartTextDock #evpaControls .evpa-choice-row,
+  html body #ethvellePicsartTextDock #evpaControls .evpa-swatches{
+    touch-action:pan-x pan-y!important;overscroll-behavior-x:contain!important;overscroll-behavior-y:auto!important;
+  }
+  html body #ethvellePicsartTextDock #evpaControls .evpa-style-presets,
+  html body #ethvellePicsartTextDock #evpaControls .evpa-gradient-presets,
+  html body #ethvellePicsartTextDock #evpaControls .evpa-style-presets > *,
+  html body #ethvellePicsartTextDock #evpaControls .evpa-gradient-presets > *{
+    touch-action:pan-y!important;overscroll-behavior:contain!important;
+  }
+</style>
+<style id="ethvelle-v191-text-slider-css">
+  /* v191: the native <input type=range> inside the text-editing panels no longer takes touches itself.
+     The whole slider row is the touch target (see ethvelle-v191-text-slider-js), so there is no
+     14px "thumb-only" hit zone to miss, and vertical swipes on a slider row scroll the panel. */
+  html body #ethvellePicsartTextDock input[type="range"],
+  html body #ethvelleTextStylePanel input[type="range"],
+  html body #ethvelleTextComposer input[type="range"],
+  html body #evpaCustomEffectEditor input[type="range"],
+  html body #ethvelleColorPicker input[type="range"],
+  html body #textPanelBody input[type="range"]{
+    pointer-events:none!important;touch-action:pan-y!important;
+  }
+  html body :is(#ethvellePicsartTextDock,#ethvelleTextStylePanel,#ethvelleTextComposer,#evpaCustomEffectEditor,#ethvelleColorPicker,#textPanelBody)
+    :is(.evpa-range,.evts-field,.evtc-opacity-line,.evce-field,.evcp-field,.evpa-picker-range,.evce-stop,.text-range-line){
+    touch-action:pan-y!important;-webkit-tap-highlight-color:transparent!important;
+    -webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;
+  }
+</style>
+<style id="ethvelle-v193-palette-settle-css">
+  /* v193: while Font/Color is opening, the swatch row is rebuilt several times in ~40ms by the stacked
+     text patches (positions jump, blocks flicker). Keep the row hidden (layout preserved) until it settles. */
+  html body #ethvellePicsartTextDock.ev193-settling #evpaPalette{visibility:hidden!important;}
+  /* v230: keep the dock surface visible while stacked text controls settle, and show a
+     real loading indicator instead of an empty/dark sheet. Child controls stay hidden until ready. */
+  html body #ethvellePicsartTextDock.ev224-opening{visibility:visible!important;position:relative!important;}
+  html body #ethvellePicsartTextDock.ev224-opening > *{visibility:hidden!important;}
+  html body #ethvellePicsartTextDock.ev224-opening::before{
+    content:""!important;position:absolute!important;left:50%!important;top:42%!important;
+    width:25px!important;height:25px!important;margin:-13px 0 0 -13px!important;
+    border:3px solid rgba(150,165,210,.28)!important;border-top-color:#2F5CE8!important;
+    border-radius:50%!important;box-sizing:border-box!important;z-index:20!important;
+    visibility:visible!important;pointer-events:none!important;animation:ev230-text-loader-spin .72s linear infinite!important;
+  }
+  html body #ethvellePicsartTextDock.ev224-opening::after{
+    content:"Loading text editor…"!important;position:absolute!important;left:0!important;right:0!important;
+    top:calc(42% + 23px)!important;margin-top:8px!important;text-align:center!important;
+    color:#DDE4F8!important;font:600 11px/1.3 Inter,Arial,sans-serif!important;
+    visibility:visible!important;pointer-events:none!important;z-index:20!important;
+  }
+  @keyframes ev230-text-loader-spin{to{transform:rotate(360deg);}}
+</style>
+<script id="ethvelle-v193-palette-settle-js">
+(function(){
+  'use strict';
+  var QUIET=90,MAX=700,MIN_OPEN=170,timer=null,hardTimer=null,mo=null,openingAt=0;
+  function dock(){return document.getElementById('ethvellePicsartTextDock');}
+  function inComposer(){var c=document.getElementById('ethvelleTextComposer');return !!(c&&c.classList.contains('active'));}
+  function end(){
+    clearTimeout(timer);clearTimeout(hardTimer);timer=hardTimer=null;openingAt=0;
+    if(mo){mo.disconnect();mo=null;}
+    var d=dock();if(d){d.classList.remove('ev193-settling');d.classList.remove('ev224-opening');}
+  }
+  function arm(){
+    clearTimeout(timer);
+    var d=dock(),opening=!!(d&&d.classList.contains('ev224-opening'));
+    var remaining=opening&&openingAt?Math.max(0,MIN_OPEN-(Date.now()-openingAt)):0;
+    timer=setTimeout(end,Math.max(QUIET,remaining));
+  }
+  function begin(opening){
+    var d=dock();if(!d)return;
+    d.classList.add('ev193-settling');
+    if(opening){d.classList.add('ev224-opening');openingAt=Date.now();}
+    arm();
+    if(!mo&&window.MutationObserver){mo=new MutationObserver(arm);mo.observe(d,{childList:true,subtree:true,attributes:true});}
+    if(!hardTimer)hardTimer=setTimeout(end,MAX);
+  }
+  function activeTab(){var t=document.querySelector('#evpaTabs .evpa-tab.active');return t?t.dataset.tab:'';}
+  function wantsSettle(tab){
+    if(tab!=='font'&&tab!=='color')return false;
+    if(inComposer())return false;
+    var d=dock();if(!d)return false;
+    return d.style.display==='none'||activeTab()!==tab;
+  }
+  function wrap(name){
+    var orig=window[name];if(typeof orig!=='function'||orig.__ev193)return;
+    var w=function(tab){
+      /* v231: selection-only setTool calls do not start the text-editor loader. */var go=false,opening=false;try{go=wantsSettle(tab)&&(name==='openEthvelleTextStylePanel'||window.__evTextEditorOpen===true);if(go){var dd=dock();opening=!!(dd&&dd.style.display==='none');}}catch(_e){}
+      if(go)begin(opening);
+      try{return orig.apply(this,arguments);}
+      finally{if(go)arm();}
+    };
+    w.__ev193=true;window[name]=w;
+  }
+  wrap('openEthvelleTextStylePanel');
+  wrap('ethvellePicsartSetTool');
+})();
+</script>
+<script id="ethvelle-v194-stroke-toggle-js">
+(function(){
+  'use strict';
+  /* v194: moving the Stroke "Amount" slider must never switch the "Enable stroke" toggle on by itself.
+     While the toggle is OFF the slider only remembers the amount; turning the toggle ON applies it. */
+  var orig=window.ethvellePicsartSetValue;
+  if(typeof orig!=='function'||orig.__ev194)return;
+  function tgt(){try{return typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;}catch(_e){return null;}}
+  function persist(){try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){}}
+  var w=function(key,value,unit,live){
+    var t=tgt();
+    if(t&&key==='strokeWidth'){
+      var on=Number(t.strokeWidth)>0||t.strokeEnabled===true;
+      if(!on){
+        t.strokeWidthMemory=Math.max(0,Number(value)||0);
+        var out=document.getElementById('evpa-v-strokeWidth');if(out)out.textContent=String(t.strokeWidthMemory)+(unit||'');
+        if(!live)persist();
+        return;
+      }
+      t.strokeEnabled=true;
+    }else if(t&&key==='strokeEnabled'){
+      if(!value){var cw=Number(t.strokeWidth)||0;if(cw>0)t.strokeWidthMemory=cw;}
+      else if(!(Number(t.strokeWidth)>0)){var m=Number(t.strokeWidthMemory);t.strokeWidth=m>0?m:3;}
+    }
+    return orig.apply(this,arguments);
+  };
+  w.__ev194=true;window.ethvellePicsartSetValue=w;
+})();
+</script>
+
+<!-- Ethvelle v198: character badge glow is tied ONLY to an actually selected animation clip.
+     Active character / row selection / adding a character must keep the icon neutral. -->
+<style id="ethvelle-v198-character-icon-clip-selection-only">
+  html body #screen-editor #timelineInner #characterRows .char-row .layer-badge{
+    color:var(--text-dim)!important;
+    background:var(--elevated-2)!important;
+    border-color:var(--line)!important;
+    box-shadow:none!important;
+    filter:none!important;
+  }
+  html body #screen-editor #timelineInner #characterRows .char-row .layer-badge svg{
+    filter:none!important;
+    stroke:currentColor!important;
+  }
+  /* The sole trigger for the blue badge is .selected on a real animation clip
+     inside that same character row (main clip or a segment). */
+  html body #screen-editor #timelineInner #characterRows .char-row:has(.char-row-track .anim-clip.selected) .layer-badge{
+    color:#78A0FF!important;
+    background:rgba(47,92,232,.16)!important;
+    border-color:#2F5CE8!important;
+    box-shadow:0 0 0 1px rgba(47,92,232,.25),0 0 12px rgba(47,92,232,.32)!important;
+  }
+  html body #screen-editor #timelineInner #characterRows .char-row:has(.char-row-track .anim-clip.selected) .layer-badge svg{
+    filter:drop-shadow(0 0 4px rgba(69,116,255,.85))!important;
+    stroke:#78A0FF!important;
+  }
+</style>
+
+<!-- Ethvelle v199: lookahead preload + smooth playback.
+     - Before Play (and after opening / refreshing a project) the next 1-3s of media is decoded and
+       its video decoders are pre-seeked; a loading card shows while that happens.
+     - While playing, the same window keeps being refilled; if an incoming video still isn't ready
+       at a cut the timeline pauses briefly ("Buffering") and resumes in sync instead of showing a
+       stuck frame with audio running ahead. -->
+<style id="ethvelle-v199-preload-style">
+  #evPreloadOverlay{position:fixed;inset:0;z-index:2147480000;display:none;align-items:center;justify-content:center;padding:18px;
+    background:rgba(8,10,16,.84);-webkit-backdrop-filter:blur(7px);backdrop-filter:blur(7px);color:#F5F7FF;font-family:inherit;}
+  #evPreloadOverlay.show{display:flex;}
+  #evPreloadOverlay .evpl-card{width:min(86vw,320px);padding:24px 20px 18px;border-radius:20px;text-align:center;
+    background:linear-gradient(160deg,#202A42 0%,#151B2A 58%,#12151F 100%);border:1px solid rgba(91,125,218,.45);
+    box-shadow:0 24px 60px rgba(0,0,0,.55),inset 0 1px 0 rgba(255,255,255,.06);}
+  #evPreloadOverlay .evpl-spin,#evBufferPill .evpl-spin{width:34px;height:34px;margin:0 auto 14px;border-radius:50%;
+    border:3px solid rgba(255,255,255,.14);border-top-color:#2F5CE8;animation:evplspin .8s linear infinite;}
+  #evPreloadOverlay .evpl-title{font-size:15px;font-weight:700;letter-spacing:-.01em;}
+  #evPreloadOverlay .evpl-sub{font-size:12px;color:#AEB7CC;margin-top:6px;min-height:17px;font-variant-numeric:tabular-nums;}
+  #evPreloadOverlay .evpl-bar{height:5px;margin-top:15px;border-radius:5px;background:rgba(255,255,255,.12);overflow:hidden;}
+  #evPreloadOverlay .evpl-bar>i{display:block;height:100%;width:4%;border-radius:5px;background:#2F5CE8;transition:width .25s ease;}
+  #evPreloadOverlay .evpl-skip{display:none;margin-top:12px;padding:7px 12px;border:0;background:none;color:#8FB0FF;font:inherit;font-size:12px;font-weight:700;cursor:pointer;}
+  #evPreloadOverlay .evpl-skip.show{display:inline-block;}
+  #evBufferPill{position:fixed;left:50%;top:50%;z-index:2147479000;display:none;transform:translate(-50%,-50%);pointer-events:none;
+    align-items:center;gap:10px;padding:9px 15px 9px 11px;border-radius:999px;background:rgba(10,12,20,.78);
+    border:1px solid rgba(91,125,218,.45);color:#F5F7FF;font-size:12px;font-weight:700;font-family:inherit;
+    -webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);}
+  #evBufferPill.show{display:flex;}
+  #evBufferPill .evpl-spin{width:16px;height:16px;margin:0;border-width:2px;}
+  @keyframes evplspin{to{transform:rotate(360deg);}}
+  @media (prefers-reduced-motion:reduce){#evPreloadOverlay .evpl-spin,#evBufferPill .evpl-spin{animation-duration:2.4s;}}
+  /* v266: the project-data popup is near-black with one deep-blue outline. The only
+     flash/sheen in this loading card is clipped to the externally hosted Ethvelle logo. */
+  #evPreloadOverlay .evpl-card{
+    background:#080A10!important;
+    border:2px solid #173A9E!important;
+    box-shadow:0 22px 58px rgba(0,0,0,.62),inset 0 1px 0 rgba(255,255,255,.025)!important;
+  }
+  #evPreloadOverlay .evpl-spin{display:none!important;}
+  /* No spinner, glow pulse or flash is allowed on the text, card, backdrop or progress UI. */
+  #evPreloadOverlay .evpl-card>*,
+  #evPreloadOverlay .evpl-card>* *{animation:none!important;filter:none!important;}
+  #evPreloadOverlay .evpl-bar>i{transition:width .25s ease!important;}
+</style>
+<div id="evPreloadOverlay" role="status" aria-live="polite">
+  <div class="evpl-card">
+    <div class="evpl-title" id="evPreloadTitle">Loading project media…</div>
+    <div class="evpl-sub" id="evPreloadSub">Preparing playback</div>
+    <div class="evpl-bar"><i id="evPreloadBar"></i></div>
+    <button type="button" class="evpl-skip" id="evPreloadSkip">Skip</button>
+  </div>
+</div>
+<div id="evBufferPill" role="status" aria-live="polite"><div class="evpl-spin"></div><span id="evBufferText">Buffering…</span></div>
+
+<script id="ethvelle-v199-preload-js">
+(function(){
+  'use strict';
+  if(window.__ethvellePreloadV199)return;
+  window.__ethvellePreloadV199=true;
+
+  const PLAY_PATH='<path d="M8 5v14l11-7z"/>',PAUSE_PATH='<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+  const LOOK_MIN=1,LOOK_MAX=3;
+  const num=(v,d=0)=>Number.isFinite(Number(v))?Number(v):d;
+  const $=id=>document.getElementById(id);
+  const sched=()=>window.__ethvelleAudioSchedulerDiagnostics||null;
+  const budget=()=>window.__evDecoderBudget||{pool:3,warm:2};
+  if(window.__evRebuffer===undefined)window.__evRebuffer=true;
+
+  const isMedia=ov=>!!ov&&(ov.type==='video'||ov.type==='audio')&&!!ov.src&&!ov.reversePlayback&&num(ov.trimEnd)>num(ov.trimStart);
+  const editorActive=()=>{const s=$('screen-editor');return !!s&&s.classList.contains('active');};
+
+  // ---- 1-3s adaptive lookahead: the more cuts coming up, the further ahead we prepare ----
+  function lookaheadFor(t){
+    let edges=0;
+    if(Array.isArray(overlays)){
+      for(let i=0;i<overlays.length;i++){
+        const ov=overlays[i];if(!isMedia(ov))continue;
+        const s=num(ov.trimStart),e=num(ov.trimEnd);
+        if(s>t&&s<=t+LOOK_MAX)edges++;
+        if(e>t&&e<=t+LOOK_MAX)edges++;
+      }
+    }
+    const w=Math.max(LOOK_MIN,Math.min(LOOK_MAX,LOOK_MIN+edges*.4));
+    window.__evPreloadWindowSec=w;
+    return w;
+  }
+
+  // A split whose second half continues straight on from the first half reuses the same decoder
+  // (see transferContinuousSplitVideos), so it needs no separate warm-up.
+  function continuesDecoder(prev,next){
+    if(!prev||!next||prev.type!=='video'||next.type!=='video'||String(prev.src||'')!==String(next.src||''))return false;
+    const ps=Math.max(.05,num(prev.speed,1)),ns=Math.max(.05,num(next.speed,1));
+    const srcEnd=num(prev.sourceOffset)+(num(prev.trimEnd)-num(prev.trimStart))*ps;
+    return Math.abs(num(prev.trimEnd)-num(next.trimStart))<=.025&&Math.abs(ps-ns)<=.001&&Math.abs(srcEnd-num(next.sourceOffset))<=.06;
+  }
+
+  // ---- readiness of everything needed for the next `win` seconds starting at t ----
+  function readiness(t,relaxed,activeOnly){
+    const win=lookaheadFor(t),t1=t+win;
+    const out={win,total:0,done:0,pending:[]};
+    if(!Array.isArray(overlays))return out;
+    const d=sched();
+    const relevant=overlays.filter(ov=>isMedia(ov)&&num(ov.trimEnd)>t&&num(ov.trimStart)<t1);
+    // (1) every source in the window must be decoded to PCM, otherwise the cut would be silent
+    const seen=new Set();
+    if(!activeOnly)relevant.forEach(ov=>{
+      const key=String(ov.src);if(seen.has(key))return;seen.add(key);
+      out.total++;
+      let st=d?d.cache.get(key):null;
+      if(!st&&d){try{d.prime();}catch(_e){}st=d.cache.get(key);}
+      if(!st||st.status==='loading')out.pending.push('audio');else out.done++;
+    });
+    // (2) clips active at t need a presentable frame; (3) the next clips need a pre-seeked decoder
+    const vids=relevant.filter(ov=>ov.type==='video');
+    const active=vids.filter(ov=>num(ov.trimStart)<=t+1e-4&&num(ov.trimEnd)>t);
+    active.forEach(ov=>{
+      out.total++;
+      const el=overlayMediaEls[String(ov.id)];
+      const ok=el&&el.tagName==='VIDEO'&&(evOverlayVideoFrameIsPresentable(ov,el,t)||(relaxed&&el.readyState>=2&&!el.seeking));
+      if(ok)out.done++;else out.pending.push('frame');
+    });
+    if(activeOnly)return out;
+    const b=budget();
+    const slots=Math.max(0,Math.min(b.warm,b.pool-active.length));
+    const upcoming=vids.filter(ov=>num(ov.trimStart)>t+1e-4).sort((x,y)=>num(x.trimStart)-num(y.trimStart));
+    const need=[];
+    for(const ov of upcoming){
+      if(need.length>=slots)break;
+      if(active.some(a=>continuesDecoder(a,ov))||need.some(a=>continuesDecoder(a,ov)))continue;
+      if(overlayMediaEls[String(ov.id)])continue;
+      need.push(ov);
+    }
+    // Warm decoders are best-effort: once we've waited a while, stop holding playback for them.
+    if(!relaxed)need.forEach(ov=>{
+      out.total++;
+      const el=overlayWarmEls[String(ov.id)];
+      const target=Math.max(0,num(ov.sourceOffset));
+      const ok=el&&(el.dataset.evWarmReady==='1'||(el.readyState>=3&&!el.seeking&&Math.abs(num(el.currentTime)-target)<=.08)||
+        (relaxed&&el.readyState>=2&&!el.seeking));
+      if(ok)out.done++;else out.pending.push('decoder');
+    });
+    return out;
+  }
+
+  // ---- Decoder kick ----
+  // Some browsers leave a paused, not-visible <video> stuck in "seeking" (readyState 1) until it is
+  // asked to play once; the player code then waits for readyState before playing -> frozen frame.
+  // A short muted play() wakes the decoder; afterwards the element is put back exactly where it was.
+  function adopted(el){const m=overlayMediaEls;for(const k in m){if(m[k]===el)return true;}return false;}
+  function kick(el,target,keepPlaying){
+    if(!el||el.tagName!=='VIDEO'||window.__evNoKick)return false;
+    const now=performance.now();
+    if(el.__evKicking||now-num(el.__evKickAt)<700)return false;
+    el.__evKicking=true;el.__evKickAt=now;
+    try{if(window.__evPlaybackDiagnostics)window.__evPlaybackDiagnostics.recordKick();}catch(_e){}
+    const done=()=>{
+      if(!el.__evKicking)return;el.__evKicking=false;
+      try{
+        if(adopted(el)&&isPlaying)return;
+        el.pause();
+        if(Number.isFinite(target)&&Math.abs(num(el.currentTime)-target)>.03)el.currentTime=Math.max(0,target);
+      }catch(_e){}
+    };
+    el.addEventListener('seeked',()=>setTimeout(done,40),{once:true});
+    setTimeout(done,1600);
+    try{el.muted=true;const p=el.play();if(p&&p.catch)p.catch(()=>{});}catch(_e){el.__evKicking=false;return false;}
+    return true;
+  }
+  // "stuck" = has been seeking / without data for `ms` continuously (a normal seek finishes far sooner)
+  function stuckFor(el,ms){
+    if(!el)return false;
+    const now=performance.now();
+    if(!(el.seeking||el.readyState<2)){el.__evStuckSince=0;return false;}
+    if(!el.__evStuckSince)el.__evStuckSince=now;
+    return now-el.__evStuckSince>=ms;
+  }
+  function kickActive(t,keepPlaying){
+    if(!Array.isArray(overlays))return;
+    for(let i=0;i<overlays.length;i++){
+      const ov=overlays[i];
+      if(!ov||ov.type!=='video'||ov.reversePlayback||!ov.src)continue;
+      if(!(t>=num(ov.trimStart)&&t<num(ov.trimEnd)))continue;
+      const el=overlayMediaEls[String(ov.id)];
+      if(!el||el.tagName!=='VIDEO'||!stuckFor(el,keepPlaying?350:900))continue;
+      let ex=NaN;try{ex=evOverlayVideoExpectedLocalTime(ov,t,el);}catch(_e){}
+      kick(el,ex,keepPlaying);
+    }
+  }
+  function kickWarm(sinceMs){
+    for(const k in overlayWarmEls){
+      const el=overlayWarmEls[k];
+      if(!el||el.dataset.evWarmReady==='1'||!stuckFor(el,1200))continue;
+      kick(el,num(el.dataset.evWarmTarget,NaN),false);
+    }
+  }
+
+  // ---- polling wait: resolves 'ready' | 'timeout' | 'cancelled' ----
+  function waitReady(opts){
+    const cap=opts.cap||5000,relaxAfter=opts.relaxAfter||2000,activeOnly=!!opts.activeOnly,onProgress=opts.onProgress;
+    let cancelled=false,lastRender=0;const started=performance.now();
+    const promise=new Promise(resolve=>{
+      const poll=()=>{
+        if(cancelled)return resolve('cancelled');
+        const now=performance.now(),elapsed=now-started,t=num(currentAbsoluteTimeSec);
+        try{warmUpcomingOverlayVideos(t);}catch(_e){}
+        // A paused render creates the <video> element of any clip that is active at the playhead.
+        // Only done when one is missing: re-rendering a ready paused clip would re-seek it.
+        if(now-lastRender>400&&Array.isArray(overlays)&&overlays.some(ov=>ov&&ov.type==='video'&&!ov.reversePlayback&&ov.src&&t>=num(ov.trimStart)&&t<num(ov.trimEnd)&&!overlayMediaEls[String(ov.id)])){
+          lastRender=now;try{renderFrame();}catch(_e){}
+        }
+        try{kickActive(t,false);}catch(_e){}
+        if(!activeOnly){try{kickWarm();}catch(_e){}}
+        let r;try{r=readiness(t,elapsed>relaxAfter,activeOnly);}catch(err){r={win:1,total:0,done:0,pending:[]};}
+        if(onProgress){try{onProgress(r,elapsed);}catch(_e){}}
+        if(!r.pending.length)return resolve('ready');
+        if(elapsed>=cap)return resolve('timeout');
+        setTimeout(poll,60);
+      };
+      poll();
+    });
+    return {promise,cancel(){cancelled=true;}};
+  }
+
+  // ---- UI ----
+  function setPlayIcon(playing){const i=$('playIcon');if(i)i.innerHTML=playing?PAUSE_PATH:PLAY_PATH;}
+  function showPill(text){
+    const pill=$('evBufferPill');if(!pill)return;
+    const tx=$('evBufferText');if(tx)tx.textContent=text||'Buffering…';
+    const stage=$('canvasStage');
+    if(stage){const r=stage.getBoundingClientRect();if(r.width>0){pill.style.left=(r.left+r.width/2)+'px';pill.style.top=(r.top+r.height/2)+'px';}}
+    pill.classList.add('show');
+  }
+  function hidePill(){const p=$('evBufferPill');if(p)p.classList.remove('show');}
+
+  // ---- Play gate (before start and for mid-playback rebuffer) ----
+  let pending=null,internalPause=false,playStartedAt=0;
+  const stallCount=new Map();
+  function cancelPending(restoreIcon){
+    if(!pending)return;
+    try{pending.cancel();}catch(_e){}
+    pending=null;hidePill();
+    if(restoreIcon)setPlayIcon(false);
+  }
+  function runGate(startFn,label,cap,rebuffer,beforeStart){
+    const token={};pending=token;
+    setPlayIcon(true);showPill(label);
+    const w=waitReady({cap,relaxAfter:rebuffer?1400:2600,activeOnly:rebuffer,onProgress:(r)=>{if(pending===token&&r.total&&!rebuffer)showPill(label+' '+Math.min(r.done,r.total)+'/'+r.total);}});
+    token.cancel=w.cancel;
+    // The media/frame preload and audio startup are separate gates. In particular, a
+    // suspended Android WebView AudioContext must finish resume() before the timeline's
+    // performance clock starts, otherwise the audio clock begins behind and gets re-anchored.
+    Promise.all([w.promise,Promise.resolve(beforeStart).then(v=>v!==false,()=>false)]).then(([res,canStart])=>{
+      if(pending!==token)return;
+      pending=null;
+      if(res==='cancelled'){hidePill();return;}
+      if(isPlaying||!editorActive()){hidePill();setPlayIcon(isPlaying);return;}
+      if(!canStart){hidePill();setPlayIcon(false);if(typeof showToast==='function')showToast('Audio is not ready yet. Please tap Play again.',{icon:toastIcons.info,duration:2200});return;}
+      if(!rebuffer)hidePill();
+      window.__evPreloadBypass=true;
+      let started;
+      try{started=startFn();}catch(err){window.__evPreloadBypass=false;hidePill();setPlayIcon(isPlaying);if(window.__evVideoDebug)console.warn('[evPreload] playback start:',err);return;}
+      finally{window.__evPreloadBypass=false;}
+      if(rebuffer&&started&&typeof started.then==='function'){
+        started.then(()=>hidePill(),err=>{hidePill();setPlayIcon(isPlaying);if(window.__evVideoDebug)console.warn('[evRebuffer] resume:',err);});
+      }else if(rebuffer)hidePill();
+    });
+  }
+
+  function activeAudioStartup(t){
+    const d=sched();
+    if(!d||!d.cache||!Array.isArray(overlays))return {pending:false,promise:Promise.resolve(true)};
+    // Populate the native-video ID set before building the startup wait-list. Video sound
+    // no longer needs a second network fetch/decode; only standalone audio clips gate on
+    // the unified AudioBuffer cache.
+    try{d.prime();}catch(_e){}
+    const nativeVideoIds=window.__ethvelleNativeLongVideoAudioIds;
+    const sources=Array.from(new Set(overlays.filter(ov=>ov&&ov.src&&!ov.reversePlayback&&
+      (ov.type==='audio'||(ov.type==='video'&&!(nativeVideoIds instanceof Set&&nativeVideoIds.has(String(ov.id)))))&&
+      num(ov.trimStart)<=t&&num(ov.trimEnd)>t).map(ov=>String(ov.src))));
+    if(!sources.length)return {pending:false,promise:Promise.resolve(true)};
+    const entries=sources.map(src=>{
+      let entry=d.cache.get(src);
+      if(!entry&&typeof d.load==='function'){try{d.load(src);entry=d.cache.get(src);}catch(_e){}}
+      return entry;
+    });
+    const pending=entries.some(entry=>!entry||entry.status==='loading');
+    const promise=Promise.all(entries.map(entry=>entry&&entry.promise?entry.promise:Promise.resolve(entry)))
+      .then(()=>true,()=>false);
+    return {pending,promise};
+  }
+  function installStartGate(){
+    const prev=window.startPlayback;
+    if(typeof prev!=='function'||prev.__evV199Gate)return;
+    const wrapped=function(){
+      if(window.__evPreloadBypass)return prev.apply(this,arguments);
+      if(pending){cancelPending(true);return;}           // second tap while preparing = cancel
+      if(isPlaying)return prev.apply(this,arguments);
+      stallCount.clear();
+      let t=num(currentAbsoluteTimeSec),contextReady=Promise.resolve(true),contextPending=false;
+      try{
+        const ctx=typeof ensureAudioOverlayContext==='function'?ensureAudioOverlayContext():null;
+        if(ctx&&ctx.state!=='running'){
+          contextPending=true;
+          // Invoke resume synchronously inside the user's Play gesture, then wait for its
+          // promise before anchoring playback to performance.now().
+          contextReady=Promise.resolve(ctx.resume()).then(()=>ctx.state==='running',()=>false);
+        }
+      }catch(_e){contextReady=Promise.resolve(false);contextPending=true;}
+      try{
+        const end=getProjectContentEndSec();
+        if(end>0&&t>=end-1/Math.max(1,num(FPS,30))){setCurrentAbsoluteTime(0);t=0;try{renderFrame();}catch(_e){}}
+      }catch(_e){}
+      let r=null;try{r=readiness(t,false);}catch(_e){}
+      const audioStart=activeAudioStartup(t);
+      const startReady=Promise.all([contextReady,audioStart.promise]).then(values=>values.every(Boolean),()=>false);
+      if(!r||r.pending.length||contextPending||audioStart.pending){
+        runGate(()=>window.startPlayback(),'Preparing playback…',10000,false,startReady);
+        return;
+      }
+      // Both decoder and audio are already ready; no artificial delay is introduced.
+      return prev.apply(this,arguments);
+    };
+    wrapped.__evV199Gate=true;
+    window.startPlayback=wrapped;try{startPlayback=wrapped;}catch(_e){}
+  }
+  function installPauseGuards(){
+    ['pausePlaybackAtCurrentTime','pausePlayback'].forEach(name=>{
+      const prev=window[name];
+      if(typeof prev!=='function'||prev.__evV199Guard)return;
+      const wrapped=function(){
+        if(!internalPause&&pending)cancelPending(true);
+        return prev.apply(this,arguments);
+      };
+      wrapped.__evV199Guard=true;
+      window[name]=wrapped;
+      try{if(name==='pausePlaybackAtCurrentTime')pausePlaybackAtCurrentTime=wrapped;else pausePlayback=wrapped;}catch(_e){}
+    });
+  }
+
+  // ---- Rebuffer safety net: only a continuous decoder stall can pause the clock ----
+  function checkRebuffer(now){
+    if(!window.__evRebuffer||!isPlaying||internalPause||pending||!Array.isArray(overlays))return;
+    if(now-playStartedAt<400)return;
+    const t=num(currentAbsoluteTimeSec);
+    let bad=null;
+    for(let i=0;i<overlays.length;i++){
+      const ov=overlays[i];
+      if(!ov||ov.type!=='video'||ov.reversePlayback||!ov.src)continue;
+      const s=num(ov.trimStart),e=num(ov.trimEnd);
+      if(!(t>=s&&t<e))continue;
+      const el=overlayMediaEls[String(ov.id)];
+      // Presentability/alignment can be false during ordinary cut warm-up. Rebuffer only
+      // when this actual element has remained seeking or below HAVE_CURRENT_DATA for 600ms.
+      if(el&&el.tagName==='VIDEO'&&stuckFor(el,600)){bad=ov;break;}
+    }
+    if(!bad)return;
+    const id=String(bad.id);
+    if((stallCount.get(id)||0)>=2)return;
+    stallCount.set(id,(stallCount.get(id)||0)+1);
+    try{if(window.__evPlaybackDiagnostics)window.__evPlaybackDiagnostics.recordRebuffer();}catch(_e){}
+    let suspendTask=Promise.resolve();
+    internalPause=true;
+    try{
+      const d=sched();
+      if(d&&typeof d.suspendForRebuffer==='function'){
+        suspendTask=d.suspendForRebuffer().catch(err=>{if(window.__evVideoDebug)console.warn('[evRebuffer] suspend:',err);});
+      }else{
+        const exact=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():Number(currentAbsoluteTimeSec)||0;
+        if(playbackRaf!==null){try{cancelAnimationFrame(playbackRaf);}catch(_e){}playbackRaf=null;}
+        setCurrentAbsoluteTime(exact);isPlaying=false;playbackStartedAtMs=0;playbackStartTimeSec=exact;
+      }
+    }finally{internalPause=false;}
+    runGate(async()=>{
+      await suspendTask;
+      const d=sched();
+      if(!d||typeof d.resumeAfterRebuffer!=='function')throw new Error('Audio scheduler rebuffer controls unavailable');
+      const resumed=await d.resumeAfterRebuffer();
+      playStartedAt=performance.now();
+      return resumed;
+    },'Buffering…',2200,true);
+  }
+  let lastHousekeep=0,lastKick=0;
+  function installTickHook(){
+    const prev=window.playbackTick;
+    if(typeof prev!=='function'||prev.__evV199Tick)return;
+    const wrapped=function(ts){
+      const r=prev.apply(this,arguments);
+      try{
+        const now=performance.now();
+        if(!playStartedAt||!isPlaying)playStartedAt=now;
+        if(now-lastHousekeep>200){
+          lastHousekeep=now;
+          lookaheadFor(num(currentAbsoluteTimeSec));
+          const d=sched();if(d)d.prime();
+        }
+        if(isPlaying&&now-playStartedAt>120&&now-lastKick>110){lastKick=now;kickActive(num(currentAbsoluteTimeSec),true);}
+        checkRebuffer(now);
+      }catch(_e){}
+      return r;
+    };
+    wrapped.__evV199Tick=true;
+    window.playbackTick=wrapped;try{playbackTick=wrapped;}catch(_e){}
+  }
+  // reset the "just started" timer whenever playback (re)starts
+  function installStartStamp(){
+    const prev=window.startPlayback;
+    if(typeof prev!=='function'||prev.__evV199Stamp)return;
+    const wrapped=function(){const was=isPlaying;const r=prev.apply(this,arguments);if(!was&&isPlaying)playStartedAt=performance.now();return r;};
+    wrapped.__evV199Stamp=true;wrapped.__evV199Gate=prev.__evV199Gate;
+    window.startPlayback=wrapped;try{startPlayback=wrapped;}catch(_e){}
+  }
+
+  // ---- Project open / refresh: preload the opening window behind a loading card ----
+  let openSerial=0;
+  function overlayUI(show){const o=$('evPreloadOverlay');if(o)o.classList.toggle('show',!!show);}
+  function beginOpenPreload(proj){
+    // openEditor() restores the complete overlays array synchronously before this hook runs.
+    // Gate only projects that actually contain video/audio media; image-only projects open as before.
+    const projectMedia=Array.isArray(overlays)?overlays.filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback):[];
+    if(!projectMedia.length)return;
+    const serial=++openSerial;
+    const bar=$('evPreloadBar'),sub=$('evPreloadSub'),title=$('evPreloadTitle'),skip=$('evPreloadSkip');
+    if(title)title.textContent='Loading project media…';
+    if(sub)sub.textContent='Preparing video and audio';
+    if(bar)bar.style.width='4%';
+    if(skip)skip.classList.remove('show');
+    overlayUI(true);
+    let w=null,done=false,audioDone=0,audioTotal=0,audioCapTimer=0;
+    const finish=()=>{
+      if(done)return;done=true;
+      if(audioCapTimer)clearTimeout(audioCapTimer);
+      if(serial===openSerial)overlayUI(false);
+      if(skip)skip.onclick=null;
+      try{w&&w.cancel();}catch(_e){}
+    };
+    if(skip){skip.onclick=()=>{finish();};setTimeout(()=>{if(!done&&serial===openSerial&&skip)skip.classList.add('show');},2200);}
+    // Let openEditor's stage sizing/render complete first, then prime every audio source in
+    // the restored project. Split clips sharing one URL are decoded only once by the scheduler.
+    setTimeout(()=>{
+      if(done)return;
+      if(serial!==openSerial||currentProject!==proj||!editorActive()){finish();return;}
+      let audioJobs=[];
+      try{
+        const d=sched();
+        if(d){
+          d.prime();
+          const nativeIds=new Set(typeof d.getNativeVideoAudioIds==='function'?d.getNativeVideoAudioIds():[]);
+          const srcs=Array.from(new Set((Array.isArray(overlays)?overlays:[])
+            .filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback&&(ov.type==='audio'||!nativeIds.has(String(ov.id))))
+            .map(ov=>String(ov.src||'')).filter(Boolean)));
+          audioTotal=srcs.length;
+          audioJobs=srcs.map(src=>{
+            let task;
+            try{task=typeof d.load==='function'?d.load(src):Promise.resolve(null);}catch(_e){task=Promise.resolve(null);}
+            return Promise.resolve(task).catch(()=>null).then(()=>{audioDone++;});
+          });
+        }
+      }catch(err){if(window.__evVideoDebug)console.warn('[evPreload] project audio prime:',err);}
+      const audioAll=Promise.all(audioJobs).then(()=>true,()=>false);
+      // Do not hold project open forever on a broken remote source. The scheduler keeps
+      // pending decodes running in the background after this bounded loading-card window.
+      const audioLimit=new Promise(resolve=>{audioCapTimer=setTimeout(()=>resolve(false),15000);});
+      const audioReady=Promise.race([audioAll,audioLimit]);
+      const updateCombined=(r)=>{
+        if(serial!==openSerial||done)return;
+        const framePct=r&&r.total?Math.round(Math.min(1,r.done/r.total)*40):40;
+        const audioPct=audioTotal?Math.round(Math.min(1,audioDone/audioTotal)*60):60;
+        if(bar)bar.style.width=Math.max(4,Math.min(99,framePct+audioPct))+'%';
+        if(sub){
+          const bits=[];
+          if(audioTotal)bits.push('Audio '+Math.min(audioDone,audioTotal)+' of '+audioTotal);
+          if(r&&r.total)bits.push('Media '+Math.min(r.done,r.total)+' of '+r.total);
+          sub.textContent=bits.length?bits.join(' · '):'Preparing playback';
+        }
+      };
+      w=waitReady({cap:10000,relaxAfter:6500,onProgress:updateCombined});
+      Promise.all([w.promise,audioReady]).then(([mediaResult,audioResult])=>{
+        if(done||serial!==openSerial||currentProject!==proj||!editorActive()){finish();return;}
+        if(bar)bar.style.width='100%';
+        if(sub)sub.textContent=audioResult?'Project media ready':'Finishing media in background';
+        setTimeout(finish,140);
+      });
+    },200);
+  }
+  function installOpenHook(){
+    const prev=window.openEditor;
