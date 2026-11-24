@@ -1,0 +1,116 @@
+name: Build Ethvelle Android APK
+
+on:
+  push:
+    branches: [android-apk]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ethvelle-android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Checkout android-apk branch
+        uses: actions/checkout@v4
+        with:
+          ref: android-apk
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK packages
+        run: sdkmanager "platform-tools" "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Install Node dependencies
+        working-directory: android-app
+        run: npm install --no-audit --no-fund
+
+      - name: Assemble the single v398 HTML source and bundle native bridge
+        working-directory: android-app
+        run: npm run build:native
+
+      - name: Generate Capacitor Android project
+        working-directory: android-app
+        run: npx cap add android
+
+      - name: Prepare Android native files and manifest
+        working-directory: android-app
+        run: node scripts/prepare-android.mjs
+
+      - name: Add Firebase Android configuration (optional until supplied)
+        working-directory: android-app
+        run: |
+          if [ -f google-services.json ]; then
+            cp google-services.json android/app/google-services.json
+            echo "Firebase Android config found; enabling native Google sign-in integration."
+          else
+            echo "google-services.json is not present. Email/password Web Firebase remains available; native Google sign-in requires the owner setup documented in README.md."
+          fi
+
+      - name: Generate launcher and adaptive icons from the HTML brand logo
+        working-directory: android-app
+        run: |
+          python3 -m pip install --quiet Pillow
+          python3 scripts/generate-icons.py --res android/app/src/main/res
+
+      - name: Sync Capacitor plugins
+        working-directory: android-app
+        run: npx cap sync android
+
+      - name: Build debug-signed APK
+        working-directory: android-app/android
+        run: ./gradlew --no-daemon --stacktrace assembleDebug
+
+      - name: Prepare stable APK filename
+        working-directory: android-app
+        run: |
+          mkdir -p dist
+          cp android/app/build/outputs/apk/debug/app-debug.apk dist/Ethvelle-v399.apk
+          test -s dist/Ethvelle-v399.apk
+          sha256sum dist/Ethvelle-v399.apk
+
+      - name: Upload APK as workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ethvelle-v399-APK
+          path: android-app/dist/Ethvelle-v399.apk
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish APK as a GitHub Release asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ethvelle-v399-build-${{ github.run_number }}
+          name: Ethvelle v399 Android build #${{ github.run_number }}
+          body: |
+            Installable debug-signed Ethvelle Android APK built from the v398 single-HTML source.
+            Package: com.ethvelle.app
+            Min SDK: 24 · Target SDK: 35
+            This build uses the Android debug signing key because release keystore secrets have not yet been configured.
+          files: android-app/dist/Ethvelle-v399.apk
+          draft: false
+          prerelease: true
+          fail_on_unmatched_files: true
+
+      - name: Explain signing fallback
+        if: always()
+        run: |
+          echo "This workflow uses Android's debug signing identity. A permanent release keystore must be generated and configured by the repository owner before production distribution."
