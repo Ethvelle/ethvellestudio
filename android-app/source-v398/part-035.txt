@@ -1,0 +1,1000 @@
+    const chosen=String(st.target?.textColor||'#FFFFFF');
+    if(st.target){st.target.textColor=st.oldTextColor;if(st.oldTextOpacity!==undefined)st.target.textOpacity=st.oldTextOpacity;else delete st.target.textOpacity;}
+    if(st.input&&st.input.isConnected){st.input.value=/^#[0-9a-f]{6}$/i.test(chosen)?chosen:'#FFFFFF';st.input.dispatchEvent(new Event('input',{bubbles:true}));st.input.dispatchEvent(new Event('change',{bubbles:true}));}
+    persist();const editor=$('evpaCustomEffectEditor');if(editor){const preview=$('evcePreview');if(preview){try{preview.style.backgroundImage=window.getComputedStyle(preview).backgroundImage;}catch(_){}}}
+  }
+  document.addEventListener('click',e=>{if(!gradientPickState)return;if(e.target?.closest?.('#ethvelleColorPicker .evpa-picker-close,#ethvelleColorPicker .evpa-picker-apply,#ethvelleColorPicker .evcp-close,#ethvelleColorPicker .evcp-apply,[onclick*="closeEthvelleColorPicker"]')||e.target?.id==='ethvelleColorPicker')setTimeout(finishGradientColorPick,80);},true);
+  document.addEventListener('keydown',e=>{if(e.key==='Escape'&&gradientPickState)setTimeout(finishGradientColorPick,80);},true);
+  function decorateGradientColorInputs(editor){
+    editor.querySelectorAll('.evce-stop input[data-stop-color]').forEach(input=>{
+      if(input.dataset.evceWheelReady==='1')return;input.dataset.evceWheelReady='1';
+      const b=document.createElement('button');b.type='button';b.className='evce-wheel-color';b.style.background=input.value;b.title='Choose stop color';b.setAttribute('aria-label','Choose color for this gradient stop');b.onclick=()=>window.openEthvelleGradientStopColor(b);input.insertAdjacentElement('afterend',b);
+      const observer=new MutationObserver(()=>{b.style.background=input.value;});observer.observe(input,{attributes:true,attributeFilter:['value']});input.addEventListener('input',()=>b.style.background=input.value);input.addEventListener('change',()=>b.style.background=input.value);
+    });
+    ['evceTexColor','evceTexColor2'].forEach(id=>{const input=$(id);if(!input||input.dataset.evceWheelReady==='1')return;input.dataset.evceWheelReady='1';const wrap=input.parentElement;const label=wrap?.querySelector('label')?.textContent||'Color';const btn=document.createElement('button');btn.type='button';btn.className='evce-wheel-color';btn.style.background=input.value;btn.title='Choose '+label.toLowerCase();btn.setAttribute('aria-label','Choose '+label.toLowerCase());btn.onclick=()=>window.openEthvelleGradientStopColor(btn);wrap?.appendChild(btn);input.addEventListener('input',()=>btn.style.background=input.value);input.addEventListener('change',()=>btn.style.background=input.value);});
+  }
+  function tweakEditor(){const editor=$('evpaCustomEffectEditor');if(editor&&editor.classList.contains('active'))decorateGradientColorInputs(editor);}
+  function boot(){
+    buildImageTextureInput();ensureFormatTab();refreshLayout(true);tweakEditor();
+    const mo=new MutationObserver(records=>{
+      let needsLayoutRefresh=false;
+      for(const record of records){
+        const raw=record.target;
+        const target=raw&&raw.nodeType===1?raw:raw&&raw.parentElement;
+        // Tab switches rebuild evpaControls synchronously. Scheduling another global refresh
+        // for those same nodes caused duplicate work and made Shadow/Bend/Format feel delayed.
+        if(target&&target.closest&&target.closest('#evpaControls,#evpaTabs,#evpaPalette,#ethvelleTextComposer,#textPanelBody,#timelineInner,#overlayMediaLayer'))continue;
+        needsLayoutRefresh=true;break;
+      }
+      if(needsLayoutRefresh)scheduleRefresh();
+      tweakEditor();
+    });
+    mo.observe(document.body,{childList:true,subtree:true,attributes:true,attributeFilter:['class']});
+    const oldSetValue=window.ethvellePicsartSetValue;
+    if(typeof oldSetValue==='function'&&!oldSetValue.__evvelleV18){const wrap=function(key,value){const out=oldSetValue.apply(this,arguments);if(key==='fontFamily'){const g=$('evpaControls');g?.querySelectorAll('.evpa-font-card').forEach(c=>c.classList.toggle('active',c.dataset.font===String(value)));}if(key==='textTransform')applyTextTransforms();return out;};wrap.__evvelleV18=true;window.ethvellePicsartSetValue=wrap;}
+    const oldSetTexture=window.ethvellePicsartSetTexture;
+    if(typeof oldSetTexture==='function'&&!oldSetTexture.__evvelleV18){const wrap=function(css,size){const out=oldSetTexture.apply(this,arguments);if(String(css).includes('data:image/')){try{const key='ethvelleCustomTextTexturesV1',list=JSON.parse(localStorage.getItem(key)||'[]');if(!list.some(x=>x.css===css)){list.unshift({name:'Image texture',css,size:size||'100% 100%'});localStorage.setItem(key,JSON.stringify(list.slice(0,5)));}}catch(_){}}return out;};wrap.__evvelleV18=true;window.ethvellePicsartSetTexture=wrap;}
+    const oldSave=window.saveEthvelleTextComposer;
+    if(typeof oldSave==='function'&&!oldSave.__evvelleV18){const saveWrap=function(){const before=getTarget();const savedTransform=before?.textTransform||'none';const out=oldSave.apply(this,arguments);let arr=[];try{arr=typeof overlays!=='undefined'?overlays:(window.overlays||[]);}catch(_){arr=window.overlays||[];}const clip=(arr||[]).find(o=>o&&o.type==='text'&&String(o.id)===String(window.selectedClip));if(clip){clip.textTransform=savedTransform;persist();}return out;};saveWrap.__evvelleV18=true;window.saveEthvelleTextComposer=saveWrap;}
+    applyTextTransforms();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+
+<!-- Ethvelle timeline, model-rig, text-panel and touch refinements v11 -->
+<style id="ethvelle-update-v11-css">
+  /* CapCut-style grips extend OUTSIDE the clip edges. This lets the selected clip's white
+     side tabs visibly overlap adjacent clips instead of covering their own left/right content. */
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    
+    z-index:18!important;
+    isolation:isolate;
+  }
+
+  /* Use Ethvelle's standard blue, not the old aqua/green accent, for selected font/Format UI. */
+  #ethvellePicsartTextDock .evpa-font-card.active{
+    border-color:#2F5CE8!important;
+    background:rgba(47,92,232,.20)!important;
+    box-shadow:inset 0 0 0 1px rgba(92,125,255,.24)!important;
+  }
+  #ethvellePicsartTextDock .evpa-font-card.active .evpa-font-name{color:#E7EDFF!important;}
+  #ethvellePicsartTextDock .evpa-format-btn.active{
+    background:#2F5CE8!important;color:#FFFFFF!important;border-color:#6C8BFF!important;
+  }
+  #ethvellePicsartTextDock .evpa-tab.active{color:#DDE6FF!important;background:rgba(47,92,232,.20)!important;}
+  #ethvellePicsartTextDock .evpa-tab.active::after{background:#2F5CE8!important;}
+
+  /* Hide the color row on tabs that don't need color picking. Color stays available in the
+     actual color/effect tabs (Color, Gradient, Texture, Highlight, Stroke, Shadow and BG). */
+  #ethvellePicsartTextDock.evpa-no-palette .evpa-palette{
+    display:none!important;min-height:0!important;height:0!important;max-height:0!important;
+    padding:0!important;margin:0!important;overflow:hidden!important;border:0!important;
+  }
+  #ethvellePicsartTextDock.evpa-no-palette{gap:0!important;}
+  #ethvellePicsartTextDock .evpa-new-layer-btn{
+    flex:0 0 auto;min-width:88px;height:31px;display:inline-flex;align-items:center;justify-content:center;
+    gap:5px;padding:0 10px;border:1px solid rgba(111,145,255,.55);border-radius:9px;
+    background:rgba(47,92,232,.18);color:#EAF0FF;font:700 11px Inter,Arial,sans-serif;
+    white-space:nowrap;touch-action:manipulation;pointer-events:auto;cursor:pointer;
+  }
+  #ethvellePicsartTextDock .evpa-new-layer-btn svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  #ethvellePicsartTextDock .evpa-new-layer-btn:active{background:#2F5CE8;transform:scale(.98);}
+  #timelineInner .overlay-track-row[data-group="text"] .layer-badge{position:relative;overflow:visible;}
+  #timelineInner .overlay-track-row[data-group="text"] .ethvelle-text-row-plus{
+    position:absolute;right:-5px;top:-5px;display:flex;align-items:center;justify-content:center;
+    width:14px;height:14px;border:1px solid #101116;border-radius:50%;background:#2F5CE8;color:#fff;
+    font:700 11px/1 Inter,Arial,sans-serif;box-shadow:none;pointer-events:none;
+  }
+
+  /* Text and media composites stay on the GPU while rotated/scaled, with antialiased text. */
+  #overlayMediaLayer .overlay-text-render,
+  #overlayMediaLayer>img,
+  #overlayMediaLayer>video,
+  #overlayMediaLayer .ethvelle-overlay-text-content{
+    -webkit-backface-visibility:hidden!important;backface-visibility:hidden!important;
+    -webkit-font-smoothing:antialiased;text-rendering:geometricPrecision;
+    will-change:transform;transform-style:preserve-3d;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content{ -webkit-text-size-adjust:100%; }
+  #stickCanvas{image-rendering:auto;touch-action:none;}
+
+  /* Keep text tools and color/effect sheets interactive on touch devices. The individual hue
+     wheel remains touch-action:none for its own pointer-drag gesture; range inputs keep pan-x. */
+  #ethvellePicsartTextDock.evpa-dock{pointer-events:auto!important;touch-action:pan-y;}
+  #ethvellePicsartTextDock .evpa-controls,
+  #ethvellePicsartTextDock .evpa-palette,
+  #ethvellePicsartTextDock .evpa-tabs{pointer-events:auto!important;}
+  #ethvellePicsartTextDock .evpa-controls{touch-action:pan-y;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+  #ethvellePicsartTextDock .evpa-tabs,
+  #ethvellePicsartTextDock .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-font-gallery{touch-action:pan-x;}
+  #ethvellePicsartTextDock .evpa-gradient-presets,
+  #ethvellePicsartTextDock .evpa-style-presets{touch-action:pan-y;}
+  #ethvellePicsartTextDock button,
+  #ethvellePicsartTextDock select,
+  #ethvellePicsartTextDock input,
+  #ethvellePicsartTextDock textarea{pointer-events:auto!important;-webkit-tap-highlight-color:transparent;}
+  #ethvellePicsartTextDock input[type="range"]{touch-action:pan-x!important;min-height:20px;}
+  #ethvellePicsartTextDock input[type="checkbox"]{touch-action:manipulation;}
+  #evpaCustomEffectEditor .evce-sheet,
+  #ethvelleColorPicker .evcp-sheet,
+  #ethvelleTextStylePanel .evts-panel,
+  #ethvelleTextComposer .evtc-dock{pointer-events:auto;overscroll-behavior:contain;-webkit-overflow-scrolling:touch;}
+  #ethvelleColorPicker .evcp-wheel{touch-action:none;}
+  #ethvelleTextComposer textarea{touch-action:manipulation;}
+  .evpa-rig-tool{flex:0 0 78px!important;width:78px;min-width:78px;max-width:78px;}
+  .evpa-rig-tool.active,.evpa-rig-tool.active span,.evpa-rig-tool.active svg{color:#1F4EDB!important;}
+  .evpa-rig-tool.active::before{background:#2F5CE8!important;box-shadow:none!important;}
+</style>
+<script id="ethvelle-update-v11-js">
+(function(){
+  'use strict';
+  const $ = id => document.getElementById(id);
+  window.ethvelleRigOverlayVisible = false;
+
+  function drawRigDot(g,p,r){
+    if(!p || !Number.isFinite(p.x) || !Number.isFinite(p.y)) return;
+    g.beginPath();g.arc(p.x,p.y,r,0,Math.PI*2);
+    g.fillStyle='#2F5CE8';g.fill();g.lineWidth=1.15;g.strokeStyle='#FFFFFF';g.stroke();
+  }
+  window.drawEthvelleRigOverlay = function(g, character){
+    if(!g || !character) return;
+    g.save();
+    g.strokeStyle='#2F5CE8';g.fillStyle='#2F5CE8';g.globalAlpha=.96;
+    g.lineWidth=1.45;g.lineCap='round';g.lineJoin='round';
+    let points=[];
+    try{
+      if(character.sheet && typeof sheetRigForCharacter==='function' && typeof sheetSolveRig==='function'){
+        const rig=sheetRigForCharacter(character);
+        const solved=sheetSolveRig(rig.bones,rig.baseAngles);
+        Object.keys(solved||{}).forEach(key=>{
+          if(key==='root') return;
+          const bone=solved[key];if(!bone||!bone.s||!bone.e) return;
+          g.beginPath();g.moveTo(bone.s.x,bone.s.y);g.lineTo(bone.e.x,bone.e.y);g.stroke();
+        });
+        // Never draw dead-end dots. The same 23-point list is used by getJointList() for
+        // pointer hit-testing and dragSheetCharacterJoint() for the corresponding control.
+        if(typeof getJointList==='function') (getJointList()||[]).forEach(j=>points.push(j));
+      }else if(typeof getBoneStart==='function' && typeof getBoneEnd==='function'){
+        ['spine','head','armL','armL_lo','armR','armR_lo','legL','legL_lo','legR','legR_lo'].forEach(key=>{
+          try{const a=getBoneStart(key),b=getBoneEnd(key);if(a&&b){g.beginPath();g.moveTo(a.x,a.y);g.lineTo(b.x,b.y);g.stroke();points.push(a,b);}}catch(_e){}
+        });
+        if(typeof getJointList==='function') (getJointList()||[]).forEach(j=>points.push(j));
+      }
+      const uniq=new Map();
+      points.forEach(p=>{if(p&&Number.isFinite(p.x)&&Number.isFinite(p.y))uniq.set(Math.round(p.x*10)+':'+Math.round(p.y*10),p);});
+      uniq.forEach(p=>drawRigDot(g,p,3.05));
+    }catch(err){console.warn('Rig overlay could not be drawn',err);}
+    g.restore();
+  };
+
+  function ensureRigTool(){
+    const row=$('bottomToolsClip');if(!row||$('clipRigOverlayTool'))return;
+    const btn=document.createElement('div');btn.id='clipRigOverlayTool';btn.className='tool-item evpa-rig-tool';
+    btn.setAttribute('role','button');btn.tabIndex=0;btn.style.display='none';
+    btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><path d="M7 5h10M6.5 6.5l4 4M17.5 6.5l-4 4M7 19h10M6.5 17.5l4-4M17.5 17.5l-4-4"/></svg><span>Show rig</span>';
+    const toggle=()=>{
+      window.ethvelleRigOverlayVisible=!window.ethvelleRigOverlayVisible;
+      syncRigToolState();
+      if(typeof drawStick==='function')drawStick();
+    };
+    btn.addEventListener('click',toggle);
+    btn.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();toggle();}});
+    const anchor=$('clipTransformTool')||$('clipForwardTool');
+    if(anchor&&anchor.parentNode===row)row.insertBefore(btn,anchor.nextSibling);else row.appendChild(btn);
+  }
+  function syncRigToolState(){
+    const btn=$('clipRigOverlayTool');if(!btn)return;
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    const charLayer=/^char\d+$/.test(id),animClip=id==='main'||/^seg\d+$/.test(id);
+    const canShow=!!(typeof activeCharacter==='function'&&activeCharacter())&&(charLayer||animClip);
+    btn.style.display=canShow?'flex':'none';
+    btn.classList.toggle('active',!!window.ethvelleRigOverlayVisible);
+    const label=btn.querySelector('span');if(label)label.textContent=window.ethvelleRigOverlayVisible?'Hide rig':'Show rig';
+    btn.setAttribute('aria-pressed',window.ethvelleRigOverlayVisible?'true':'false');
+  }
+
+  // Replace ordering only for the combined overlay collection (text + image/video/audio).
+  // Backgrounds are explicitly routed back to the original dedicated time-slot reorder logic.
+  const priorReorder=window.reorderSelectedLayer;
+  window.reorderSelectedLayer=function(dir){
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    if(!id)return;
+    const isBackground=id.startsWith('bg') || (typeof backgroundClipForSelection==='function'&&!!backgroundClipForSelection());
+    if(isBackground){if(typeof priorReorder==='function')return priorReorder.apply(this,arguments);return;}
+    if(/^char\d+$/.test(id)){if(typeof priorReorder==='function')return priorReorder.apply(this,arguments);return;}
+    if(id==='main'||/^seg\d+$/.test(id)){return;}
+    let idx=-1;
+    try{idx=(overlays||[]).findIndex(o=>String(o&&o.id)===id);}catch(_e){}
+    if(idx<0){if(typeof priorReorder==='function')return priorReorder.apply(this,arguments);return;}
+    const next=idx+(Number(dir)>=0?1:-1);
+    if(next<0||next>=(overlays||[]).length){
+      if(typeof showToast==='function')showToast(Number(dir)>=0?'Already at the front':'Already at the back',{duration:1200});
+      return;
+    }
+    [overlays[idx],overlays[next]]=[overlays[next],overlays[idx]];
+    if(typeof renderOverlayLayers==='function')renderOverlayLayers();
+    if(typeof renderFrame==='function')renderFrame();
+    if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+    if(typeof persistProjectState==='function')persistProjectState();
+  };
+
+  // The text dock hides the timeline toolbar while open, so give selected text a dedicated
+  // plus/New text action in that same dock. A non-matching sentinel ID forces a truly blank
+  // composer even if an existing text layer remains selected underneath.
+  function ensureTextNewButton(){
+    const dock=$('ethvellePicsartTextDock');
+    if(dock)dock.querySelectorAll('.evpa-new-layer-btn').forEach(b=>b.remove());
+    document.querySelectorAll('.ethvelle-text-row-plus').forEach(b=>b.remove());
+  }
+
+  const tabsWithoutPalette=new Set(['spacing','opacity','styles','perspective','bend','format','gradient','texture']);
+  function syncTextPalette(){
+    const dock=$('ethvellePicsartTextDock');if(!dock)return;
+    const active=dock.querySelector('#evpaTabs .evpa-tab.active');
+    const tab=active?String(active.dataset.tab||'color'):'color';
+    dock.classList.toggle('evpa-no-palette',tabsWithoutPalette.has(tab));
+    const palette=$('evpaPalette');if(palette)palette.setAttribute('aria-hidden',tabsWithoutPalette.has(tab)?'true':'false');
+  }
+
+  const priorSync=window.syncBottomToolsMode;
+  let evltMoveBadgeState=null;
+  function selectedMoveItem(){
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    if(!id)return null;
+    if(/^char\d+$/.test(id)){
+      const index=parseInt(id.slice(4),10),item=(typeof characters!=='undefined'&&characters)?characters[index]:null;
+      return item?{kind:'character',item,index}:null;
+    }
+    try{
+      const bg=typeof backgroundClipForSelection==='function'?backgroundClipForSelection():null;
+      if(bg){const list=typeof backgrounds!=='undefined'&&Array.isArray(backgrounds)?backgrounds:[];return {kind:'background',item:bg,index:list.indexOf(bg)};}
+    }catch(_e){}
+    try{
+      const list=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[];
+      const index=list.findIndex(item=>String(item&&item.id)===id);
+      if(index>=0)return {kind:'overlay',item:list[index],index:list[index].__ethvelleBehindBackground?-1:index};
+    }catch(_e){}
+    return null;
+  }
+  function paintMoveBadge(buttonId,count,direction){
+    const button=$(buttonId);if(!button)return;
+    let badge=button.querySelector('.evlt-move-count-badge');
+    if(!badge){badge=document.createElement('span');badge.className='evlt-move-count-badge';badge.setAttribute('aria-hidden','true');button.appendChild(badge);}
+    const value=Math.max(0,Math.abs(Number(count)||0));
+    badge.textContent=value?String(value):'';
+    badge.classList.toggle('active',value>0);
+    if(value)badge.title=`Moved ${value} clip${value===1?'':'s'} ${direction}`;else badge.removeAttribute('title');
+  }
+  function refreshMoveBadges(){
+    const target=selectedMoveItem();
+    if(!target||target.index<0){evltMoveBadgeState=null;paintMoveBadge('clipForwardTool',0,'forward');paintMoveBadge('clipBackwardTool',0,'backward');return;}
+    if(!evltMoveBadgeState||evltMoveBadgeState.item!==target.item||evltMoveBadgeState.kind!==target.kind){
+      evltMoveBadgeState={item:target.item,kind:target.kind,originIndex:target.index};
+    }
+    const delta=target.index-evltMoveBadgeState.originIndex;
+    paintMoveBadge('clipForwardTool',Math.max(0,delta),'forward');
+    paintMoveBadge('clipBackwardTool',Math.max(0,-delta),'backward');
+  }
+  window.syncBottomToolsMode=function(){
+    const result=typeof priorSync==='function'?priorSync.apply(this,arguments):undefined;
+    ensureRigTool();ensureTextNewButton();syncRigToolState();syncTextPalette();
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    let ov=null;try{ov=(overlays||[]).find(o=>String(o&&o.id)===id)||null;}catch(_e){}
+    const background=id.startsWith('bg')||(typeof backgroundClipForSelection==='function'&&!!backgroundClipForSelection());
+    const charLayer=/^char\d+$/.test(id);
+    const canReorder=!!ov||background||charLayer;
+    ['clipForwardTool','clipBackwardTool'].forEach(toolId=>{const el=$(toolId);if(el)el.style.display=id&&canReorder?'flex':'none';});
+    refreshMoveBadges();
+    return result;
+  };
+
+  // Only keep the rig overlay active while a character animation/layer is selected.
+  const priorSelect=window.selectClipForChrome;
+  if(typeof priorSelect==='function')window.selectClipForChrome=function(which){
+    const id=String(which==null?'':which);
+    if(!(id==='main'||/^seg\d+$/.test(id)||/^char\d+$/.test(id)))window.ethvelleRigOverlayVisible=false;
+    const result=priorSelect.apply(this,arguments);
+    ensureRigTool();ensureTextNewButton();syncRigToolState();syncTextPalette();
+    return result;
+  };
+  const priorDeselect=window.deselectAllClips;
+  if(typeof priorDeselect==='function')window.deselectAllClips=function(){window.ethvelleRigOverlayVisible=false;const result=priorDeselect.apply(this,arguments);syncRigToolState();return result;};
+
+  // Re-synchronize the palette after tab changes, including the dynamically-added Format tab.
+  document.addEventListener('click',e=>{
+    if(e.target&&e.target.closest&&e.target.closest('#ethvellePicsartTextDock #evpaTabs .evpa-tab'))setTimeout(syncTextPalette,0);
+  },true);
+  const tabHost=$('evpaTabs');
+  if(tabHost){const tabObserver=new MutationObserver(syncTextPalette);tabObserver.observe(tabHost,{subtree:true,childList:true,attributes:true,attributeFilter:['class','data-tab']});}
+
+  // Keep panel gestures inside the panel. Stopping bubbling at the panel root does not cancel
+  // native slider/input taps, but prevents global canvas/timeline drag handlers from stealing them.
+  function wireTouchSafePanel(el){
+    if(!el||el.dataset.evTouchSafe==='1')return;el.dataset.evTouchSafe='1';
+    el.addEventListener('pointerdown',e=>e.stopPropagation(),{passive:true});
+    el.addEventListener('touchstart',e=>e.stopPropagation(),{passive:true});
+  }
+  function boot(){
+    ensureRigTool();ensureTextNewButton();syncRigToolState();syncTextPalette();
+    wireTouchSafePanel($('ethvellePicsartTextDock'));
+    wireTouchSafePanel($('ethvelleColorPicker'));
+    wireTouchSafePanel($('ethvelleTextComposer'));
+    wireTouchSafePanel($('evpaCustomEffectEditor'));
+    wireTouchSafePanel($('ethvelleTextStylePanel'));
+    const mo=new MutationObserver(()=>{
+      ensureRigTool();ensureTextNewButton();syncTextPalette();
+      wireTouchSafePanel($('ethvellePicsartTextDock'));
+      wireTouchSafePanel($('ethvelleColorPicker'));
+      wireTouchSafePanel($('ethvelleTextComposer'));
+      wireTouchSafePanel($('evpaCustomEffectEditor'));
+      wireTouchSafePanel($('ethvelleTextStylePanel'));
+    });
+    mo.observe(document.body,{childList:true,subtree:true});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+
+
+<!-- Ethvelle CapCut selection, timeline gestures, and touch-response repair v12 -->
+<style id="ethvelle-update-v12-css">
+  /* Keep the existing CapCut-style 20px white side tabs and 2px gray grip line exactly as-is,
+     but center each tab on the actual clip edge so half extends beyond the clip. The selected
+     track/row must allow that visible overhang; otherwise overflow:hidden silently crops it. */
+  
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    z-index:30!important;
+  }
+  /* Text/audio rules elsewhere in the file had higher specificity and were forcing left:0/right:0.
+     Reassert the exact same outward geometry for every overlay clip type without thinning the tabs. */
+  
+
+  /* The stage's selected-text frame stays a clean white rectangle; remove only the extra black
+     shadow/keyline on that text frame (other non-text transform frames keep their normal style). */
+  #selBoxLayer.ethvelle-text-selected-box{box-shadow:none!important;filter:none!important;outline:none!important;}
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::before,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::after{
+    border:1.5px solid rgba(255,255,255,.98)!important;border-radius:0!important;
+    box-shadow:none!important;outline:none!important;filter:none!important;text-shadow:none!important;
+  }
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::before,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::after{content:none!important;display:none!important;}
+
+  /* Remove the redundant plus badge and the dock-level New text button. */
+  #timelineInner .overlay-track-row[data-group="text"] .ethvelle-text-row-plus,
+  #ethvellePicsartTextDock .evpa-new-layer-btn{display:none!important;}
+  #ethvellePicsartTextDock #evpaTabs [data-tab="background"]{display:none!important;}
+
+  /* Nested horizontal preset/palette rows must be allowed to receive touch gestures. Earlier
+     pan-y on their parent intersected with pan-x on the row, producing 'touch takes 3 tries'. */
+  #ethvellePicsartTextDock.evpa-dock{touch-action:auto!important;}
+  #ethvellePicsartTextDock .evpa-controls{touch-action:auto!important;}
+  #ethvellePicsartTextDock .evpa-palette{touch-action:auto!important;}
+  #ethvellePicsartTextDock .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-font-gallery,
+  #ethvellePicsartTextDock .evpa-choice-row{touch-action:pan-x!important;-webkit-overflow-scrolling:touch;}
+  #ethvellePicsartTextDock .evpa-gradient-presets,
+  #ethvellePicsartTextDock .evpa-style-presets{touch-action:pan-y!important;-webkit-overflow-scrolling:touch;}
+  #ethvellePicsartTextDock input[type="range"],
+  #ethvelleTextStylePanel input[type="range"],
+  #ethvelleTextComposer input[type="range"],
+  #evpaCustomEffectEditor input[type="range"],
+  #ethvelleColorPicker input[type="range"]{touch-action:none!important;cursor:ew-resize;user-select:none;-webkit-user-select:none;}
+
+  /* A separate backplate pseudo-element makes Highlight visible even while gradient/texture is
+     applied to the text fill. Its color, opacity and radius are set from the selected text layer. */
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate{
+    position:relative!important;isolation:isolate!important;background-color:transparent!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate::before{
+    content:""!important;display:block!important;position:absolute!important;inset:0!important;
+    z-index:-1!important;pointer-events:none!important;
+    background:var(--ev-text-highlight-fill,rgba(24,42,102,.78))!important;
+    border-radius:var(--ev-text-highlight-radius,8px)!important;
+    box-shadow:none!important;outline:none!important;
+  }
+</style>
+<script id="ethvelle-update-v12-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(n,a,b)=>Math.max(a,Math.min(b,n));
+  const scrollSelectors=[
+    '#evpaPalette .evpa-swatches',
+    '#evpaControls .evpa-gradient-presets',
+    '#evpaControls .evpa-font-gallery',
+    '#evpaControls .evpa-choice-row',
+    '#evpaControls .evpa-style-presets'
+  ];
+  function captureDockScroll(){
+    const root=$('ethvellePicsartTextDock');if(!root)return [];
+    const state=[];
+    scrollSelectors.forEach(sel=>Array.from(root.querySelectorAll(sel)).forEach((el,i)=>state.push({sel,i,left:el.scrollLeft,top:el.scrollTop})));
+    const tabs=$('evpaTabs');if(tabs)state.push({sel:'#evpaTabs',i:0,left:tabs.scrollLeft,top:tabs.scrollTop});
+    return state;
+  }
+  function restoreDockScroll(state){
+    const root=$('ethvellePicsartTextDock');if(!root)return;
+    state.forEach(item=>{
+      const host=item.sel==='#evpaTabs' ? $('evpaTabs') : root;
+      if(!host)return;
+      const nodes=item.sel==='#evpaTabs'?[host]:Array.from(host.querySelectorAll(item.sel));
+      const el=nodes[item.i];if(el){el.scrollLeft=item.left;el.scrollTop=item.top;}
+    });
+  }
+  function wrapPreservingScroll(name,skip){
+    const original=window[name];if(typeof original!=='function'||original.__evvelleV12Scroll)return;
+    const wrapped=function(){
+      if(skip&&skip.apply(this,arguments))return original.apply(this,arguments);
+      const saved=captureDockScroll();
+      const result=original.apply(this,arguments);
+      requestAnimationFrame(()=>restoreDockScroll(saved));
+      setTimeout(()=>restoreDockScroll(saved),24);
+      return result;
+    };
+    wrapped.__evvelleV12Scroll=true;window[name]=wrapped;
+  }
+
+  function textOverlays(){
+    try{return (typeof overlays!=='undefined'?overlays:(window.overlays||[])).filter(o=>o&&o.type==='text');}
+    catch(_e){return (window.overlays||[]).filter(o=>o&&o.type==='text');}
+  }
+  function rgba(hex,opacity){
+    let h=String(hex||'#182A66').trim();
+    if(/^#[0-9a-f]{3}$/i.test(h))h='#'+h.slice(1).split('').map(c=>c+c).join('');
+    if(!/^#[0-9a-f]{6}$/i.test(h))h='#182A66';
+    const rgb=[1,3,5].map(i=>parseInt(h.slice(i,i+2),16));
+    return 'rgba('+rgb[0]+','+rgb[1]+','+rgb[2]+','+(clamp(Number(opacity==null?78:opacity),0,100)/100)+')';
+  }
+  function textNodeFor(ov){
+    try{
+      const map=typeof overlayMediaEls!=='undefined'?overlayMediaEls:null;
+      let host=map&&map[ov.id];
+      if(!host){const layer=$('overlayMediaLayer');if(layer)host=Array.from(layer.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id));}
+      return host&&host.querySelector('.ethvelle-overlay-text-content');
+    }catch(_e){return null;}
+  }
+  function syncHighlightPlates(){
+    textOverlays().forEach(ov=>{
+      const node=textNodeFor(ov);if(!node)return;
+      const enabled=!!(ov.textBackgroundEnabled||ov.textHighlightEnabled);
+      node.classList.toggle('ev-text-highlight-plate',enabled);
+      if(!enabled){node.style.removeProperty('--ev-text-highlight-fill');node.style.removeProperty('--ev-text-highlight-radius');return;}
+      const col=ov.textBackgroundColor||ov.textHighlightColor||'#182A66';
+      const op=ov.textBackgroundOpacity==null?(ov.textHighlightOpacity==null?78:ov.textHighlightOpacity):ov.textBackgroundOpacity;
+      const r=Math.max(0,Number(ov.textBackgroundRadius==null?(ov.textHighlightRadius==null?8:ov.textHighlightRadius):ov.textBackgroundRadius));
+      node.style.setProperty('--ev-text-highlight-fill',rgba(col,op));
+      node.style.setProperty('--ev-text-highlight-radius',r+'px');
+    });
+  }
+
+  // Make an enabled highlight unmistakable on first use: provide visible defaults only when the
+  // saved layer has no opacity/padding (or has zero), while preserving all later slider choices.
+  const oldSetValue=window.ethvellePicsartSetValue;
+  if(typeof oldSetValue==='function'&&!oldSetValue.__evvelleV12Highlight){
+    const setWrap=function(key,value){
+      if(key==='textBackgroundEnabled'&&!!value){
+        const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+        if(t){
+          if(t.textBackgroundOpacity==null||Number(t.textBackgroundOpacity)<=0)t.textBackgroundOpacity=82;
+          if(t.textBackgroundPadding==null||Number(t.textBackgroundPadding)<=0)t.textBackgroundPadding=10;
+          if(t.textBackgroundRadius==null)t.textBackgroundRadius=8;
+          if(!t.textBackgroundColor)t.textBackgroundColor=t.textHighlightColor||'#182A66';
+        }
+      }
+      const out=oldSetValue.apply(this,arguments);
+      requestAnimationFrame(syncHighlightPlates);
+      return out;
+    };
+    setWrap.__evvelleV12Highlight=true;window.ethvellePicsartSetValue=setWrap;
+  }
+  // Gradient / texture / style taps update in place now, so only the colour setters keep the restore.
+  ['ethvellePicsartSetColor','ethvellePicsartSaveCustomColor']
+    .forEach(n=>wrapPreservingScroll(n));
+  // The value setter is also a frequent swatch/format action; wrap it separately while retaining
+  // the Highlight defaults wrapper just installed above.
+  wrapPreservingScroll('ethvellePicsartSetValue',function(key,value,unit,live){return !!live;});
+
+  function stripUnwantedButtons(){
+    const dock=$('ethvellePicsartTextDock');
+    if(dock){
+      dock.querySelectorAll('.evpa-new-layer-btn').forEach(n=>n.remove());
+      const bg=dock.querySelector('#evpaTabs [data-tab="background"]');
+      if(bg){
+        const wasActive=bg.classList.contains('active');bg.remove();
+        if(wasActive&&typeof window.ethvellePicsartSetTool==='function')window.ethvellePicsartSetTool('highlight');
+      }
+    }
+    document.querySelectorAll('.ethvelle-text-row-plus').forEach(n=>n.remove());
+  }
+
+  // Also catch text nodes created later by timeline rendering / project load.
+  function boot(){
+    stripUnwantedButtons();syncHighlightPlates();
+    const layer=$('overlayMediaLayer');
+    if(layer)new MutationObserver(()=>requestAnimationFrame(syncHighlightPlates)).observe(layer,{childList:true,subtree:true});
+    const dock=$('ethvellePicsartTextDock');
+    if(dock)new MutationObserver(()=>{stripUnwantedButtons();syncHighlightPlates();}).observe(dock,{childList:true,subtree:true});
+    document.addEventListener('click',e=>{
+      if(e.target?.closest?.('#ethvellePicsartTextDock #evpaTabs .evpa-tab'))requestAnimationFrame(()=>{stripUnwantedButtons();syncHighlightPlates();});
+    },true);
+    window.addEventListener('resize',syncHighlightPlates,{passive:true});
+    // renderOverlayMedia mutates existing text nodes in place; reapply only the isolated backplate
+    // after it has set the layer's normal text styling.
+    const oldRenderMedia=window.renderOverlayMedia;
+    if(typeof oldRenderMedia==='function'&&!oldRenderMedia.__evvelleV12Plate){
+      const renderWrap=function(){const out=oldRenderMedia.apply(this,arguments);syncHighlightPlates();return out;};
+      renderWrap.__evvelleV12Plate=true;window.renderOverlayMedia=renderWrap;
+    }
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+<!-- Ethvelle update v13: square CapCut handles, scroll-safe sliders, fast color swatches, isolated text effects -->
+<style id="ethvelle-update-v13-css">
+  /* Preserve CapCut's same broad white trim tabs and gray 2px center grips; only correct geometry. */
+  
+  #timelineInner .anim-clip,
+  #timelineInner .overlay-clip,
+  #timelineInner .track-clip{border-radius:0!important;}
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{z-index:60!important;border-radius:0!important;}
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected,
+  #timelineInner .overlay-clip[data-group="audio"],
+  #timelineInner .overlay-clip[data-group="audio"].selected{border-radius:0!important;}
+
+  /* Use one section title only: remove the duplicate small heading and the gray instructional line. */
+  #ethvellePicsartTextDock .evpa-control-heading{display:none!important;}
+  /* The Font section also gets the same bottom color picker/swatches as the Color section. */
+  #ethvellePicsartTextDock.evpa-no-palette:has(#evpaTabs .evpa-tab[data-tab="font"].active) .evpa-palette{
+    display:block!important;visibility:visible!important;opacity:1!important;
+    height:auto!important;min-height:0!important;max-height:none!important;padding:0!important;margin:0!important;
+    overflow:visible!important;border:0!important;pointer-events:auto!important;
+  }
+  /* Keep the swatch strip fast and horizontally scrollable without changing its visual style. */
+  #ethvellePicsartTextDock .evpa-palette,
+  #ethvellePicsartTextDock .evpa-swatches{pointer-events:auto!important;touch-action:pan-x!important;overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;}
+  #ethvellePicsartTextDock .evpa-swatches button,
+  #ethvellePicsartTextDock .evpa-choice-row button{pointer-events:auto!important;touch-action:pan-x!important;}
+  #ethvellePicsartTextDock .evpa-gradient-presets button,
+  #ethvellePicsartTextDock .evpa-style-presets button{pointer-events:auto!important;touch-action:pan-y!important;}
+  #ethvellePicsartTextDock .evpa-controls{overflow-y:auto!important;overscroll-behavior-y:contain!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;}
+  #ethvellePicsartTextDock .evpa-range{touch-action:none!important;}
+  .evpa-range-interceptor{touch-action:none!important;}
+  #ethvellePicsartTextDock input[type="range"],
+  #ethvelleTextStylePanel input[type="range"],
+  #ethvelleTextComposer input[type="range"],
+  #evpaCustomEffectEditor input[type="range"],
+  #ethvelleColorPicker input[type="range"]{touch-action:none!important;}
+
+  /* Keep text in its own transformed/filled glyph layer. The backplate is the outer node's ::before,
+     so bend/perspective/gradient/texture/shadow controls cannot modify the highlight shape. */
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate{
+    position:relative!important;isolation:isolate!important;background-color:transparent!important;
+    background-image:none!important;background-clip:border-box!important;-webkit-background-clip:border-box!important;
+    padding:0!important;border-radius:0!important;opacity:1!important;transform:none!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content .evpa-text-effect-layer{
+    position:relative;display:inline-block;max-width:100%;transform-origin:center center;white-space:inherit;overflow-wrap:inherit;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate::before{
+    content:""!important;display:block!important;position:absolute!important;
+    inset:var(--ev-text-highlight-inset,0px)!important;z-index:-1!important;
+    pointer-events:none!important;background:var(--ev-text-highlight-fill,rgba(24,42,102,.78))!important;
+    border-radius:var(--ev-text-highlight-radius,8px)!important;box-shadow:none!important;outline:none!important;
+    transform:none!important;filter:none!important;opacity:1!important;
+  }
+  /* Selected text keeps the plain white, pointed frame without an extra black shadow line. */
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::before,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::after{border-radius:0!important;box-shadow:none!important;filter:none!important;outline:none!important;}
+</style>
+<script id="ethvelle-update-v13-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  function textOverlays(){try{return (typeof overlays!=='undefined'?overlays:(window.overlays||[])).filter(o=>o&&o.type==='text');}catch(_e){return (window.overlays||[]).filter(o=>o&&o.type==='text');}}
+  function nodeFor(ov){
+    let host=null;try{host=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[ov.id]:null;}catch(_e){}
+    if(!host){const root=$('overlayMediaLayer');if(root)host=Array.from(root.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id));}
+    return host?.querySelector?.('.ethvelle-overlay-text-content')||null;
+  }
+  // The in-file applyEffectsToNode was updated to operate on a child glyph layer. This repair is a
+  // guarded fallback for project elements produced before that child existed.
+  function ensureGlyphLayers(){
+    textOverlays().forEach(ov=>{
+      const node=nodeFor(ov);if(!node)return;
+      let glyph=node.querySelector(':scope > .evpa-text-effect-layer');
+      if(!glyph){glyph=document.createElement('span');glyph.className='evpa-text-effect-layer';while(node.firstChild)glyph.appendChild(node.firstChild);node.appendChild(glyph);}
+      const enabled=!!(ov.textBackgroundEnabled||ov.textHighlightEnabled);
+      node.classList.toggle('ev-text-highlight-plate',enabled);
+      if(enabled){
+        let col=String(ov.textBackgroundColor||ov.textHighlightColor||'#182A66').trim();
+        if(/^#[0-9a-f]{3}$/i.test(col))col='#'+col.slice(1).split('').map(c=>c+c).join('');
+        if(!/^#[0-9a-f]{6}$/i.test(col))col='#182A66';
+        const rgb=[1,3,5].map(i=>parseInt(col.slice(i,i+2),16));
+        const opacity=ov.textBackgroundOpacity==null?(ov.textHighlightOpacity==null?78:ov.textHighlightOpacity):ov.textBackgroundOpacity;
+        const pad=Math.max(0,Number(ov.textBackgroundPadding==null?(ov.textHighlightPadding||8):ov.textBackgroundPadding));
+        const radius=Math.max(0,Number(ov.textBackgroundRadius==null?(ov.textHighlightRadius==null?8:ov.textHighlightRadius):ov.textBackgroundRadius));
+        node.style.setProperty('--ev-text-highlight-fill',`rgba(${rgb[0]},${rgb[1]},${rgb[2]},${clamp(Number(opacity),0,100)/100})`);
+        node.style.setProperty('--ev-text-highlight-padding',pad+'px');node.style.setProperty('--ev-text-highlight-inset',(-pad)+'px');node.style.setProperty('--ev-text-highlight-radius',radius+'px');
+        if(window.ethvelleSyncTextBackplateShape)window.ethvelleSyncTextBackplateShape(node,ov);
+      }else{node.style.removeProperty('--ev-text-highlight-fill');node.style.removeProperty('--ev-text-highlight-padding');node.style.removeProperty('--ev-text-highlight-inset');node.style.removeProperty('--ev-text-highlight-radius');node.style.removeProperty('--ev-text-highlight-mask');}
+    });
+  }
+  // Swatch color changes now render once and update only the active ring. This also avoids reflowing
+  // the color strip when the selected color is picked in Highlight or Stroke.
+  const oldSetColor=window.ethvellePicsartSetColor;
+  if(typeof oldSetColor==='function'&&!oldSetColor.__evvelleV13Fast){
+    const fastSetColor=function(key,color){
+      const value=String(color||'#FFFFFF').toUpperCase();
+      const result=oldSetColor.apply(this,arguments);
+      const palette=$('evpaPalette');if(palette)palette.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',String(b.dataset.color||'').toUpperCase()===value));
+      requestAnimationFrame(ensureGlyphLayers);return result;
+    };
+    fastSetColor.__evvelleV13Fast=true;window.ethvellePicsartSetColor=fastSetColor;
+  }
+  // Re-apply the separated plate after rendering and live control changes, without observing every
+  // child mutation in the whole text dock (that was amplifying lag during color picking).
+  ['renderFrame','renderOverlayLayers'].forEach(name=>{
+    const original=window[name];if(typeof original!=='function'||original.__evvelleV13Isolated)return;
+    const wrapped=function(){const result=original.apply(this,arguments);ensureGlyphLayers();return result;};
+    wrapped.__evvelleV13Isolated=true;window[name]=wrapped;
+  });
+  ['ethvellePicsartSetValue','ethvellePicsartSetGradient','ethvellePicsartSetTexture','ethvellePicsartApplyCustomGradient','ethvellePicsartApplyCustomTexture','ethvellePicsartApplyStyle'].forEach(name=>{
+    const original=window[name];if(typeof original!=='function'||original.__evvelleV13Refresh)return;
+    const wrapped=function(){const result=original.apply(this,arguments);requestAnimationFrame(ensureGlyphLayers);return result;};
+    wrapped.__evvelleV13Refresh=true;window[name]=wrapped;
+  });
+  function boot(){ensureGlyphLayers();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+<!-- Ethvelle text-panel touch, crisp selection and isolated fast-color repair v14 -->
+<style id="ethvelle-update-v14-css">
+  /* CapCut selection tabs: full clip-height white tabs, square corners, unchanged 20px width
+     and centered gray line. A 2px vertical overhang aligns the side tabs to top/bottom bars. */
+  #timelineInner .anim-clip,
+  #timelineInner .overlay-clip,
+  #timelineInner .track-clip,
+  #timelineInner .track-clip-empty{border-radius:0!important;}
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected,
+  #timelineInner .overlay-clip[data-group="audio"],
+  #timelineInner .overlay-clip[data-group="audio"].selected{border-radius:0!important;}
+
+  /* Use one title line only; the large panel/tab title remains untouched. */
+  #ethvellePicsartTextDock .evpa-control-heading{display:none!important;}
+  /* Font includes the shared color swatches. Preserve horizontal scroll and active swatch without
+     rebuilding the control panel when one of the highlight/stroke/font swatches is tapped. */
+  #ethvellePicsartTextDock .evpa-palette,
+  #ethvellePicsartTextDock .evpa-swatches{pointer-events:auto!important;touch-action:pan-x!important;overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;scroll-behavior:auto!important;}
+  #ethvellePicsartTextDock .evpa-swatches button{pointer-events:auto!important;touch-action:pan-x!important;}
+  #ethvellePicsartTextDock .evpa-controls{overflow-y:auto!important;overscroll-behavior-y:contain!important;-webkit-overflow-scrolling:touch!important;touch-action:pan-y!important;}
+  #ethvellePicsartTextDock .evpa-controls .evpa-range{touch-action:none!important;}
+
+  /* All text editing effects are applied to the glyph child. The selected text wrapper is a
+     transparent positioning box; its ::before is exclusively the highlight/backplate. */
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate{
+    position:relative!important;isolation:isolate!important;background:transparent!important;
+    background-color:transparent!important;background-image:none!important;background-clip:border-box!important;
+    -webkit-background-clip:border-box!important;padding:0!important;border-radius:0!important;
+    opacity:1!important;transform:none!important;filter:none!important;box-shadow:none!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content .evpa-text-effect-layer{
+    position:relative;display:inline-block;max-width:100%;transform-origin:center center;
+    white-space:inherit;overflow-wrap:inherit;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content.ev-text-highlight-plate::before{
+    content:""!important;display:block!important;position:absolute!important;
+    inset:var(--ev-text-highlight-inset,0px)!important;z-index:-1!important;
+    pointer-events:none!important;background:var(--ev-text-highlight-fill,rgba(24,42,102,.78))!important;
+    border-radius:var(--ev-text-highlight-radius,8px)!important;box-shadow:none!important;outline:none!important;
+    transform:none!important;filter:none!important;opacity:1!important;
+  }
+  #overlayMediaLayer .ethvelle-overlay-text-content .evpa-text-effect-layer{ text-shadow:inherit; }
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::before,
+  #selBoxLayer.ethvelle-text-selected-box .sb-frame::after{border-radius:0!important;box-shadow:none!important;filter:none!important;outline:none!important;}
+</style>
+<script id="ethvelle-update-v14-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const priorSetColor=window.ethvellePicsartSetColor;
+  const normalizeHex=value=>{
+    let h=String(value||'#FFFFFF').trim().toUpperCase();
+    if(/^#[0-9A-F]{3}$/.test(h))h='#'+h.slice(1).split('').map(ch=>ch+ch).join('');
+    return /^#[0-9A-F]{6}$/.test(h)?h:'#FFFFFF';
+  };
+  const rgba=(hex,alpha)=>{
+    const h=normalizeHex(hex).slice(1),a=Math.max(0,Math.min(100,Number(alpha==null?100:alpha)))/100;
+    return `rgba(${parseInt(h.slice(0,2),16)},${parseInt(h.slice(2,4),16)},${parseInt(h.slice(4,6),16)},${a})`;
+  };
+  function getTextNode(t){
+    if(!t)return null;let host=null;
+    try{if(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)host=overlayMediaEls[t.id]||null;}catch(_e){}
+    if(!host){const root=$('overlayMediaLayer');if(root)host=Array.from(root.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(t.id))||null;}
+    return host?.querySelector?.('.ethvelle-overlay-text-content')||null;
+  }
+  function plateStyle(node,t,colorOverride){
+    if(!node||!t)return;
+    const enabled=!!(t.textBackgroundEnabled||t.textHighlightEnabled);
+    node.classList.toggle('ev-text-highlight-plate',enabled);
+    if(!enabled){['--ev-text-highlight-fill','--ev-text-highlight-padding','--ev-text-highlight-inset','--ev-text-highlight-radius'].forEach(k=>node.style.removeProperty(k));return;}
+    const col=normalizeHex(colorOverride||t.textBackgroundColor||t.textHighlightColor||'#182A66');
+    const op=t.textBackgroundOpacity==null?(t.textHighlightOpacity==null?78:t.textHighlightOpacity):t.textBackgroundOpacity;
+    const pad=Math.max(0,Number(t.textBackgroundPadding==null?(t.textHighlightPadding==null?8:t.textHighlightPadding):t.textBackgroundPadding));
+    const radius=Math.max(0,Number(t.textBackgroundRadius==null?(t.textHighlightRadius==null?8:t.textHighlightRadius):t.textBackgroundRadius));
+    const h=col.slice(1),n=[0,2,4].map(i=>parseInt(h.slice(i,i+2),16));
+    node.style.setProperty('--ev-text-highlight-fill',`rgba(${n[0]},${n[1]},${n[2]},${Math.max(0,Math.min(100,Number(op==null?78:op)))/100})`);
+    node.style.setProperty('--ev-text-highlight-padding',pad+'px');node.style.setProperty('--ev-text-highlight-inset',(-pad)+'px');node.style.setProperty('--ev-text-highlight-radius',radius+'px');
+    if(window.ethvelleSyncTextBackplateShape)window.ethvelleSyncTextBackplateShape(node,t);
+  }
+  let colorSaveTimer=null;
+  function persistNow(){
+    if(colorSaveTimer!==null){clearTimeout(colorSaveTimer);colorSaveTimer=null;}
+    try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){try{if(typeof persistProjectState==='function')persistProjectState();}catch(__){}}
+  }
+  function persistOne(){
+    if(colorSaveTimer!==null)clearTimeout(colorSaveTimer);
+    colorSaveTimer=setTimeout(()=>{colorSaveTimer=null;try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){try{if(typeof persistProjectState==='function')persistProjectState();}catch(__){}}},100);
+  }
+  window.addEventListener('pagehide',persistNow,{passive:true});
+  // Swatch changes are applied to the already-rendered node instead of rerendering the whole stage.
+  // This prevents slow Highlight/Stroke palette taps and keeps the swatch row at its exact scroll offset.
+  window.ethvellePicsartSetColor=function(key,color){
+    const value=normalizeHex(color),t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+    if(!t){if(typeof priorSetColor==='function')return priorSetColor.apply(this,arguments);return;}
+    const composer=$('ethvelleTextComposer')?.classList.contains('active');
+    if(composer&&typeof priorSetColor==='function'){return priorSetColor.apply(this,arguments);}
+    t[key]=value;
+    if(key==='textColor'){
+      t.textGradient='';t.textTexture='';t.textTextureSize='100% 100%';
+      if(Number(t.textOpacity)===0)t.textOpacity=100;
+    }
+    const activeTab=$('evpaTabs')?.querySelector('.evpa-tab.active')?.dataset.tab||'';
+    if(key==='textBackgroundColor'&&(activeTab==='highlight'||activeTab==='background'))t.textHighlightColor=value;
+    const node=getTextNode(t),glyph=node?.querySelector(':scope > .evpa-text-effect-layer');
+    if(node){
+      if(key==='textColor'){
+        const fill=rgba(value,t.textOpacity);
+        node.style.setProperty('color',fill,'important');
+        node.style.setProperty('background-image','none','important');
+        node.style.setProperty('background-clip','border-box','important');
+        node.style.setProperty('-webkit-background-clip','border-box','important');
+        if(glyph){
+          glyph.style.setProperty('color',fill,'important');
+          glyph.style.setProperty('-webkit-text-fill-color',fill,'important');
+          glyph.style.setProperty('background-image','none','important');
+          glyph.style.setProperty('background-clip','border-box','important');
+          glyph.style.setProperty('-webkit-background-clip','border-box','important');
+          glyph.style.setProperty('background-size','auto','important');
+          glyph.style.setProperty('opacity','1','important');
+          glyph.querySelectorAll('span').forEach(span=>{
+            span.style.setProperty('color',fill,'important');
+            span.style.setProperty('-webkit-text-fill-color',fill,'important');
+            span.style.setProperty('background-image','none','important');
+            span.style.removeProperty('background-clip');
+            span.style.removeProperty('-webkit-background-clip');
+            span.style.removeProperty('background-size');
+            span.style.removeProperty('background-position');
+            span.style.removeProperty('background-repeat');
+          });
+        }
+      }else if(key==='strokeColor'){
+        const width=Math.max(0,Number(t.strokeWidth)||0),stroke=width>0?`${width}px ${rgba(value,t.strokeOpacity)}`:'0 transparent';
+        if(glyph){glyph.style.webkitTextStroke=stroke;glyph.style.paintOrder='stroke fill';}
+        node.style.webkitTextStroke='0 transparent';node.style.paintOrder='normal';
+      }else if(key==='shadowColor'){
+        const shadow=t.shadowEnabled?`${(Number(t.shadowX)||0)}px ${Math.max(4,Number(t.shadowY)||6)}px ${Math.max(0,Number(t.shadowBlur)||0)}px ${rgba(value,t.shadowOpacity)}`:'none';
+        if(glyph)window.ethvelleApplyTextShadow(glyph,shadow,!!(String(t.textGradient||'').trim()||String(t.textTexture||'').trim()));else node.style.textShadow=shadow;
+        node.style.textShadow='none';
+      }else if(key==='textBackgroundColor'){
+        plateStyle(node,t,value);
+      }
+    }
+    const palette=$('evpaPalette');if(palette)palette.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',normalizeHex(b.dataset.color)===value));
+    persistOne();
+  };
+  // Refresh glyph-only shadow/stroke when a model redraw changes the numeric controls.
+  function syncGlyphPaint(){
+    let list=[];try{list=typeof overlays!=='undefined'?overlays:(window.overlays||[]);}catch(_e){list=window.overlays||[];}
+    list.filter(o=>o&&o.type==='text').forEach(t=>{
+      const node=getTextNode(t);if(!node)return;const glyph=node.querySelector(':scope > .evpa-text-effect-layer');if(!glyph)return;
+      const strokeWidth=Math.max(0,Number(t.strokeWidth)||0);
+      glyph.style.webkitTextStroke=strokeWidth>0?`${strokeWidth}px ${rgba(t.strokeColor||'#000000',t.strokeOpacity)}`:'0 transparent';
+      glyph.style.paintOrder='stroke fill';
+      window.ethvelleApplyTextShadow(glyph,t.shadowEnabled?`${(Number(t.shadowX)||0)}px ${Math.max(4,Number(t.shadowY)||6)}px ${Math.max(0,Number(t.shadowBlur)||0)}px ${rgba(t.shadowColor||'#000000',t.shadowOpacity)}`:'none',!!(String(t.textGradient||'').trim()||String(t.textTexture||'').trim()));
+      node.style.webkitTextStroke='0 transparent';node.style.paintOrder='normal';node.style.textShadow='none';
+      if(t.textBackgroundEnabled||t.textHighlightEnabled)plateStyle(node,t);
+    });
+  }
+  ['renderFrame','renderOverlayLayers'].forEach(name=>{
+    const original=window[name];if(typeof original!=='function'||original.__evvelleV14Paint)return;
+    const wrapped=function(){const result=original.apply(this,arguments);syncGlyphPaint();return result;};
+    wrapped.__evvelleV14Paint=true;window[name]=wrapped;
+  });
+  // Keep section palette visibility accurate on both startup and tab changes, without rebuilding it.
+  document.addEventListener('click',e=>{const tab=e.target?.closest?.('#evpaTabs .evpa-tab');if(!tab)return;requestAnimationFrame(()=>{const dock=$('ethvellePicsartTextDock');if(!dock)return;const font=tab.dataset.tab==='font';if(font)dock.classList.remove('evpa-no-palette');});},true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',syncGlyphPaint,{once:true});else syncGlyphPaint();
+})();
+</script>
+
+
+<!-- Ethvelle touch-axis and selection-corner refinement v15 -->
+<style id="ethvelle-update-v15-touch-css">
+  /* Let each nested control own its intended scroll axis: palette swatches horizontally,
+     controls vertically, without an ancestor touch-action rule cancelling the gesture. */
+  #ethvellePicsartTextDock.evpa-dock{touch-action:auto!important;}
+  #ethvellePicsartTextDock .evpa-palette{touch-action:auto!important;overscroll-behavior:contain!important;}
+  #ethvellePicsartTextDock .evpa-swatches,
+  #ethvellePicsartTextDock .evpa-font-gallery,
+  #ethvellePicsartTextDock .evpa-tabs{touch-action:pan-x!important;overscroll-behavior-x:contain!important;}
+  #ethvellePicsartTextDock .evpa-gradient-presets,
+  #ethvellePicsartTextDock .evpa-style-presets{touch-action:pan-y!important;overscroll-behavior:contain!important;}
+  #ethvellePicsartTextDock .evpa-controls{touch-action:pan-y!important;}
+</style>
+
+
+<!-- Ethvelle v18: precise CapCut handle geometry only; keep normal clip corner styling -->
+<style id="ethvelle-v18-selection-geometry">
+  /* Restore the original soft corners on actual clip blocks. Only the white trim handles
+     remain square; the blue animation and other media/text/audio/background blocks do not. */
+  #timelineInner .anim-clip,
+  #timelineInner .overlay-clip,
+  #timelineInner .track-clip,
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected,
+  #timelineInner .overlay-clip[data-group="audio"],
+  #timelineInner .overlay-clip[data-group="audio"].selected,
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected {
+    border-radius:6px!important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v19: square timeline clips, edge-centered CapCut handles, contextual text Add -->
+<style id="ethvelle-v19-square-clips-and-context-add">
+  /* Square, flush corners on every real timeline clip in every row (animation, background,
+     media, text, and audio). This overrides older radius rules without changing clip colors. */
+  #timelineInner .anim-clip,
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip,
+  #timelineInner .track-clip.selected,
+  #timelineInner .track-clip-empty,
+  #timelineInner #track-background .track-clip,
+  #timelineInner #track-background .track-clip.selected {
+    border-radius:0!important;
+    clip-path:none!important;
+  }
+  #timelineInner .anim-clip .clip-thumb-strip,
+  #timelineInner .overlay-clip .clip-thumb-strip,
+  #timelineInner .track-clip .clip-thumb-strip,
+  #timelineInner .anim-clip .clip-media-label,
+  #timelineInner .overlay-clip .clip-media-label,
+  #timelineInner .track-clip .clip-media-label {
+    border-radius:0!important;
+  }
+
+  /* The 20px white handle is centered on the exact clip edge: half outside, half inside.
+     Its gray grip stays centered on the edge, and the vertical ends align with the top and
+     bottom white selection bars. Preserve the existing white/gray handle design and width. */
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    
+    z-index:60!important;
+  }
+  /* Keep overflow visible all the way out through the row/track so outward halves are not
+     clipped by a parent, including on Android WebView. */
+  
+</style>
+<script id="ethvelle-v19-contextual-toolbar">
+(function(){
+  'use strict';
+  const byId=id=>document.getElementById(id);
+
+  function selectedId(){
+    try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:(window.selectedClip??''));}
+    catch(_e){return String(window.selectedClip??'');}
+  }
+  function selectedOverlay(){
+    const id=selectedId();
+    try{
+      const list=typeof overlays!=='undefined'?overlays:(window.overlays||[]);
+      return (list||[]).find(item=>item&&String(item.id)===id)||null;
+    }catch(_e){return null;}
+  }
+  function setTextEditVisibility(){
+    const edit=byId('clipTextEditTool');
+    if(!edit)return;
+    const clip=selectedOverlay();
+    const isText=!!clip&&clip.type==='text';
+    // This is the final toolbar sync layer, after legacy toolbar scripts have run.
+    // Only a selected text clip is allowed to expose the pencil/text-edit control.
+    edit.style.display=isText?'flex':'none';
+    edit.setAttribute('aria-hidden',isText?'false':'true');
+  }
+  function setContextualAddAction(){
+    const add=byId('clipAddMediaTool');
+    if(!add||add.dataset.evV19ContextAdd==='1')return;
+    add.dataset.evV19ContextAdd='1';
+    // Replaces the old inline handler rather than adding a second click listener, so a text
+    // selection cannot accidentally launch the device media picker as well.
+    add.onclick=function(event){
+      if(event){event.preventDefault();event.stopPropagation();}
+      const clip=selectedOverlay();
+      if(clip&&clip.type==='text'){
+        if(typeof window.openEthvelleTextComposer==='function'){
+          window.openEthvelleTextComposer('__ethvelle_new_text_layer__');
+        }
+        return false;
+      }
+      const isAudio=!!clip&&clip.type==='audio';
+      if(typeof window.triggerUpload==='function')window.triggerUpload(isAudio?'audio':'overlay',isAudio?'audio':'clips');
+      return false;
+    };
+  }
+  function refresh(){setContextualAddAction();setTextEditVisibility();}
+
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldSync.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.syncBottomToolsMode=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldSelect.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.selectClipForChrome=wrapped;
+  }
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evV19ContextToolbar){
+    const wrapped=function(){const result=oldDeselect.apply(this,arguments);refresh();return result;};
+    wrapped.__evV19ContextToolbar=true;window.deselectAllClips=wrapped;
+  }
+  document.addEventListener('click',event=>{
+    if(event.target&&event.target.closest&&event.target.closest('#timelineInner,#overlayRows'))requestAnimationFrame(refresh);
+  },true);
+  document.addEventListener('pointerup',event=>{
+    if(event.target&&event.target.closest&&event.target.closest('#timelineInner,#overlayRows'))requestAnimationFrame(refresh);
+  },true);
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refresh,{once:true});
+  else refresh();
+})();
+</script>
+
+
+
+<!-- Ethvelle v20: square background lane, fully-outside handles, context-safe text pencil,
+     shared palette separator and white slider thumb only -->
+<style id="ethvelle-v20-final-css">
+  /* The Background clip looked rounded at the left because its parent lane was still clipping
+     children to the old 6px rounded track. Square the parent and its dashed guide as well as
+     the background clip itself, so the very first block has four square corners. */
+  #timelineInner #track-background {
+    border-radius:0!important;
+  }
