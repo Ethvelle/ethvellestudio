@@ -82,7 +82,7 @@ if (!rootBuild.includes('com.google.gms:google-services')) {
   if (/buildscript\s*\{/.test(rootBuild)) {
     rootBuild = rootBuild.replace(/dependencies\s*\{/, match => match + "\n        classpath 'com.google.gms:google-services:4.4.4'");
   } else {
-    rootBuild = "buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.google.gms:google-services:4.4.4' } }\\n" + rootBuild;
+    rootBuild = "buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.google.gms:google-services:4.4.4' } }\n" + rootBuild;
   }
 }
 await fs.writeFile(rootGradle, rootBuild, 'utf8');
