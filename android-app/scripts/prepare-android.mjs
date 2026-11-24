@@ -7,9 +7,10 @@ const src = path.join(root, 'src-native');
 const javaOut = path.join(android, 'app/src/main/java/com/ethvelle/app');
 await fs.mkdir(javaOut, { recursive: true });
 for (const name of ['MainActivity.java', 'EthvelleMediaPlugin.java', 'EthvelleStoragePlugin.java']) {
-  const source = name === 'MainActivity.java'
-    ? await fs.readFile(path.join(src, name), 'utf8')
-    : await fs.readFile(path.join(src, name), 'utf8');
+  const sourcePath = name === 'MainActivity.java'
+    ? path.join(src, name)
+    : path.join(src, 'java', 'com', 'ethvelle', 'app', name);
+  const source = await fs.readFile(sourcePath, 'utf8');
   await fs.writeFile(path.join(javaOut, name), source, 'utf8');
 }
 
@@ -67,9 +68,6 @@ gradle = gradle.replace(/applicationId\s+['"][^'"]+['"]/, "applicationId 'com.et
 gradle = gradle.replace(/versionCode\s+\d+/, 'versionCode 399');
 gradle = gradle.replace(/versionName\s+['"][^'"]+['"]/, "versionName '399'");
 gradle = gradle.replace(/minifyEnabled\s+true/, 'minifyEnabled false');
-if (!gradle.includes('com.google.gms.google-services')) {
-  gradle = gradle.replace(/plugins\s*\{/, "plugins {\n    id 'com.google.gms.google-services' apply false");
-}
 gradle += `
 \n// Firebase Google sign-in configuration is optional for the first build.
 if (file('google-services.json').exists()) {
@@ -77,6 +75,17 @@ if (file('google-services.json').exists()) {
 }
 `;
 await fs.writeFile(appGradle, gradle, 'utf8');
+
+const rootGradle = path.join(android, 'build.gradle');
+let rootBuild = await fs.readFile(rootGradle, 'utf8');
+if (!rootBuild.includes('com.google.gms:google-services')) {
+  if (/buildscript\\s*\\{/.test(rootBuild)) {
+    rootBuild = rootBuild.replace(/dependencies\\s*\\{/, match => match + "\\n        classpath 'com.google.gms:google-services:4.4.4'");
+  } else {
+    rootBuild = "buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.google.gms:google-services:4.4.4' } }\\n" + rootBuild;
+  }
+}
+await fs.writeFile(rootGradle, rootBuild, 'utf8');
 
 const manifestApp = await fs.readFile(manifestPath, 'utf8');
 if (/READ_EXTERNAL_STORAGE|WRITE_EXTERNAL_STORAGE|MANAGE_EXTERNAL_STORAGE/.test(manifestApp)) {
