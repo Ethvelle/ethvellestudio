@@ -1,0 +1,1000 @@
+  .splash-logo-fallback svg{ width:100%; height:100%; }
+  .splash-logo.logo-fallback .splash-logo-img{ display:none; }
+  .splash-logo.logo-fallback .splash-logo-fallback{ display:flex; }
+  .splash-logo-shimmer{
+    position:absolute; inset:0; pointer-events:none; z-index:2;
+    -webkit-mask-image:var(--splash-logo-src); -webkit-mask-repeat:no-repeat;
+    -webkit-mask-position:center; -webkit-mask-size:contain;
+    mask-image:var(--splash-logo-src); mask-repeat:no-repeat;
+    mask-position:center; mask-size:contain;
+    overflow:hidden;
+  }
+  .splash-logo-shimmer::before{
+    content:''; position:absolute; top:-20%; left:-60%; width:40%; height:140%;
+    background:linear-gradient(100deg, transparent, rgba(255,255,255,0.85), transparent);
+    opacity:0; animation: splashShimmer 1.3s ease-out 1.05s forwards;
+  }
+  .splash-logo.logo-fallback .splash-logo-shimmer{ display:none; }
+  @keyframes splashLogoIn{
+    to{ opacity:1; transform:scale(1); filter:blur(0); }
+  }
+  @keyframes splashShimmer{
+    0%{ opacity:0; left:-60%; } 15%{ opacity:1; } 100%{ opacity:0; left:130%; }
+  }
+  @media (prefers-reduced-motion: reduce){
+    #screen-splash{ transition:opacity .25s linear; }
+    .splash-logo{ animation:splashFadeInSimple .35s ease-out forwards; filter:none; transform:none; }
+    .splash-logo-shimmer{ display:none; }
+  }
+  @keyframes splashFadeInSimple{ to{ opacity:1; } }
+
+  /* ================= LANDING ================= */
+  #screen-landing{ overflow-y:auto; }
+  .landing-hero{
+    padding:64px 24px 40px; position:relative; overflow:hidden;
+  }
+  .landing-hero::before{
+    content:''; position:absolute; top:-120px; right:-80px; width:280px; height:280px;
+    background:radial-gradient(circle, rgba(47,92,232,0.16), transparent 70%);
+    pointer-events:none;
+  }
+  .brand-row{display:flex; align-items:center; gap:10px; margin-bottom:56px;}
+  .brand-logo{
+    width:26px; height:26px; object-fit:contain; display:block; flex-shrink:0;
+  }
+  .brand-name{font-size:16px; font-weight:700; letter-spacing:-0.01em;}
+  .hero-eyebrow{
+    font-size:13px; color:var(--accent); font-weight:600; margin-bottom:14px;
+  }
+  .hero-title{
+    font-size:38px; line-height:1.08; font-weight:800; letter-spacing:-0.03em; margin:0 0 18px;
+  }
+  .hero-sub{
+    font-size:15.5px; line-height:1.55; color:var(--text-dim); margin:0 0 30px; max-width:34ch;
+  }
+  .hero-cta{
+    display:inline-flex; align-items:center; gap:8px; background:var(--accent); color:var(--accent-ink);
+    font-weight:700; font-size:15px; padding:14px 22px; border-radius:100px;
+  }
+  .hero-cta:active{ transform:scale(0.97); }
+
+  .stick-demo{
+    margin-top:44px; height:180px; position:relative; display:flex; align-items:flex-end; justify-content:center;
+  }
+
+  .landing-section{ padding:8px 24px 8px; }
+  .section-label{
+    font-size:12px; text-transform:none; color:var(--text-faint); font-weight:600; margin-bottom:16px;
+  }
+  .feature-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:36px; }
+  .feature-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md);
+    padding:18px; display:flex; gap:14px; align-items:flex-start;
+  }
+  .feature-icon{
+    width:38px; height:38px; border-radius:10px; background:var(--elevated-2);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .feature-icon svg{width:19px; height:19px; stroke:var(--accent);}
+  .feature-title{ font-size:14.5px; font-weight:700; margin:0 0 4px; }
+  .feature-desc{ font-size:13px; color:var(--text-dim); margin:0; line-height:1.45; }
+
+  .landing-footer-cta{
+    padding:8px 24px 40px;
+  }
+  .footer-card{
+    background:linear-gradient(155deg, var(--elevated), var(--panel));
+    border:1px solid var(--line); border-radius:var(--radius-lg); padding:28px 22px; text-align:left;
+  }
+  .footer-card h3{ font-size:20px; margin:0 0 8px; font-weight:800; letter-spacing:-0.02em; }
+  .footer-card p{ font-size:13.5px; color:var(--text-dim); margin:0 0 20px; line-height:1.5;}
+  .btn-primary-block{
+    display:flex; align-items:center; justify-content:center; gap:8px;
+    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:15px;
+    padding:15px; border-radius:100px; width:100%;
+  }
+  .btn-primary-block:active{ transform:scale(0.98); }
+
+  /* ================= HOME ================= */
+  #screen-home{ background:var(--bg); }
+  .home-scroll{ flex:1; overflow-y:auto; padding:0 0 132px; }
+  .home-topbar{
+    /* Nudged down (top padding 10 -> 22px) so the header sits lower and no longer crowds the status bar.
+       Bottom padding opened up (10 -> 22px) so the shrunk logo row isn't crowded against the banner. */
+    display:flex; align-items:center; gap:12px; padding:22px 20px 22px; flex-shrink:0;
+  }
+  /* Brand: smaller name, pulled tight against the logo. The logo PNG carries transparent padding on
+     its right side, so a small negative margin on the name closes that visual gap. */
+  .home-brand{ display:flex; align-items:flex-end; gap:0; flex:1; min-width:0; }
+  /* overflow:visible + a little padding stops the glow on the logo's bottom-right corner being clipped;
+     object-position:right bottom anchors the artwork's bottom-right corner to the box corner so it
+     never looks cut off or floating. */
+  .home-brand svg, .home-brand img{
+    width:56px; height:56px; flex-shrink:0; object-fit:contain; object-position:right bottom;
+    display:block; overflow:visible; padding:0 2px 2px 0; box-sizing:border-box;
+    /* Logo vertical nudge. 0 = lowest position (logo box bottom == text box bottom).
+       Negative = higher, positive = lower. Only the LOGO moves; the text stays put. */
+    transform:translateY(var(--brand-logo-shift, 7.75px));
+  }
+  .home-brand-name{
+    font-family:'Sora','Inter',-apple-system,BlinkMacSystemFont,sans-serif;
+    font-size:16px; font-weight:800; letter-spacing:0.01em; line-height:1;
+    margin-left:-6px;               /* small gap between the logo and the text */
+    position:relative; z-index:2;   /* keeps the text above the logo's transparent padding */
+    color:#F4F6FF;
+    /* Flat text: the 3D extrusion was removed on request. No shadow, no glow. */
+    text-shadow:none;
+    /* Text is the fixed reference: it sits on the bottom edge of the row and is NOT moved. */
+    align-self:flex-end;
+  }
+  /* Logo-only homepage brand mark: the new logo image is a full icon+wordmark lockup, so it's
+     sized to sit inline with the 38px notification icon-btn on the same row rather than towering
+     over it  -  height-constrained with width:auto so the lockup keeps its own aspect ratio. */
+  .home-topbar .home-brand-logo-only{
+    width:auto; height:44px; max-width:170px; object-fit:contain; object-position:left center;
+    display:block; flex-shrink:0; overflow:visible; transform:none; margin:0; padding:0; align-self:center;
+  }
+
+  .home-banner-scroll{
+    display:flex; gap:0; overflow-x:auto; padding:0 0 22px; scroll-snap-type:x mandatory;
+    -webkit-overflow-scrolling:touch;
+  }
+  /* Each slide is exactly one screen wide and carries the 20px side margin itself, so only ONE
+     banner is ever visible and a swipe moves a whole banner. */
+  .home-banner-slide{
+    flex:0 0 100%; width:100%; padding:0 20px; scroll-snap-align:center; scroll-snap-stop:always;
+  }
+  .home-banner{
+    /* Banners are a true 16:9 now (was a fixed min-height:168px box that drifted off-ratio
+       on different phone widths). aspect-ratio drives the height from the width; the
+       overflow + slightly tighter padding/type keep the copy inside the shorter frame. */
+    width:100%; aspect-ratio:16/9;
+    border-radius:var(--radius-lg); position:relative; overflow:hidden;
+    background:linear-gradient(150deg, #16234F, #0B1330 65%);
+    border:1px solid var(--line); padding:4.2cqw 5cqw; display:flex; flex-direction:column; justify-content:center;
+    container-type:inline-size;
+  }
+  .home-banner::after{
+    content:''; position:absolute; top:-60px; right:-60px; width:220px; height:220px;
+    background:radial-gradient(circle, rgba(47,92,232,0.35), transparent 70%); pointer-events:none;
+  }
+  .home-banner-tag{
+    display:inline-flex; align-self:flex-start; font-size:10.5px; font-weight:800; letter-spacing:0.03em;
+    text-transform:uppercase; color:var(--accent-ink); background:var(--accent); padding:0.9cqw 2.6cqw; border-radius:100px; margin-bottom:2.2cqw;
+    font-size:max(9px, 3cqw);
+  }
+  .home-banner h2{ font-size:clamp(15px, 5.6cqw, 22px); font-weight:800; line-height:1.14; letter-spacing:-0.02em; margin:0 0 1.4cqw; position:relative; z-index:1; }
+  .home-banner p{ font-size:clamp(11px, 3.5cqw, 14px); color:var(--text-dim); margin:0 0 3cqw; line-height:1.3; max-width:34ch; position:relative; z-index:1;
+    display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+  .home-banner-btn{
+    display:inline-flex; align-items:center; gap:6px; background:#fff; color:#0A0A0C;
+    font-weight:700; font-size:clamp(11.5px, 3.6cqw, 14px); padding:2.2cqw 4cqw; border-radius:100px; align-self:flex-start;
+    position:relative; z-index:1;
+  }
+  .home-banner-dots{ display:flex; justify-content:center; gap:6px; margin:0 0 26px; }
+  /* Dots are real buttons now (tap to jump to that banner) and animate width/colour as the
+     banner strip is swiped  -  the active pill stretches, the others shrink back to a dot. */
+  .home-banner-dots span{
+    width:6px; height:6px; border-radius:50%; background:var(--elevated-2); cursor:pointer;
+    transition:width .25s cubic-bezier(.4,0,.2,1), background .25s ease, border-radius .25s ease;
+  }
+  .home-banner-dots span.active{ background:var(--accent); width:16px; border-radius:4px; }
+
+  /* ---- Admin-uploaded image banners ----
+     Rendered as a real <img> (not a CSS background) so load / error can be detected. It fills the
+     same 16:9 frame as the text banners. The decorative blue glow is dropped for image banners so
+     the artwork isn't tinted, and a shimmer shows while the picture downloads. */
+  .home-banner.has-image{ padding:0; background:var(--elevated); cursor:default; }
+  /* A calm bottom overlay improves contrast; the blue action button itself is flat, with no glow. */
+  .home-banner.has-image::after{
+    display:block; top:auto; left:0; right:0; bottom:0; width:100%; height:56px;
+    height:58%; max-height:150px; min-height:74px;
+    background:linear-gradient(0deg,rgba(5,8,18,.88) 0%,rgba(5,8,18,.42) 48%,transparent 100%);
+    pointer-events:none;
+  }
+  .home-banner-image-action{
+    position:absolute; left:5cqw; bottom:5cqw; z-index:3;
+    display:inline-flex; align-items:center; justify-content:center; gap:7px;
+    max-width:88%; padding:2.35cqw 4.2cqw; border-radius:clamp(8px,2.4cqw,12px);
+    background:var(--accent); color:var(--accent-ink); border:0;
+    box-shadow:none;
+    font-weight:800; font-size:clamp(11px,3.5cqw,14px); line-height:1.15;
+    overflow:hidden; text-overflow:ellipsis; white-space:nowrap;
+    cursor:pointer; -webkit-tap-highlight-color:transparent;
+    transition:transform .16s ease, background .16s ease;
+  }
+  .home-banner-image-action:active{ transform:scale(.98); background:#264CCB; box-shadow:none; }
+  .home-banner-image-action:focus-visible{ outline:2px solid #fff; outline-offset:3px; }
+  .home-banner-image-action svg{ width:14px; height:14px; flex:0 0 auto; stroke:currentColor; }
+  .home-banner.has-image::before{
+    content:''; position:absolute; inset:0;
+    background:linear-gradient(100deg, transparent 20%, rgba(255,255,255,0.07) 50%, transparent 80%);
+    background-size:200% 100%; animation:bannerShimmer 1.3s linear infinite;
+  }
+  .home-banner.has-image.loaded::before, .home-banner.has-image.failed::before{ display:none; }
+  @keyframes bannerShimmer{ from{ background-position:200% 0; } to{ background-position:-200% 0; } }
+  .home-banner.has-image img{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+    opacity:0; transition:opacity .35s ease;
+  }
+  .home-banner.has-image.loaded img{ opacity:1; }
+  .home-banner-fail{
+    position:absolute; inset:0; display:none; align-items:center; justify-content:center;
+    background:linear-gradient(150deg, #16234F, #0B1330 65%);
+  }
+  .home-banner-fail svg{ width:34px; height:34px; stroke:var(--text-faint); }
+  .home-banner.has-image.failed .home-banner-fail{ display:flex; }
+
+  .home-section{ padding:0 20px 26px; }
+  .home-section-label{
+    font-size:12.5px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; color:var(--accent);
+    margin-bottom:14px;
+  }
+  .home-tile-row{ display:grid; grid-template-columns:repeat(4,1fr); gap:8px; max-width:340px; margin:0 auto; }
+  .home-tile{ display:flex; flex-direction:column; align-items:center; gap:6px; min-width:0; }
+  .home-tile-thumb{
+    width:100%; max-width:62px; aspect-ratio:1; border-radius:13px; overflow:hidden; position:relative;
+    background:linear-gradient(160deg, var(--elevated), var(--panel));
+    border:1px solid rgba(190,190,200,.42);
+    box-shadow:0 0 0 1px rgba(190,190,200,.07),0 4px 12px rgba(0,0,0,.28);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .home-tile-thumb svg{ width:20px; height:20px; stroke:var(--accent); }
+  .home-tile span{ font-size:10.5px; font-weight:600; color:var(--text-dim); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; max-width:100%; }
+
+  /* ---- Flat square image tile: crisp deep-blue border, NO outer glow, NO tilt ----
+     Every tile sits flat and square (1:1), no rotation, no per-column alternation.
+     The border is a hard-edged blue ring + a thin inset highlight only  - 
+     deliberately no blurred/spread box-shadow layers, so there is no halo around the tile. */
+  .home-tile-thumb.tile-photo{
+    border:none; background:none; overflow:visible;
+  }
+  .home-tile-photo-card{
+    width:100%; height:100%; aspect-ratio:1; border-radius:13px; position:relative; overflow:hidden;
+    transform:none;
+    border:1px solid rgba(190,190,200,.5);
+    box-shadow:0 0 0 1px rgba(190,190,200,.08),0 4px 12px rgba(0,0,0,.34);
+    transition:box-shadow .25s ease;
+  }
+  .home-tile:active .home-tile-photo-card{ box-shadow:0 0 0 1px rgba(190,190,200,.32),0 2px 7px rgba(0,0,0,.3); }
+  .home-tile-photo-card::after{
+    /* thin inner rim light only, no blue tint */
+    content:''; position:absolute; inset:0; border-radius:inherit;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,0.08);
+    pointer-events:none;
+  }
+  .home-tile-photo-card img{
+    width:100%; height:100%; object-fit:cover; display:block;
+    opacity:0; transition:opacity .25s ease;
+    /* Same GPU-layer fix as the splash logo  -  smooths out cracked/jagged edges on these
+       small uploaded tile images instead of leaving the browser's cheap default scaler. */
+    transform:translateZ(0); -webkit-transform:translateZ(0); backface-visibility:hidden;
+  }
+  .home-tile-photo-card img.loaded{ opacity:1; }
+  /* While a picture is still loading, the card shows the same soft panel the icon tiles use,
+     so a slow network reads as "loading" rather than an empty hole in the row. */
+  .home-tile-photo-card{ background:linear-gradient(160deg, var(--elevated), var(--panel)); }
+  .home-tile-photo-fallback{
+    width:100%; height:100%; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(160deg, var(--elevated), var(--panel));
+  }
+  .home-tile-photo-fallback svg{ width:24px; height:24px; stroke:var(--accent); }
+
+  /* Narrow phones: 4 tight columns get cramped once tiles are tilted/scaled, so drop to a
+     2x2 grid below ~360px so nothing clips or overlaps. Tablet/desktop widths keep the same
+     4-up row (it's a CSS grid, so it already scales up cleanly; this just guards the low end). */
+  @media (max-width:360px){
+    .home-tile-row{ grid-template-columns:repeat(4,1fr); gap:6px; max-width:280px; }
+    .home-tile-thumb{ max-width:52px; border-radius:11px; }
+  }
+
+  .home-video-scroll{ display:grid; grid-template-columns:1fr 1fr; gap:12px; align-items:start; }
+  .home-video-card{
+    /* Example cards are true 9:16 portrait now (was a fixed height:190px, which made them
+       nearly square). aspect-ratio derives the height from the grid column width. */
+    width:100%; border-radius:var(--radius-md); overflow:hidden; position:relative;
+    background:linear-gradient(165deg, var(--elevated), var(--panel)); border:1px solid var(--line);
+    aspect-ratio:9/16; display:flex; align-items:flex-end; align-self:start;
+  }
+  .home-video-card .home-video-preview{ pointer-events:none; }
+  .home-video-card .home-video-glow{
+    position:absolute; inset:0; background:radial-gradient(circle at 50% 35%, rgba(47,92,232,0.28), transparent 65%);
+  }
+  .home-video-stage{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  }
+  .home-video-stage svg{ width:44%; height:auto; max-width:96px; overflow:visible; }
+  /* Uploaded thumbnail sits over the placeholder stage, filling the whole 9:16 card. It is
+     absolutely positioned  -  as a normal flex child it used to squeeze in beside the label
+     and only fill half the card. If it fails to load it hides itself, revealing the stage. */
+  .home-video-card .home-video-img{
+    position:absolute; inset:0; width:100%; height:100%; object-fit:cover; display:block;
+  }
+  .stick-walk .sw-armL, .stick-walk .sw-armR, .stick-walk .sw-legL, .stick-walk .sw-legR{
+    transform-origin:60px 55px; animation: swSwing 0.9s ease-in-out infinite;
+  }
+  .stick-walk .sw-armR, .stick-walk .sw-legL{ animation-delay:0.45s; }
+  @keyframes swSwing{ 0%,100%{ transform:rotate(-18deg);} 50%{ transform:rotate(18deg);} }
+  .stick-wave .sw-armR{ transform-origin:60px 45px; animation: swWave 0.7s ease-in-out infinite; }
+  @keyframes swWave{ 0%,100%{ transform:rotate(0deg);} 50%{ transform:rotate(-55deg);} }
+  .stick-bounce{ animation: swBounce 0.8s ease-in-out infinite; }
+  @keyframes swBounce{ 0%,100%{ transform:translateY(0);} 50%{ transform:translateY(-10px);} }
+  .stick-jump .sw-legL{ transform-origin:60px 95px; animation: swJumpL 0.6s ease-in-out infinite; }
+  .stick-jump .sw-legR{ transform-origin:60px 95px; animation: swJumpR 0.6s ease-in-out infinite; }
+  @keyframes swJumpL{ 0%,100%{ transform:rotate(0deg);} 50%{ transform:rotate(-22deg);} }
+  @keyframes swJumpR{ 0%,100%{ transform:rotate(0deg);} 50%{ transform:rotate(22deg);} }
+  /* Example clips have no on-screen play / pause button: tapping the clip itself toggles it. */
+  .home-video-card[data-hv-media]{ cursor:pointer; -webkit-tap-highlight-color:transparent; -webkit-user-select:none; user-select:none; }
+  .home-video-card[data-hv-media]:focus-visible{ outline:2px solid #6F9BFF; outline-offset:2px; }
+  .home-video-card img.home-gif:not([src]){ visibility:hidden; }
+  .home-video-label{
+    position:relative; z-index:1; padding:10px 12px; font-size:12px; font-weight:700; color:#fff;
+    background:linear-gradient(0deg, rgba(0,0,0,0.65), transparent);
+    width:100%;
+  }
+
+  .home-bottom-nav{
+    position:absolute; left:0; right:0; bottom:0; display:flex; border-top:1px solid var(--line);
+    background:rgba(15,15,18,0.94); backdrop-filter:blur(14px); flex-shrink:0;
+    padding-bottom:env(safe-area-inset-bottom); z-index:4;
+  }
+  .home-nav-item{
+    flex:1; display:flex; flex-direction:column; align-items:center; gap:4px; padding:11px 0 9px; color:var(--text-faint);
+  }
+  .home-nav-item svg{ width:22px; height:22px; }
+  .home-nav-item span{ font-size:10.5px; font-weight:600; }
+  .home-nav-item.active{ color:var(--accent); }
+  .home-nav-create{
+    flex:1; display:flex; align-items:center; justify-content:center; position:relative;
+  }
+  .home-nav-create-btn{
+    width:44px; height:44px; border-radius:14px;
+    background:linear-gradient(165deg, #4E7CFF, #1E46C4); border:1px solid rgba(255,255,255,0.25);
+    display:flex; align-items:center; justify-content:center;
+    box-shadow:0 0 14px rgba(47,92,232,0.55), 0 2px 4px rgba(0,0,0,0.3);
+  }
+  .home-nav-create-btn:active{ transform:scale(0.94); }
+  .home-nav-create-btn svg{ width:20px; height:20px; }
+
+  /* ---- Payment ---- */
+  .demo-topbar{ padding:22px 20px 4px; flex-shrink:0; }
+  .demo-topbar h1{ font-size:24px; font-weight:800; letter-spacing:-0.02em; margin:0; }
+  .demo-topbar .demo-subtitle{ font-size:13px; color:var(--text-dim); margin:4px 0 0; }
+  .demo-scroll{
+    flex:1; overflow-y:auto; -webkit-overflow-scrolling:touch; overscroll-behavior:contain;
+    padding:16px 20px calc(132px + env(safe-area-inset-bottom));
+  }
+  .plan-card{
+    background:linear-gradient(160deg, var(--elevated), var(--panel)); border:1px solid var(--line);
+    border-radius:var(--radius-lg); padding:18px 20px 20px; margin-bottom:12px; position:relative; overflow:hidden;
+  }
+  /* Content stacks from the top of the card, same as before (.plan-card has no vertical
+     centering)  -  a card with few features just ends sooner. Per request this adds a
+     consistent floor height so a short plan (e.g. one feature line) doesn't read as a
+     half-empty card next to a taller one; content still starts at the top either way. */
+  .plan-card{ min-height:200px; }
+  .plan-card{ cursor:pointer; transition:border-color .2s ease, box-shadow .2s ease, transform .12s ease; }
+  .plan-card:active{ transform:scale(0.988); }
+  /* .featured no longer paints a border/glow  -  Pro is marked by its "Popular" badge only, so it
+     can't be mistaken for the selected plan. */
+  .plan-card.featured{ }
+
+  /* Single top-right control row: badge + radio share one flex line, so their centerlines are
+     always identical by construction  -  never two independently-positioned absolute elements
+     that can drift apart. This is the fix for the badge/check misalignment. */
+  .plan-card-top{ display:flex; align-items:center; justify-content:flex-end; gap:8px; min-height:24px; margin-bottom:10px; }
+  .plan-badge{
+    font-size:10px; font-weight:800; letter-spacing:0.03em; text-transform:uppercase; line-height:1;
+    background:var(--accent); color:var(--accent-ink); padding:6px 10px; border-radius:100px; flex-shrink:0;
+  }
+  .plan-radio{
+    width:24px; height:24px; border-radius:50%; flex-shrink:0;
+    border:2px solid var(--elevated-2); display:flex; align-items:center; justify-content:center;
+    transition:border-color .2s ease, background .2s ease;
+  }
+  .plan-radio svg{ width:13px; height:13px; stroke:#fff; stroke-width:3.2; opacity:0; transition:opacity .15s ease; }
+
+  .plan-name{ font-size:14px; font-weight:700; color:var(--text-dim); margin:0 0 5px; }
+  .plan-price{ font-size:28px; font-weight:800; letter-spacing:-0.02em; margin:0 0 6px; line-height:1.1; }
+  /* BRIGHTENED per request  -  "/month" used var(--text-faint) (#57575F), nearly invisible
+     against the dark card. Matches the brighter grey already used for plan-desc/plan-feature. */
+  .plan-price span{ font-size:13px; font-weight:600; color:#B8B8C2; }
+  /* BRIGHTENED per request ("grey text more brighter and visible")  -  plan-desc and
+     plan-feature used var(--text-dim) (#8A8A94), the same muted grey as dozens of unrelated
+     secondary labels across the app. Scoped a brighter grey to just these two plan-card rules
+     rather than changing --text-dim globally, which would also wash out menus/timestamps/etc
+     everywhere else that intentionally wants a quieter grey. */
+  .plan-desc{ font-size:12.5px; color:#B8B8C2; margin:0 0 16px; line-height:1.4; }
+  .plan-feature-list{ display:flex; flex-direction:column; gap:10px; margin-bottom:18px; }
+  .plan-feature{ display:flex; align-items:center; gap:9px; font-size:13px; color:#B8B8C2; line-height:1.3; }
+  .plan-feature svg{ width:15px; height:15px; stroke:var(--accent); flex-shrink:0; }
+  .plan-cta{
+    display:flex; align-items:center; justify-content:center; width:100%; min-height:46px; padding:13px; border-radius:100px;
+    font-weight:700; font-size:14px; background:var(--elevated-2); color:var(--text);
+  }
+
+  /* ---- Selectable plans: tap a card to choose it ---- */
+  .plan-card.selected{ border-color:var(--accent); box-shadow:0 0 0 1px rgba(47,92,232,0.45), 0 8px 24px rgba(47,92,232,0.22); background:linear-gradient(160deg, rgba(47,92,232,0.14), var(--panel)); }
+  .plan-card.selected .plan-radio{ background:var(--accent); border-color:var(--accent); }
+  .plan-card.selected .plan-radio svg{ opacity:1; }
+  .plan-card.selected .plan-cta{ background:linear-gradient(165deg, #4E7CFF, #1E46C4); color:var(--accent-ink); }
+  .plan-cta:disabled{ opacity:0.55; }
+  /* Current-plan marker: a quiet green badge (never the accent blue, so it's never confused
+     with "Popular"). "Popular" is hidden once a plan becomes the user's current plan, so this
+     never needs to stack below it  -  it always sits on the same shared top row. */
+  .plan-badge-current{ background:var(--success); color:#06231A; }
+  /* Discount badge  -  warm/orange so it reads as a deal, distinct from the accent-blue plain
+     badge and the green "Current" badge. Takes priority over the plain badge when both would
+     otherwise apply (see renderPaymentPlans' badgeHtml logic). */
+  .plan-badge-discount{ background:var(--warning); color:#2B1B00; }
+  /* BRIGHTENED per request  -  struck-through original price used var(--text-faint) (#57575F). */
+  .plan-price-strike{ font-size:15px; font-weight:600; color:#B8B8C2; text-decoration:line-through; margin-right:6px; }
+  .plan-card.current-plan{ border-color:rgba(52,211,153,0.5); }
+  /* The user's current/owned plan is always shown already-selected (filled radio, accent
+     border) but WITHOUT the heavy drop-shadow glow .selected normally adds  -  it's a quiet,
+     flat highlight rather than something that looks "pickable". The green current-plan border
+     still wins over the blue selected border so it's never confused with a plan you could
+     also just be browsing/selecting. */
+  .plan-card.current-plan.selected{ box-shadow:none; border-color:rgba(52,211,153,0.6); background:linear-gradient(160deg, rgba(52,211,153,0.08), var(--panel)); }
+  .plan-card.current-plan.selected .plan-radio{ background:var(--success); border-color:var(--success); }
+  .plan-card.current-plan.selected .plan-radio svg{ stroke:#06231A; }
+  /* No action button at all on the plan you already own  -  nothing to tap, so nothing shown. */
+  .plan-card.current-plan .plan-cta{ display:none; }
+  .demo-note{
+    display:flex; align-items:center; gap:8px; font-size:12px; color:#B8B8C2; justify-content:center;
+    margin-top:10px; text-align:center; line-height:1.4;
+  }
+
+  /* ---- Checkout (bKash / Nagad manual payment) ---- */
+  #screen-checkout .demo-topbar{ display:flex; align-items:center; gap:12px; padding:16px 20px 6px; }
+  .checkout-back-btn{
+    width:36px; height:36px; border-radius:10px; background:var(--elevated); display:flex;
+    align-items:center; justify-content:center; flex-shrink:0;
+  }
+  .checkout-back-btn svg{ width:18px; height:18px; stroke:var(--text); }
+  .checkout-back-btn:active{ transform:scale(0.92); }
+  #screen-checkout .demo-topbar h1{ font-size:17px; font-weight:800; letter-spacing:-0.01em; margin:0; }
+
+  /* Selected plan summary */
+  .checkout-summary-card{
+    background:linear-gradient(160deg, rgba(47,92,232,0.16), var(--panel)); border:1px solid rgba(47,92,232,0.35);
+    border-radius:var(--radius-lg); padding:16px 18px; margin-bottom:24px; display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .checkout-summary-card .cs-eyebrow{ font-size:10.5px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; color:var(--accent-ink); opacity:0.85; margin:0 0 4px; }
+  .checkout-summary-card .cs-name{ font-size:16px; font-weight:800; margin:0 0 3px; }
+  .checkout-summary-card .cs-name.cs-name-only{ margin:0; }
+  .promo-p-badge, .promo-discount-p{
+    display:inline-flex; align-items:center; justify-content:center; vertical-align:middle;
+    min-width:19px; width:19px; height:19px; padding:0; margin-left:6px; border-radius:50%;
+    background:var(--accent); color:#fff; font-size:11px; line-height:1; font-weight:900;
+    letter-spacing:0; box-shadow:none; flex-shrink:0;
+  }
+  .promo-discount-p{ min-width:18px; width:18px; height:18px; margin:0 5px 0 0; border-radius:50%; font-size:10px; }
+  /* BRIGHTENED per request  -  these all used var(--text-dim)/var(--text-faint), too dim on
+     the dark checkout card. Matches the brighter grey already used on the Payment plan cards. */
+  .checkout-summary-card .cs-desc{ font-size:12px; color:#B8B8C2; margin:0; }
+  .checkout-summary-card .cs-price{ font-size:19px; font-weight:800; letter-spacing:-0.02em; white-space:nowrap; }
+  .checkout-summary-card .cs-price span{ font-size:11.5px; font-weight:600; color:#B8B8C2; }
+
+  /* Section labels  -  plain, consistent hierarchy, no glow */
+  .checkout-section-label{
+    display:flex; align-items:center; gap:8px;
+    font-size:11px; font-weight:800; letter-spacing:0.06em; text-transform:uppercase;
+    margin:0 0 12px; color:#B8B8C2;
+  }
+  .checkout-section-label em{ font-style:normal; font-weight:700; letter-spacing:0; text-transform:none; color:#B8B8C2; margin-left:-2px; }
+  .checkout-section{ margin-bottom:26px; }
+
+  .checkout-method-row{ display:flex; gap:10px; }
+  .checkout-method-card{
+    flex:1; background:var(--panel); border:1.5px solid var(--line); border-radius:16px;
+    padding:16px 10px; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px; min-height:84px;
+    cursor:pointer; transition:border-color .2s ease, background .2s ease, transform .12s ease;
+  }
+  .checkout-method-card:active{ transform:scale(0.97); }
+  .checkout-method-card.selected{ border-color:var(--accent); background:linear-gradient(160deg, rgba(47,92,232,0.14), var(--panel)); }
+  .checkout-method-card img{ height:30px; max-width:100%; object-fit:contain; display:block; border-radius:8px; }
+  .checkout-method-card span{ font-size:12.5px; font-weight:700; color:#B8B8C2; }
+  .checkout-method-card.selected span{ color:var(--text); }
+
+  /* Payment number  -  the most important single element on the page */
+  .checkout-number-card{
+    background:linear-gradient(160deg, var(--elevated), var(--panel)); border:1px solid var(--line); border-radius:18px; padding:18px 20px;
+    display:flex; align-items:center; justify-content:space-between; gap:12px;
+  }
+  .checkout-number-card .cn-label{ font-size:12px; color:#B8B8C2; margin:0 0 6px; font-weight:600; }
+  .checkout-number-card .cn-value{ font-size:23px; font-weight:800; letter-spacing:0.03em; font-variant-numeric:tabular-nums; }
+  .checkout-copy-btn{
+    display:flex; align-items:center; gap:6px; background:var(--accent); color:var(--accent-ink);
+    font-size:12.5px; font-weight:700; padding:11px 16px; border-radius:100px; flex-shrink:0;
+  }
+  .checkout-copy-btn svg{ width:14px; height:14px; stroke:currentColor; }
+  .checkout-copy-btn:active{ transform:scale(0.95); }
+
+  .checkout-steps{ display:flex; flex-direction:column; gap:14px; }
+  .checkout-step{ display:flex; gap:12px; align-items:flex-start; }
+  .checkout-step-num{
+    width:24px; height:24px; border-radius:50%; background:var(--elevated-2); color:#B8B8C2;
+    font-size:12px; font-weight:800; display:flex; align-items:center; justify-content:center; flex-shrink:0; margin-top:1px;
+  }
+  .checkout-step p{ font-size:13px; color:#fff; margin:0; line-height:1.5; }
+  .checkout-upload-area{
+    width:100%; aspect-ratio:1/1; max-width:280px; margin-left:auto; margin-right:auto;
+    border-radius:20px; border:1.5px dashed var(--elevated-2);
+    background:linear-gradient(165deg, var(--elevated), #1A1A20);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:10px;
+    position:relative; overflow:hidden; text-align:center; padding:18px;
+    cursor:pointer; transition:border-color .2s ease;
+  }
+  .checkout-upload-area:active{ transform:scale(0.99); }
+  .cu-plus-badge{
+    width:48px; height:48px; border-radius:50%; background:var(--accent);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0;
+    box-shadow:0 4px 14px rgba(47,92,232,0.35);
+  }
+  .cu-plus-badge svg{ width:22px; height:22px; stroke:#fff; }
+  .checkout-upload-area b{ font-size:14px; color:#fff; }
+  .checkout-upload-area span{ font-size:12px; color:#B8B8C2; line-height:1.4; }
+  /* multiple proof images: thumbnail grid + "add more" tile */
+  .checkout-proof-grid{ display:grid; grid-template-columns:repeat(3, 1fr); gap:10px; }
+  .cp-tile{
+    position:relative; aspect-ratio:1/1; border-radius:14px; overflow:hidden;
+    border:1.5px solid var(--accent); background:var(--elevated);
+  }
+  .cp-tile img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .cp-remove{
+    position:absolute; top:5px; right:5px; width:24px; height:24px; border-radius:50%;
+    background:rgba(10,10,12,0.75); display:flex; align-items:center; justify-content:center; cursor:pointer;
+  }
+  .cp-remove svg{ width:12px; height:12px; stroke:#fff; }
+  .cp-add{
+    aspect-ratio:1/1; border-radius:14px; border:1.5px dashed var(--elevated-2);
+    background:linear-gradient(165deg, var(--elevated), #1A1A20);
+    display:flex; flex-direction:column; align-items:center; justify-content:center; gap:6px;
+    cursor:pointer; text-align:center; padding:6px;
+  }
+  .cp-add:active{ transform:scale(0.97); }
+  .cp-add .cu-plus-badge{ width:34px; height:34px; box-shadow:0 3px 10px rgba(47,92,232,0.35); }
+  .cp-add .cu-plus-badge svg{ width:17px; height:17px; }
+  .cp-add span{ font-size:11px; font-weight:700; color:#fff; line-height:1.3; }
+  .checkout-field label{ display:block; font-size:12.5px; font-weight:600; color:#B8B8C2; margin:0 0 8px; }
+  .checkout-submit-btn{
+    display:flex; align-items:center; justify-content:center; gap:8px; width:100%;
+    background:var(--accent); color:var(--accent-ink); font-weight:700; font-size:15px;
+    padding:13px 14px; border-radius:12px; margin-top:18px;
+  }
+  .checkout-submit-btn:active{ transform:scale(0.98); }
+  .checkout-submit-btn:disabled{ opacity:0.5; }
+  .checkout-pending-card{
+    text-align:center; padding:48px 24px;
+  }
+  .checkout-pending-card svg{ width:52px; height:52px; stroke:var(--accent); margin-bottom:18px; }
+  .checkout-pending-card h2{ font-size:19px; font-weight:800; margin:0 0 8px; }
+  .checkout-pending-card p{ font-size:13.5px; color:#B8B8C2; margin:0; line-height:1.5; }
+
+  /* ---- Profile (demo) ---- */
+  .profile-header{ display:flex; flex-direction:column; align-items:center; padding:8px 20px 24px; text-align:center; }
+  .profile-avatar{
+    width:76px; height:76px; border-radius:50%; margin-bottom:14px;
+    background:linear-gradient(160deg, #4E7CFF, #16234F); display:flex; align-items:center; justify-content:center;
+    font-size:26px; font-weight:800; color:#fff; border:2px solid var(--line);
+    position:relative; overflow:hidden; flex-shrink:0;
+  }
+  /* FIXED ("profile photo cutted its corner and showed a default image on background"):
+     .profile-avatar is display:flex, and this <img> had no position of its own  -  as a plain
+     flex child it was centered at its natural aspect-fit size instead of being stretched to
+     fill the circle, so the gradient + "U" fallback behind it peeked out around the edges.
+     position:absolute + inset:0 takes it out of flex flow entirely so it always fills the
+     full circle, corner to corner, regardless of the image's own aspect ratio. */
+  .profile-avatar img{ position:absolute; inset:0; width:100%; height:100%; object-fit:cover; border-radius:50%; display:block; }
+  /* ---- Profile photo upload (paid plans only) ---- */
+  .profile-avatar-wrap{ position:relative; width:76px; height:76px; margin:0 auto 14px; }
+  .profile-avatar-wrap .profile-avatar{ margin:0; }
+  .profile-avatar-edit-btn{
+    position:absolute; right:-2px; bottom:-2px; width:26px; height:26px; border-radius:50%;
+    background:var(--accent); border:2px solid var(--bg); display:flex; align-items:center; justify-content:center;
+    cursor:pointer;
+  }
+  .profile-avatar-edit-btn svg{ width:12px; height:12px; stroke:#fff; }
+  .profile-avatar-edit-btn:active{ transform:scale(0.92); }
+  .profile-avatar-lock-btn{
+    position:absolute; right:-2px; bottom:-2px; width:26px; height:26px; border-radius:50%;
+    background:var(--elevated-2); border:2px solid var(--bg); display:flex; align-items:center; justify-content:center;
+  }
+  .profile-avatar-lock-btn svg{ width:12px; height:12px; stroke:var(--text-faint); }
+  .profile-name{ font-size:18px; font-weight:800; letter-spacing:-0.01em; margin:0 0 3px; }
+  .profile-handle{ font-size:13px; color:var(--text-faint); margin:0; }
+  .profile-stat-row{ display:flex; gap:10px; padding:0 20px 22px; }
+  .profile-stat{
+    flex:1; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md);
+    padding:14px 10px; text-align:center;
+  }
+  .profile-stat b{ display:block; font-size:18px; font-weight:800; margin-bottom:2px; }
+  .profile-stat span{ font-size:11px; color:var(--text-faint); }
+  .profile-menu{ padding:0 20px; display:flex; flex-direction:column; gap:8px; }
+  .profile-menu-item{
+    display:flex; align-items:center; gap:14px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius-md); padding:15px 16px;
+  }
+  .profile-menu-item svg{ width:19px; height:19px; stroke:var(--text-dim); flex-shrink:0; }
+  .profile-menu-item span{ flex:1; font-size:14px; font-weight:600; }
+  .profile-menu-item .chev{ width:16px; height:16px; stroke:var(--text-faint); }
+  .demo-pill{
+    font-size:9.5px; font-weight:800; letter-spacing:0.03em; text-transform:uppercase; color:var(--text-faint);
+    background:var(--elevated-2); padding:3px 8px; border-radius:100px;
+  }
+  .profile-menu-item{ cursor:pointer; }
+  .profile-menu-item:active{ transform:scale(0.99); }
+
+  /* ================= SETTINGS / NOTIFICATIONS / HELP / MY PLAN (sub-screens off Profile) ================= */
+  .sub-topbar{
+    display:flex; align-items:center; gap:14px; padding:16px 20px 14px; flex-shrink:0;
+  }
+  .sub-back-btn{
+    width:36px; height:36px; border-radius:50%; background:var(--panel); border:1px solid var(--line);
+    display:flex; align-items:center; justify-content:center; flex-shrink:0; color:var(--text);
+  }
+  .sub-back-btn:active{ transform:scale(0.92); }
+  .sub-back-btn svg{ width:18px; height:18px; stroke:currentColor; }
+  .sub-topbar h1{ font-size:19px; font-weight:800; letter-spacing:-0.01em; margin:0; }
+
+  .settings-group-label{
+    font-size:11px; font-weight:800; letter-spacing:0.04em; text-transform:uppercase; color:var(--text-faint);
+    margin:22px 2px 10px;
+  }
+  .settings-group-label:first-child{ margin-top:2px; }
+  .settings-avatar-row{
+    display:flex; align-items:center; gap:14px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius-md); padding:14px 16px; margin-bottom:16px;
+  }
+  .settings-avatar-row .profile-avatar-wrap{ width:56px; height:56px; }
+  .settings-avatar-row .profile-avatar{ width:56px; height:56px; font-size:19px; }
+  .settings-avatar-row .profile-avatar-edit-btn{ width:22px; height:22px; }
+  .settings-avatar-row .profile-avatar-edit-btn svg{ width:10px; height:10px; }
+  .settings-avatar-row-text{ flex:1; min-width:0; }
+  .settings-avatar-row-title{ font-size:14px; font-weight:600; margin:0; }
+  .settings-avatar-row-sub{ font-size:12px; color:var(--text-faint); margin:3px 0 0; }
+  .settings-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
+  }
+  .settings-row{
+    display:flex; align-items:center; gap:12px; padding:15px 16px; border-bottom:1px solid var(--line);
+  }
+  .settings-row:last-child{ border-bottom:none; }
+  .settings-row-text{ flex:1; min-width:0; }
+  .settings-row-title{ font-size:14px; font-weight:600; margin:0; }
+  .settings-row-sub{ font-size:12px; color:var(--text-faint); margin:3px 0 0; }
+  .settings-row .admin-switch{ flex-shrink:0; }
+  .settings-field{ padding:14px 16px; border-bottom:1px solid var(--line); }
+  .settings-field:last-child{ border-bottom:none; }
+  .settings-field label{ display:block; font-size:12px; font-weight:600; color:var(--text-faint); margin:0 0 8px; }
+  .settings-save-btn{
+    width:100%; margin-top:18px; padding:14px; border-radius:var(--radius-md); border:none;
+    background:linear-gradient(165deg, #4E7CFF, #1E46C4); color:#fff; font-size:14.5px; font-weight:700;
+  }
+  .settings-save-btn:active{ transform:scale(0.98); }
+  .settings-save-btn:disabled{ opacity:0.55; }
+  .settings-note{ font-size:12px; color:var(--text-faint); line-height:1.5; margin:10px 2px 0; }
+  /* Brighter gray text on the Settings screen only  -  group labels, sub-text,
+     field labels, notes, and input placeholders were too dim (--text-faint). */
+  #screen-settings .settings-group-label{ color:var(--text-dim); }
+  #screen-settings .settings-avatar-row-sub{ color:var(--text-dim); }
+  #screen-settings .settings-field label{ color:var(--text-dim); }
+  #screen-settings .settings-note{ color:var(--text-dim); }
+  #screen-settings .settings-row-sub{ color:var(--text-dim); }
+  #screen-settings .admin-input::placeholder{ color:var(--text-dim); opacity:1; }
+  /* Settings are grouped into distinct profile, account, security and notification sections. */
+  #screen-settings .settings-group-label{color:#8EAFFF;font-size:11px;letter-spacing:.07em;margin-top:24px;margin-bottom:10px;}
+  #screen-settings .settings-avatar-row,
+  #screen-settings .settings-card{box-shadow:0 5px 16px rgba(0,0,0,.12);}
+  #screen-settings .settings-avatar-row{margin-bottom:12px;}
+  #screen-settings .settings-field label{color:#B9C9F3;}
+  #screen-settings .settings-note{color:#A7B5D8;}
+  #screen-settings .settings-row-sub{overflow-wrap:anywhere;}
+  .settings-auth-pill{display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;padding:6px 9px;border-radius:100px;background:rgba(47,92,232,.16);border:1px solid rgba(90,133,255,.25);color:#A9C4FF;font-size:10px;font-weight:800;white-space:nowrap;}
+  .settings-reset-link{display:inline-flex;align-items:center;justify-content:center;margin-top:12px;padding:4px 0;background:transparent;border:0;color:#7CA2FF;font-size:12.5px;font-weight:700;text-align:left;cursor:pointer;}
+  .settings-reset-link:active{opacity:.75;}
+  /* Password step buttons (Next / Back / Confirm)  -  same visual language as
+     .settings-save-btn but sized for a mid-page step control, not the screen's final CTA. */
+  .settings-step-btn{
+    width:100%; margin-top:14px; padding:13px; border-radius:var(--radius-md); border:none;
+    background:linear-gradient(165deg, #4E7CFF, #1E46C4); color:#fff; font-size:14px; font-weight:700;
+  }
+  .settings-step-btn:active{ transform:scale(0.98); }
+  .settings-step-btn:disabled{ opacity:0.55; }
+  .settings-step-btn.secondary{
+    background:var(--elevated-2); color:var(--text-dim); border:1.5px solid var(--line);
+  }
+  .settings-step-row{ display:flex; gap:10px; margin-top:14px; }
+  .settings-step-row .settings-step-btn{ margin-top:0; flex:1; }
+  .help-item{ padding:15px 16px; border-bottom:1px solid var(--line); }
+  .help-item:last-child{ border-bottom:none; }
+  .help-q{ display:flex; align-items:center; justify-content:space-between; gap:10px; cursor:pointer; }
+  .help-q b{ font-size:13.5px; font-weight:700; }
+  .help-q svg{ width:16px; height:16px; stroke:#2F5CE8; flex-shrink:0; transition:transform .2s ease, stroke .15s ease; }
+  .help-item.open .help-q svg{ transform:rotate(180deg); }
+  .help-a{ font-size:13px; color:#6695FF; line-height:1.6; margin:10px 0 0; display:none; }
+  .help-item.open .help-a{ display:block; }
+  .help-contact-card{
+    display:flex; align-items:center; gap:12px; background:var(--panel); border:1px solid var(--line);
+    border-radius:var(--radius-md); padding:15px 16px; margin-bottom:10px;
+  }
+  .help-contact-card svg{ width:22px; height:22px; stroke:var(--accent); flex-shrink:0; }
+  .help-contact-card .hc-text b{ display:block; font-size:15px; font-weight:700; margin-bottom:2px; }
+  .help-contact-card .hc-text span{ font-size:14px; font-weight:600; color:var(--accent); }
+  .help-contact-card.tappable{ cursor:pointer; }
+  .help-contact-card.tappable:active{ transform:scale(0.98); }
+  /* Message box on Help & support: fixed size, so no resize grip in the corner. */
+  textarea#supportMsgInput{ resize:none; }
+  /* Help & support: brighten the dim uppercase labels/notes so they read more clearly in dark mode. */
+  #screen-help .settings-group-label,
+  #screen-help .settings-note,
+  #screen-help .settings-field label{ color:#A6A6B2; }
+  /* "Send us a message" is the first child of #helpComposeWrap, so it was inheriting the
+     .settings-group-label:first-child 2px top margin meant for a screen's very first label  - 
+     that squeezed it right up against the FAQ card above. Restore the normal gap here. */
+  #helpComposeWrap > .settings-group-label{ margin-top:22px; }
+
+  /* ---- Notification inbox (admin-sent messages) ---- */
+  .notif-inbox-card{
+    position:relative; background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md);
+    padding:13px 40px 13px 20px; margin-bottom:8px;
+  }
+  .notif-inbox-card.unread{ border-color:rgba(47,92,232,0.35); background:linear-gradient(160deg, rgba(47,92,232,0.07), var(--panel)); }
+  .notif-inbox-card.unread::before{
+    content:''; position:absolute; left:8px; top:18px; width:6px; height:6px; border-radius:50%; background:var(--accent);
+  }
+  .notif-inbox-title{ font-size:13.5px; font-weight:700; margin:0 0 3px; }
+  .notif-inbox-body{ font-size:12.5px; color:var(--text); line-height:1.45; margin:0; }
+  .notif-inbox-time{ font-size:11px; color:var(--text-faint); margin:0; }
+  .notif-inbox-del{
+    position:absolute; top:8px; right:8px; width:28px; height:28px; border-radius:50%;
+    background:transparent; border:none; display:flex; align-items:center; justify-content:center;
+    color:var(--text-faint);
+  }
+  .notif-inbox-del:active{ background:var(--line); }
+  .notif-inbox-del svg{ width:14px; height:14px; stroke:currentColor; }
+  .notif-empty{ text-align:center; font-size:13px; color:var(--text-faint); margin:48px 0 0; }
+  .profile-menu-item .profile-notif-icon{
+    width:20px; height:20px; flex:0 0 20px; display:inline-flex; align-items:center; justify-content:center;
+    position:relative; margin-right:0;
+  }
+  .profile-notif-icon > svg{ width:19px; height:19px; display:block; }
+  .profile-notif-icon .notif-menu-badge{
+    position:absolute; top:-3px; right:-3px; width:9px; height:9px; min-width:9px; max-width:9px;
+    flex:0 0 9px; border-radius:50%; background:#FF3B45; border:1.5px solid var(--panel);
+    margin:0; display:none; box-shadow:0 0 0 1px rgba(255,59,69,.12);
+  }
+  .profile-notif-icon .notif-menu-badge.show{ display:block; }
+  /* Home topbar bell  -  small badge pinned to the icon's top-right corner, same red dot as
+     the Profile menu badge but positioned absolutely since .icon-btn isn't a flex row. */
+  .home-notif-badge{
+    position:absolute; top:6px; right:6px; width:8px; height:8px; min-width:8px; max-width:8px;
+    border-radius:50%; background:#FF3B45; border:1.5px solid var(--bg); display:none;
+  }
+  .home-notif-badge.show{ display:block; }
+
+  /* ---- My Plan screen (real usage, not just feature text) ---- */
+  .myplan-card{
+    background:linear-gradient(160deg, rgba(47,92,232,0.16), var(--panel)); border:1px solid var(--line);
+    border-radius:var(--radius-lg); padding:20px; margin-bottom:18px;
+  }
+  .myplan-card-top{ display:flex; align-items:center; justify-content:space-between; margin-bottom:4px; }
+  .myplan-name{ font-size:20px; font-weight:800; letter-spacing:-0.01em; }
+  .myplan-badge{
+    font-size:10px; font-weight:800; letter-spacing:0.03em; text-transform:uppercase; color:#06231A;
+    background:var(--success); padding:4px 10px; border-radius:100px;
+  }
+  .myplan-sub{ font-size:12.5px; color:var(--text-faint); margin:2px 0 16px; }
+  .myplan-upgrade-btn{
+    width:100%; padding:13px; border-radius:var(--radius-md); border:none; margin-top:4px;
+    background:linear-gradient(165deg, #4E7CFF, #1E46C4); color:#fff; font-size:14px; font-weight:700;
+  }
+  .myplan-upgrade-btn:active{ transform:scale(0.98); }
+  .usage-row{ margin-bottom:16px; }
+  .usage-row:last-child{ margin-bottom:0; }
+  .usage-row-top{ display:flex; align-items:baseline; justify-content:space-between; margin-bottom:7px; }
+  .usage-row-top b{ font-size:13px; font-weight:700; }
+  .usage-row-top span{ font-size:12px; color:var(--text-faint); }
+  .usage-bar-track{ height:7px; border-radius:100px; background:var(--elevated-2); overflow:hidden; }
+  .usage-bar-fill{ height:100%; border-radius:100px; background:linear-gradient(90deg, #4E7CFF, #7CA0FF); transition:width .3s ease; }
+  .usage-bar-fill.near-limit{ background:linear-gradient(90deg, #E8B339, #E89139); }
+  .usage-bar-fill.at-limit{ background:linear-gradient(90deg, #E85C5C, #C23A3A); }
+  .myplan-feature-list{ margin-top:4px; }
+  .myplan-feature-list .plan-feature{ padding:9px 0; border-bottom:1px solid var(--line); }
+  .myplan-feature-list .plan-feature:last-child{ border-bottom:none; }
+  .myplan-credits-card{background:linear-gradient(155deg,rgba(47,92,232,.13),var(--panel));border:1px solid rgba(47,92,232,.28);border-radius:16px;padding:16px;margin:0 0 18px;}
+  .myplan-credits-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:8px;}
+  .myplan-credits-label{font-size:12px;font-weight:700;color:var(--text-dim);}
+  .myplan-credits-value{font-size:28px;line-height:1.2;font-weight:800;letter-spacing:-.03em;color:var(--text);}
+  .myplan-credits-note{font-size:11px;line-height:1.5;color:var(--text-faint);margin:7px 0 0;}
+  .myplan-credit-rates{display:flex;flex-wrap:wrap;gap:6px;margin-top:12px;}
+  .myplan-credit-rate{padding:6px 8px;background:var(--elevated);border:1px solid var(--line);border-radius:8px;font-size:10.5px;color:var(--text-dim);}
+  .myplan-credit-history-card{background:linear-gradient(160deg,var(--elevated),var(--panel));border:1px solid var(--line);border-radius:16px;padding:12px;margin:0 0 18px;box-shadow:0 5px 16px rgba(0,0,0,.12);}
+  .myplan-credit-history{display:flex;flex-direction:column;gap:8px;margin:0;}
+  .myplan-credit-row{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;padding:12px;border:1px solid var(--line);border-radius:12px;background:rgba(10,10,14,.22);}
+  .myplan-credit-row-main{min-width:0;flex:1;}
+  .myplan-credit-row-title{font-size:12px;font-weight:700;line-height:1.4;color:var(--text);overflow-wrap:anywhere;}
+  .myplan-credit-row-meta{font-size:10.5px;color:#BFC5D4;margin-top:4px;line-height:1.45;}
+  .myplan-credit-row-side{display:flex;flex-direction:column;align-items:flex-end;gap:7px;flex-shrink:0;}
+  .myplan-credit-amount{font-size:13px;font-weight:800;white-space:nowrap;color:var(--success);}
+  .myplan-credit-amount.negative{color:var(--danger);}
+  .myplan-credit-delete{min-height:27px;padding:5px 10px;border:1px solid rgba(255,107,107,.42);border-radius:7px;background:transparent;color:#FF9B9B;font-family:inherit;font-size:10.5px;font-weight:600;line-height:1;cursor:pointer;}
+  .myplan-credit-delete:active{background:rgba(255,107,107,.12);}
+  .myplan-credit-delete:focus-visible{outline:2px solid var(--accent);outline-offset:2px;}
+  .myplan-credit-empty{font-size:12px;color:#BFC5D4;padding:14px;background:rgba(10,10,14,.22);border:1px solid var(--line);border-radius:12px;line-height:1.5;}
+  /* v195: keep the credit-history card at a stable size; scroll transactions inside it. */
+  .myplan-credit-history-card{
+    box-sizing:border-box!important;
+    height:460px!important;min-height:460px!important;max-height:460px!important;
+    overflow:hidden!important;flex:0 0 460px!important;
+  }
+  .myplan-credit-history{
+    box-sizing:border-box!important;height:100%!important;min-height:0!important;
+    overflow-x:hidden!important;overflow-y:auto!important;
+    overscroll-behavior:contain;-webkit-overflow-scrolling:touch;
+    scrollbar-width:thin;scrollbar-color:var(--accent) transparent;
+  }
+  .myplan-credit-history::-webkit-scrollbar{width:5px;}
+  .myplan-credit-history::-webkit-scrollbar-thumb{background:var(--accent);border-radius:99px;}
+  .myplan-credit-history::-webkit-scrollbar-track{background:transparent;}
+  .myplan-credit-history>.myplan-credit-row,
+  .myplan-credit-history>.myplan-credit-empty{flex:0 0 auto;}
+
+  /* ---- Tutorials screen (YouTube-style grid) ---- */
+  #screen-tutorials{ background:radial-gradient(ellipse 800px 500px at 50% -10%, #141C33 0%, var(--bg) 55%); }
+  #screen-keyframeInfo{ background:radial-gradient(ellipse 800px 500px at 50% -10%, #141C33 0%, var(--bg) 55%); }
+  .tutorial-grid{ padding:4px 20px 132px; display:flex; flex-direction:column; gap:18px; }
+  .tutorial-card{ border-radius:var(--radius-md); overflow:hidden; }
+  .tutorial-card:active{ transform:scale(0.99); }
+  .tutorial-thumb-wrap{
+    position:relative; width:100%; aspect-ratio:16/9; border-radius:var(--radius-md); overflow:hidden;
+    background:var(--panel); border:1px solid var(--line);
+  }
+  .tutorial-thumb-wrap img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .tutorial-thumb-fallback{ width:100%; height:100%; display:flex; align-items:center; justify-content:center; }
+  .tutorial-thumb-fallback svg{ width:34px; height:34px; stroke:var(--text-faint); }
+  .tutorial-play-badge{
+    position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+  }
+  .tutorial-play-badge svg{
+    width:52px; height:52px; filter:drop-shadow(0 2px 10px rgba(0,0,0,0.5));
+  }
+  .tutorial-meta{ display:flex; gap:10px; padding:10px 2px 0; align-items:flex-start; }
+  .tutorial-meta-icon{
+    width:34px; height:34px; border-radius:50%; flex-shrink:0; background:linear-gradient(160deg, #4E7CFF, #16234F);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .tutorial-meta-icon img{width:25px;height:25px;object-fit:contain;display:block;}
+  .tutorial-meta-icon svg{ width:17px; height:17px; stroke:#fff; }
+  .tutorial-title{ font-size:14px; font-weight:700; line-height:1.35; margin:0; }
+  .tutorial-sub{ font-size:12px; color:#B8C0D0; margin:4px 0 0; }
+  .tutorial-empty{ text-align:center; color:var(--text-faint); font-size:13px; padding:60px 20px; }
+
+  /* ---- Tutorials search bar (YouTube-style) ---- */
+  .tutorial-search-wrap{ padding:0 20px 14px; flex-shrink:0; }
+  .tutorial-search-bar{
+    display:flex; align-items:center; gap:10px; height:44px; padding:0 14px;
+    border-radius:100px; background:var(--panel); border:1px solid var(--line);
+  }
+  .tutorial-search-bar:focus-within{ border:2px solid #668FF0; box-shadow:0 0 0 1px rgba(102,143,240,.22); }
+  .tutorial-search-bar svg{ width:18px; height:18px; stroke:var(--text-faint); flex-shrink:0; }
+  .tutorial-search-input{
+    flex:1; min-width:0; background:transparent; border:none; outline:none;
+    font-size:14px; color:var(--text); font-family:inherit;
+  }
+  .tutorial-search-input::placeholder{ color:#B8C0D0; opacity:1; }
+  .tutorial-search-clear{
+    width:20px; height:20px; border-radius:50%; flex-shrink:0; display:none;
+    align-items:center; justify-content:center; background:var(--elevated-2);
+  }
+  .tutorial-search-clear svg{ width:11px; height:11px; stroke:var(--text-dim); }
+  .tutorial-search-bar.has-query .tutorial-search-clear{ display:flex; }
+  .tutorial-count{ font-size:12px; color:var(--text-faint); padding:0 2px 2px; }
+
+  /* ---- Projects → Models tab (per-device saved model-asset library) ---- */
+  .models-grid{ display:grid; grid-template-columns:repeat(2, 1fr); gap:12px; }
+  .model-grid-card{
+    background:var(--panel); border:1px solid var(--line); border-radius:var(--radius-md); overflow:hidden;
+  }
+  .model-grid-card:active{ transform:scale(0.98); }
+  .model-grid-thumb{
+    width:100%; aspect-ratio:1/1; background:var(--elevated-2); display:flex; align-items:center; justify-content:center;
+    overflow:hidden;
+  }
+  /* Model-library previews show the whole assembled character, so never crop the head/feet. */
+  .model-grid-thumb img{ width:100%; height:100%; object-fit:contain; object-position:center; display:block; padding:8px; }
+  .model-grid-thumb svg{ width:30px; height:30px; stroke:#2F5CE8; }
+  .model-grid-name{ font-size:12.5px; font-weight:600; padding:9px 10px 11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+  /* Add-model entry tile  -  first card in the Models grid, dashed border to read as an action
+     rather than a saved model (same "add" affordance language as .char-add-row elsewhere). */
+  .model-grid-add{
+    aspect-ratio:1/1; width:100%; display:flex; flex-direction:column; align-items:center; justify-content:center;
+    gap:8px; padding:14px; text-align:center;
+    background:var(--panel); border:1.5px dashed var(--line); border-radius:var(--radius-md);
+  }
+  .model-grid-add:active{ transform:scale(0.98); }
+  .model-grid-add svg{ width:26px; height:26px; stroke:#2F5CE8; flex-shrink:0; }
+  /* Caption under the "+" icon  -  explains what tapping it does now that it uploads straight
+     away instead of opening an in-between "Upload character" sheet (see startDirectModelUpload). */
+  .model-grid-add-title{ font-size:12px; font-weight:700; color:var(--text); line-height:1.3; }
+  .model-grid-add-desc{ font-size:10.5px; font-weight:500; color:var(--text-faint); line-height:1.35; }
+  /* Edit/delete affordance on a saved model's own card  -  sits over the thumbnail corner so
+     a model can be reopened for editing or removed right from the Models grid, without first
+     adding it into a project (see openModelAssetEditor / the Projects-tab model actions). */
+  .model-grid-card{ position:relative; }
+  .model-grid-card-actions{
+    position:absolute; top:6px; right:6px; display:flex; gap:6px; z-index:2;
+  }
+  .model-grid-icon-btn{
+    width:26px; height:26px; border-radius:50%; background:rgba(10,10,12,0.72); backdrop-filter:blur(2px);
+    display:flex; align-items:center; justify-content:center;
+  }
+  .model-grid-icon-btn svg{ width:14px; height:14px; stroke:#F2F5FF; }
+  .model-grid-icon-btn.danger svg{ stroke:#FF6B6B; }
+
+  /* ================= APP SHELL (Projects) ================= */
+  #screen-projects{ background:radial-gradient(ellipse 800px 500px at 50% -10%, #141C33 0%, var(--bg) 55%); }
+  .topbar{
+    padding:20px 20px 14px; display:flex; align-items:center; justify-content:space-between;
+    flex-shrink:0;
+  }
+  .topbar h1{ font-size:24px; font-weight:800; letter-spacing:-0.02em; margin:0; }
+  .topbar-actions{ display:flex; gap:10px; }
+  .icon-btn{
+    width:38px; height:38px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    background:linear-gradient(180deg, var(--elevated-2), var(--panel));
+    border:1px solid var(--line);
+    box-shadow:0 1px 0 rgba(255,255,255,0.05) inset, 0 3px 8px rgba(0,0,0,0.3);
+  }
+  .icon-btn:active{ transform:translateY(1px); box-shadow:0 1px 3px rgba(0,0,0,0.3); }
+  .icon-btn svg{ width:17px; height:17px; stroke:var(--text-dim); }
+
+  .filter-row{
+    display:flex; gap:8px; padding:6px 20px 16px; overflow-x:auto; flex-shrink:0;
+  }
+  .filter-chip{
+    padding:9px 18px; border-radius:100px; font-size:13px; font-weight:600; white-space:nowrap;
+    background:var(--panel); color:var(--text-dim); border:1px solid var(--line);
+  }
+  .filter-chip.active{
+    background:linear-gradient(180deg, #FFFFFF, #E4E4E4); color:#0A0A0C; border-color:transparent;
+    box-shadow:0 2px 6px rgba(0,0,0,0.25);
+  }
+
+  .projects-scroll{ flex:1; overflow-y:auto; padding:4px 20px 140px; position:relative; }
+  .projects-count{ font-size:13px; color:var(--text-faint); margin:8px 0 14px; }
+  .project-grid{ display:flex; flex-direction:column; gap:12px; }
+  .project-card{
+    display:flex; gap:14px; background:linear-gradient(165deg, var(--elevated), var(--panel));
+    border:1px solid var(--line);
+    border-radius:var(--radius-md); padding:12px; align-items:center;
+    box-shadow:0 4px 14px rgba(0,0,0,0.25), 0 1px 0 rgba(255,255,255,0.04) inset;
+  }
+  .project-card:active{ transform:scale(0.985); }
+  .project-thumb{
+    width:66px; height:66px; border-radius:12px;
+    background:radial-gradient(circle at 35% 30%, #24384A, #16232E);
+    flex-shrink:0;
+    display:flex; align-items:center; justify-content:center; overflow:hidden; position:relative;
+    box-shadow:0 2px 6px rgba(0,0,0,0.3) inset, 0 1px 0 rgba(255,255,255,0.06);
+  }
+  .project-thumb svg{ width:30px; height:30px; filter:drop-shadow(0 2px 3px rgba(0,0,0,0.4)); }
+  .project-thumb img{ width:100%; height:100%; object-fit:cover; display:block; }
+  .project-info{ flex:1; min-width:0; }
+  .project-name{ font-size:14.5px; font-weight:700; margin:0 0 4px; }
+  .project-meta{ font-size:12px; color:var(--text-faint); }
+  .project-more{ width:32px; height:32px; display:flex; align-items:center; justify-content:center; color:var(--text-faint); border-radius:50%; }
+  .project-more:active{ background:var(--elevated-2); }
+
+  /* ---- Multi-select (long-press a project to start) ---- */
+  .project-card{ user-select:none; -webkit-user-select:none; -webkit-touch-callout:none; transition:border-color .18s ease, background .18s ease, transform .12s ease; }
+  .project-check{
+    width:0; height:22px; flex-shrink:0; border-radius:50%; border:2px solid var(--elevated-2);
+    display:flex; align-items:center; justify-content:center; overflow:hidden; opacity:0;
+    transition:width .2s cubic-bezier(.4,0,.2,1), opacity .2s ease, margin .2s ease, background .15s ease, border-color .15s ease;
+    margin-right:-14px; /* cancels the flex gap while hidden so cards don't shift */
+  }
+  .project-check svg{ width:13px; height:13px; stroke:#fff; stroke-width:3.2; opacity:0; transition:opacity .12s ease; }
+  .select-mode .project-check{ width:22px; opacity:1; margin-right:0; }
+  .select-mode .project-more{ display:none; }

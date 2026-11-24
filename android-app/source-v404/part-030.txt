@@ -1,0 +1,1000 @@
+// Girl dress body: the pelvis pivot sits on the hip line of the tall garment piece and the neck connector is the centre line.
+function edApplyDressPivot(A){
+  const T=A&&A.torso;if(!T)return;
+  T.dress=true;
+  const hh=A.head?A.head.h:T.h/6;
+  const legLen=(A.legL_upper?A.legL_upper.h*.86:0)+(A.legL_lower?A.legL_lower.h*.92:0);
+  let p=legLen>0?T.h-legLen*.98:0;
+  if(!(p>=T.h*.34&&p<=T.h*.60))p=Math.max(T.h*.34,Math.min(T.h*.64,hh*2.25));
+  T.dpx=Number.isFinite(T.topCx)?T.topCx:T.w/2;T.dpy=p;
+}
+// Draws the dress body with its lower half bent by the legs (hem follows knees and feet). g is already in the torso's local pixel space
+// (origin = pivot). Returns false when the pose is at rest, so the caller draws the plain image.
+function sheetDrawDressBody(g,img,d,rot,k,a,S,B,BA,sh){
+  try{
+    const iw=img.naturalWidth,ih=img.naturalHeight,kx=k*d.sx,ky=k*d.sy;
+    if(!(iw>0&&ih>0)||!(Math.abs(kx)>1e-6)||!(Math.abs(ky)>1e-6)||!S||!B)return false;
+    const Br={};Object.keys(B).forEach(n=>{const b=B[n];Br[n]=Object.assign({},b,{angle:(BA&&Number.isFinite(BA[n]))?BA[n]:b.angle});});
+    const R=sheetSolveRig(Br,BA);
+    if(!R.pelvis||!R.neck)return false;
+    const rotR=Math.atan2(R.neck.e.y-R.pelvis.s.y,R.neck.e.x-R.pelvis.s.x)-d.ra+d.rot;
+    const loc=(P,o,r)=>{const dx=P.x-o.x,dy=P.y-o.y,c=Math.cos(r),s=Math.sin(r);return {x:(dx*c+dy*s)/kx+d.pvx,y:(-dx*s+dy*c)/ky+d.pvy};};
+    const legs=['L','R'].map(sd=>{
+      const T1=S['thigh'+sd],T2=S['shin'+sd],T3=S['foot'+sd],R1=R['thigh'+sd],R2=R['shin'+sd],R3=R['foot'+sd];
+      if(!T1||!T2||!R1||!R2)return null;
+      const pt=(Sx,Rx,end)=>({c:loc(end?Sx.e:Sx.s,a.s,rot),r:loc(end?Rx.e:Rx.s,R.pelvis.s,rotR)});
+      const H=pt(T1,R1,false),K=pt(T2,R2,false),A=T3&&R3?pt(T3,R3,false):pt(T2,R2,true);
+      // v373: half-width of the leg art, in the garment's own pixels, so the dress can always cover the leg.
+      const hwOf=key=>{const pp=sh&&sh.parts&&sh.parts[key],dd=sh&&sh.draw&&sh.draw[key];return pp&&dd&&Number(pp.w)>0&&Math.abs(d.sx)>1e-6?.5*pp.w*Math.abs(dd.sx)/Math.abs(d.sx):0;};
+      const hwT=hwOf('leg'+sd+'_upper'),hwS=hwOf('leg'+sd+'_lower')||hwT*.8;
+      return {Hy:H.r.y,Ky:K.r.y,Ay:A.r.y,Hx:H.r.x,Kx:K.r.x,Ax:A.r.x,hwT,hwS,dK:{x:K.c.x-K.r.x,y:K.c.y-K.r.y},dA:{x:A.c.x-A.r.x,y:A.c.y-A.r.y}};
+    });
+    if(!legs[0]||!legs[1])return false;
+    if(Math.max(Math.hypot(legs[0].dK.x,legs[0].dK.y),Math.hypot(legs[0].dA.x,legs[0].dA.y),Math.hypot(legs[1].dK.x,legs[1].dK.y),Math.hypot(legs[1].dA.x,legs[1].dA.y))<.6)return false;
+    const lf=legs[0].Ax<=legs[1].Ax?legs[0]:legs[1],rt=lf===legs[0]?legs[1]:legs[0];
+    const yTop=Math.max(0,Math.min(ih-3,(lf.Hy+rt.Hy)/2));
+    // v373 EVEN STRETCH + ALWAYS COVER THE LEGS.
+    // Old version: each leg's pull was blended over the narrow gap between the two ankles, so all of the stretching was
+    // squeezed into one small area, and nothing checked that the cloth still covered the legs.
+    // Now every row of the garment is stretched LINEARLY across the garment's whole width: the left edge follows the left
+    // leg, the right edge follows the right leg, and everything in between is spread evenly (the same on the left,
+    // the middle and the right). The vertical pull is spread across the width the same way. Then two guards keep the
+    // legs inside the cloth: the side edges are never allowed to cut inside a leg, and the hem is never allowed to
+    // rise above a foot (both only act when the cloth would otherwise lose a margin it had at rest).
+    const clamp01=t=>t<0?0:t>1?1:t,lerp=(p,q,t)=>p+(q-p)*t;
+    const ease=clamp01;   // linear along each leg bone = exactly how the leg itself moves, so the cloth can never lag behind it
+    const dispOf=(L,y)=>{
+      if(y<=L.Hy)return {x:0,y:0};
+      if(y<=L.Ky){const t=ease((y-L.Hy)/Math.max(1e-3,L.Ky-L.Hy));return {x:L.dK.x*t,y:L.dK.y*t};}
+      if(y<=L.Ay){const t=ease((y-L.Ky)/Math.max(1e-3,L.Ay-L.Ky));return {x:lerp(L.dK.x,L.dA.x,t),y:lerp(L.dK.y,L.dA.y,t)};}
+      return L.dA;
+    };
+    const restX=(L,y)=>y<=L.Ky?lerp(L.Hx,L.Kx,clamp01((y-L.Hy)/Math.max(1e-3,L.Ky-L.Hy))):lerp(L.Kx,L.Ax,clamp01((y-L.Ky)/Math.max(1e-3,L.Ay-L.Ky)));
+    const halfW=(L,y)=>y<=L.Ky?lerp(L.hwT,L.hwS,clamp01((y-L.Hy)/Math.max(1e-3,L.Ky-L.Hy))):L.hwS;
+    // where the opaque cloth starts and ends on every row (read once from the picture, then cached on it)
+    if(!img.__dressExt||img.__dressExt.iw!==iw||img.__dressExt.ih!==ih){
+      let L=null,R=null,sc=1;
+      try{
+        sc=Math.min(1,256/iw);const cw=Math.max(2,Math.round(iw*sc)),ch=Math.max(2,Math.round(ih*sc));
+        const cv=document.createElement('canvas');cv.width=cw;cv.height=ch;
+        const cg=cv.getContext('2d',{willReadFrequently:true});cg.drawImage(img,0,0,cw,ch);
+        const px=cg.getImageData(0,0,cw,ch).data;L=new Float32Array(ch).fill(-1);R=new Float32Array(ch).fill(-1);
+        for(let y=0;y<ch;y++){let a0=-1,a1=-1;for(let x=0;x<cw;x++){if(px[(y*cw+x)*4+3]>24){if(a0<0)a0=x;a1=x;}}if(a0>=0){L[y]=a0/sc;R[y]=(a1+1)/sc;}}
+        let last=-1;for(let y=0;y<ch;y++){if(L[y]>=0)last=y;else if(last>=0){L[y]=L[last];R[y]=R[last];}}
+        let nxt=-1;for(let y=ch-1;y>=0;y--){if(L[y]>=0)nxt=y;else if(nxt>=0){L[y]=L[nxt];R[y]=R[nxt];}}
+        for(let y=0;y<ch;y++)if(L[y]<0){L[y]=0;R[y]=iw;}
+      }catch(e){L=null;R=null;sc=1;}
+      img.__dressExt={iw,ih,L,R,sc};
+    }
+    const EX=img.__dressExt;
+    const extAt=(arr,sy,dflt)=>{if(!arr)return dflt;const f=Math.max(0,Math.min(arr.length-1,sy*EX.sc)),i0=Math.floor(f),i1=Math.min(arr.length-1,i0+1);return lerp(arr[i0],arr[i1],f-i0);};
+    const edgesAt=sy=>{let eL=extAt(EX.L,sy,0),eR=extAt(EX.R,sy,iw);if(!(eR-eL>iw*.05)){eL=0;eR=iw;}return {eL,eR};};
+    const pad=iw*.012,padY=ih*.01;
+    // hem guard: at the bottom row, the cloth above each foot must move down at least as far as that foot does
+    const bot=edgesAt(ih-1),extraBot=(()=>{let need=0;[lf,rt].forEach(L=>{
+      const u=clamp01((restX(L,ih)-bot.eL)/Math.max(1,bot.eR-bot.eL)),hem=lerp(lf.dA.y,rt.dA.y,u),m=Math.max(0,ih-L.Ay);
+      need=Math.max(need,L.dA.y-hem-Math.max(0,m-padY));});return need;})();
+    const NX=14,NY=18,rows=[];
+    for(let j=0;j<=NY;j++){
+      const sy=yTop+(ih-yTop)*j/NY,row=[],dl=dispOf(lf,sy),dr=dispOf(rt,sy),E=edgesAt(sy),W=E.eR-E.eL;
+      // side guard: how much spare cloth each leg has beyond it at rest (never less than a small pad is demanded)
+      const slackL=L=>Math.max(0,(restX(L,sy)-halfW(L,sy)-E.eL)-pad),slackR=L=>Math.max(0,(E.eR-(restX(L,sy)+halfW(L,sy)))-pad);
+      let dLe=Math.min(dl.x,dr.x+slackL(rt)),dRe=Math.max(dr.x,dl.x-slackR(lf));
+      dRe=Math.max(dRe,dLe-.7*W);                                   // never fold the row over itself
+      const wy=Math.pow(clamp01((sy-yTop)/Math.max(1e-3,ih-yTop)),1.5),ex=Math.max(0,extraBot)*wy;
+      for(let i=0;i<=NX;i++){
+        const sx=iw*i/NX,u=clamp01((sx-E.eL)/W);
+        row.push({sx,sy,x:sx+lerp(dLe,dRe,u),y:sy+lerp(dl.y,dr.y,u)+ex});
+      }
+      rows.push(row);
+    }
+    for(let j=1;j<=NY;j++)for(let i=0;i<=NX;i++){const p=rows[j-1][i],q=rows[j][i],mn=(q.sy-p.sy)*.25;if(q.y<p.y+mn)q.y=p.y+mn;}
+    for(let j=0;j<=NY;j++)for(let i=1;i<=NX;i++){const p=rows[j][i-1],q=rows[j][i],mn=(q.sx-p.sx)*.25;if(q.x<p.x+mn)q.x=p.x+mn;}
+    const ov=.9/Math.max(1e-6,Math.min(Math.abs(kx),Math.abs(ky)));
+    g.drawImage(img,0,0,iw,Math.min(ih,Math.ceil(yTop)+1),-d.pvx,-d.pvy,iw,Math.min(ih,Math.ceil(yTop)+1));
+    const tri=(s0,s1,s2)=>{
+      const den=(s1.sx-s0.sx)*(s2.sy-s0.sy)-(s2.sx-s0.sx)*(s1.sy-s0.sy);if(Math.abs(den)<1e-8)return;
+      const d0={x:s0.x-d.pvx,y:s0.y-d.pvy},d1={x:s1.x-d.pvx,y:s1.y-d.pvy},d2={x:s2.x-d.pvx,y:s2.y-d.pvy};
+      const A1=((d1.x-d0.x)*(s2.sy-s0.sy)-(d2.x-d0.x)*(s1.sy-s0.sy))/den,B1=((d1.y-d0.y)*(s2.sy-s0.sy)-(d2.y-d0.y)*(s1.sy-s0.sy))/den;
+      const C1=((d2.x-d0.x)*(s1.sx-s0.sx)-(d1.x-d0.x)*(s2.sx-s0.sx))/den,D1=((d2.y-d0.y)*(s1.sx-s0.sx)-(d1.y-d0.y)*(s2.sx-s0.sx))/den;
+      const E1=d0.x-(A1*s0.sx+C1*s0.sy),F1=d0.y-(B1*s0.sx+D1*s0.sy);
+      const ccx=(d0.x+d1.x+d2.x)/3,ccy=(d0.y+d1.y+d2.y)/3,out=p=>{const vx=p.x-ccx,vy=p.y-ccy,l=Math.hypot(vx,vy)||1;return {x:p.x+vx/l*ov,y:p.y+vy/l*ov};};
+      const p0=out(d0),p1=out(d1),p2=out(d2);
+      const bx=Math.max(0,Math.floor(Math.min(s0.sx,s1.sx,s2.sx))-1),by=Math.max(0,Math.floor(Math.min(s0.sy,s1.sy,s2.sy))-1);
+      const bx1=Math.min(iw,Math.ceil(Math.max(s0.sx,s1.sx,s2.sx))+1),by1=Math.min(ih,Math.ceil(Math.max(s0.sy,s1.sy,s2.sy))+1);
+      if(bx1<=bx||by1<=by)return;
+      g.save();g.beginPath();g.moveTo(p0.x,p0.y);g.lineTo(p1.x,p1.y);g.lineTo(p2.x,p2.y);g.closePath();g.clip();
+      g.transform(A1,B1,C1,D1,E1,F1);g.drawImage(img,bx,by,bx1-bx,by1-by,bx,by,bx1-bx,by1-by);g.restore();
+    };
+    for(let j=0;j<NY;j++)for(let i=0;i<NX;i++){
+      const p00=rows[j][i],p10=rows[j][i+1],p01=rows[j+1][i],p11=rows[j+1][i+1];
+      tri(p00,p10,p01);tri(p10,p11,p01);
+    }
+    return true;
+  }catch(err){return false;}
+}
+
+function drawSheetCharacter(g, char){
+  const sh = char.sheet;
+  if(!sh || !sh.parts || !sh.draw || !Array.isArray(sh.order)) return;
+  if(Number(sh.v||0)<7){
+    if(sh.edit && sh.edit.st) normalizeLegacySheetMouthLayout(sh.parts,sh.draw,sh.edit.st);
+    sh.v=7;
+  }
+  const sheetRig = sheetRigForCharacter(char), B = sheetRig.bones, S = sheetSolveRig(B, sheetRig.baseAngles);
+  let L = 0; ['pelvis','spine_lower','spine_upper','chest','neck'].forEach(n=>{ if(B[n]) L += B[n].length; });
+  const k = L/Math.max(1e-6, sh.refLen);
+  if(!g.__sheetImg) g.__sheetImg = {};
+  sheetPreloadImages(sh);
+  const getImg = sheetImgFor;
+  const parentXform = {};
+  const modelType=String(char.modelType||(sh&&sh.modelType)||'humanoid');
+  const isAnimalFaceKit = modelType==='animal' && SHEET_FACE_KIT_NESTED.some(key=>sh.parts[key]);
+  const isHumanoidFaceKit = (modelType==='humanoid' || isMythicModelType(modelType) || isWingedHumanoidType(modelType)) && SHEET_HUMANOID_FACE_KIT_KEYS.some(key=>!!sh.parts[key]);
+  const humanoidHasClosedEyes = isHumanoidFaceKit && !!sh.parts.eye_closed_L && !!sh.parts.eye_closed_R;
+  const isBirdFaceKit = modelType==='bird' && SHEET_BIRD_FACE_KIT_KEYS.every(key=>!!sh.parts[key]);
+  const hasSeparateFaceKit=isAnimalFaceKit||isHumanoidFaceKit||isBirdFaceKit;
+  const faceKitDone = {};
+  const faceKitExpr = char.expr || {};
+  const faceKitEyesClosed = faceKitExpr.eyeState==='closed' || (faceKitExpr.eyeState!=='open' && (faceKitExpr.blink||faceKitExpr.ambientBlink));
+  // Normalize z-order at render time too, so older saved characters receive the same
+  // arm-depth and tail-over-body fixes without requiring a re-import.
+  const renderOrder=sheetDepthOrderForView(sh.order,modelType,sh.view||char.view||'front');
+  let faceKitHead = null;
+  if(hasSeparateFaceKit){
+    const hd=sh.draw&&sh.draw.head,hbn=SHEET_BONES.head,ha=hbn&&S[hbn[0]],hb=hbn&&S[hbn[1]];
+    if(hd&&ha&&hb){
+      const hAng=Math.atan2(hb.e.y-ha.s.y,hb.e.x-ha.s.x);
+      faceKitHead={x:ha.s.x,y:ha.s.y,rot:hAng-(Number(hd.ra)||0)+(Number(hd.rot)||0),sx:k*(Number(hd.sx)||1),sy:k*(Number(hd.sy)||1)};
+    }
+  }
+  const drawFaceKitPart = key=>{
+    if(faceKitDone[key]) return; faceKitDone[key]=true;
+    const px=faceKitHead||parentXform.head;if(!px)return;
+    const sourceKey=(key==='beak_closed')?sheetActiveKey('beak_closed',faceKitExpr,sh.parts):key;
+    const part=sh.parts[sourceKey],rawNest=part&&sheetNestInfo(sh,sourceKey);
+    const closedBeakNest=sourceKey==='beak_open'?sheetNestInfo(sh,'beak_closed'):null;
+    // Open/closed artwork is a direct swap: preserve the saved open-art scale and pivot, but
+    // inherit the closed beak's head-local position/rotation so animation cannot make it jump.
+    const nest=rawNest&&closedBeakNest?{...rawNest,nestDx:closedBeakNest.nestDx,nestDy:closedBeakNest.nestDy,nestRot:closedBeakNest.nestRot}:rawNest;
+    if(!part||!nest||!part.src)return;
+    if(sourceKey==='mouth_inner'&&!sheetInnerMouthShown(sh,faceKitExpr,!!sheetRuntimeHeadVariant(sh,faceKitExpr)))return;
+    if((sourceKey==='eye_L'||sourceKey==='eye_R'||sourceKey==='bird_eye')&&faceKitEyesClosed&&(isAnimalFaceKit||humanoidHasClosedEyes))return;
+    if(sourceKey==='bird_eye'&&faceKitEyesClosed&&isBirdFaceKit&&sh.parts.bird_eye_closed)return;
+    if((sourceKey==='eye_closed_L'||sourceKey==='eye_closed_R'||sourceKey==='bird_eye_closed')&&!faceKitEyesClosed)return;
+    const img=getImg(part.src);
+    if(!img.complete||!img.naturalWidth){if(!img.__hook){img.__hook=true;img.addEventListener('load',()=>{if(typeof drawStick==='function')drawStick();});}return;}
+    if(sourceKey==='mouth_inner'){
+      const clipped=sheetAnimalMouthInnerLayer(sh);if(!clipped)return;
+      g.save();g.translate(px.x,px.y);g.rotate(px.rot);g.scale(px.sx,px.sy);
+      g.drawImage(clipped.canvas,-clipped.pivotX,-clipped.pivotY,sh.parts.head.w,sh.parts.head.h);g.restore();return;
+    }
+    let moodRot=0;
+    if(sourceKey==='bird_brow'){
+      // A side-profile bird has one visible brow: use a clear up/down tilt, not the tiny
+      // mirrored two-brow angles used by humanoids. This keeps each expression readable.
+      const emo=faceKitExpr.emo||'';
+      if(emo==='angry')moodRot=.30;       // tip slopes down into an angry brow
+      else if(emo==='sad')moodRot=-.24;   // inner brow lifts for a worried/sad look
+      else if(emo==='laugh')moodRot=.13;
+      else if(emo==='shock')moodRot=-.10;
+    }else if(sourceKey==='brow_L'||sourceKey==='brow_R'){
+      const left=sourceKey==='brow_L',emo=faceKitExpr.emo||'';
+      if(emo==='angry')moodRot=(left?1:-1)*.18;
+      else if(emo==='sad')moodRot=(left?-1:1)*.11;
+      else if(emo==='laugh')moodRot=(left?1:-1)*.07;
+      else if(emo==='shock')moodRot=(left?-1:1)*.04;
+    }
+    const pivotX=Number.isFinite(Number(nest.nestPivotX))?Number(nest.nestPivotX):Number((sh.draw[sourceKey]||{}).pvx??part.dpx)||0;
+    const pivotY=Number.isFinite(Number(nest.nestPivotY))?Number(nest.nestPivotY):Number((sh.draw[sourceKey]||{}).pvy??part.dpy)||0;
+    g.save();g.translate(px.x,px.y);g.rotate(px.rot);
+    g.translate((Number(nest.nestDx)||0)*px.sx,(Number(nest.nestDy)||0)*px.sy);
+    g.rotate((Number(nest.nestRot)||0)+moodRot);
+    let sx=k*(Number(nest.nestSx)||1),sy=k*(Number(nest.nestSy)||1);
+    // Humanoid kits WITHOUT closed-eye parts (legacy 17-part) have no separate closed-eyelid art. Keep their open eyes visible
+    // rather than flattening them to 4.5% height during blink/auto-blink. Old 6-part bird kits
+    // still use the legacy squash; new 7-part bird kits swap to their dedicated eyelid asset.
+    const shouldSquash=faceKitEyesClosed && isBirdFaceKit && sourceKey==='bird_eye' && !sh.parts.bird_eye_closed;
+    if(shouldSquash){g.translate(0,(Number(part.h)||img.naturalHeight)*.49);g.scale(1,.045);g.translate(0,-(Number(part.h)||img.naturalHeight)*.49);}
+    g.scale(sx,sy);g.drawImage(img,-pivotX,-pivotY,part.w,part.h);g.restore();
+  };
+  renderOrder.forEach(key=>{
+    if(hasSeparateFaceKit&&key==='mouth_inner')return;
+    if((isAnimalFaceKit||isHumanoidFaceKit)&&key==='head')drawFaceKitPart('mouth_inner');
+    if(isAnimalFaceKit&&SHEET_FACE_KIT_NESTED.includes(key)){drawFaceKitPart(key);return;}
+    if(isHumanoidFaceKit&&['eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'].includes(key))return;
+    if(isBirdFaceKit&&SHEET_BIRD_FACE_NESTED.includes(key)){drawFaceKitPart(key);return;}
+    if(SHEET_ALT_OF[key]||SHEET_FACE_NESTED.includes(key)||(isAnimalFaceKit&&SHEET_FACE_KIT_NESTED.includes(key))||(isHumanoidFaceKit&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(key))||(isBirdFaceKit&&SHEET_BIRD_FACE_NESTED.includes(key)))return;
+    if(isAnimalFaceKit&&(key==='eye_L'||key==='eye_R')&&faceKitEyesClosed)return;
+    if((key==='eye_L'||key==='eye_R')&&char.expr&&(char.expr.blink||char.expr.ambientBlink||char.expr.eyeState==='closed')&&!hasSeparateFaceKit)return;
+    if(key==='mouth_inner'&&!sheetInnerMouthShown(sh,char.expr,!!sheetRuntimeHeadVariant(sh,char.expr)))return;
+    const extraHead=key==='head'?sheetRuntimeHeadVariant(sh,char.expr):null;
+    const extraHand=key==='handL'||key==='handR'?sheetRuntimeHandVariant(sh,char.expr,key==='handL'?'L':'R'):null;
+    const dynamic=extraHead||extraHand;
+    const useKey=dynamic?key:sheetActiveKey(key,char.expr,sh.parts);
+    const d=sh.draw[useKey],part=dynamic?{src:dynamic.src,w:sh.parts[key].w,h:sh.parts[key].h,dpx:sh.parts[key].dpx,dpy:sh.parts[key].dpy}:sh.parts[useKey];
+    let sb=SHEET_BONES[useKey];
+    if(useKey==='legL_lower'&&sh.parts.shoeL)sb=['shinL','shinL'];
+    if(useKey==='legR_lower'&&sh.parts.shoeR)sb=['shinR','shinR'];
+    const a=sb&&S[sb[0]],b=sb&&S[sb[1]];if(!d||!part||!a||!b)return;
+    const img=getImg(part.src);
+    if(!img.complete||!img.naturalWidth){if(!img.__hook){img.__hook=true;img.addEventListener('load',()=>{if(typeof drawStick==='function')drawStick();});}return;}
+    const ang=Math.atan2(b.e.y-a.s.y,b.e.x-a.s.x),rot=ang-d.ra+d.rot;
+    if(key==='head')parentXform.head={x:a.s.x,y:a.s.y,rot,sx:k*d.sx,sy:k*d.sy};
+    const mirror=extraHand&&key==='handL'&&extraHand.side!=='L'?-1:1;
+    g.save();g.translate(a.s.x,a.s.y);g.rotate(rot);g.scale(k*d.sx*mirror,k*d.sy);
+    if(dynamic)g.drawImage(img,-d.pvx,-d.pvy,sh.parts[key].w,sh.parts[key].h);
+    else if(key==='torso'&&sh.dress&&sheetDrawDressBody(g,img,d,rot,k,a,S,B,sheetRig.baseAngles,sh)){/* drawn as a stretching dress */}
+    else g.drawImage(img,-d.pvx,-d.pvy);
+    g.restore();
+  });
+  // Dedicated face kits are painted after the base head; mouth fill is inserted just before that head.
+  if(isAnimalFaceKit){SHEET_FACE_KIT_NESTED.forEach(drawFaceKitPart);}
+  if(isHumanoidFaceKit){['eye_closed_L','eye_closed_R','eye_L','eye_R','brow_L','brow_R'].forEach(drawFaceKitPart);}
+  if(isBirdFaceKit){['bird_eye_closed','bird_eye','bird_brow','beak_closed'].forEach(drawFaceKitPart);}
+  // Keep legacy full-head blink eye windows available for older Animal kits only.
+  if(isAnimalFaceKit&&char.expr&&(char.expr.blink||char.expr.ambientBlink||char.expr.eyeState==='closed')&&(char.expr.emo||char.expr.customExpressionId)&&parentXform.head){
+    const blinkPart=sh.parts.head_blink||sheetLatestHeadPart(sh,'blink-head');
+    const headKey=sheetActiveKey('head',{...char.expr,blink:false,ambientBlink:false},sh.parts);
+    const headPart=sh.parts[headKey]||sh.parts.head,headDraw=sh.draw[headKey]||sh.draw.head;
+    if(blinkPart&&blinkPart.src&&headPart&&headDraw){
+      const img=getImg(blinkPart.src);
+      if(!img.complete||!img.naturalWidth){if(!img.__hook){img.__hook=true;img.addEventListener('load',()=>{if(typeof drawStick==='function')drawStick();});}}
+      else{
+        const bw=Number(blinkPart.w)||img.naturalWidth,bh=Number(blinkPart.h)||img.naturalHeight;
+        const windows=[{x:.34,y:.565,w:.245,h:.115},{x:.665,y:.565,w:.245,h:.115}],px=parentXform.head;
+        g.save();g.translate(px.x,px.y);g.rotate(px.rot);g.scale(px.sx,px.sy);
+        windows.forEach(win=>{const sx=bw*win.x,sy=bw*0+bh*win.y,sw=bw*win.w,shh=bh*win.h,dx=-Number(headDraw.pvx||0)+headPart.w*win.x,dy=-Number(headDraw.pvy||0)+headPart.h*win.y;g.drawImage(img,sx,sy,sw,shh,dx,dy,headPart.w*win.w,headPart.h*win.h);});
+        g.restore();
+      }
+    }
+  }
+  SHEET_FACE_NESTED.forEach(baseKey=>{
+    const pKey = SHEET_PARENT[baseKey], px = parentXform[pKey]; if(!px) return;
+    // Every uploaded emotion head shares the same face layout. Keep its own expression
+    // art, but allow the independent mouth-open patch to animate over neutral/sad/angry/
+    // shocked/laughing heads. Custom one-off full-head expressions stay untouched.
+    const activeHeadKey = sheetActiveKey('head', char.expr, sh.parts);
+    const supportedHead = ['head','head_sad','head_angry','head_shock','head_laugh'].includes(activeHeadKey);
+    if(!supportedHead || (char.expr && char.expr.customExpressionId)) return;
+    if(!char.expr || char.expr.mouth !== 'open') return;
+    const customMouth = sheetRuntimeMouthVariant(sh,char.expr);
+    if(customMouth){
+      const img=getImg(customMouth.src), headPart=sh.parts[activeHeadKey] || sh.parts.head;
+      if(!img.complete || !img.naturalWidth){ if(!img.__hook){img.__hook=true;img.addEventListener('load',()=>{if(typeof drawStick==='function')drawStick();});} return; }
+      const preferredKey = char.expr && char.expr.mouth==='open' && sh.parts.mouth_open ? 'mouth_open' : (sh.parts.mouth_closed ? 'mouth_closed' : (sh.parts.mouth_open ? 'mouth_open' : null));
+      const baseMouth = preferredKey && sh.parts[preferredKey];
+      const nest = preferredKey && sheetNestInfo(sh, preferredKey);
+      const mouthDraw=preferredKey && sh.draw && sh.draw[preferredKey];
+      const headDraw=sh.draw && (sh.draw[activeHeadKey] || sh.draw.head);
+      const mouthPivotX=nest&&Number.isFinite(Number(nest.nestPivotX))?Number(nest.nestPivotX):(mouthDraw&&Number.isFinite(Number(mouthDraw.pvx))?Number(mouthDraw.pvx):Number(baseMouth&&baseMouth.dpx)||0);
+      const mouthPivotY=nest&&Number.isFinite(Number(nest.nestPivotY))?Number(nest.nestPivotY):(mouthDraw&&Number.isFinite(Number(mouthDraw.pvy))?Number(mouthDraw.pvy):Number(baseMouth&&baseMouth.dpy)||0);
+      const headPivotX=headDraw&&Number.isFinite(Number(headDraw.pvx))?Number(headDraw.pvx):Number(headPart.dpx)||0;
+      const headPivotY=headDraw&&Number.isFinite(Number(headDraw.pvy))?Number(headDraw.pvy):Number(headPart.dpy)||0;
+      const looksFullHead = Number(customMouth.w||0) >= headPart.w*.82 && Number(customMouth.h||0) >= headPart.h*.82;
+      g.save(); g.translate(px.x,px.y); g.rotate(px.rot); g.scale(px.sx,px.sy);
+      if(baseMouth && nest && !looksFullHead){
+        // Use the exact editor-authored mouth pivot. Using parts[].dpx/dpy here ignored a
+        // changed pivot and made the Talk mouth appear beside the nose after saving.
+        g.translate(nest.nestDx,nest.nestDy); g.rotate(nest.nestRot); g.scale(nest.nestSx,nest.nestSy);
+        g.drawImage(img,-mouthPivotX,-mouthPivotY,baseMouth.w,baseMouth.h);
+      }else if(looksFullHead){
+        // Backward compatibility for genuinely full-head transparent expression overlays.
+        g.drawImage(img,-headPivotX,-headPivotY,headPart.w,headPart.h);
+      }else{
+        // Legacy 12/14-part models have no mouth crop to inherit. Place a cropped mouth at a
+        // conservative lower-face position, retaining the source aspect ratio.
+        const mw=Number(customMouth.w)||img.naturalWidth, mh=Number(customMouth.h)||img.naturalHeight;
+        const scale=Math.min(headPart.w*.34/Math.max(1,mw),headPart.h*.18/Math.max(1,mh));
+        const dw=mw*scale, dh=mh*scale;
+        g.drawImage(img,-headPivotX+headPart.w*.5-dw*.5,-headPivotY+headPart.h*.88-dh*.5,dw,dh);
+      }
+      g.restore(); return;
+    }
+    const useKey = sheetActiveKey(baseKey, char.expr, sh.parts), part = sh.parts[useKey];
+    const nest = part && sheetNestInfo(sh, useKey); if(!part || !nest) return;
+    const img = getImg(part.src);
+    if(!img.complete || !img.naturalWidth){ if(!img.__hook){ img.__hook = true; img.addEventListener('load', ()=>{ if(typeof drawStick === 'function') drawStick(); }); } return; }
+    g.save(); g.translate(px.x, px.y); g.rotate(px.rot); g.scale(px.sx, px.sy);
+    g.translate(nest.nestDx,nest.nestDy); g.rotate(nest.nestRot); g.scale(nest.nestSx,nest.nestSy);
+    const mouthPivotX=Number.isFinite(Number(nest.nestPivotX))?Number(nest.nestPivotX):Number((sh.draw[useKey]||{}).pvx??part.dpx)||0;
+    const mouthPivotY=Number.isFinite(Number(nest.nestPivotY))?Number(nest.nestPivotY):Number((sh.draw[useKey]||{}).pvy??part.dpy)||0;
+    g.drawImage(img,-mouthPivotX,-mouthPivotY); g.restore();
+  });
+  // Every required face-kit asset is still drawn if an older saved layer order omitted it.
+  if(isAnimalFaceKit){SHEET_FACE_KIT_NESTED.forEach(drawFaceKitPart);}
+  if(isHumanoidFaceKit){['eye_closed_L','eye_closed_R','eye_L','eye_R','brow_L','brow_R'].forEach(drawFaceKitPart);}
+  if(isBirdFaceKit){['bird_eye_closed','bird_eye','bird_brow','beak_closed'].forEach(drawFaceKitPart);}
+  // Do not paint oval joint patches over source art: they create cross/target marks at wrists and knees.
+}
+
+// Joint-bridge helper retained for compatibility with old saved models. The renderer no longer
+// invokes these oval patches because they can appear as crosshair/crescent artifacts over imported art.
+// Legacy runtime oval-joint blend helpers removed to preserve imported artwork at joins.
+// Ambient eye-blinking: independent of whichever animation preset is playing (or none at all), each
+// custom character with a head_blink part occasionally swaps to it for a brief moment. Characters
+// without that part are untouched forever -- the Math.random() check never even fires for them.
+function edScheduleBlinks(){
+  const tick = ()=>{
+    characters.forEach(c=>{
+      // Idle blinks use their own flag (expr.ambientBlink), so they never fight the Talk + Blink clip (expr.blink).
+      if(c.type === 'custom' && c.sheet && c.sheet.parts && (c.sheet.parts.head_blink || (c.sheet.parts.eye_L && (c.sheet.parts.eye_closed_L || sheetLatestHeadPart(c.sheet,'blink-head'))) || (c.sheet.parts.eye_L && c.sheet.parts.eye_R && c.sheet.parts.mouth_inner) || c.sheet.parts.bird_eye || sheetLatestHeadPart(c.sheet,'blink-head')) && !(c.expr && c.expr.disableAmbientBlink)){
+        if(!c.expr) c.expr = sheetExprFresh();
+        if(!c.expr.ambientBlink && Math.random() < 0.55){
+          c.expr.ambientBlink = true; drawStick();
+          setTimeout(()=>{ c.expr.ambientBlink = false; drawStick(); }, 110+Math.random()*80);
+        }
+      }
+    });
+    setTimeout(tick, 2200+Math.random()*2600);
+  };
+  setTimeout(tick, 1500+Math.random()*1500);
+}
+function updateModelAssetFromChar(c){
+  if(!c || !c.sheet || !c.assetId) return;
+  let a = modelAssets.find(x=>String(x.id) === String(c.assetId));
+  // A character may originate from an admin-published model. Promote that asset to the local
+  // editable library before saving, so a character-side edit is not silently discarded.
+  if(!a && Array.isArray(publishedModelAssets)){
+    const published = publishedModelAssets.find(x=>String(x.id) === String(c.assetId));
+    if(published){ a=JSON.parse(JSON.stringify(published)); delete a.origin; modelAssets.push(a); }
+  }
+  if(!a) return;
+  a.name = c.name || a.name;
+  a.updatedAt = Date.now();
+  a.sheet = JSON.parse(JSON.stringify(c.sheet));
+  a.rigOverride = undefined; a.parts = {};
+  a.thumb = c.thumb || c.sheet.thumb;
+  a.previewThumb = undefined; // the model was edited; the cached full-body preview is now stale
+  a.modelType = c.modelType || (c.sheet && c.sheet.modelType) || a.modelType || 'humanoid';
+  saveModelAssetsToStorage();
+}
+
+// Initialize only the editor's icons and optional ambient blink loop; do not boot a second lab scene or overwrite characters.
+(function initEthvelleSheetEditor(){
+  const ready = ()=>{ edFillIcons(); edScheduleBlinks(); };
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', ready, {once:true});
+  else ready();
+})();
+</script>
+<script>
+/* Ethvelle 21-bone animation refresh, based on the uploaded 14-part Model Lab reference. */
+const ETHVELLE_LEGACY_POSE_KEYS_21 = ['spine','armL','armL_lo','armR','armR_lo','legL','legL_lo','legR','legR_lo'];
+function ethvelleNormalizeLegacyPoseTo21(p){
+  if(!p) return {};
+  if(!ETHVELLE_LEGACY_POSE_KEYS_21.some(k=>k in p)) return {...p};
+  const o={}, g=k=>Number(p[k])||0, s=g('spine');
+  Object.keys(p).forEach(k=>{if(!ETHVELLE_LEGACY_POSE_KEYS_21.includes(k))o[k]=p[k];});
+  if('spine' in p){o.spine_lower=(o.spine_lower||0)+s*.4;o.spine_upper=(o.spine_upper||0)+s*.35;o.chest=(o.chest||0)+s*.25;}
+  if('head' in p)o.head=(Number(p.head)||0)-s;
+  ['L','R'].forEach(S=>{
+    const a='arm'+S,al='arm'+S+'_lo',l='leg'+S,ll='leg'+S+'_lo';
+    if(a in p||al in p){const u=g(a);o['upperArm'+S]=u-s;o['forearm'+S]=(al in p?g(al):u)-u;}
+    if(l in p||ll in p){const u=g(l);o['thigh'+S]=u;o['shin'+S]=(ll in p?g(ll):u)-u;}
+  });
+  return o;
+}
+const ethvellePhaseShift21 = p => { const o={}; Object.keys(p).forEach(k=>{ const m=k.match(/^(.*)([LR])$/);
+  if(m) o[m[1]+(m[2]==='L'?'R':'L')] = /^clavicle/.test(k) ? -p[k] : p[k]; else o[k] = k==='hipY' ? p[k] : -p[k]; }); return o; };
+const ethvelleScalePose21 = (p,f) => { const o={}; Object.keys(p).forEach(k=>o[k]=p[k]*f); return o; };
+const ETHVELLE_WALK_A = { pelvis:-0.8*D, spine_lower:1.0*D, spine_upper:2.0*D, chest:2.4*D, neck:-0.8*D, head:-1.0*D,
+  // Both arms and both legs now travel through matched opposite phases. This gives the
+  // left wrist/knee the same readable range as the right instead of leaving one side stiff.
+  clavicleL:1.6*D, clavicleR:1.6*D, upperArmL:22*D, upperArmR:-22*D, forearmL:-18*D, forearmR:18*D, handL:5*D, handR:-5*D,
+  thighL:22*D, thighR:-22*D, shinL:-16*D, shinR:16*D, footL:-9*D, footR:9*D, hipY:-0.012 };
+const ETHVELLE_WALK_B = { pelvis:0.4*D, spine_lower:-0.6*D, spine_upper:1.5*D, chest:2.0*D, neck:-0.3*D, head:-0.8*D,
+  clavicleL:1.4*D, clavicleR:1.4*D, upperArmL:-22*D, upperArmR:22*D, forearmL:18*D, forearmR:-18*D, handL:-5*D, handR:5*D,
+  thighL:-22*D, thighR:22*D, shinL:16*D, shinR:-16*D, footL:9*D, footR:-9*D, hipY:-0.022 };
+const ETHVELLE_WALK_PASS = { pelvis:0, spine_lower:0.1*D, spine_upper:1.0*D, chest:1.3*D, neck:-0.2*D, head:-0.4*D,
+  clavicleL:0.7*D, clavicleR:0.7*D, upperArmL:8*D, upperArmR:-8*D, forearmL:-8*D, forearmR:8*D, handL:2*D, handR:-2*D,
+  thighL:5*D, thighR:-5*D, shinL:-5*D, shinR:5*D, footL:-2*D, footR:2*D, hipY:-0.009 };
+const ETHVELLE_WALK_PASS_B = { pelvis:0.1*D, spine_lower:-0.1*D, spine_upper:0.9*D, chest:1.1*D, neck:-0.1*D, head:-0.3*D,
+  clavicleL:0.6*D, clavicleR:0.6*D, upperArmL:-8*D, upperArmR:8*D, forearmL:8*D, forearmR:-8*D, handL:-2*D, handR:2*D,
+  thighL:-5*D, thighR:5*D, shinL:5*D, shinR:-5*D, footL:2*D, footR:-2*D, hipY:-0.016 };
+// Steady "holding something at waist height with both hands" arm pose used by the walkHold preset below.
+const ETHVELLE_HOLD_ARMS = { clavicleL:2*D, clavicleR:2*D, upperArmL:8*D, upperArmR:-8*D, forearmL:-75*D, forearmR:75*D, handL:0, handR:0 };
+const ethvelleUpdatedPresets = {
+  idle: {
+    name:'Idle sway', duration:2.0,
+    keyframes:[
+      {t:0,   pose:{}},
+      {t:0.5, pose:{ pelvis:1*D, spine_lower:1.5*D, spine_upper:1.5*D, chest:1*D, neck:-1*D, head:-1.5*D,
+                     clavicleL:2*D, clavicleR:2*D, upperArmL:-6*D, upperArmR:6*D, forearmL:-2*D, forearmR:2*D, handL:3*D, handR:-3*D, hipY:-0.004 }},
+      {t:1,   pose:{}},
+    ]
+  },
+  walk: {
+    name:'Walk cycle', duration:1.2,
+    keyframes:[
+      {t:0,    pose:ETHVELLE_WALK_A},
+      {t:0.25, pose:ETHVELLE_WALK_PASS},
+      {t:0.5,  pose:ETHVELLE_WALK_B},
+      {t:0.75, pose:ETHVELLE_WALK_PASS_B},
+      {t:1,    pose:ETHVELLE_WALK_A},
+    ]
+  },
+  walkHold: {
+    // Same leg/torso cycle as Walk, but the arms are pinned to a steady "carrying something in both
+    // hands" pose every keyframe (instead of swinging) and both hands show as fists for the whole
+    // clip. Legs/torso are left out of ETHVELLE_HOLD_ARMS on purpose so they still fall back to the implicit
+    // zero at the 0.25/0.75 keyframes, exactly like the plain Walk cycle above.
+    name:'Walk (holding)', duration:1.2,
+    keyframes:[
+      {t:0,    pose:Object.assign({}, ETHVELLE_WALK_A, ETHVELLE_HOLD_ARMS), fist:true},
+      {t:0.25, pose:Object.assign({}, ETHVELLE_WALK_PASS, ETHVELLE_HOLD_ARMS)},
+      {t:0.5,  pose:Object.assign({}, ETHVELLE_WALK_B, ETHVELLE_HOLD_ARMS)},
+      {t:0.75, pose:Object.assign({}, ETHVELLE_WALK_PASS_B, ETHVELLE_HOLD_ARMS)},
+      {t:1,    pose:Object.assign({}, ETHVELLE_WALK_A, ETHVELLE_HOLD_ARMS)},
+    ]
+  },
+  wave: {
+    name:'Wave', duration:1.5,
+    keyframes:[
+      {t:0,    pose:{ armR:-90*D }},
+      {t:0.25, pose:{ armR:-120*D }},
+      {t:0.5,  pose:{ armR:-90*D }},
+      {t:0.75, pose:{ armR:-120*D }},
+      {t:1,    pose:{ armR:-90*D }},
+    ]
+  },
+  jump: {
+    name:'Jump', duration:0.8,
+    keyframes:[
+      {t:0,    pose:{}},
+      {t:0.25, pose:{ spine_lower:8*D, spine_upper:6*D, chest:4*D, head:-4*D, upperArmL:30*D, upperArmR:-30*D, forearmL:-10*D, forearmR:10*D,
+                      thighL:20*D, thighR:-20*D, shinL:-14*D, shinR:14*D, footL:6*D, footR:-6*D, hipY:0.06 }},
+      {t:0.55, pose:{ spine_lower:-3*D, spine_upper:-3*D, chest:-2*D, clavicleL:5*D, clavicleR:5*D, upperArmL:-40*D, upperArmR:40*D, forearmL:-12*D, forearmR:12*D,
+                      thighL:-14*D, thighR:14*D, shinL:10*D, shinR:-10*D, footL:-8*D, footR:8*D, hipY:-0.18 }},
+      {t:0.8,  pose:{ spine_lower:5*D, spine_upper:3*D, upperArmL:10*D, upperArmR:-10*D, thighL:8*D, thighR:-8*D, shinL:-6*D, shinR:6*D, footL:3*D, footR:-3*D, hipY:0.02 }},
+      {t:1,    pose:{}},
+    ]
+  },
+  // wave/nod/dance/cheer/kick below are still authored in the original 11-bone pose keys; they are
+  // converted once, right after this object, into 21-bone keys (see ethvelleNormalizeLegacyPoseTo21) so the running
+  // presets never reference a removed bone. Same {t, pose:{bone:radians}} format as above.
+  nod: {
+    name:'Nod', duration:1.0,
+    keyframes:[
+      {t:0,    pose:{ head:0 }},
+      {t:0.3,  pose:{ head:18*D }},
+      {t:0.6,  pose:{ head:0 }},
+      {t:0.8,  pose:{ head:10*D }},
+      {t:1,    pose:{ head:0 }},
+    ]
+  },
+  talk: {
+    name:'Talk', duration:1.2,
+    keyframes:[
+      {t:0,    pose:{ head:-2*D },  mouth:'closed'},
+      {t:0.09, pose:{ head:2*D },   mouth:'open'},
+      {t:0.18, pose:{ head:-1*D },  mouth:'closed'},
+      {t:0.28, pose:{ head:3*D },   mouth:'open'},
+      {t:0.37, pose:{ head:0 },     mouth:'closed'},
+      {t:0.48, pose:{ head:-2*D },  mouth:'open'},
+      {t:0.57, pose:{ head:1*D },   mouth:'closed'},
+      {t:0.67, pose:{ head:3*D },   mouth:'open'},
+      {t:0.77, pose:{ head:-1*D },  mouth:'closed'},
+      {t:0.88, pose:{ head:2*D },   mouth:'open'},
+      {t:1,    pose:{ head:-2*D },  mouth:'closed'},
+    ]
+  },
+  talkBlink: {
+    // Identical head-bob/mouth-flap timing to Talk above, with two natural eye-blinks layered in by
+    // adding blink:true/false onto existing keyframes (reusing their already-correct pose values)
+    // rather than inserting new time points -- inserting a keyframe without a matching pose value
+    // for every bone the neighbors use would make evalPreset interpolate those bones toward 0 at
+    // that instant, causing a visible head-angle glitch right at the blink.
+    name:'Talk + Blink', duration:1.2,
+    keyframes:[
+      {t:0,    pose:{ head:-2*D },  mouth:'closed', blink:false},
+      {t:0.09, pose:{ head:2*D },   mouth:'open'},
+      {t:0.18, pose:{ head:-1*D },  mouth:'closed'},
+      {t:0.28, pose:{ head:3*D },   mouth:'open'},
+      {t:0.37, pose:{ head:0 },     mouth:'closed', blink:true},
+      {t:0.48, pose:{ head:-2*D },  mouth:'open',   blink:false},
+      {t:0.57, pose:{ head:1*D },   mouth:'closed'},
+      {t:0.67, pose:{ head:3*D },   mouth:'open'},
+      {t:0.77, pose:{ head:-1*D },  mouth:'closed', blink:true},
+      {t:0.88, pose:{ head:2*D },   mouth:'open',   blink:false},
+      {t:1,    pose:{ head:-2*D },  mouth:'closed'},
+    ]
+  },
+  dance: {
+    name:'Dance', duration:1.0,
+    keyframes:[
+      {t:0,    pose:{ spine:-8*D,  armL:-40*D,  armR:40*D,  legL:-16*D, legR:16*D,  hipY:0 }},
+      {t:0.25, pose:{ spine:0,     armL:20*D,   armR:-90*D, legL:0,     legR:0,     hipY:-0.05 }},
+      {t:0.5,  pose:{ spine:8*D,   armL:40*D,   armR:-40*D, legL:16*D,  legR:-16*D, hipY:0 }},
+      {t:0.75, pose:{ spine:0,     armL:-90*D,  armR:20*D,  legL:0,     legR:0,     hipY:-0.05 }},
+      {t:1,    pose:{ spine:-8*D,  armL:-40*D,  armR:40*D,  legL:-16*D, legR:16*D,  hipY:0 }},
+    ]
+  },
+  cheer: {
+    name:'Cheer', duration:0.9,
+    keyframes:[
+      {t:0,    pose:{ armL:0,      armR:0,      spine:0,    hipY:0 }},
+      {t:0.3,  pose:{ armL:-160*D, armR:-20*D,  spine:-6*D, hipY:-0.08 }},
+      {t:0.6,  pose:{ armL:-140*D, armR:-40*D,  spine:0,    hipY:0 }},
+      {t:1,    pose:{ armL:0,      armR:0,      spine:0,    hipY:0 }},
+    ]
+  },
+  kick: {
+    name:'Kick', duration:0.7,
+    keyframes:[
+      {t:0,    pose:{ legL:0,     legR:0,      spine:0,    armL:0,     armR:0 }},
+      {t:0.2,  pose:{ legL:-30*D, legR:20*D,   spine:8*D,  armL:20*D,  armR:-10*D }},
+      {t:0.45, pose:{ legL:20*D,  legR:-70*D,  spine:-10*D,armL:-20*D, armR:30*D }},
+      {t:0.7,  pose:{ legL:0,     legR:0,      spine:0,    armL:0,     armR:0 }},
+      {t:1,    pose:{ legL:0,     legR:0,      spine:0,    armL:0,     armR:0 }},
+    ]
+  }
+};
+
+['wave','nod','talk','dance','cheer','kick'].forEach(k=>ethvelleUpdatedPresets[k].keyframes.forEach(kf=>{ kf.pose = ethvelleNormalizeLegacyPoseTo21(kf.pose); }));
+
+/* ---------------- Front-view presets + grouping ----------------
+   A front-facing character has mirror-image arms and legs. So each front preset is written for the LEFT
+   limb only and ethvelleFrontPair21() mirrors it to the right: a right-side angle is the negative of the left one
+   (the same motion reflected across the body). Centre bones (pelvis, spine, neck, head) are written as-is. */
+const ethvelleFrontPair21 = L => { const o = {}; Object.keys(L).forEach(k => { if(/L$/.test(k)){ o[k] = L[k]; o[k.slice(0,-1)+'R'] = -L[k]; } else o[k] = L[k]; }); return o; };
+const ETHVELLE_FRONT_WALK_A = ethvelleFrontPair21({
+  // A restrained front-facing in-place gait. Keep the swing inside each shoulder/hip lane so
+  // the hands and knees do not cut across the torso when the animation loops.
+  pelvis:0.8*D, spine_lower:0.5*D, spine_upper:-0.5*D, head:-0.4*D,
+  clavicleL:1*D, upperArmL:10*D, forearmL:-3*D, handL:1*D,
+  thighL:10*D, shinL:-8*D, footL:3*D, hipY:0
+});
+const ETHVELLE_FRONT_WALK_PASS = ethvelleFrontPair21({
+  pelvis:-0.3*D, spine_lower:0.2*D, spine_upper:-0.2*D, head:0,
+  clavicleL:0.5*D, upperArmL:3*D, forearmL:-1*D, handL:0,
+  thighL:2*D, shinL:-4*D, footL:0, hipY:-0.008
+});
+const ETHVELLE_FRONT_PRESETS = {
+  frontWalk: { name:'Walk cycle', view:'front', duration:1.2, keyframes:[
+    {t:0,    pose:ETHVELLE_FRONT_WALK_A},
+    {t:0.25, pose:ETHVELLE_FRONT_WALK_PASS},
+    {t:0.5,  pose:ethvellePhaseShift21(ETHVELLE_FRONT_WALK_A)},
+    {t:0.75, pose:ethvellePhaseShift21(ETHVELLE_FRONT_WALK_PASS)},
+    {t:1,    pose:ETHVELLE_FRONT_WALK_A}
+  ]},
+  jacks: { name:'Jumping jacks', view:'front', duration:1.0, keyframes:[
+    {t:0,    pose:ethvelleFrontPair21({})},
+    {t:0.25, pose:ethvelleFrontPair21({ upperArmL:70*D,  clavicleL:6*D,  thighL:6*D,  hipY:0.02 })},
+    {t:0.5,  pose:ethvelleFrontPair21({ upperArmL:150*D, clavicleL:10*D, thighL:12*D, hipY:-0.12 })},
+    {t:0.75, pose:ethvelleFrontPair21({ upperArmL:70*D,  clavicleL:6*D,  thighL:6*D,  hipY:0.02 })},
+    {t:1,    pose:ethvelleFrontPair21({})} ] },
+  clap: { name:'Clap', view:'front', duration:1.0, keyframes:[
+    {t:0,   pose:ethvelleFrontPair21({})},
+    {t:0.2, pose:ethvelleFrontPair21({ upperArmL:-60*D, forearmL:-5*D,  clavicleL:4*D })},
+    {t:0.4, pose:ethvelleFrontPair21({ upperArmL:-88*D, forearmL:-10*D, clavicleL:4*D })},
+    {t:0.6, pose:ethvelleFrontPair21({ upperArmL:-60*D, forearmL:-5*D,  clavicleL:4*D })},
+    {t:0.8, pose:ethvelleFrontPair21({ upperArmL:-88*D, forearmL:-10*D, clavicleL:4*D })},
+    {t:1,   pose:ethvelleFrontPair21({})} ] },
+  armsUp: { name:'Arms up', view:'front', duration:1.6, keyframes:[
+    {t:0,    pose:ethvelleFrontPair21({})},
+    {t:0.3,  pose:ethvelleFrontPair21({ upperArmL:160*D, clavicleL:10*D, hipY:-0.03 })},
+    {t:0.65, pose:ethvelleFrontPair21({ upperArmL:150*D, forearmL:8*D,   clavicleL:8*D, hipY:-0.02 })},
+    {t:1,    pose:ethvelleFrontPair21({})} ] },
+  shrug: { name:'Shrug', view:'front', duration:1.4, keyframes:[
+    {t:0,   pose:ethvelleFrontPair21({})},
+    {t:0.4, pose:ethvelleFrontPair21({ clavicleL:18*D, upperArmL:6*D })},
+    {t:0.6, pose:ethvelleFrontPair21({ clavicleL:18*D, upperArmL:6*D })},
+    {t:1,   pose:ethvelleFrontPair21({})} ] },
+  sway: { name:'Hip sway', view:'front', duration:2.0, keyframes:[
+    {t:0,   pose:{ pelvis:3*D,  spine_lower:2*D,  spine_upper:2*D,  head:-2*D, hipY:0 }},
+    {t:0.5, pose:{ pelvis:-3*D, spine_lower:-2*D, spine_upper:-2*D, head:2*D,  hipY:-0.01 }},
+    {t:1,   pose:{ pelvis:3*D,  spine_lower:2*D,  spine_upper:2*D,  head:-2*D, hipY:0 }} ] },
+  bounce: { name:'Happy bounce', view:'front', duration:0.9, keyframes:[
+    {t:0,   pose:ethvelleFrontPair21({ upperArmL:16*D, forearmL:-12*D, hipY:0 })},
+    {t:0.5, pose:ethvelleFrontPair21({ upperArmL:34*D, forearmL:-24*D, hipY:-0.05 })},
+    {t:1,   pose:ethvelleFrontPair21({ upperArmL:16*D, forearmL:-12*D, hipY:0 })} ] },
+  flex: { name:'Flex', view:'front', duration:1.6, keyframes:[
+    {t:0,   pose:ethvelleFrontPair21({}), fist:true},
+    {t:0.2, pose:ethvelleFrontPair21({ upperArmL:15*D, forearmL:-140*D, clavicleL:6*D }), fist:true},
+    {t:0.8, pose:ethvelleFrontPair21({ upperArmL:15*D, forearmL:-150*D, clavicleL:8*D }), fist:true},
+    {t:1,   pose:ethvelleFrontPair21({}), fist:true} ] },
+  waveBoth: { name:'Wave both hands', view:'front', duration:1.4, keyframes:[
+    {t:0,    pose:ethvelleFrontPair21({ upperArmL:95*D, forearmL:-25*D })},
+    {t:0.25, pose:ethvelleFrontPair21({ upperArmL:95*D, forearmL:10*D })},
+    {t:0.5,  pose:ethvelleFrontPair21({ upperArmL:95*D, forearmL:-25*D })},
+    {t:0.75, pose:ethvelleFrontPair21({ upperArmL:95*D, forearmL:10*D })},
+    {t:1,    pose:ethvelleFrontPair21({ upperArmL:95*D, forearmL:-25*D })} ] },
+};
+Object.assign(ethvelleUpdatedPresets, ETHVELLE_FRONT_PRESETS);
+/* ---------------- Back-view presets ----------------
+   A back-facing character is symmetric like the front, so these use ethvelleFrontPair21() for mirror-image motion.
+   From behind, depth-only motion (legs swinging forward and back) can't be seen, so these lean on bob, sway,
+   arm raises and shoulder motion instead. They are plain keyframes on the same 21-bone rig as every other preset. */
+const ETHVELLE_BACK_WALK_A = { pelvis:1.2*D, spine_lower:-0.6*D, spine_upper:-0.6*D, chest:-0.8*D, head:-0.5*D,
+  clavicleL:1.5*D, clavicleR:1.5*D,
+  upperArmL:5*D, upperArmR:-5*D, forearmL:-7*D, forearmR:7*D, handL:1*D, handR:-1*D,
+  thighL:3*D, thighR:-3*D, shinL:6*D, shinR:-8*D, footL:3*D, footR:-3*D };
+const ETHVELLE_BACK_WALK_PASS = { pelvis:0, spine_lower:0, spine_upper:0, chest:0, head:0,
+  clavicleL:0.5*D, clavicleR:0.5*D, upperArmL:2*D, upperArmR:-2*D,
+  forearmL:-3*D, forearmR:3*D, handL:0, handR:0, thighL:1*D, thighR:-1*D,
+  shinL:3*D, shinR:-4*D, footL:1*D, footR:-1*D, hipY:-0.007 };
+const ETHVELLE_BACK_HIPS_ARMS = ethvelleFrontPair21({ upperArmL:25*D, forearmL:-85*D, clavicleL:2*D });   // both hands resting on the hips
+const ETHVELLE_BACK_PRESETS = {
+  backWalk: { name:'Walk away', view:'back', duration:1.2, keyframes:[
+    {t:0,    pose:ETHVELLE_BACK_WALK_A},
+    {t:0.25, pose:ETHVELLE_BACK_WALK_PASS},
+    {t:0.5,  pose:ethvellePhaseShift21(ETHVELLE_BACK_WALK_A)},
+    {t:0.75, pose:ethvellePhaseShift21(ETHVELLE_BACK_WALK_PASS)},
+    {t:1,    pose:ETHVELLE_BACK_WALK_A} ] },
+  backHips: { name:'Hands on hips', view:'back', duration:2.4, keyframes:[
+    {t:0,   pose:Object.assign({ pelvis:2*D,  spine_lower:1.5*D,  spine_upper:1.5*D,  head:-1*D }, ETHVELLE_BACK_HIPS_ARMS)},
+    {t:0.5, pose:Object.assign({ pelvis:-2*D, spine_lower:-1.5*D, spine_upper:-1.5*D, head:1*D, hipY:-0.01 }, ETHVELLE_BACK_HIPS_ARMS)},
+    {t:1,   pose:Object.assign({ pelvis:2*D,  spine_lower:1.5*D,  spine_upper:1.5*D,  head:-1*D }, ETHVELLE_BACK_HIPS_ARMS)} ] },
+  backWave: { name:'Wave goodbye', view:'back', duration:1.5, keyframes:[
+    {t:0,    pose:{ clavicleL:8*D, upperArmL:150*D, forearmL:20*D }},
+    {t:0.25, pose:{ clavicleL:8*D, upperArmL:150*D, forearmL:45*D }},
+    {t:0.5,  pose:{ clavicleL:8*D, upperArmL:150*D, forearmL:20*D }},
+    {t:0.75, pose:{ clavicleL:8*D, upperArmL:150*D, forearmL:45*D }},
+    {t:1,    pose:{ clavicleL:8*D, upperArmL:150*D, forearmL:20*D }} ] },
+  backBreathe: { name:'Shoulders breathe', view:'back', duration:3.0, keyframes:[
+    {t:0,   pose:{}},
+    {t:0.5, pose:Object.assign({ chest:-1.5*D, spine_upper:-1*D, hipY:-0.003 }, ethvelleFrontPair21({ clavicleL:5*D, upperArmL:3*D }))},
+    {t:1,   pose:{}} ] },
+  backCheer: { name:'Victory bounce', view:'back', duration:1.0, keyframes:[
+    {t:0,   pose:ethvelleFrontPair21({ upperArmL:120*D, forearmL:10*D, clavicleL:6*D })},
+    {t:0.5, pose:Object.assign({ spine_upper:-2*D, hipY:-0.05 }, ethvelleFrontPair21({ upperArmL:150*D, forearmL:4*D, clavicleL:8*D }))},
+    {t:1,   pose:ethvelleFrontPair21({ upperArmL:120*D, forearmL:10*D, clavicleL:6*D })} ] }
+};
+Object.assign(ethvelleUpdatedPresets, ETHVELLE_BACK_PRESETS);
+
+ethvelleUpdatedPresets.walk.view = 'all';
+ethvelleUpdatedPresets.walkHold.view = 'all';
+ethvelleUpdatedPresets.kick.view = 'side';
+['idle','wave','jump','nod','talk','talkBlink','dance','cheer'].forEach(k=>{ ethvelleUpdatedPresets[k].view = 'all'; });
+
+
+// Merge the reference library over the previous 9/11-bone versions. These keys are used by
+// the existing animation picker, clip timeline, preview player and export renderer.
+Object.assign(animPresets, ethvelleUpdatedPresets);
+Object.keys(ethvelleUpdatedPresets).forEach(key=>{
+  const preset=animPresets[key];
+  if(!preset || !Array.isArray(preset.keyframes)) return;
+  preset._ethvelleRigVersion=21;
+  preset._ethvelleAnimKey=key;
+  preset.keyframes.forEach(kf=>{kf.pose=ethvelleNormalizeLegacyPoseTo21(kf.pose||{});});
+});
+
+/* ================= BEAST MEN animation section (v344) =================
+   Upright anthropomorphic animal characters run on the same 21-bone humanoid rig PLUS the independent tail bone.
+   Every preset here is authored in the parent-relative 21-bone format and also swings 'tail'
+   (degrees: positive = the tail tip swings toward the viewer's LEFT, negative = toward the viewer's RIGHT).
+   Mirror-image limb motion uses ethvelleFrontPair21: write the viewer-left limb and the right one is mirrored. */
+(function ethvelleBeastManPresets(){
+  try{
+    if(typeof animPresets!=='object'||typeof ethvelleFrontPair21!=='function'||typeof ethvellePhaseShift21!=='function')return;
+    const D=Math.PI/180, F=ethvelleFrontPair21, SH=ethvellePhaseShift21, SC=ethvelleScalePose21;
+    const bp=(L,extra)=>Object.assign(F(L||{}),extra||{});
+    const FACE=(expression)=>({expression,eyes:'auto',blink:'auto',mouth:'preset',leftHand:'none',rightHand:'none'});
+    const NEUTRAL=()=>F({});
+    const P={};
+
+    /* ---- calm / idle ---- */
+    const idleA=bp({upperArmL:2*D,forearmL:-3*D},{head:0,tail:6*D,hipY:0});
+    const idleB=bp({upperArmL:3.5*D,forearmL:-5*D,clavicleL:1.5*D},{pelvis:.4*D,spine_lower:.6*D,spine_upper:1*D,chest:1.5*D,head:-1*D,tail:-5*D,hipY:-.006});
+    const idleC=bp({upperArmL:2.5*D,forearmL:-4*D,clavicleL:.8*D},{pelvis:-.4*D,spine_lower:.3*D,spine_upper:.5*D,chest:.8*D,head:.8*D,tail:-1*D,hipY:-.003});
+    P.beastIdle={name:'Beast idle breathing',duration:2.8,keyframes:[
+      {t:0,pose:idleA},{t:.3,pose:idleB},{t:.55,pose:idleC},{t:.8,pose:Object.assign({},idleB,{tail:4*D})},{t:1,pose:idleA}]};
+
+    P.beastTailSway={name:'Tail sway',duration:2.6,keyframes:[
+      {t:0,pose:bp({upperArmL:2*D,forearmL:-3*D},{pelvis:1*D,head:-.6*D,tail:22*D})},
+      {t:.5,pose:bp({upperArmL:2*D,forearmL:-3*D},{pelvis:-1*D,head:.6*D,tail:-22*D,hipY:-.004})},
+      {t:1,pose:bp({upperArmL:2*D,forearmL:-3*D},{pelvis:1*D,head:-.6*D,tail:22*D})}]};
+
+    const wagA=bp({upperArmL:3*D,forearmL:-4*D},{pelvis:2.2*D,spine_lower:-1.5*D,spine_upper:1.2*D,head:-1.2*D,tail:34*D,hipY:-.008});
+    const wagB=Object.assign(SH(wagA),{hipY:-.008});
+    P.beastTailWag={name:'Happy tail wag',duration:.9,keyframes:[
+      {t:0,pose:wagA},{t:.25,pose:wagB},{t:.5,pose:wagA},{t:.75,pose:wagB},{t:1,pose:wagA}]};
+
+    /* ---- locomotion ---- */
+    const walkA=Object.assign({},ETHVELLE_FRONT_WALK_A,{tail:14*D});
+    const walkP=Object.assign({},ETHVELLE_FRONT_WALK_PASS,{tail:0});
+    P.beastWalk={name:'Beast walk',duration:1.1,keyframes:[
+      {t:0,pose:walkA},{t:.25,pose:walkP},{t:.5,pose:SH(walkA)},{t:.75,pose:SH(walkP)},{t:1,pose:walkA}]};
+
+    const prowlKeep={spine_upper:3*D,head:6*D};
+    const prowlA=Object.assign(SC(ETHVELLE_FRONT_WALK_A,1.2),prowlKeep,{tail:-10*D,hipY:.03});
+    const prowlP=Object.assign(SC(ETHVELLE_FRONT_WALK_PASS,1.2),prowlKeep,{tail:0,hipY:.022});
+    P.beastProwl={name:'Prowl (low stalk)',duration:1.7,keyframes:[
+      {t:0,pose:prowlA},{t:.25,pose:prowlP},{t:.5,pose:Object.assign(SH(prowlA),prowlKeep,{tail:10*D,hipY:.03})},
+      {t:.75,pose:Object.assign(SH(prowlP),prowlKeep,{tail:0,hipY:.022})},{t:1,pose:prowlA}]};
+
+    const runA=bp({upperArmL:42*D,forearmL:-65*D,clavicleL:3*D,thighL:16*D,shinL:-24*D,footL:6*D},{pelvis:1.6*D,spine_lower:1.2*D,spine_upper:1.8*D,head:-1*D,tail:24*D,hipY:-.045});
+    const runP=bp({upperArmL:12*D,forearmL:-40*D,thighL:5*D,shinL:-10*D},{tail:0,hipY:.012});
+    P.beastRun={name:'Beast run',duration:.64,keyframes:[
+      {t:0,pose:runA},{t:.25,pose:runP},{t:.5,pose:SH(runA)},{t:.75,pose:SH(runP)},{t:1,pose:runA}]};
+
+    /* ---- power / attitude ---- */
+    P.beastRoar={name:'Roar',duration:1.7,faceActions:FACE('angry'),keyframes:[
+      {t:0,pose:NEUTRAL(),fist:false},
+      {t:.22,pose:bp({upperArmL:-8*D,forearmL:-25*D,clavicleL:2*D},{chest:-3*D,head:9*D,tail:10*D,hipY:.02}),fist:true},
+      {t:.45,pose:bp({upperArmL:62*D,forearmL:-34*D,clavicleL:7*D},{spine_upper:-6*D,chest:-8*D,neck:-6*D,head:-26*D,tail:30*D,hipY:-.025}),fist:true},
+      {t:.75,pose:bp({upperArmL:56*D,forearmL:-30*D,clavicleL:6*D},{spine_upper:-5*D,chest:-7*D,neck:-5*D,head:-22*D,tail:24*D,hipY:-.018}),fist:true},
+      {t:1,pose:NEUTRAL(),fist:false}]};
+
+    P.beastHowl={name:'Howl',duration:2.6,faceActions:FACE('shock'),keyframes:[
+      {t:0,pose:NEUTRAL()},
+      {t:.3,pose:bp({upperArmL:4*D,forearmL:-6*D},{neck:-6*D,head:-28*D,chest:-6*D,spine_upper:-4*D,tail:18*D,hipY:-.012})},
+      {t:.55,pose:bp({upperArmL:5*D,forearmL:-7*D},{neck:-8*D,head:-36*D,chest:-8*D,spine_upper:-5*D,tail:24*D,hipY:-.016})},
+      {t:.8,pose:bp({upperArmL:5*D,forearmL:-7*D},{neck:-8*D,head:-34*D,chest:-7*D,spine_upper:-5*D,tail:20*D,hipY:-.014})},
+      {t:1,pose:NEUTRAL()}]};
+
+    P.beastPounce={name:'Pounce',duration:1.3,faceActions:FACE('angry'),keyframes:[
+      {t:0,pose:NEUTRAL()},
+      {t:.2,pose:bp({upperArmL:-18*D,forearmL:-28*D,clavicleL:3*D,thighL:14*D,shinL:-20*D,footL:6*D},{spine_lower:9*D,spine_upper:8*D,chest:4*D,head:2*D,tail:-18*D,hipY:.09})},
+      {t:.45,pose:bp({upperArmL:128*D,forearmL:-12*D,clavicleL:8*D,thighL:8*D,shinL:-16*D,footL:-6*D},{spine_lower:-4*D,spine_upper:-6*D,head:-8*D,tail:34*D,hipY:-.2})},
+      {t:.7,pose:bp({upperArmL:20*D,forearmL:-30*D,thighL:12*D,shinL:-18*D},{spine_lower:6*D,spine_upper:5*D,head:3*D,tail:-12*D,hipY:.07})},
+      {t:.88,pose:bp({upperArmL:6*D,forearmL:-8*D},{tail:6*D,hipY:.01})},
+      {t:1,pose:NEUTRAL()}]};
+
+    P.beastClawSwipe={name:'Claw swipe',duration:1.1,faceActions:FACE('angry'),keyframes:[
+      {t:0,pose:NEUTRAL()},
+      {t:.25,pose:{clavicleR:-6*D,upperArmR:-135*D,forearmR:35*D,upperArmL:14*D,forearmL:-70*D,pelvis:2*D,spine_upper:5*D,chest:4*D,head:2*D,tail:22*D,hipY:.015}},
+      {t:.45,pose:{clavicleR:-3*D,upperArmR:-52*D,forearmR:8*D,upperArmL:18*D,forearmL:-80*D,pelvis:-3*D,spine_upper:-8*D,chest:-6*D,head:3*D,tail:-28*D,hipY:.03}},
+      {t:.7,pose:{upperArmR:-30*D,forearmR:4*D,upperArmL:12*D,forearmL:-50*D,pelvis:-1*D,spine_upper:-3*D,tail:-12*D,hipY:.01}},
+      {t:.88,pose:{upperArmR:-8*D,forearmR:4*D,upperArmL:4*D,forearmL:-12*D,tail:4*D}},
+      {t:1,pose:NEUTRAL()}]};
+
+    const poundUp=bp({upperArmL:-18*D,forearmL:-112*D,clavicleL:5*D},{chest:-3*D,head:-7*D,tail:8*D,hipY:-.012});
+    const poundHit=bp({upperArmL:-26*D,forearmL:-126*D,clavicleL:6*D},{chest:2.5*D,head:-2*D,tail:-6*D,hipY:.006});
+    P.beastChestPound={name:'Chest pound',duration:1.8,faceActions:FACE('angry'),keyframes:[
+      {t:0,pose:NEUTRAL(),fist:false},{t:.14,pose:poundUp,fist:true},{t:.26,pose:poundHit,fist:true},{t:.38,pose:poundUp,fist:true},
+      {t:.5,pose:poundHit,fist:true},{t:.62,pose:poundUp,fist:true},{t:.74,pose:poundHit,fist:true},{t:.88,pose:poundUp,fist:true},
+      {t:1,pose:NEUTRAL(),fist:false}]};
+
+    const stanceA=bp({upperArmL:16*D,forearmL:-100*D,clavicleL:4*D,thighL:7*D,shinL:-6*D,footL:2*D},{spine_upper:2*D,head:3*D,tail:6*D,hipY:.03});
+    const stanceB=bp({upperArmL:20*D,forearmL:-96*D,clavicleL:5*D,thighL:7*D,shinL:-6*D,footL:2*D},{spine_upper:3*D,chest:1*D,head:1*D,tail:-8*D,hipY:.018});
+    P.beastFightStance={name:'Fight stance',duration:1.6,faceActions:FACE('angry'),keyframes:[
+      {t:0,pose:stanceA,fist:true},{t:.5,pose:stanceB,fist:true},{t:1,pose:stanceA,fist:true}]};
+
+    const shakeA=bp({upperArmL:14*D,forearmL:-22*D},{pelvis:5*D,spine_lower:-5*D,spine_upper:6*D,chest:-4*D,head:-9*D,tail:28*D,hipY:-.01});
+    const shakeB=Object.assign(SH(shakeA),{hipY:-.01});
+    P.beastShakeOff={name:'Fur shake-off',duration:1.0,keyframes:[
+      {t:0,pose:NEUTRAL()},{t:.12,pose:shakeA},{t:.24,pose:shakeB},{t:.36,pose:shakeA},{t:.48,pose:shakeB},
+      {t:.6,pose:shakeA},{t:.72,pose:shakeB},{t:.86,pose:SC(shakeA,.3)},{t:1,pose:NEUTRAL()}]};
+
+    P.beastVictory={name:'Victory pose',duration:1.8,faceActions:FACE('laugh'),keyframes:[
+      {t:0,pose:NEUTRAL(),fist:false},
+      {t:.25,pose:bp({upperArmL:146*D,forearmL:12*D,clavicleL:9*D},{chest:-4*D,head:-9*D,tail:20*D,hipY:-.045}),fist:true},
+      {t:.5,pose:bp({upperArmL:156*D,forearmL:6*D,clavicleL:10*D},{chest:-5*D,head:-11*D,tail:-20*D,hipY:-.02}),fist:true},
+      {t:.75,pose:bp({upperArmL:146*D,forearmL:12*D,clavicleL:9*D},{chest:-4*D,head:-9*D,tail:20*D,hipY:-.045}),fist:true},
+      {t:1,pose:NEUTRAL(),fist:false}]};
+
+    Object.keys(P).forEach(key=>{
+      const preset=P[key];
+      preset.modelType='beastman';
+      preset.view='front';
+      preset._ethvelleRigVersion=21;
+      preset._ethvelleAnimKey=key;
+      animPresets[key]=preset;
+    });
+  }catch(err){console.warn('Ethvelle: beast-man animation presets skipped',err);}
+})();
+
+/* ================= LADY WALK (v369) =================
+   Two presets, one per animation section: 'ladyWalk' (Humanoid tab) and 'beastLadyWalk' (Beast Men tab).
+   Little, quick, gentle steps for characters in a saree or other long garment. The garment body is one piece whose
+   lower half is bent by the legs (sheetDrawDressBody), so every leg angle here is kept SMALL: the thigh swing is
+   only about +/-6.5 deg (a normal Walk uses +/-22 deg), the knee folds only ~45% as deep (see kneeScale in
+   sheetRigForCharacter) and the feet are barely lifted. Measured on the girl base sheet, the two ankles move apart by
+   about a quarter of the hem width at most (a normal Walk: about three quarters), so the saree / dress keeps its
+   shape and its border line. Arms swing a little, opposite to the leg on the same side, and the torso sways softly.
+   Angle sign: positive = toward the viewer's LEFT (backward for a character walking to the right), negative = forward.
+   Right-side motion is the left-side motion half a loop later (ethvellePhaseShift21), so both feet get the same range. */
+(function ethvelleLadyWalkPresets(){
+  try{
+    if(typeof animPresets!=='object'||typeof ethvellePhaseShift21!=='function')return;
+    const D=Math.PI/180, SH=ethvellePhaseShift21;
+    // t=0: left foot behind (toe-off), right foot ahead (heel touching). A small forward bias (-2.5 deg) keeps the step centred on the standing pose.
+    const LW_A={ pelvis:1.2*D, spine_lower:-.5*D, spine_upper:-.4*D, chest:-.3*D, neck:.2*D, head:.3*D,
+      upperArmL:-4.5*D, upperArmR:4.5*D, forearmL:-9*D, forearmR:-3*D, handL:-1.5*D, handR:1.5*D,
+      thighL:4*D, thighR:-9*D, shinL:5*D, shinR:2*D, footL:-4*D, footR:10*D, hipY:.0015 };
+    // t=.25: the legs pass each other under the body (body at its highest point).
+    const LW_P={ pelvis:0, spine_lower:0, spine_upper:0, chest:0, neck:0, head:0,
+      upperArmL:-.5*D, upperArmR:-.5*D, forearmL:-5*D, forearmR:-5*D, handL:0, handR:0,
+      thighL:-2.5*D, thighR:-2.5*D, shinL:8*D, shinR:1*D, footL:0, footR:4*D, hipY:-.002 };
+    const make=(name,modelType,extraA,extraP)=>({
+      name,modelType,view:'all',duration:1.0,_ethvelleRigVersion:21,
+      keyframes:[
+        {t:0,   pose:Object.assign({},LW_A,extraA)},
+        {t:.25, pose:Object.assign({},LW_P,extraP)},
+        {t:.5,  pose:SH(Object.assign({},LW_A,extraA))},
+        {t:.75, pose:SH(Object.assign({},LW_P,extraP))},
+        {t:1,   pose:Object.assign({},LW_A,extraA)}]
+    });
+    const P={
+      ladyWalk:make('Lady walk','humanoid',{},{}),
+      // Beast Men: same legs and body, plus a slow, small tail sway (tail bone: positive = tail tip toward the viewer's left).
+      beastLadyWalk:make('Lady walk','beastman',{tail:7*D},{tail:0})
+    };
+    Object.keys(P).forEach(key=>{ P[key]._ethvelleAnimKey=key; animPresets[key]=P[key]; });
+  }catch(err){console.warn('Ethvelle: lady walk presets skipped',err);}
+})();
+
+function ethvelleIs21Pose(p){
+  return !!p && ['pelvis','spine_lower','spine_upper','chest','neck','clavicleL','clavicleR','upperArmL','upperArmR','forearmL','forearmR','thighL','thighR','shinL','shinR','footL','footR'].some(k=>Object.prototype.hasOwnProperty.call(p,k));
+}
+function ethvelleDiscrete21(preset,tFrac,field){
+  const kfs=preset&&preset.keyframes;if(!Array.isArray(kfs))return undefined;
+  let val;
+  for(let i=0;i<kfs.length;i++)if(kfs[i].t<=tFrac&&kfs[i][field]!==undefined)val=kfs[i][field];
+  return val;
+}
+function ethvelleComplete21Pose(preset,tFrac,pose){
+  const p=ethvelleNormalizeLegacyPoseTo21(pose||{});
+  if(preset&&preset._ethvelleAnimKey)p.__ethvelleAnimKey=preset._ethvelleAnimKey;
+  p.__ethvelleTFrac=((Number(tFrac)||0)%1+1)%1; /* v326: loop position, used for the walk knee bend */
+  const fist=ethvelleDiscrete21(preset,tFrac,'fist');
+  if(fist!==undefined)p.gestureFist=fist?1:0;
+  else p.gestureFist=Number(p.gestureFist)||0;
+  p.gesturePoint=Number(p.gesturePoint)||0;
+  p.gesturePeace=Number(p.gesturePeace)||0;
+  p.gestureThumbsUp=Number(p.gestureThumbsUp)||0;
+  const mouth=ethvelleDiscrete21(preset,tFrac,'mouth');
+  const blink=ethvelleDiscrete21(preset,tFrac,'blink');
+  p.__mouth=mouth===undefined?'closed':mouth;
+  p.__blink=blink===undefined?false:!!blink;
+  return p;
+}
+
+// Updated presets authored for a parent-relative 21-bone rig also need a compatibility pose
+// for the original stickman and saved legacy rigs. The sheet renderer uses the full pose below.
+function ethvelle21PoseToLegacy(p){
+  const out={}, skeleton=new Set(['pelvis','spine_lower','spine_upper','chest','neck','head','clavicleL','clavicleR','upperArmL','upperArmR','forearmL','forearmR','handL','handR','thighL','thighR','shinL','shinR','footL','footR','hipY']);
+  Object.keys(p||{}).forEach(k=>{if(!skeleton.has(k)&&!k.startsWith('__ethvelle'))out[k]=p[k];});
+  const spine=(Number(p.spine_lower)||0)+(Number(p.spine_upper)||0)+(Number(p.chest)||0);
+  out.spine=spine;
+  out.head=spine+(Number(p.neck)||0)+(Number(p.head)||0);
+  ['L','R'].forEach(S=>{
+    const arm=(Number(p['clavicle'+S])||0)+(Number(p['upperArm'+S])||0)+spine;
+    out['arm'+S]=arm;
+    out['arm'+S+'_lo']=arm+(Number(p['forearm'+S])||0);
+    out['hand'+S]=out['arm'+S+'_lo']+(Number(p['hand'+S])||0);
+    const leg=(Number(p.pelvis)||0)+(Number(p['thigh'+S])||0);
+    out['leg'+S]=leg;
+    out['leg'+S+'_lo']=leg+(Number(p['shin'+S])||0)+(Number(p['foot'+S])||0);
+  });
+  if(p.hipY!==undefined)out.hipY=p.hipY;
+  return out;
+}
+
+const ethvelleOriginalEvalPreset21 = evalPreset;
+evalPreset = function(preset,tFrac){
+  const pose=ethvelleOriginalEvalPreset21(preset,tFrac);
+  if(preset&&preset._ethvelleRigVersion===21){
+    const modern=ethvelleComplete21Pose(preset,tFrac,pose);
+    Object.defineProperty(pose,'__ethvelleModernPose',{value:modern,writable:true,configurable:true,enumerable:false});
+  }
+  return pose;
+};
+
+function ethvelleModernPoseForClipAtTime(tSecAbsolute,clipOverride,segmentsOverride){
+  const useClip=clipOverride!==undefined?clipOverride:activeClip;
+  const useSegments=segmentsOverride!==undefined?segmentsOverride:splitStickmanSegments;
+  if(!useClip)return null;
+  const hit=stickmanClipAt(tSecAbsolute,useClip,useSegments);if(!hit)return null;
+  const clip=hit.clip,preset=animPresets[clip.animKey];
+  if(!preset||preset._ethvelleRigVersion!==21)return null;
+  const speed=clip.speed||1, localT=Math.max(0,(tSecAbsolute-clip.trimStart)*speed);
+  const loopT=(localT%preset.duration)/preset.duration;
+  let pose=ethvelleComplete21Pose(preset,loopT,ethvelleOriginalEvalPreset21(preset,loopT));
+  if(Array.isArray(clip.keyframes)&&clip.keyframes.length){
+    const kfs=[...clip.keyframes].sort((a,b)=>a.t-b.t), WINDOW=.36;
+    const holdAndBlend=(kf,base)=>{
+      const dist=Math.abs(tSecAbsolute-kf.t);if(dist>=WINDOW)return null;
+      const weight=.5*(1+Math.cos(Math.PI*(dist/WINDOW)));
+      const kp=ethvelleNormalizeLegacyPoseTo21(kf.pose||{}), blended={};
+      const keys=new Set([...Object.keys(base),...Object.keys(kp)]);
+      keys.forEach(k=>{
+        if(k.startsWith('__'))return;
+        const bv=base[k]??0;
+        blended[k]=lerp(bv,kp[k]??bv,weight);
+      });
+      return {...base,...blended};
+    };
+    if(tSecAbsolute<=kfs[0].t)pose=holdAndBlend(kfs[0],pose)||pose;
+    else if(tSecAbsolute>=kfs[kfs.length-1].t)pose=holdAndBlend(kfs[kfs.length-1],pose)||pose;
+    else{
+      let i=0;while(i<kfs.length-1&&tSecAbsolute>kfs[i+1].t)i++;
+      const a=kfs[i],b=kfs[i+1],near=Math.abs(tSecAbsolute-a.t)<=Math.abs(tSecAbsolute-b.t)?a:b,far=near===a?b:a;
+      pose=holdAndBlend(near,pose)||holdAndBlend(far,pose)||pose;
+    }
+    // Preserve preset-level discrete expression fields through the user keyframe blend.
+    const mouth=ethvelleDiscrete21(preset,loopT,'mouth'),blink=ethvelleDiscrete21(preset,loopT,'blink'),fist=ethvelleDiscrete21(preset,loopT,'fist');
+    pose.__mouth=mouth===undefined?'closed':mouth;pose.__blink=blink===undefined?false:!!blink;
+    pose.gestureFist=fist===undefined?(Number(pose.gestureFist)||0):(fist?1:0);
+  }
+  return pose;
+}
+const ethvelleOriginalPoseAtClipTime21=poseAtClipTime;
+poseAtClipTime=function(tSecAbsolute,clipOverride,segmentsOverride){
+  const pose=ethvelleOriginalPoseAtClipTime21(tSecAbsolute,clipOverride,segmentsOverride);
+  if(!pose)return pose;
+  const modern=ethvelleModernPoseForClipAtTime(tSecAbsolute,clipOverride,segmentsOverride);
+  if(modern)Object.defineProperty(pose,'__ethvelleModernPose',{value:modern,writable:true,configurable:true,enumerable:false});
+  return pose;
+};
+
+const ethvelleOriginalApplyPoseToBones21=applyPoseToBones;
+applyPoseToBones=function(pose,targetBones,targetBaseAngles,targetHipRestY){
+  const b=targetBones!==undefined?targetBones:bones;
+  const character=(Array.isArray(characters)?characters.find(c=>c&&c.bones===b):null)||(b===bones&&typeof activeCharacter==='function'?activeCharacter():null);
+  const source=pose||{};
+  const modern=source.__ethvelleModernPose||(ethvelleIs21Pose(source)?source:null);
+  const legacy=modern?ethvelle21PoseToLegacy(modern):source;
+  if(character){
+    character._ethvelleModernPose=(character.sheet&&modern)?{...modern}:null;
+    if(character.sheet){
+      if(!character.expr&&typeof sheetExprFresh==='function')character.expr=sheetExprFresh();
+      if(character.expr){
+        if(modern){
+          character.expr.mouth=modern.__mouth||'closed';
+          character.expr.blink=!!modern.__blink;
+          const fist=Number(modern.gestureFist)||0,point=Number(modern.gesturePoint)||0,peace=Number(modern.gesturePeace)||0,thumb=Number(modern.gestureThumbsUp)||0;
+          character.expr.fistL=character.expr.fistR=fist>.5;
+          character.expr.gestL=character.expr.gestR=fist>.5?null:(point>.5?'point':(thumb>.5?'thumb':(peace>.5?'palm':null)));
+        }else if(['gestureFist','gesturePoint','gesturePeace','gestureThumbsUp'].some(k=>k in source)){
+          const fist=Number(source.gestureFist)||0,point=Number(source.gesturePoint)||0,peace=Number(source.gesturePeace)||0,thumb=Number(source.gestureThumbsUp)||0;
+          character.expr.fistL=character.expr.fistR=fist>.5;
+          character.expr.gestL=character.expr.gestR=fist>.5?null:(point>.5?'point':(thumb>.5?'thumb':(peace>.5?'palm':null)));
+        }
+      }
+    }
+  }
+  return ethvelleOriginalApplyPoseToBones21(legacy,targetBones,targetBaseAngles,targetHipRestY);
+};
+
+/* v326: knee bend (degrees, backward) for the LEFT-bone leg over one walk loop (0..1).
+   The right-bone leg uses the same curve shifted by half a loop. Peak = foot in the air (leg lifting
+   and swinging forward), small bend at toe-off, almost straight when the foot is planted. */
+const ETHVELLE_WALK_KNEE_KEYS=[[0,12],[0.12,26],[0.25,44],[0.36,46],[0.46,20],[0.5,6],[0.75,3],[1,12]];
+function ethvelleWalkKneeFlexDeg(t){
+  t=((Number(t)||0)%1+1)%1;
+  const k=ETHVELLE_WALK_KNEE_KEYS;
+  for(let i=0;i<k.length-1;i++){
+    if(t>=k[i][0]&&t<=k[i+1][0]){
+      const u=(t-k[i][0])/((k[i+1][0]-k[i][0])||1),e=.5-.5*Math.cos(Math.PI*u);
+      return k[i][1]+(k[i+1][1]-k[i][1])*e;
+    }
+  }
+  return k[k.length-1][1];
+}
+/* v327: hip joint. The two thighs used to pivot too far apart / too low, so a gap opened under the
+   pelvis triangle when the legs swung wide. Pull both hip joints a little toward the centre and up so
+   the thigh tops stay overlapped with the pelvis piece. The pull grows a bit with the thigh swing.
+   Tune with the three numbers below (bigger = closer / higher). */
+const ETHVELLE_HIP_IN_REST=0.12, ETHVELLE_HIP_IN_SWING=0.18, ETHVELLE_HIP_UP_REST=0.008, ETHVELLE_HIP_UP_SWING=0.012;
+function ethvelleTightenHips(rig,char,p){
+  if(!rig||!rig.bones)return;
+  const type=(char&&(char.modelType||(char.sheet&&char.sheet.modelType)))||'humanoid';
+  if(type!=='humanoid')return;
+  const ov=(char&&char.sheet&&char.sheet.rigOverride)||{};
+  const scale=stageH*(Number(ov.figFrac)||.5), deg=Math.PI/180;
+  ['L','R'].forEach(S=>{
+    const b=rig.bones['thigh'+S]; if(!b||!b.off)return;
+    const sw=p?Math.min(1,Math.abs(Number(p['thigh'+S])||0)/(24*deg)):0;
+    b.off={x:b.off.x*(1-(ETHVELLE_HIP_IN_REST+ETHVELLE_HIP_IN_SWING*sw)),
+           y:b.off.y-(ETHVELLE_HIP_UP_REST+ETHVELLE_HIP_UP_SWING*sw)*scale};
+  });
+}
+// Apply the full parent-relative pose directly to the 21-bone runtime used by 14-part sheets.
+const ethvelleOriginalSheetRigForCharacter21=sheetRigForCharacter;
+sheetRigForCharacter=function(char){
+  const rig=ethvelleOriginalSheetRigForCharacter21(char);
+  const p=char&&char._ethvelleModernPose;
+  if(!p||!rig||!rig.bones||!rig.baseAngles){ethvelleTightenHips(rig,char,null);return rig;}
+  ethvelleTightenHips(rig,char,p);
+  const clamp=(v,lo,hi)=>Math.max(lo,Math.min(hi,v));
+  const deg=Math.PI/180;
+  const limits={pelvis:28,spine_lower:28,spine_upper:28,chest:30,neck:35,head:42,clavicleL:28,clavicleR:28,upperArmL:165,upperArmR:165,forearmL:145,forearmR:145,handL:95,handR:95,thighL:125,thighR:125,shinL:145,shinR:145,footL:85,footR:85};
+  // v326 WALK KNEES: while a leg is lifted (swing phase) the knee must fold BACKWARD (shin goes behind
+  // the thigh), never forward. The old preset values made one leg bend forward and used a one-leg
+  // sign flip. For the walk presets (all views except back) the shin angle is now driven by a
+  // swing-phase curve: both knees only ever fold backward, the most when the foot is in the air,
+  // and are almost straight when the foot is planted. Thigh, foot placement, arms and every other
+  // animation stay exactly as they were.
+  const walkKneeFix=String((char&&char.sheet&&char.sheet.view)||'front')!=='back' &&

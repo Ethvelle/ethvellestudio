@@ -1,0 +1,1000 @@
+    ctx.putImageData(a,0,0);
+  }catch(err){ console.warn('Ethvelle: face sharpen skipped',err); }
+}
+// Name kept for existing callers; it now builds the face-only preview.
+function generateModelGridFullBodyPreview(asset){
+  const faceSrc = modelFaceSourceFor(asset);
+  if(!faceSrc) return Promise.resolve('');
+  const faceSig = modelFaceSig(asset);
+  if(modelFacePreviewCache.has(faceSrc) && (modelFacePreviewSigs.get(faceSrc)||'') === faceSig) return Promise.resolve(modelFacePreviewCache.get(faceSrc));
+  if(modelFacePreviewPending.has(faceSrc)) return modelFacePreviewPending.get(faceSrc);
+  const task = (modelFaceQueue = modelFaceQueue.then(()=>new Promise(r=>setTimeout(r,0))).then(()=>new Promise(resolve=>{
+    const img = new Image();
+    const finish = (img)=>{
+      try{
+        const iw = img.naturalWidth || img.width, ih = img.naturalHeight || img.height;
+        if(!iw || !ih){ resolve(''); return; }
+        // Crop to the visible (non-transparent) pixels so the face fills the card.
+        let sx=0, sy=0, sw=iw, sh=ih;
+        if(iw*ih <= 9000000){
+          const probe = document.createElement('canvas'); probe.width=iw; probe.height=ih;
+          const pc = probe.getContext('2d',{willReadFrequently:true});
+          pc.drawImage(img,0,0);
+          const px = pc.getImageData(0,0,iw,ih).data;
+          let minX=iw, minY=ih, maxX=-1, maxY=-1;
+          for(let y=0;y<ih;y++){
+            const row=y*iw*4;
+            for(let x=0;x<iw;x++){
+              if(px[row+x*4+3]>12){ if(x<minX)minX=x; if(x>maxX)maxX=x; if(y<minY)minY=y; if(y>maxY)maxY=y; }
+            }
+          }
+          if(maxX>=minX && maxY>=minY){
+            const pad = Math.max(2,Math.round(Math.max(maxX-minX+1,maxY-minY+1)*.03));
+            minX=Math.max(0,minX-pad); minY=Math.max(0,minY-pad);
+            maxX=Math.min(iw-1,maxX+pad); maxY=Math.min(ih-1,maxY+pad);
+            sx=minX; sy=minY; sw=maxX-minX+1; sh=maxY-minY+1;
+          }
+        }
+        // Square 2K output. The face is fitted to ~96% of the tile and ENLARGED when the artwork is smaller,
+        // so every card gets a full-resolution tile instead of a small bitmap the browser has to stretch.
+        const SIZE = MODEL_FACE_PREVIEW_PX, longest = Math.max(sw,sh);
+        const scale = (SIZE*.96)/longest;
+        const tw = Math.max(1,Math.round(sw*scale)), th = Math.max(1,Math.round(sh*scale));
+        const crop = document.createElement('canvas'); crop.width = sw; crop.height = sh;
+        crop.getContext('2d').drawImage(img,sx,sy,sw,sh,0,0,sw,sh);
+        const big = modelFaceResizeSteps(crop,tw,th);
+        const out = document.createElement('canvas'); out.width = SIZE; out.height = SIZE;
+        const oc = out.getContext('2d'); oc.imageSmoothingEnabled = true; oc.imageSmoothingQuality = 'high';
+        oc.drawImage(big,Math.round((SIZE-tw)/2),Math.round((SIZE-th)/2));
+        if(scale > 1.25) modelFaceUnsharp(out, Math.min(4,Math.max(1.2,scale*.4)), Math.min(1.1,.45+scale*.08));
+        else modelFaceUnsharp(out, 1, .35);
+        if(out.toBlob) out.toBlob(blob=>resolve(blob ? URL.createObjectURL(blob) : out.toDataURL('image/png')),'image/png');
+        else resolve(out.toDataURL('image/png'));
+      }catch(err){
+        console.warn('Ethvelle: could not build face model preview',err);
+        resolve('');
+      }
+    };
+    img.onload = ()=>{ modelFaceComposite(asset, img).then(base=>finish(base || img), ()=>finish(img)); };
+    img.onerror = ()=>resolve('');
+    img.src = faceSrc;
+  }))).then(url=>{
+    modelFacePreviewPending.delete(faceSrc);
+    if(url){ modelFacePreviewCache.set(faceSrc,url); modelFacePreviewSigs.set(faceSrc,faceSig); modelFacePreviewFailed.delete(faceSrc); } else modelFacePreviewFailed.add(faceSrc);
+    return url;
+  });
+  modelFacePreviewPending.set(faceSrc,task);
+  return task;
+}
+
+// v389: admin models arrive as a light index (one tiny head-only thumbnail); their artwork lives in a separate package.
+// So that they get the same sharp face tile as the user's own models (head + open eyes + eyebrows), the package is
+// loaded quietly (one at a time, cached in IndexedDB by evFetchModelSheet) and the tile is rendered from it.
+let evFaceFetchChain = Promise.resolve();
+function evFaceTileFor(asset){
+  if(!asset) return Promise.resolve('');
+  if(asset.sheet && asset.sheet.parts) return modelFaceSourceFor(asset) ? generateModelGridFullBodyPreview(asset) : Promise.resolve('');
+  if(asset.origin !== 'admin' || !asset.hasPackage || typeof evFetchModelSheet !== 'function') return Promise.resolve('');
+  const run = evFaceFetchChain.then(()=>evFetchModelSheet(asset)).then(sheet=>{
+    asset.sheet = sheet;
+    try{ const live = Array.isArray(publishedModelAssets) ? publishedModelAssets.find(x=>String(x.id)===String(asset.id)) : null; if(live && live !== asset) live.sheet = sheet; }catch(_e){}
+    return modelFaceSourceFor(asset) ? generateModelGridFullBodyPreview(asset) : '';
+  }).catch(()=>'');
+  evFaceFetchChain = run.then(()=>{}, ()=>{});
+  return run;
+}
+
+function renderModelsTab(){
+  const grid = document.getElementById('modelsGrid');
+  const count = document.getElementById('modelsCount');
+  if(!grid) return;
+  const ordered = getAvailableModelAssets();
+  count.textContent = ordered.length + (ordered.length===1?' model':' models');
+  const addTile = `
+    <div class="model-grid-add" onclick="startDirectModelUpload(true);">
+      <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      <span class="model-grid-add-title">Add new model</span>
+      <span class="model-grid-add-desc">Upload a separated character part sheet</span>
+    </div>`;
+  grid.innerHTML = addTile + ordered.map(asset=>{
+    const thumb = modelGridThumbSrc(asset);
+    return `
+    <div class="model-grid-card" data-mid="${asset.id}">
+      <div class="model-grid-card-actions">
+        <div class="model-grid-icon-btn" title="Edit" onclick="event.stopPropagation(); openModelAssetEditor('${asset.id}');">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>
+        </div>
+        <div class="model-grid-icon-btn danger" title="Delete" onclick="event.stopPropagation(); openDeleteModelConfirm('${asset.id}');">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>
+        </div>
+      </div>
+      <div class="model-grid-thumb" onclick="openModelAssetEditor('${asset.id}')">
+        ${thumb ? `<img src="${thumb}" alt="">` : `<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg>`}
+      </div>
+      <div class="model-grid-name" onclick="openModelAssetEditor('${asset.id}')">${escapeHtml(asset.name)}</div>
+    </div>`;
+  }).join('');
+  ordered.forEach(asset=>{
+    if(asset.origin==='admin'){const card=[...grid.querySelectorAll('.model-grid-card')].find(el=>String(el.dataset.mid)===String(asset.id));if(card){card.querySelector('.model-grid-card-actions')?.remove();evModelDecorate(card,asset);const thumb=card.querySelector('.model-grid-thumb'),name=card.querySelector('.model-grid-name'),add=()=>useModelAssetFromProjects(asset.id);if(thumb)thumb.onclick=add;if(name)name.onclick=add;}evFaceTileFor(asset).then(src=>{if(!src)return;const c2=[...grid.querySelectorAll('.model-grid-card')].find(el=>String(el.dataset.mid)===String(asset.id));const t2=c2&&c2.querySelector('.model-grid-thumb');if(t2)t2.innerHTML='<img src="'+src+'" alt="">';});return;}
+    if(!modelFaceSourceFor(asset) || modelGridThumbSrc(asset)) return;
+    generateModelGridFullBodyPreview(asset).then(src=>{
+      if(!src) return;
+      const card=[...grid.querySelectorAll('.model-grid-card')].find(el=>el.dataset.mid===asset.id);
+      const thumbEl=card && card.querySelector('.model-grid-thumb');
+      if(thumbEl) thumbEl.innerHTML=`<img src="${src}" alt="${escapeHtml(asset.name||'Model')} face preview">`;
+    });
+  });
+}
+// Tapping a saved model from the Projects list (as opposed to from inside an already-open
+// project's "Add character" sheet) has nothing to add the character TO yet, so it starts a
+// brand new project first, opens the editor, then drops the model in as the starting
+// character  -  landing the person straight on the canvas with their model already there.
+async function useModelAssetFromProjects(id){
+  const asset = getAvailableModelAssets().find(a=>String(a.id)===String(id));
+  if(!asset) return;
+  if(evModelIsLocked(asset)){ evModelUpgrade(asset); return; }
+  if(!(asset.sheet&&asset.sheet.parts) && asset.origin==='admin' && asset.hasPackage){
+    if(!(await evEnsureModelSheet(asset))) return;
+  }
+  const plan = getMyPlanData();
+  if(!plan.unlimitedProjects && plan.maxProjects != null && projects.length >= plan.maxProjects){
+    showToast('Your plan allows up to ' + plan.maxProjects + ' projects  -  upgrade for more, or delete one first', {icon: toastIcons.info, duration:3000});
+    return;
+  }
+  const proj = {
+    id: Date.now(),
+    name: asset.name || ('Untitled ' + (projects.length+1)),
+    ratio: '9:16',
+    created: new Date().toISOString(),
+    duration: 2,
+    savedState: null
+  };
+  projects.unshift(proj);
+  saveProjectsToStorage();
+  trackEvent('project');
+  renderProjects();
+  openEditor(proj);
+  setTimeout(()=>addCharacterFromModelAsset(asset), 0);
+}
+
+function openEditorById(id){
+  const proj = projects.find(p=>p.id===id);
+  if(proj){ trackEvent('project_opened'); openEditor(proj); }
+}
+
+/* ---- Keyframe info screen (home tile → goTo('keyframeInfo')) ----
+   The "Jump in" card's copy depends on whether the person has an existing project to drop
+   back into  -  see refreshKeyframeEntryCard, called by goTo every time this screen is shown
+   (projects can change between visits via delete/create elsewhere in the app). */
+function refreshKeyframeEntryCard(){
+  const title = document.getElementById('keyframeEntryTitle');
+  const desc = document.getElementById('keyframeEntryDesc');
+  if(!title || !desc) return;
+  if(projects.length){
+    title.textContent = 'Open your timeline';
+    desc.textContent = 'Continue "' + (projects[0].name || 'your last project') + '" and start keying poses.';
+  }else{
+    title.textContent = 'Start your first animation';
+    desc.textContent = 'No projects yet  -  create one to get a timeline with keyframe tools.';
+  }
+}
+// Projects are unshifted onto `projects` (newest first  -  see e.g. useModelAssetFromProjects),
+// so projects[0] is the most recently touched one. With none yet, falls through to the same
+// new-animation flow as "Start a new animation" below it instead of opening nothing.
+function openKeyframeEntry(){
+  if(projects.length){ openEditorById(projects[0].id); }
+  else{ openRatioModal(); }
+}
+function deleteProject(id){
+  selectedProjectIds.delete(id);
+  const removedProject=projects.find(p=>String(p.id)===String(id));
+  if(removedProject)delete removedProject.textCustomColors;
+  try{if(currentProject&&String(currentProject.id)===String(id))currentProject=null;}catch(_e){}
+  projects = projects.filter(p=>p.id!==id);
+  saveProjectsToStorage();
+  trackEvent('project_deleted');
+  renderProjects();
+  showToast('Project deleted', {icon: toastIcons.check, duration:1200});
+}
+
+/* ---- Project 3-dot action sheet (open / rename / duplicate / delete) ---- */
+let menuProjectId = null;
+function openProjectMenu(id){
+  menuProjectId = id;
+  const proj = projects.find(p=>p.id===id);
+  if(!proj) return;
+  document.getElementById('projectMenuTitle').textContent = proj.name;
+  document.getElementById('projectMenuBackdrop').classList.add('active');
+}
+function closeProjectMenu(){
+  document.getElementById('projectMenuBackdrop').classList.remove('active');
+}
+function openEditorFromMenu(){
+  const id = menuProjectId;
+  closeProjectMenu();
+  openEditorById(id);
+}
+function openRenameSheet(){
+  const proj = projects.find(p=>p.id===menuProjectId);
+  if(!proj) return;
+  closeProjectMenu();
+  document.getElementById('renameInput').value = proj.name;
+  document.getElementById('renameModalBackdrop').classList.add('active');
+  setTimeout(()=>document.getElementById('renameInput').focus(), 250);
+}
+function closeRenameSheet(){
+  document.getElementById('renameModalBackdrop').classList.remove('active');
+}
+function saveRenamedProject(){
+  const proj = projects.find(p=>p.id===menuProjectId);
+  if(!proj) return;
+  const newName = document.getElementById('renameInput').value.trim();
+  if(newName) proj.name = newName;
+  saveProjectsToStorage();
+  trackEvent('project_renamed');
+  renderProjects();
+  closeRenameSheet();
+  showToast('Project renamed', {icon: toastIcons.check, duration:1200});
+}
+function duplicateProjectFromMenu(){
+  const proj = projects.find(p=>p.id===menuProjectId);
+  if(!proj) return;
+  const plan = getMyPlanData();
+  if(!plan.unlimitedProjects && plan.maxProjects != null && projects.length >= plan.maxProjects){
+    closeProjectMenu();
+    showToast('Your plan allows up to ' + plan.maxProjects + ' projects  -  upgrade for more, or delete one first', {icon: toastIcons.info, duration:3000});
+    return;
+  }
+  const copy = JSON.parse(JSON.stringify(proj));
+  // A duplicated project starts with its own empty custom text palette.
+  delete copy.textCustomColors;
+  copy.id = Date.now();
+  copy.name = proj.name + ' copy';
+  copy.created = new Date().toISOString();
+  projects.unshift(copy);
+  saveProjectsToStorage();
+  trackEvent('project_duplicated');
+  renderProjects();
+  closeProjectMenu();
+  showToast('Project duplicated', {icon: toastIcons.check, duration:1200});
+}
+function confirmDeleteFromMenu(){
+  closeProjectMenu();
+  document.getElementById('deleteConfirmBackdrop').classList.add('active');
+}
+function closeDeleteConfirm(){
+  document.getElementById('deleteConfirmBackdrop').classList.remove('active');
+}
+function deleteProjectConfirmed(){
+  if(menuProjectId!==null) deleteProject(menuProjectId);
+  closeDeleteConfirm();
+  menuProjectId = null;
+}
+/* ================= MULTI-SELECT (long-press a project to start) =================
+   Long-press any project card (~450ms) to enter select mode. In select mode a tap toggles the
+   card, the top bar shows the count + Select all + Delete, and Delete opens a confirm sheet
+   that deletes everything selected in one go. Cancel (or deselecting the last card) leaves
+   select mode. One delegated pointer handler on the grid handles both tap and long-press, so
+   it keeps working after every renderProjects() rebuild. */
+let selectMode = false;
+const selectedProjectIds = new Set();
+const LONG_PRESS_MS = 450;
+const MOVE_TOLERANCE = 10; // px of finger drift that cancels a long-press (so scrolling doesn't select)
+
+function updateSelectUI(){
+  const screen = document.getElementById('screen-projects');
+  screen.classList.toggle('select-mode', selectMode);
+  const n = selectedProjectIds.size;
+  const title = document.getElementById('selectCount');
+  if(title) title.textContent = 'Select projects';
+  const deleteButton = document.getElementById('selectDeleteBtn');
+  if(deleteButton) deleteButton.disabled = n === 0;
+}
+function enterSelectMode(firstId){
+  selectMode = true;
+  selectedProjectIds.clear();
+  if(firstId != null) selectedProjectIds.add(firstId);
+  if(navigator.vibrate){ try{ navigator.vibrate(18); }catch(e){} }
+  renderProjects();
+  updateSelectUI();
+}
+function exitSelectMode(){
+  selectMode = false;
+  selectedProjectIds.clear();
+  renderProjects();
+  updateSelectUI();
+}
+function toggleProjectSelected(id){
+  if(selectedProjectIds.has(id)) selectedProjectIds.delete(id); else selectedProjectIds.add(id);
+  // update just this card so the tap feels instant (no full re-render / flicker)
+  const card = document.querySelector('.project-card[data-pid="'+id+'"]');
+  if(card) card.classList.toggle('selected', selectedProjectIds.has(id));
+  if(selectedProjectIds.size === 0){ exitSelectMode(); return; }
+  updateSelectUI();
+}
+function toggleSelectAll(){
+  if(selectedProjectIds.size === projects.length) selectedProjectIds.clear();
+  else projects.forEach(p=>selectedProjectIds.add(p.id));
+  if(selectedProjectIds.size === 0){ exitSelectMode(); return; }
+  renderProjects();
+  updateSelectUI();
+}
+function openBulkDeleteConfirm(){
+  const n = selectedProjectIds.size;
+  if(n === 0) return;
+  document.getElementById('bulkDeleteTitle').textContent = n === 1 ? 'Delete 1 project?' : 'Delete ' + n + ' projects?';
+  document.getElementById('bulkDeleteBtn').textContent = n === 1 ? 'Delete project' : 'Delete ' + n + ' projects';
+  document.getElementById('bulkDeleteBackdrop').classList.add('active');
+}
+function closeBulkDeleteConfirm(){
+  document.getElementById('bulkDeleteBackdrop').classList.remove('active');
+}
+function deleteSelectedConfirmed(){
+  const n = selectedProjectIds.size;
+  if(n === 0){ closeBulkDeleteConfirm(); return; }
+  projects = projects.filter(p=>!selectedProjectIds.has(p.id));
+  saveProjectsToStorage();
+  for(let i=0;i<n;i++) trackEvent('project_deleted'); // count each deleted project individually
+  closeBulkDeleteConfirm();
+  selectMode = false;
+  selectedProjectIds.clear();
+  renderProjects();
+  updateSelectUI();
+  showToast(n === 1 ? 'Project deleted' : n + ' projects deleted', {icon: toastIcons.check, duration:1400});
+}
+
+(function wireProjectGesture(){
+  const grid = document.getElementById('projectGrid');
+  let timer = null, startX = 0, startY = 0, pressedId = null, longFired = false;
+
+  function clear(){ clearTimeout(timer); timer = null; }
+  grid.addEventListener('pointerdown', e=>{
+    if(e.target.closest('.project-more')) return;
+    const card = e.target.closest('.project-card');
+    if(!card) return;
+    pressedId = Number(card.dataset.pid);
+    startX = e.clientX; startY = e.clientY; longFired = false;
+    clear();
+    if(!selectMode){
+      timer = setTimeout(()=>{
+        longFired = true;
+        enterSelectMode(pressedId);
+      }, LONG_PRESS_MS);
+    }
+  });
+  grid.addEventListener('pointermove', e=>{
+    if(timer && (Math.abs(e.clientX-startX) > MOVE_TOLERANCE || Math.abs(e.clientY-startY) > MOVE_TOLERANCE)) clear();
+  });
+  ['pointerup','pointercancel','pointerleave'].forEach(t=>grid.addEventListener(t, clear));
+  // click fires after pointerup: a long-press must NOT also count as a tap/open
+  grid.addEventListener('click', e=>{
+    if(e.target.closest('.project-more')) return;
+    const card = e.target.closest('.project-card');
+    if(!card) return;
+    if(longFired){ longFired = false; return; }
+    const id = Number(card.dataset.pid);
+    if(selectMode) toggleProjectSelected(id);
+    else openEditorById(id);
+  });
+  // stop the browser's long-press context menu / image-save menu on cards
+  grid.addEventListener('contextmenu', e=>{ if(e.target.closest('.project-card')) e.preventDefault(); });
+})();
+
+/* ================= PAYMENT: selectable plans ================= */
+let selectedPlan = null;
+function selectPlan(el, userAction){
+  if(!el) return;
+  document.querySelectorAll('#screen-payment .plan-card').forEach(c=>c.classList.remove('selected'));
+  el.classList.add('selected');
+  selectedPlan = el.dataset.plan;
+  try{ localStorage.setItem('riggy.plan.selected', selectedPlan); }catch(e){}
+  if(userAction){
+    const p = (typeof getPlans==='function' ? getPlans().find(x=>String(x.id)===String(selectedPlan)) : null) || {id:selectedPlan, name:el.dataset.name||selectedPlan, price:''};
+    const detail={ planId:p.id, planName:p.name||p.id, planPrice:p.price };
+    trackEvent('plan_selection', withPromoAttribution(detail));
+    trackPromoAttributedEvent('promo_plan_card_click', detail);
+  }
+}
+function confirmPlan(plan){
+  const card = document.querySelector('#screen-payment .plan-card[data-plan="'+plan+'"]');
+  if(card && !card.classList.contains('selected')) selectPlan(card);
+  let planData = getPlans().find(p=>p.id===plan);
+  if(!planData){
+    // Rare fallback: confirmPlan fired before renderPaymentPlans() replaced the placeholder
+    // cards with the real Firestore-backed ones (e.g. a very early tap). Read price straight
+    // off the card's own rendered price text so a paid plan never gets mistaken for free.
+    const priceText = card ? card.querySelector('.plan-price') : null;
+    const priceNum = priceText ? parseInt((priceText.textContent||'').replace(/[^\d]/g,''), 10) || 0 : 0;
+    const descText = card ? card.querySelector('.plan-desc') : null;
+    planData = { id:plan, name:(card?card.dataset.name:plan) || plan, price:priceNum, desc:(descText?descText.textContent:'') };
+  }
+  // Track each explicit plan confirmation click, including the final plan choice for this
+  // session. The Pro-specific counter is driven by the actual plan configured in Firestore.
+  const planEventDetail={ planId:planData.id, planName:planData.name, planPrice:planData.price };
+  trackEvent('plan_cta_click', withPromoAttribution(planEventDetail));
+  trackPromoAttributedEvent('promo_plan_cta_click', planEventDetail);
+  trackEvent('plan_confirm_click', withPromoAttribution(planEventDetail));
+  trackPromoAttributedEvent('promo_plan_confirm_click', planEventDetail);
+  const chosenName = String(planData.name || '').trim().toLowerCase();
+  if(String(planData.id).toLowerCase()==='pro' || chosenName==='pro'){
+    trackEvent('upgrade_to_pro_click', withPromoAttribution(planEventDetail));
+    trackPromoAttributedEvent('promo_upgrade_to_pro_click', planEventDetail);
+  }
+  if(Number(planData.price) === 0){
+    showToast((planData.name||'Free') + ' plan selected', {icon: toastIcons.check, duration:1600});
+    return;
+  }
+  requireLoginThen(()=>{
+    // Apply whatever discount (admin/first-purchase/promo) is currently active for this plan
+    //  -  same computation renderPaymentPlans() used to show the struck-through price  -  so
+    // checkout always charges exactly what the card displayed. originalPrice/discountLabel are
+    // carried through so the checkout screen and the submitted order record both show it.
+    const disc = computePlanDiscount(planData);
+    const checkoutData = disc
+      ? { ...planData, price: disc.finalPrice, originalPrice: disc.originalPrice, discountLabel: disc.label, isPromoDiscount: !!disc.isPromo }
+      : { ...planData, originalPrice: null, discountLabel: null, isPromoDiscount:false };
+    openCheckout(checkoutData);
+  });
+}
+(function restorePlan(){
+  let saved = null;
+  try{ saved = localStorage.getItem('riggy.plan.selected'); }catch(e){}
+  const card = document.querySelector('#screen-payment .plan-card[data-plan="'+(saved||'free')+'"]');
+  if(card){ card.classList.add('selected'); selectedPlan = card.dataset.plan; }
+})();
+
+/* ================= CHECKOUT (bKash / Nagad manual payment) =================
+   Opened from confirmPlan() for any paid plan, gated behind requireLoginThen()  -  the same
+   login-gate Export already uses  -  so every order document always has a real signed-in uid.
+   Flow: pick bKash or Nagad -> customer sends money to the fixed number below -> uploads a
+   screenshot as proof (compressed locally and stored inline in Firestore) -> submits ->
+   one document is written to the top-level `orders` Firestore
+   collection for the admin panel's Orders page to review/approve/reject. This app never
+   marks its own order as paid  -  only the admin changing `status` does that. */
+const CHECKOUT_BKASH_NAGAD_NUMBER = '01947913700';
+let checkoutPlan = null;
+let checkoutMethod = null;
+const CHECKOUT_MAX_PROOFS = 5;
+let checkoutProofs = [];   // [{file, url}]  -  url is an object URL used only for the thumbnail
+let checkoutSubmitting = false;
+
+function openCheckout(planData){
+  checkoutPlan = planData;
+  checkoutMethod = null;
+  checkoutProofs.forEach(p=>{ try{ URL.revokeObjectURL(p.url); }catch(e){} });
+  checkoutProofs = [];
+  checkoutSubmitting = false;
+  document.getElementById('checkoutPlanName').innerHTML = escapeHtml(planData.name + ' plan')
+    + (planData.isPromoDiscount ? '<span class="promo-p-badge" title="Promo discount" aria-label="Promo discount">P</span>' : '')
+    + (!planData.isPromoDiscount && planData.discountLabel ? ' \u2014 ' + escapeHtml(planData.discountLabel) : '');
+  document.getElementById('checkoutPlanPrice').innerHTML = (planData.originalPrice ? '<span class="plan-price-strike">\u09F3'+planData.originalPrice+'</span> ' : '') + '\u09F3' + (planData.price||0) + '<span>/mo</span>';
+  document.getElementById('checkoutTrxInput').value = '';
+  document.getElementById('checkoutError').style.display = 'none';
+  renderCheckoutProofs();
+  selectCheckoutMethod('bkash');
+  document.getElementById('checkoutForm').style.display = 'block';
+  document.getElementById('checkoutPendingView').style.display = 'none';
+  updateCheckoutSubmitState();
+  goTo('checkout');
+}
+function closeCheckout(){
+  goTo('payment');
+}
+function selectCheckoutMethod(method){
+  checkoutMethod = method;
+  document.getElementById('checkoutMethodBkash').classList.toggle('selected', method==='bkash');
+  document.getElementById('checkoutMethodNagad').classList.toggle('selected', method==='nagad');
+  const label = method==='nagad' ? 'Nagad' : 'bKash';
+  document.getElementById('checkoutNumberLabel').textContent = 'এই ' + label + ' নাম্বারে টাকা পাঠান';
+  document.getElementById('checkoutMethodStepName').textContent = label;
+  updateCheckoutSubmitState();
+}
+function copyCheckoutNumber(){
+  const done = ()=> showToast('নাম্বার কপি হয়েছে', {icon: toastIcons.check, duration:1300});
+  if(navigator.clipboard && navigator.clipboard.writeText){
+    navigator.clipboard.writeText(CHECKOUT_BKASH_NAGAD_NUMBER).then(done).catch(()=>{
+      showToast(CHECKOUT_BKASH_NAGAD_NUMBER, {icon: toastIcons.info, duration:2200});
+    });
+  } else {
+    showToast(CHECKOUT_BKASH_NAGAD_NUMBER, {icon: toastIcons.info, duration:2200});
+  }
+}
+function onCheckoutProofPicked(e){
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if(!files.length) return;
+  document.getElementById('checkoutError').style.display = 'none';
+  let skippedNonImage = false, hitLimit = false;
+  files.forEach(file=>{
+    if(!/^image\//i.test(file.type)){ skippedNonImage = true; return; }
+    const dup = checkoutProofs.some(p=> p.file.name === file.name && p.file.size === file.size && p.file.lastModified === file.lastModified);
+    if(dup) return;
+    if(checkoutProofs.length >= CHECKOUT_MAX_PROOFS){ hitLimit = true; return; }
+    checkoutProofs.push({ file, url: URL.createObjectURL(file) });
+    const proofDetail={ proofIndex:checkoutProofs.length, planId:checkoutPlan && checkoutPlan.id, planName:checkoutPlan && checkoutPlan.name };
+    trackEvent('payment_proof_selected', withPromoAttribution(proofDetail));
+    trackPromoAttributedEvent('promo_proof_image_selected', proofDetail);
+  });
+  renderCheckoutProofs();
+  if(hitLimit) showCheckoutError('সর্বোচ্চ ' + toBnDigits(CHECKOUT_MAX_PROOFS) + 'টি ছবি আপলোড করা যাবে');
+  else if(skippedNonImage) showCheckoutError('শুধু ছবির ফাইল বাছাই করুন');
+}
+function toBnDigits(n){
+  return String(n).replace(/\d/g, d=>'\u09E6\u09E7\u09E8\u09E9\u09EA\u09EB\u09EC\u09ED\u09EE\u09EF'[d]);
+}
+function removeCheckoutProof(i){
+  const p = checkoutProofs[i];
+  if(!p) return;
+  try{ URL.revokeObjectURL(p.url); }catch(e){}
+  checkoutProofs.splice(i, 1);
+  document.getElementById('checkoutError').style.display = 'none';
+  renderCheckoutProofs();
+}
+function renderCheckoutProofs(){
+  const area = document.getElementById('checkoutUploadArea');
+  const grid = document.getElementById('checkoutProofGrid');
+  const count = document.getElementById('checkoutProofCount');
+  if(!area || !grid) return;
+  const n = checkoutProofs.length;
+  area.style.display = n ? 'none' : 'flex';
+  grid.style.display = n ? 'grid' : 'none';
+  if(count) count.textContent = n ? '(' + toBnDigits(n) + '/' + toBnDigits(CHECKOUT_MAX_PROOFS) + ')' : '';
+  grid.innerHTML = '';
+  checkoutProofs.forEach((p, i)=>{
+    const tile = document.createElement('div');
+    tile.className = 'cp-tile';
+    const img = document.createElement('img');
+    img.src = p.url;
+    img.alt = 'Payment proof ' + (i + 1);
+    const rm = document.createElement('div');
+    rm.className = 'cp-remove';
+    rm.innerHTML = '<svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>';
+    rm.onclick = ()=> removeCheckoutProof(i);
+    tile.appendChild(img);
+    tile.appendChild(rm);
+    grid.appendChild(tile);
+  });
+  if(n < CHECKOUT_MAX_PROOFS){
+    const add = document.createElement('div');
+    add.className = 'cp-add';
+    add.innerHTML = '<div class="cu-plus-badge"><svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg></div><span>আরও ছবি যোগ করুন</span>';
+    add.onclick = ()=> document.getElementById('checkoutProofInput').click();
+    grid.appendChild(add);
+  }
+  updateCheckoutSubmitState();
+}
+function showCheckoutError(msg){
+  const el = document.getElementById('checkoutError');
+  el.textContent = msg;
+  el.style.display = 'flex';
+}
+function updateCheckoutSubmitState(){
+  const btn = document.getElementById('checkoutSubmitBtn');
+  if(!btn) return;
+  btn.disabled = checkoutSubmitting || !checkoutMethod || checkoutProofs.length === 0;
+}
+// Compress payment proof screenshots locally so they fit safely inside a Firestore order.
+// The image data is saved in proofImage / proofImages; no third-party image host is used.
+function checkoutUploadProof(file, idx){
+  return new Promise((resolve)=>{
+    const url=URL.createObjectURL(file),img=new Image();
+    img.onload=()=>{
+      try{
+        let scale=Math.min(1,960/Math.max(img.naturalWidth||1,img.naturalHeight||1));
+        let canvas=document.createElement('canvas'),data='';
+        for(let attempt=0;attempt<8;attempt++){
+          canvas.width=Math.max(1,Math.round((img.naturalWidth||1)*scale));
+          canvas.height=Math.max(1,Math.round((img.naturalHeight||1)*scale));
+          const ctx=canvas.getContext('2d');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.fillStyle='#fff';ctx.fillRect(0,0,canvas.width,canvas.height);ctx.drawImage(img,0,0,canvas.width,canvas.height);
+          const quality=Math.max(.42,.70-attempt*.045);data=canvas.toDataURL('image/jpeg',quality);
+          if(data.length<=125000)break;
+          scale*=.84;
+        }
+        URL.revokeObjectURL(url);resolve(data&&data.length<=150000?data:'');
+      }catch(err){URL.revokeObjectURL(url);resolve('');}
+    };
+    img.onerror=()=>{URL.revokeObjectURL(url);resolve('');};
+    img.src=url;
+  });
+}
+async function submitCheckoutOrder(){
+  if(checkoutSubmitting || !checkoutMethod || !checkoutProofs.length || !checkoutPlan) return;
+  if(!currentUser){ requireLoginThen(()=>openCheckout(checkoutPlan)); return; }
+  document.getElementById('checkoutError').style.display = 'none';
+  checkoutSubmitting = true;
+  updateCheckoutSubmitState();
+  const btn = document.getElementById('checkoutSubmitBtn');
+  const originalLabel = btn.textContent;
+  const total = checkoutProofs.length;
+  let uploaded = 0;
+  const showProgress = ()=>{ btn.textContent = 'প্রুফ আপলোড হচ্ছে (' + toBnDigits(uploaded) + '/' + toBnDigits(total) + ')…'; };
+  showProgress();
+  try{
+    const results = await Promise.all(checkoutProofs.map((p, i)=>
+      checkoutUploadProof(p.file, i).then(u=>{
+        uploaded++; showProgress();
+        if(u){
+          const proofDetail={ proofIndex:i+1, planId:checkoutPlan && checkoutPlan.id, planName:checkoutPlan && checkoutPlan.name };
+          trackEvent('payment_proof_uploaded', withPromoAttribution(proofDetail));
+          trackPromoAttributedEvent('promo_proof_image_uploaded', proofDetail);
+        }
+        return u;
+      })
+    ));
+    const proofUrls = results.filter(Boolean);
+    if(!proofUrls.length) throw new Error('proof upload failed');
+    // Payment proof images are stored directly in Firestore. Keep a safe margin below its 1 MiB document limit.
+    const inlineSize = proofUrls.reduce((sum, u)=> sum + (u.indexOf('data:') === 0 ? u.length : 0), 0);
+    if(inlineSize > 720000){
+      showCheckoutError('ছবিগুলো অনেক বড়  -  কম সংখ্যক ছবি দিয়ে আবার চেষ্টা করুন');
+      return;
+    }
+    const orderPromoAttribution=getPromoAttribution();
+    const orderTrackingIdentity=getTrackingIdentity();
+    const order = {
+      uid: currentUser.uid,
+      email: currentUser.email || '',
+      visitorId: orderTrackingIdentity.visitorId,
+      visitorSessionId: orderTrackingIdentity.sessionId,
+      promoPopupId: orderPromoAttribution ? orderPromoAttribution.popupId : null,
+      promoAttributionSource: orderPromoAttribution ? 'promo_popup' : null,
+      planId: checkoutPlan.id,
+      planName: checkoutPlan.name,
+      price: Number(checkoutPlan.price) || 0,
+      // originalPrice/discountLabel are only set when a discount was actually applied (see
+      // confirmPlan)  -  null otherwise, so the admin Orders page can tell a discounted order
+      // from a full-price one at a glance.
+      originalPrice: checkoutPlan.originalPrice || null,
+      discountLabel: checkoutPlan.discountLabel || null,
+      method: checkoutMethod,
+      proofImage: proofUrls[0],      // first image  -  kept so the existing admin Orders page keeps working
+      proofImages: proofUrls,        // all uploaded proof images
+      trxId: (document.getElementById('checkoutTrxInput').value || '').trim(),
+      status: 'pending',
+      createdAt: (firebaseReady && firebase.firestore) ? firebase.firestore.FieldValue.serverTimestamp() : new Date().toISOString()
+    };
+    if(!(firebaseReady && fbDb)) throw new Error('offline');
+    btn.textContent = 'সাবমিট হচ্ছে…';
+    const submittedOrderRef = await fbDb.collection('orders').add(order);
+    try{window.evQueueAutoEvent&&window.evQueueAutoEvent('order_placed',{plan:order.planName,price:order.price,method:order.method});}catch(_e){}
+    myLatestOrderInfo = {
+      id: submittedOrderRef.id,
+      planId: String(checkoutPlan.id),
+      planName: checkoutPlan.name || String(checkoutPlan.id),
+      price: Number(checkoutPlan.price) || 0,
+      method: checkoutMethod || '',
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+    myPlanOrderStates[String(checkoutPlan.id)] = myLatestOrderInfo;
+    _plansSig = null;
+    renderPaymentPlans();
+    if(typeof renderMyPlanScreen === 'function') renderMyPlanScreen();
+    const submittedDetails={ planId:checkoutPlan.id, planName:checkoutPlan.name, planPrice:checkoutPlan.price };
+    trackEvent('order_submitted', withPromoAttribution(submittedDetails));
+    if(orderPromoAttribution){
+      trackEvent('promo_order_submitted', {...submittedDetails, popupId:orderPromoAttribution.popupId, source:'promo_popup'});
+      clearPromoAttribution();
+    }
+    document.getElementById('checkoutPendingPlanName').textContent = checkoutPlan.name;
+    document.getElementById('checkoutForm').style.display = 'none';
+    document.getElementById('checkoutPendingView').style.display = 'block';
+  }catch(err){
+    console.warn('Ethvelle: order submission failed', err);
+    showCheckoutError('এখন সাবমিট করা যায়নি  -  ইন্টারনেট সংযোগ দেখে আবার চেষ্টা করুন');
+  } finally {
+    checkoutSubmitting = false;
+    btn.textContent = originalLabel;
+    updateCheckoutSubmitState();
+  }
+}
+
+/* ================= HOME BANNER: swipe <-> dots sync =================
+   Refactored into a named, re-callable function (was a run-once IIFE) so it can be re-wired
+   after renderHomeBanners() replaces the slide/dot markup with admin-configured banners  - 
+   otherwise the dots would keep listening to detached elements from the very first render. */
+let _bannerDotsObserver = null, _bannerScrollHandler = null, _bannerAutoTimer = null;
+const BANNER_AUTOPLAY_MS = 5000;
+function wireBannerDots(){
+  const scroller = document.getElementById('homeBannerScroll');
+  const dotsWrap = document.getElementById('homeBannerDots');
+  if(!scroller || !dotsWrap) return;
+  const dots = Array.from(dotsWrap.children);
+  const banners = Array.from(scroller.querySelectorAll('.home-banner-slide'));
+  function setActive(i){ dots.forEach((d,k)=>d.classList.toggle('active', k===i)); }
+  function currentIndex(){
+    // pick the banner whose centre is closest to the scroller's centre
+    const mid = scroller.scrollLeft + scroller.clientWidth/2;
+    let best = 0, bestDist = Infinity;
+    banners.forEach((b,i)=>{
+      const c = b.offsetLeft + b.offsetWidth/2;
+      const d = Math.abs(c - mid);
+      if(d < bestDist){ bestDist = d; best = i; }
+    });
+    return best;
+  }
+  function goToSlide(i){
+    const b = banners[i]; if(!b) return;
+    scroller.scrollTo({ left: b.offsetLeft, behavior:'smooth' });
+  }
+  let raf = null;
+  // The scroller element lives for the whole session while its slides/dots are re-created,
+  // so drop the previous handler first  -  otherwise every re-render stacked another listener.
+  if(_bannerScrollHandler) scroller.removeEventListener('scroll', _bannerScrollHandler);
+  _bannerScrollHandler = ()=>{
+    if(raf) return;
+    raf = requestAnimationFrame(()=>{ raf = null; setActive(currentIndex()); });
+  };
+  scroller.addEventListener('scroll', _bannerScrollHandler, {passive:true});
+  // tap a dot to jump to that banner
+  dots.forEach((d,i)=>d.addEventListener('click', ()=>{ goToSlide(i); restartBannerAutoplay(); }));
+  // The home screen is display:none until goTo('home') runs, so layout numbers are 0 at load.
+  // Re-sync whenever it becomes visible / resizes so dots start on the right banner.
+  if(_bannerDotsObserver) _bannerDotsObserver.disconnect();
+  if(window.ResizeObserver){
+    _bannerDotsObserver = new ResizeObserver(()=>setActive(currentIndex()));
+    _bannerDotsObserver.observe(scroller);
+  }
+
+  /* ---- Auto-rotate: advance to the next banner every 5s ----
+     A manual swipe/tap restarts the 5s timer so the banner doesn't jump away right after the
+     person interacts with it. Paused while the tab/page is hidden so it doesn't burn cycles
+     or jump slides while the person isn't looking. */
+  function stopBannerAutoplay(){ if(_bannerAutoTimer){ clearInterval(_bannerAutoTimer); _bannerAutoTimer = null; } }
+  function startBannerAutoplay(){
+    stopBannerAutoplay();
+    if(banners.length < 2) return;
+    if(document.hidden) return;
+    _bannerAutoTimer = setInterval(()=>{
+      const next = (currentIndex() + 1) % banners.length;
+      goToSlide(next);
+    }, BANNER_AUTOPLAY_MS);
+  }
+  window.restartBannerAutoplay = function(){ startBannerAutoplay(); };
+  // Manual swipe should also reset the timer so autoplay doesn't fight the person's gesture.
+  scroller.addEventListener('touchstart', ()=>stopBannerAutoplay(), {passive:true});
+  scroller.addEventListener('touchend', ()=>startBannerAutoplay(), {passive:true});
+  document.removeEventListener('visibilitychange', _bannerVisibilityHandler);
+  _bannerVisibilityHandler = ()=>{ if(document.hidden) stopBannerAutoplay(); else startBannerAutoplay(); };
+  document.addEventListener('visibilitychange', _bannerVisibilityHandler);
+  startBannerAutoplay();
+}
+let _bannerVisibilityHandler = ()=>{};
+wireBannerDots();
+
+// Chooser shown when tapping "Add character"  -  pick Stickman (adds immediately, same as the
+// old direct behavior) or Custom character (upload UI placeholder for now  -  see triggerUpload
+// handling of the 'customchar' target below; full auto-rigging of uploaded art is a later
+// build, same status as the existing "Rig my art" tile in the Bones panel).
+let _ethvelleAddCharPointerDownRow = null;
+let _ethvelleAddCharPointerDownOrigin = 'other';
+let _ethvelleAddCharPointerDownAt = 0;
+let _ethvelleAddCharPointerDownId = null;
+function _ethvelleResetAddCharPointer(){
+  _ethvelleAddCharPointerDownRow = null;
+  _ethvelleAddCharPointerDownOrigin = 'other';
+  _ethvelleAddCharPointerDownAt = 0;
+  _ethvelleAddCharPointerDownId = null;
+}
+// Record the original touch BEFORE timeline/clip handlers run. Use window capture rather
+// than a timeline/document listener: later capture handlers can stop propagation before
+// document is reached, which allowed a character-row tap to be mistaken for an Add-row tap.
+window.addEventListener('pointerdown', e=>{
+  const target=e.target;
+  _ethvelleAddCharPointerDownRow = target && target.closest ? target.closest('.char-add-row') : null;
+  _ethvelleAddCharPointerDownOrigin = _ethvelleAddCharPointerDownRow ? 'add' :
+    (target && target.closest && target.closest('#characterRows .char-row') ? 'character' : 'other');
+  _ethvelleAddCharPointerDownAt = Date.now();
+  _ethvelleAddCharPointerDownId = e.pointerId;
+}, true);
+window.addEventListener('pointercancel', e=>{
+  if(_ethvelleAddCharPointerDownId===e.pointerId)_ethvelleResetAddCharPointer();
+}, true);
+// Safety net for mobile browsers that re-hit-test the synthesized click after the row
+// selection has repainted the timeline. A click landing on Add Character is accepted ONLY
+// when its pointerdown also began on that exact Add Character row.
+window.addEventListener('click', e=>{
+  const addRow=e.target && e.target.closest ? e.target.closest('.char-add-row') : null;
+  if(!addRow)return;
+  const valid=_ethvelleAddCharPointerDownOrigin==='add' &&
+    _ethvelleAddCharPointerDownRow===addRow && Date.now()-_ethvelleAddCharPointerDownAt<1200;
+  if(!valid){
+    e.preventDefault();
+    e.stopPropagation();
+    if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    _ethvelleResetAddCharPointer();
+  }
+}, true);
+function openAddCharModal(event){
+  if(!event || !event.currentTarget || !event.currentTarget.classList.contains('char-add-row'))return;
+  const row=event.currentTarget;
+  // The Add Character chooser opens only for a genuine pointer press that started on this
+  // exact row. Existing character rows can never trigger it, even if Android retargets click.
+  const valid=_ethvelleAddCharPointerDownOrigin==='add' &&
+    _ethvelleAddCharPointerDownRow===row && Date.now()-_ethvelleAddCharPointerDownAt<1200;
+  _ethvelleResetAddCharPointer();
+  if(!valid){
+    event.preventDefault();
+    event.stopPropagation();
+    if(event.stopImmediatePropagation)event.stopImmediatePropagation();
+    return;
+  }
+  const backdrop=document.getElementById('addCharModalBackdrop');
+  if(backdrop)backdrop.classList.add('active');
+}
+function closeAddCharModal(){
+  document.getElementById('addCharModalBackdrop').classList.remove('active');
+}
+
+function escapeHtml(s){
+  return s.replace(/[&<>"']/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+/* ================= EDITOR ================= */
+let currentProject = null;
+
+(function(){
+  'use strict';
+  var KEY='ethvelleCustomTextColors';
+  var storage=null, proto=null, nativeGet=null, nativeSet=null, nativeRemove=null;
+  function project(){
+    try{return typeof currentProject!=='undefined'&&currentProject&&typeof currentProject==='object'?currentProject:null;}
+    catch(_e){return null;}
+  }
+  function normalize(list){
+    if(!Array.isArray(list))return [];
+    var seen=new Set(),out=[];
+    list.forEach(function(value){
+      var color=String(value||'').trim().toUpperCase();
+      if(/^#[0-9A-F]{6}$/.test(color)&&!seen.has(color)){seen.add(color);out.push(color);}
+    });
+    return out.slice(-30);
+  }
+  function read(){var p=project();return p?normalize(p.textCustomColors):[];}
+  function write(value){
+    var colors=normalize(value),p=project();
+    if(!p)return [];
+    p.textCustomColors=colors;
+    try{
+      if(typeof projects!=='undefined'&&Array.isArray(projects)){
+        var index=projects.findIndex(function(item){return item&&String(item.id)===String(p.id);});
+        if(index>=0)projects[index]=p;
+      }
+      if(typeof saveProjectsToStorage==='function')saveProjectsToStorage();
+    }catch(err){try{console.warn('Ethvelle project palette save:',err);}catch(_e){}}
+    return colors.slice();
+  }
+  window.__ethvelleGetProjectCustomColors=read;
+  window.__ethvelleSetProjectCustomColors=write;
+  try{
+    storage=window.localStorage;
+    proto=Object.getPrototypeOf(storage);
+    nativeGet=proto.getItem;nativeSet=proto.setItem;nativeRemove=proto.removeItem;
+    if(!proto.__ethvelleProjectColorScope){
+      Object.defineProperty(proto,'getItem',{configurable:true,writable:true,value:function(key){
+        if(this===storage&&String(key)===KEY)return JSON.stringify(read());
+        return nativeGet.call(this,key);
+      }});
+      Object.defineProperty(proto,'setItem',{configurable:true,writable:true,value:function(key,value){
+        if(this===storage&&String(key)===KEY){
+          var parsed=[];try{parsed=JSON.parse(String(value));}catch(_e){}
+          write(parsed);return;
+        }
+        return nativeSet.call(this,key,value);
+      }});
+      Object.defineProperty(proto,'removeItem',{configurable:true,writable:true,value:function(key){
+        if(this===storage&&String(key)===KEY){write([]);return;}
+        return nativeRemove.call(this,key);
+      }});
+      Object.defineProperty(proto,'__ethvelleProjectColorScope',{value:true,configurable:true});
+    }
+    // Remove the old browser-wide palette. It cannot safely be assigned to one project.
+    nativeRemove.call(storage,KEY);
+  }catch(err){try{console.warn('Ethvelle project-scoped palette storage unavailable:',err);}catch(_e){}}
+  try{
+    Object.defineProperty(window,'__ETHVELLE_V20_CUSTOM_COLORS',{
+      configurable:true,enumerable:false,get:read,set:write
+    });
+  }catch(_e){window.__ETHVELLE_V20_CUSTOM_COLORS=read();}
+})();
+
+
+function openEditor(proj){
+  currentProject = proj;
+  try{window.dispatchEvent(new Event('ethvelle-project-color-scope'));}catch(_e){}
+  document.getElementById('ratioPill').innerHTML = ratioLabel(proj.ratio);
+  goTo('editor');
+  currentAnimKey = proj.savedState?.currentAnimKey ?? null;
+  timelineDuration = proj.savedState?.timelineDuration ?? 2.0;
+  // FEATURE (multiple sequential backgrounds): `backgrounds` is the real saved data now. A
+  // project saved by an older version of this file only has the single legacy
+  // currentBg/bgTransform/bgDuration fields  -  migrate those into a single one-clip
+  // `backgrounds` array on first open, so an older project keeps its exact background
+  // instead of silently losing it the moment this update is installed.
+  const savedBgs = proj.savedState?.backgrounds;
+  if(savedBgs){
+    backgrounds = savedBgs.map(b=>({...b, transform: b.transform ? {rotation:0, ...b.transform} : {scale:1, offsetX:0, offsetY:0, rotation:0}}));
+  } else if(proj.savedState?.currentBg){
+    backgrounds = [{
+      id: 'bg'+Date.now(),
+      src: proj.savedState.currentBg,
+      trimStart: 0,
+      trimEnd: proj.savedState?.bgDuration ?? timelineDuration,
+      transform: proj.savedState?.bgTransform ? {rotation:0, ...proj.savedState.bgTransform} : {scale:1, offsetX:0, offsetY:0, rotation:0}
+    }];
+  } else {
+    backgrounds = [];
+  }
+  refreshCurrentBgFromPlayhead();
+  overlays = (proj.savedState?.overlays || []).map(o=>({
+    ...o,
+    // Older saves made before per-clip transforms existed have no `transform` field at all  - 
+    // default image/video clips to an identity transform (matching a fresh upload) instead
+    // of leaving it undefined, which would make transformTarget()/updateTransform() treat an
+    // old clip as having "no visual transform" and silently fall through to editing the
+    // stickman instead (see syncBottomToolsMode's hasVisualTransform check).
+    transform: o.transform !== undefined ? o.transform : ((o.type==='video'||o.type==='image') ? { scale:1, offsetX:0, offsetY:0, rotation:0 } : null)
+  }));
+  // Switching projects (or reopening the same one) must never carry over the previous
+  // project's <video>/<img> overlay elements  -  they belong to a different `overlays` array
+  // now, and stale ones would otherwise linger in #overlayMediaLayer showing the WRONG
+  // project's media until renderOverlayMedia's next active-set diff happens to catch up.
+  const staleOverlayLayer = document.getElementById('overlayMediaLayer');
+  if(staleOverlayLayer) staleOverlayLayer.innerHTML = '';
+  Object.keys(overlayMediaEls).forEach(id=> delete overlayMediaEls[id]);
+  try{ Object.keys(overlayWarmEls).forEach(id=>{ releaseOverlayVideoEl(overlayWarmEls[id]); delete overlayWarmEls[id]; }); }catch(_e){}
+  // BUGFIX (stickman vanishes when reopening a saved project): this used to call
+  // buildFreshRig() right here, synchronously, BEFORE setupCanvasStage() ever runs (that
+  // only happens later, inside the requestAnimationFrame callback below). buildFreshRig()
+  // computes every bone position from stageW/stageH  -  on a fresh page load those are still
+  // `undefined` at this point, so every restored character's bones were built at NaN
+  // coordinates. drawStick() then silently draws nothing (a canvas line/arc with a NaN
+  // coordinate just doesn't paint), so the character was gone even though `characters` and
+  // its clip/segments were all restored correctly and the animation clip still showed on
+  // the timeline  -  exactly the reported symptom. FIX: only stash the raw saved character
+  // data here; the actual rig objects (buildFreshRig) are built inside the
+  // requestAnimationFrame callback below, AFTER setupCanvasStage() has given stageW/stageH
+  // their real values.
+  let restoredCharacters = null; // raw saved character data, rig built after stage sizing
+  if(proj.savedState?.characters && proj.savedState.characters.length){
+    restoredCharacters = proj.savedState.characters;
+    activeCharIdx = Math.min(proj.savedState.activeCharIdx || 0, restoredCharacters.length-1);
+    var migratedTransform = null;
+  } else {
+    // Pre-multi-character save (or brand-new project): fall back to a single migrated
+    // character built from whatever modelTransform/activeClip/splitStickmanSegments this
+    // project had saved at its old top-level location, if any. For a genuinely brand-new
+    // project (no savedState at all) `characters` stays empty  -  no default character is
+    // seeded anymore; the user adds one explicitly via "Add character".
+    characters = [];
+    activeCharIdx = 0;
+    var migratedTransform = proj.savedState?.modelTransform ? {...proj.savedState.modelTransform} : null;
+    var migratedClip = proj.savedState?.activeClip ? JSON.parse(JSON.stringify(proj.savedState.activeClip)) : null;
+    var migratedSegments = (proj.savedState?.splitStickmanSegments || []).map(s=>({...s, keyframes:(s.keyframes||[]).map(k=>({...k}))}));
+  }
+  // Hard reset of playback state for a freshly-opened project (not a "pause", so we stop
+  // the loop directly rather than going through pausePlaybackAtCurrentTime, which would
+  // try to freeze/render a time that belongs to whatever project was open before).
+  if(playbackRaf !== null){ cancelAnimationFrame(playbackRaf); playbackRaf = null; }
+  isPlaying = false;
+  frame = 0;
+  const savedPlayhead = Number(proj.savedState?.playheadTimeSec);
+  const legacyFirstText = overlays.filter(o=>o&&o.type==='text'&&Number.isFinite(Number(o.trimStart))&&Number.isFinite(Number(o.trimEnd))&&Number(o.trimEnd)>Number(o.trimStart))
+    .sort((a,b)=>Number(a.trimStart)-Number(b.trimStart))[0];
+  const restoredPlayhead = Number.isFinite(savedPlayhead) ? savedPlayhead : (legacyFirstText ? Number(legacyFirstText.trimStart)+0.001 : 0);
+  currentAbsoluteTimeSec = Math.max(0, Math.min(Number(timelineDuration)||0, restoredPlayhead));
+  deselectAllClips();
+  requestAnimationFrame(()=>{
+    setupCanvasStage(proj.ratio);
+    if(restoredCharacters){
+      // Stage is sized now (stageW/stageH are real numbers)  -  safe to build fresh rigs.
+      characters = restoredCharacters.map(c=>{
+        const rig = buildFreshRig();
+        if(c.rigOverride) applyRigOverride(rig, c.rigOverride);
+        return {
+          id: c.id || makeCharacterId(),
+          name: c.name || 'Character',
+          bones: rig.bones,
+          baseAngles: rig.baseAngles,
+          modelTransform: c.modelTransform ? {...c.modelTransform} : { scale:1, offsetX:0, offsetY:0, rotation:0 },
+          restTransform: c.restTransform ? {...c.restTransform} : (c.modelTransform ? {...c.modelTransform} : { scale:1, offsetX:0, offsetY:0, rotation:0 }),

@@ -1,0 +1,1000 @@
+    // If the browser rejected suspend(), keep the clock aligned with the still-running
+    // context at resume instead of replaying from an older timeline timestamp.
+    if(hold&&hold.suspendFailed&&ctx&&ctx.state==='running'&&anchor&&anchor.run===hold.run){
+      t=Math.max(0,anchor.tl+(ctx.currentTime-anchor.ctx-anchor.lead));
+      setCurrentAbsoluteTime(t);
+    }
+    // Rebase both clocks at the just-resumed sample while keeping runSerial and all source
+    // nodes intact. Future clip starts will now be scheduled from this matching clock pair.
+    if(ctx){
+      anchor={ctx:ctx.currentTime,tl:t,lead:0,run:runSerial,badTicks:0};
+      try{if(window.__evPlaybackDiagnostics)window.__evPlaybackDiagnostics.recordAnchor();}catch(_e){}
+      lastTimelineContextTime=ctx.currentTime;
+    }else{
+      anchor=null;
+      lastTimelineContextTime=null;
+    }
+    lastTimelineTime=t;
+    playbackStartTimeSec=t;
+    playbackStartedAtMs=performance.now();
+    isPlaying=true;
+    internalRebufferHold=null;
+    if(playbackRaf!==null){try{cancelAnimationFrame(playbackRaf);}catch(_e){}}
+    playbackRaf=requestAnimationFrame(playbackTick);
+    return true;
+  }
+  /*
+   * v200 stop-path audit (all calls in this playback/audio scheduler were checked):
+   * stopScheduledOne:
+   * - scheduleBufferClip's existing-entry call only replaces a stale entry when its clip
+   *   signature or playback-run token no longer matches; it is not a trim-boundary stop.
+   * - syncScheduledAudio's preferred-video call evaluates preference within this clip's
+   *   own trim span, so a following split cannot win merely because the playhead passed
+   *   this clip's trimEnd.
+   * - The scheduled-entry sweep immediately removes deleted clips, gives present clips
+   *   trimEnd + 0.4s for their scheduled source to finish, and removes only stale entries
+   *   lying before the active scheduling window.
+   * stopScheduledAll:
+   * - sync while playback is stopped; sustained clock-drift re-anchoring; starting a new
+   *   playback run; pause; project-end stop; seek; speed edit; and audio-setting edit/reprime.
+   *   These are transport/resync/edit invalidations, not automatic per-clip end cutoffs.
+   */
+  function prepareAudioClipElementFallback(ov){
+    if(ov.type==='audio'&&typeof evAudioOverlayEnsure==='function'){
+      try{const el=evAudioOverlayEnsure(ov);if(el)delete el.dataset.evUnifiedBufferAudio;}catch(_e){}
+    }
+    if(ov.type==='video'){
+      const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];
+      if(el&&el.tagName==='VIDEO'){
+        delete el.dataset.evUnifiedBufferAudio;
+        // A failed decode is the only route on which this video element may emit its own audio.
+        if(typeof evOverlayVideoIsAudibleAt==='function'&&evOverlayVideoIsAudibleAt(ov,currentAbsoluteTimeSec)&&isPlaying){el.muted=false;el.volume=clamp(clipVolume(ov,currentAbsoluteTimeSec),0,1);el.removeAttribute('muted');}
+      }
+    }
+  }
+  function applyVideoMuteState(){
+    if(!Array.isArray(overlays))return;
+    overlays.forEach(ov=>{
+      if(!ov||ov.type!=='video'||ov.reversePlayback)return;
+      const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];
+      if(!el||el.tagName!=='VIDEO')return;
+      if(isNativeLongVideoAudio(ov)){
+        const now=Number(currentAbsoluteTimeSec)||0;
+        const inClip=!!(isPlaying&&now>=Number(ov.trimStart||0)&&now<Number(ov.trimEnd||0));
+        if(inClip&&el.isConnected&&el.readyState>=2&&!el.paused&&!el.seeking&&el.dataset.evPlayingEventSeen==='1'){
+          delete el.dataset.evUnifiedBufferAudio;
+          // The V140 ramp owns the MediaElementSource gain, volume automation, topmost-layer
+          // preference and decoder checks (including muting lower overlapping video layers).
+          if(typeof window.evRampOverlayVideoAudible==='function')window.evRampOverlayVideoAudible(el,ov);
+        }else{
+          if(el.__evGainRampRaf){try{cancelAnimationFrame(el.__evGainRampRaf);}catch(_e){}el.__evGainRampRaf=0;}
+          delete el.dataset.evGainRampActive;
+          try{el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');}catch(_e){}
+          delete el.dataset.evUnifiedBufferAudio;
+        }
+        return;
+      }
+      const state=audioCache.get(String(ov.src||''));
+      if(state&&state.status==='failed'){
+        delete el.dataset.evUnifiedBufferAudio;
+        if(isPlaying){
+          if(typeof evOverlayVideoIsAudibleAt==='function'&&evOverlayVideoIsAudibleAt(ov,currentAbsoluteTimeSec)){el.muted=false;el.removeAttribute('muted');el.volume=clamp(clipVolume(ov,currentAbsoluteTimeSec),0,1);}
+          else{el.muted=true;el.volume=0;el.setAttribute('muted','');}
+        }else{el.muted=true;el.volume=0;el.setAttribute('muted','');}
+      }else{
+        el.dataset.evUnifiedBufferAudio='1';
+        if(!el.muted||el.volume!==0){el.muted=true;el.volume=0;el.setAttribute('muted','');}
+      }
+    });
+  }
+  function scheduleBufferClip(ov,buffer,ctx,time){
+    const id=String(ov.id),rate=clipRate(ov);
+    const clipStart=Number(ov.trimStart)||0,clipEnd=Number(ov.trimEnd)||0;
+    let timelineStart=Math.max(time,clipStart);
+    if(timelineStart>=clipEnd)return;
+    const signature=[String(ov.src||''),clipStart,clipEnd,Number(ov.sourceOffset)||0,rate,ov.type].join('|');
+    const existing=scheduled.get(id);
+    if(existing&&existing.signature===signature&&existing.run===runSerial){
+      // Already queued on the shared clock: only keep its live gain/fade/pan values current.
+      const vol=clipVolume(ov,timelineStart);
+      if(existing.route==='video-graph'){
+        const n=existing.nodes;
+        try{n.gain.gain.setTargetAtTime(vol,ctx.currentTime,.015);}catch(_e){n.gain.gain.value=vol;}
+        if(n.fade){const fade=fadeAmount(ov,timelineStart);try{n.fade.gain.setTargetAtTime(fade,ctx.currentTime,.015);}catch(_e){n.fade.gain.value=fade;}}
+        if(n.pan){let cfg={};try{cfg=typeof getEthvelleAudioSettings==='function'?getEthvelleAudioSettings(ov)||{}:{};}catch(_e){}try{n.pan.pan.setTargetAtTime(clamp(cfg.pan,-100,100)/100,ctx.currentTime,.02);}catch(_e){}}
+      }else if(existing.route==='audio-graph'){
+        const n=existing.nodes;
+        if(n&&n.gain&&n.gain.gain){try{n.gain.gain.setTargetAtTime(vol,ctx.currentTime,.015);}catch(_e){n.gain.gain.value=vol;}}
+        if(n&&n.__evcaV67&&n.__evcaV67.fade){const fade=fadeAmount(ov,timelineStart);try{n.__evcaV67.fade.gain.setTargetAtTime(fade,ctx.currentTime,.015);}catch(_e){n.__evcaV67.fade.gain.value=fade;}}
+      }
+      return;
+    }else if(existing)stopScheduledOne(id);
+
+    const A=ensureAnchor(ctx);
+    let when=A.ctx+A.lead+(timelineStart-A.tl);
+    let offset=Math.max(0,Number(ov.sourceOffset)||0)+(timelineStart-clipStart)*rate;
+    let sourceDuration=Math.min((clipEnd-timelineStart)*rate,buffer.duration-offset);
+    const nowCtx=ctx.currentTime+.003;
+    if(when<nowCtx){
+      // Scheduler ran late (frame hitch): skip the part that should already have played
+      // instead of starting it from its beginning, which would put it behind the picture.
+      const late=nowCtx-when;
+      offset+=late*rate;sourceDuration-=late*rate;timelineStart+=late;when=nowCtx;
+    }
+    if(offset>=buffer.duration-.005||sourceDuration<=.005)return;
+
+    /* v221: clip speed must not change pitch. Use a time-stretched copy (pitch untouched) and play it at the
+       pitch-setting rate only; timeline mapping below stays in original-source seconds. */
+    let playBuffer=buffer,playRate=rate,bufScale=1,bufOrigin=0;
+    const stretchSpeed=Math.max(.05,Number(ov.speed)||1);
+    if(Math.abs(stretchSpeed-1)>.001&&window.ethvellePitchSafeStretch){
+      const stretched=window.ethvellePitchSafeStretch.getReady(buffer,stretchSpeed,Math.max(0,Number(ov.sourceOffset)||0),(Number(ov.sourceOffset)||0)+(clipEnd-clipStart)*rate+.1);
+      if(stretched===null)return; /* still computing: stay silent for a moment, the next sync tick schedules it */
+      if(stretched&&stretched.buffer){playBuffer=stretched.buffer;playRate=rate/stretchSpeed;bufScale=1/stretchSpeed;bufOrigin=stretched.originSec;}
+    }
+    const src=ctx.createBufferSource();try{if(window.__evPlaybackDiagnostics)window.__evPlaybackDiagnostics.recordSourceNode();}catch(_e){}src.buffer=playBuffer;src.playbackRate.value=playRate;
+    // Per-source envelope: a few-ms fade in/out at every real cut removes the click you hear
+    // when a clip is cut through the middle of a waveform. Plain splits of the same source
+    // (continuous audio) are detected and left unfaded so they stay seamless.
+    const env=ctx.createGain();src.connect(env);
+    const route=connectBufferSource(ov,env,ctx);
+    if(route.route==='video-graph'){
+      const n=route.nodes;
+      try{n.gain.gain.setValueAtTime(clipVolume(ov,timelineStart),when);}catch(_e){n.gain.gain.value=clipVolume(ov,timelineStart);}
+      if(n.fade){const fade=fadeAmount(ov,timelineStart);try{n.fade.gain.setValueAtTime(fade,when);}catch(_e){n.fade.gain.value=fade;}}
+      if(n.pan){let cfg={};try{cfg=typeof getEthvelleAudioSettings==='function'?getEthvelleAudioSettings(ov)||{}:{};}catch(_e){}try{n.pan.pan.setValueAtTime(clamp(cfg.pan,-100,100)/100,when);}catch(_e){}}
+    }else if(route.nodes&&route.nodes.gain&&route.nodes.gain.gain){
+      const gain=route.nodes.gain.gain;
+      try{gain.setValueAtTime(clipVolume(ov,timelineStart),when);}catch(_e){gain.value=clipVolume(ov,timelineStart);}
+      if(route.nodes.__evcaV67&&route.nodes.__evcaV67.fade){const f=route.nodes.__evcaV67.fade.gain;try{f.setValueAtTime(fadeAmount(ov,timelineStart),when);}catch(_e){f.value=fadeAmount(ov,timelineStart);}}
+    }
+    try{
+      const wall=sourceDuration/rate,endAt=when+wall,f=Math.min(FADE_SEC,wall/3);
+      const prev=continuationNeighbor(ov,-1),next=continuationNeighbor(ov,1);
+      const joinsPrev=!!prev&&timelineStart<=clipStart+.004&&scheduled.has(String(prev.id));
+      const g=env.gain;
+      if(!joinsPrev){g.setValueAtTime(0,when);g.linearRampToValueAtTime(1,when+f);}
+      if(!next&&wall>f*3){g.setValueAtTime(1,endAt-f);g.linearRampToValueAtTime(0,endAt);}
+    }catch(_e){}
+    const entry={source:src,env,signature,run:runSerial,when,timelineStart,rate,route:route.route,nodes:route.nodes};
+    scheduled.set(id,entry);
+    src.onended=()=>{if(scheduled.get(id)===entry)scheduled.delete(id);try{src.disconnect();}catch(_e){}try{env.disconnect();}catch(_e){}};
+    try{src.start(when,Math.max(0,(offset-bufOrigin)*bufScale),Math.max(.001,sourceDuration*bufScale));}catch(err){
+      scheduled.delete(id);try{src.disconnect();}catch(_e){}try{env.disconnect();}catch(_e){}
+      const failed=audioCache.get(String(ov.src||''));if(failed){failed.status='failed';failed.error='AudioBufferSource scheduling failed: '+(err&&err.message?err.message:String(err));}
+      if(window.__evVideoDebug)console.warn('[evAudio] buffer schedule fallback',id,err);
+      prepareAudioClipElementFallback(ov);
+    }
+  }
+  function syncScheduledAudio(){
+    if(!isPlaying){if(scheduled.size)stopScheduledAll('pause');applyVideoMuteState();return;}
+    const ctx=audioContext();if(!ctx)return;
+    if(ctx.state==='suspended'){try{ctx.resume().catch(()=>{});}catch(_e){}}
+    const time=Number(currentAbsoluteTimeSec)||0;
+    const H=audioHorizon();
+    // Distinguish a true seek from a delayed rAF. During a frame hitch, both the project
+    // clock and AudioContext clock advance together, so pre-scheduled samples must keep
+    // running rather than being stopped/restarted merely because one UI frame arrived late.
+    // v199: compare the exact (performance.now based) timeline clock with the audio clock
+    // through the single run anchor. A hitch moves both clocks together and is ignored; only a
+    // real separation (seek while playing, suspended context) re-anchors. One noisy reading
+    // is never enough: it has to persist for two checks, so a late frame can't cause a glitch.
+    if(anchor&&anchor.run===runSerial&&isPlaying&&typeof getCurrentAbsoluteTime==='function'){
+      const expected=anchor.tl+(ctx.currentTime-anchor.ctx-anchor.lead);
+      const drift=Math.abs(getCurrentAbsoluteTime()-expected-anchor.lead);
+      if(drift>.5||(drift>.12&&anchor.badTicks>=1)){stopScheduledAll('drift');}
+      else anchor.badTicks=drift>.12?(anchor.badTicks||0)+1:0;
+    }
+    lastTimelineTime=time;lastTimelineContextTime=ctx.currentTime;
+    if(!Array.isArray(overlays))return;
+    // Keep native elements silent while a source is loading or decoded. Only a confirmed
+    // decode failure/oversize result re-enables the clip's own media-element audio.
+    overlays.slice().sort((x,y)=>(Number(x&&x.trimStart)||0)-(Number(y&&y.trimStart)||0)).forEach(ov=>{
+      if(!ov||!['video','audio'].includes(ov.type)||ov.reversePlayback||!ov.src)return;
+      if(isNativeLongVideoAudio(ov)){
+        stopScheduledOne(ov.id);
+        const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];
+        const active=!!(time>=Number(ov.trimStart||0)&&time<Number(ov.trimEnd||0));
+        if(el&&el.tagName==='VIDEO'){
+          if(active&&el.isConnected&&el.readyState>=2&&!el.paused&&!el.seeking&&el.dataset.evPlayingEventSeen==='1'){
+            delete el.dataset.evUnifiedBufferAudio;
+            if(typeof window.evRampOverlayVideoAudible==='function')window.evRampOverlayVideoAudible(el,ov);
+          }else{
+            try{el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');}catch(_e){}
+            delete el.dataset.evUnifiedBufferAudio;
+          }
+        }
+        return;
+      }
+      const state=audioCache.get(String(ov.src));
+      if(!state||state.status==='loading'){
+        if(ov.type==='video'){
+          const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];
+          if(el&&el.tagName==='VIDEO'){el.muted=true;el.volume=0;el.setAttribute('muted','');el.dataset.evUnifiedBufferAudio='1';}
+        }else{
+          const el=audioOverlayEls&&audioOverlayEls[String(ov.id)];
+          if(el){try{el.pause();el.dataset.evUnifiedBufferAudio='1';}catch(_e){}}
+        }
+        return;
+      }
+      if(state.status==='failed'){prepareAudioClipElementFallback(ov);return;}
+      if(state.status==='ready'){
+        if(ov.type==='video'){
+          // v279: no single-owner rule any more; every active video layer keeps its own sound.
+          const el=overlayMediaEls&&overlayMediaEls[String(ov.id)];
+          if(el&&el.tagName==='VIDEO'){el.dataset.evUnifiedBufferAudio='1';if(!el.muted||el.volume!==0){el.muted=true;el.volume=0;el.setAttribute('muted','');}}
+        }else{
+          const el=audioOverlayEls&&audioOverlayEls[String(ov.id)];
+          if(el){try{el.pause();el.dataset.evUnifiedBufferAudio='1';}catch(_e){}}
+        }
+        if(Number(ov.trimEnd)>time&&Number(ov.trimStart)<time+H){
+          try{scheduleBufferClip(ov,state.buffer,ctx,time);}catch(err){
+            state.status='failed';state.error='Audio scheduling failed: '+(err&&err.message?err.message:String(err));
+            prepareAudioClipElementFallback(ov);
+            if(window.__evVideoDebug)console.warn('[evAudio] scheduling error',ov.id,err);
+          }
+        }
+      }
+    });
+    // Stop sources whose clips have ended or were deleted; retain future scheduled nodes.
+    Array.from(scheduled.keys()).forEach(id=>{
+      const entry=scheduled.get(id),ov=overlays.find(item=>item&&String(item.id)===id);
+      if(!ov||time>=Number(ov.trimEnd)+.4||time<Number(ov.trimStart)-H-.05)stopScheduledOne(id);
+    });
+    applyVideoMuteState();
+  }
+
+  // Pre-decode all clip sources during editing/paused preview, not at the exact cut.
+  const baseRenderAudio=window.renderAudioOverlayMedia;
+  if(typeof baseRenderAudio==='function'&&!baseRenderAudio.__evV165Prime){
+    const wrapped=function(){try{primeProjectAudio();}catch(_e){}return baseRenderAudio.apply(this,arguments);};
+    wrapped.__evV165Prime=true;window.renderAudioOverlayMedia=wrapped;
+  }
+  const baseRenderMedia=window.renderOverlayMedia;
+  if(typeof baseRenderMedia==='function'&&!baseRenderMedia.__evV165Prime){
+    const wrapped=function(){try{primeProjectAudio();}catch(_e){}return baseRenderMedia.apply(this,arguments);};
+    wrapped.__evV165Prime=true;
+    wrapped.__evHeldOutgoing=baseRenderMedia.__evHeldOutgoing||{};
+    window.renderOverlayMedia=wrapped;
+  }
+  // The media-element fallback must stay silent whenever a cached AudioBuffer is available
+  // or is still decoding; the only fallback is an explicit fetch/decode failure.
+  const originalAudioStart=window.evAudioOverlayStart||evAudioOverlayStart;
+  if(typeof originalAudioStart==='function'&&!originalAudioStart.__evV165Unified){
+    const wrapped=function(ov,el,time){
+      const state=audioCache.get(String(ov&&ov.src||''));
+      if(state&&state.status!=='failed'){
+        if(el&&!el.paused){try{el.pause();}catch(_e){}}
+        if(el){el.dataset.evUnifiedBufferAudio='1';}
+        return;
+      }
+      return originalAudioStart.apply(this,arguments);
+    };
+    wrapped.__evV165Unified=true;window.evAudioOverlayStart=wrapped;
+    // The lexical function binding is updated so renderAudioOverlayMedia uses this gate.
+    try{evAudioOverlayStart=wrapped;}catch(_e){}
+  }
+  const baseRamp=window.evRampOverlayVideoAudible;
+  if(typeof baseRamp==='function'&&!baseRamp.__evV165Unified){
+    const wrapped=function(el,ov){
+      const nativeVideo=!!(ov&&ov.type==='video'&&nativeLongVideoAudioIds.has(String(ov.id))&&!hasSeparateAudioTwin(ov));
+      const state=audioCache.get(String(ov&&ov.src||''));
+      if(!nativeVideo&&state&&state.status!=='failed'){
+        if(el){el.muted=true;el.defaultMuted=true;el.volume=0;el.setAttribute('muted','');el.dataset.evUnifiedBufferAudio='1';}
+        return false;
+      }
+      return baseRamp.apply(this,arguments);
+    };
+    wrapped.__evV165Unified=true;window.evRampOverlayVideoAudible=wrapped;
+    try{evRampOverlayVideoAudible=wrapped;}catch(_e){}
+  }
+
+  // Start/resume AudioContext synchronously within the Play gesture, then schedule the first
+  // active and near-future sources against the same performance-anchored timeline clock.
+  const originalStart=window.startPlayback;
+  if(typeof originalStart==='function'&&!originalStart.__evV165Audio){
+    const wrapped=function(){
+      const ctx=audioContext();if(ctx&&ctx.state==='suspended'){try{ctx.resume().catch(()=>{});}catch(_e){}}
+      try{primeProjectAudio();}catch(_e){}
+      stopScheduledAll('start');
+      const result=originalStart.apply(this,arguments);
+      runSerial++;lastTimelineTime=null;
+      try{syncScheduledAudio();}catch(_e){}
+      return result;
+    };
+    wrapped.__evV165Audio=true;window.startPlayback=wrapped;
+    try{startPlayback=wrapped;}catch(_e){}
+  }
+  const originalPause=window.pausePlaybackAtCurrentTime;
+  if(typeof originalPause==='function'&&!originalPause.__evV165Audio){
+    const wrapped=function(){const result=originalPause.apply(this,arguments);stopScheduledAll('pause');return result;};
+    wrapped.__evV165Audio=true;window.pausePlaybackAtCurrentTime=wrapped;
+    try{pausePlaybackAtCurrentTime=wrapped;}catch(_e){}
+  }
+  const originalStop=window.stopPlaybackAtProjectEnd;
+  if(typeof originalStop==='function'&&!originalStop.__evV165Audio){
+    const wrapped=function(){const result=originalStop.apply(this,arguments);stopScheduledAll('other');return result;};
+    wrapped.__evV165Audio=true;window.stopPlaybackAtProjectEnd=wrapped;
+    try{stopPlaybackAtProjectEnd=wrapped;}catch(_e){}
+  }
+  const originalTick=window.playbackTick;
+  if(typeof originalTick==='function'&&!originalTick.__evV165Audio){
+    const wrapped=function(timestamp){
+      const result=originalTick.apply(this,arguments);
+      try{syncScheduledAudio();}catch(err){if(window.__evVideoDebug)console.warn('[evAudio] clock scheduler:',err);}
+      return result;
+    };
+    wrapped.__evV165Audio=true;window.playbackTick=wrapped;
+    try{playbackTick=wrapped;}catch(_e){}
+  }
+
+
+  const originalSeek=window.seekAbsoluteTimelineSeconds;
+  if(typeof originalSeek==='function'&&!originalSeek.__evV165Audio){
+    const wrapped=function(){
+      stopScheduledAll('edit');
+      const result=originalSeek.apply(this,arguments);
+      if(isPlaying){
+        // A programmatic seek during playback becomes the new performance-clock anchor;
+        // otherwise the next rAF would snap back to the pre-seek position.
+        playbackStartTimeSec=Number(currentAbsoluteTimeSec)||0;
+        playbackStartedAtMs=performance.now();
+        lastTimelineTime=null;lastTimelineContextTime=null;
+        try{syncScheduledAudio();}catch(_e){}
+      }
+      return result;
+    };
+    wrapped.__evV165Audio=true;window.seekAbsoluteTimelineSeconds=wrapped;
+    try{seekAbsoluteTimelineSeconds=wrapped;}catch(_e){}
+  }
+  const originalSpeedEdit=window.speedPanelSetSpeed;
+  if(typeof originalSpeedEdit==='function'&&!originalSpeedEdit.__evV165Audio){
+    const wrapped=function(){
+      stopScheduledAll('edit');
+      const result=originalSpeedEdit.apply(this,arguments);
+      try{primeProjectAudio();if(isPlaying)syncScheduledAudio();}catch(_e){}
+      return result;
+    };
+    wrapped.__evV165Audio=true;window.speedPanelSetSpeed=wrapped;
+  }
+
+  // Reprime after edits, source replacement, trims and speed changes. Reusing a URL cache
+  // prevents repeated fetch/decode for split clips that share the same file.
+  const originalSetter=window.setEthvelleAudioSetting;
+  if(typeof originalSetter==='function'&&!originalSetter.__evV165Audio){
+    const wrapped=function(){const result=originalSetter.apply(this,arguments);try{stopScheduledAll('edit');primeProjectAudio();if(isPlaying)syncScheduledAudio();}catch(_e){}return result;};
+    wrapped.__evV165Audio=true;window.setEthvelleAudioSetting=wrapped;
+  }
+
+  window.__ethvelleAudioSchedulerDiagnostics={
+    cache:audioCache,scheduled,
+    getPoolState:()=>({size:pool.length,free:pool.filter(el=>el&&el.dataset.evPoolFree==='1').length,busy:pool.filter(el=>el&&el.dataset.evPoolFree!=='1').length}),
+    getContext:audioContext,
+    getPlaybackState:()=>({playing:!!isPlaying,time:Number(currentAbsoluteTimeSec)||0}),
+    getProjectAudioSources:()=>Array.isArray(overlays)?overlays.filter(o=>o&&['video','audio'].includes(o.type)&&o.src).map(o=>({id:String(o.id),type:String(o.type),src:String(o.src)})):[],
+    getNativeVideoAudioIds:()=>Array.from(nativeLongVideoAudioIds),
+    stop:stopScheduledAll,sync:syncScheduledAudio,prime:primeProjectAudio,load:loadDecodedAudio,horizon:audioHorizon,anchor:()=>anchor,
+    suspendForRebuffer,resumeAfterRebuffer
+  };
+  // Prime once after the app's clip stores and media graph have been initialized.
+  try{primeProjectAudio();}catch(_e){}
+})();
+</script>
+<style id="ethvelle-v179-unified-search-focus-and-login-consent">
+  /* Every main-site search field uses the same solid deep-blue focus border.
+     This matches the existing Projects/Templates selection color exactly. */
+  #app .tutorial-search-bar:focus-within,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within,
+  #app #screen-projects .projects-search-field:focus-within,
+  #app :is([class*="search-bar" i],[class*="search-box" i],[class*="search-field" i]):focus-within{
+    border:2px solid #173A9E!important;
+    border-style:solid!important;
+    border-color:#173A9E!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app #screen-editor .editor-asset-search:focus,
+  #app #screen-editor .editor-asset-search:focus-visible,
+  #app input[type="search"]:focus,
+  #app input[class*="search" i]:focus,
+  #app input[id*="search" i]:focus,
+  #app input[placeholder*="search" i]:focus,
+  #app input[aria-label*="search" i]:focus{
+    border-color:#173A9E!important;
+    border-style:solid!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app #screen-editor .editor-asset-search:focus,
+  #app #screen-editor .editor-asset-search:focus-visible{
+    border:2px solid #173A9E!important;
+  }
+  #app .tutorial-search-bar:focus-within input,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within input,
+  #app #screen-projects .projects-search-field:focus-within input{
+    outline:0!important;
+    box-shadow:none!important;
+  }
+  #app .tutorial-search-bar:focus-within::before,
+  #app .tutorial-search-bar:focus-within::after,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::before,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::after,
+  #app #screen-projects .projects-search-field:focus-within::before,
+  #app #screen-projects .projects-search-field:focus-within::after{
+    box-shadow:none!important;filter:none!important;
+  }
+
+  /* Keep the login form usable on short mobile viewports. Legal choices now live in
+     the separate confirmation panel shown after an auth action is requested. */
+  #screen-login{overflow-y:auto!important;justify-content:flex-start!important;padding:18px 20px!important;}
+  #screen-login .admin-login-card{margin:auto!important;}
+
+  /* Legacy consent selectors intentionally remain inert: no checkboxes are on the login page. */
+  #screen-login .login-legal-consents{
+    display:flex;flex-direction:column;gap:10px;margin:16px 0 18px;padding:12px 13px;
+    border:1px solid rgba(47,92,232,.28);border-radius:12px;background:rgba(47,92,232,.06);
+  }
+  #screen-login .login-legal-consent{
+    display:flex;align-items:flex-start;gap:9px;min-width:0;color:#D9DDEA;
+    font-size:12px;line-height:1.5;font-weight:500;cursor:pointer;
+  }
+  #screen-login .login-legal-consent input{
+    appearance:auto;-webkit-appearance:auto;flex:0 0 16px;width:16px;height:16px;
+    margin:1px 0 0;accent-color:#2F5CE8;cursor:pointer;
+  }
+  #screen-login .login-legal-consent a{
+    color:#7FA2FF;text-decoration:underline;text-underline-offset:2px;font-weight:700;
+  }
+  #screen-login .login-legal-consent a:focus-visible{outline:2px solid #173A9E;outline-offset:2px;border-radius:2px;}
+</style>
+
+<style id="ethvelle-v180-consent-modal-project-labels-and-search-blue">
+  /* The New Project field labels should read as light white-grey, not muted grey. */
+  #ratioModalBackdrop .field-label{
+    color:#D9DDEA!important;
+    -webkit-text-fill-color:#D9DDEA!important;
+  }
+
+  /* Use the same brighter blue as the selected Asset filter border for every search bar. */
+  #app #screen-keyframeInfo .prompt-search-box:focus-within,
+  #app #screen-projects .projects-search-field:focus-within,
+  #app #screen-editor .editor-asset-search:focus,
+  #app #screen-editor .editor-asset-search:focus-visible,
+  #app #screen-editor .evca-anim-search-wrap .tutorial-search-bar:focus-within,
+  #app .tutorial-search-bar:focus-within{
+    border:2px solid #3159C8!important;
+    border-style:solid!important;
+    border-color:#3159C8!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app :is(.tutorial-search-bar,.prompt-search-box,.projects-search-field,
+    .editor-asset-search-wrap,.evca-search-wrap,.evca-anim-search-wrap):focus-within{
+    border:2px solid #3159C8!important;
+    border-style:solid!important;
+    border-color:#3159C8!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app input[type="search"]:focus,
+  #app input[type="search"]:focus-visible,
+  #app input[class*="search" i]:focus,
+  #app input[id*="search" i]:focus,
+  #app input[placeholder*="search" i]:focus,
+  #app input[aria-label*="search" i]:focus,
+  #app .editor-asset-search:focus,
+  #app .editor-asset-search:focus-visible{
+    border:2px solid #3159C8!important;
+    border-style:solid!important;
+    border-color:#3159C8!important;
+    border-image:none!important;
+    outline:0!important;
+    box-shadow:none!important;
+    background-image:none!important;
+  }
+  #app :is(.tutorial-search-bar,.prompt-search-box,.projects-search-field,
+    .editor-asset-search-wrap,.evca-search-wrap,.evca-anim-search-wrap):focus-within input{
+    outline:0!important;
+    box-shadow:none!important;
+  }
+
+  /* Ethvelle account-consent dialog  -  rebuilt to match the supplied mobile reference. */
+  .ev-login-consent-backdrop{
+    display:none;position:fixed;inset:0;z-index:2147483000;
+    align-items:center;justify-content:center;padding:16px;
+    overflow-y:auto;overscroll-behavior:contain;
+    background:rgba(0,0,0,.82);
+    backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);
+  }
+  .ev-login-consent-backdrop::before{display:none!important;content:none!important;}
+  .ev-login-consent-backdrop.active{display:flex!important;}
+  .ev-login-consent-card{
+    position:relative;z-index:1;isolation:isolate;
+    width:min(100%,390px);max-height:calc(100dvh - 32px);overflow:auto;
+    padding:24px 19px 20px;border-radius:28px;box-sizing:border-box;
+    background:linear-gradient(145deg,#1A1B20 0%,#141519 52%,#101115 100%);
+    border:1px solid rgba(255,255,255,.16);
+    box-shadow:0 24px 70px rgba(0,0,0,.68),inset 0 1px 0 rgba(255,255,255,.07);
+    color:#F5F7FF;
+    scrollbar-width:none;
+  }
+  .ev-login-consent-card::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+  .ev-login-consent-card::before{display:none!important;content:none!important;}
+  .ev-login-consent-mark{
+    width:82px;height:62px;border-radius:0;display:flex;align-items:center;justify-content:center;
+    margin:0 auto 17px;padding:0;background:transparent;color:transparent;font-size:0;
+    box-shadow:none;
+  }
+  .ev-login-consent-mark img{
+    display:block;width:82px;height:62px;max-width:100%;object-fit:contain;
+  }
+  .ev-login-consent-card h2{
+    margin:0 0 9px;color:#FFFFFF;text-align:center;
+    font-size:clamp(25px,6.8vw,31px);line-height:1.12;font-weight:850;letter-spacing:-.035em;
+    white-space:nowrap;
+  }
+  .ev-login-consent-card h2 span{
+    color:#1680FF;-webkit-text-fill-color:#1680FF;
+  }
+  .ev-login-consent-copy{
+    max-width:340px;margin:0 auto 28px;color:#C5D0E7;text-align:center;
+    font-size:14px;line-height:1.52;font-weight:450;
+  }
+  .ev-login-consent-options{
+    display:flex;flex-direction:column;gap:7px;padding:0;border:0;border-radius:0;background:transparent;
+  }
+  .ev-login-consent-option{
+    display:flex;align-items:center;gap:14px;min-width:0;min-height:55px;box-sizing:border-box;
+    padding:13px 18px;border:1px solid rgba(255,255,255,.13);border-radius:15px;
+    background:rgba(0,0,0,.20);color:#E6ECF8;
+    font-size:13.5px;line-height:1.48;font-weight:550;cursor:pointer;
+    transition:border-color .16s ease,background .16s ease;
+  }
+  .ev-login-consent-option:has(input:checked){border-color:rgba(255,255,255,.30);background:rgba(255,255,255,.07);}
+  .ev-login-consent-option input{
+    appearance:none;-webkit-appearance:none;position:relative;flex:0 0 18px;width:18px;height:18px;
+    box-sizing:border-box;margin:0;border:0;border-radius:4px;background:#F7F9FF;
+    box-shadow:0 1px 2px rgba(0,0,0,.24);cursor:pointer;
+  }
+  .ev-login-consent-option input:checked{background:#1674F8;box-shadow:0 0 0 1px rgba(111,169,255,.45);}
+  .ev-login-consent-option input:checked::after{
+    content:"";position:absolute;left:5px;top:2px;width:5px;height:9px;
+    border:solid #FFFFFF;border-width:0 2px 2px 0;transform:rotate(45deg);
+  }
+  .ev-login-consent-option input:focus-visible{outline:2px solid #58A0FF;outline-offset:3px;}
+  .ev-login-consent-option span{display:block;min-width:0;flex:1 1 auto;}
+  .ev-login-consent-option a,.ev-login-consent-option a:visited{
+    color:#1680FF;-webkit-text-fill-color:#1680FF;text-decoration:underline;
+    text-decoration-thickness:1px;text-underline-offset:2px;font-weight:800;
+  }
+  .ev-login-consent-option a:focus-visible{outline:2px solid #1680FF;outline-offset:3px;border-radius:3px;}
+  .ev-login-consent-error{min-height:0;margin:8px 1px 0;color:#FF9696;font-size:11.5px;line-height:1.4;text-align:left;}
+  .ev-login-consent-error:empty{display:none;}
+  .ev-login-consent-actions{display:flex;gap:14px;margin-top:17px;}
+  .ev-login-consent-actions button{
+    flex:1 1 0;min-width:0;min-height:44px;padding:10px 12px;box-sizing:border-box;
+    border-radius:13px;font-size:14px;line-height:1.1;font-weight:800;
+    transition:transform .14s ease,filter .14s ease;
+  }
+  .ev-login-consent-cancel{
+    border:1px solid rgba(255,255,255,.18)!important;
+    background:linear-gradient(145deg,#26272C,#1B1C20)!important;
+    color:#F1F4FC!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.07)!important;
+  }
+  .ev-login-consent-continue{
+    border:1px solid rgba(52,108,229,.9)!important;
+    background:linear-gradient(145deg,#315BC5,#24469E)!important;
+    color:#FFFFFF!important;box-shadow:inset 0 1px 0 rgba(255,255,255,.12)!important;
+  }
+  .ev-login-consent-continue:disabled{
+    opacity:.56;cursor:not-allowed;filter:saturate(.72);
+    color:rgba(228,235,250,.60)!important;
+  }
+  .ev-login-consent-actions button:active{transform:scale(.985);}
+  @media(max-width:360px){
+    .ev-login-consent-backdrop{padding:10px;}
+    .ev-login-consent-card{padding:21px 15px 17px;border-radius:24px;}
+    .ev-login-consent-copy{margin-bottom:22px;font-size:13px;}
+    .ev-login-consent-option{padding:12px 13px;gap:11px;font-size:12.5px;}
+    .ev-login-consent-actions{gap:9px;}
+  }
+  /* Defensive fallback in case an older import-panel node is cached by the browser. */
+  #evltImportFileName{display:none!important;}
+</style>
+
+
+
+<style id="ethvelle-v181-signup-consent-project-loading-clean">
+  /* Consent is a separate confirmation dialog, never a row in the login card. */
+  #screen-login .login-legal-consent{display:none!important;}
+  .ev-login-consent-backdrop{display:none;}
+  .ev-login-consent-backdrop.active{display:flex!important;}
+
+  /* Light white-grey labels in the New Project sheet. */
+  #ratioModalBackdrop .field-label{
+    color:#D9DDEA!important;
+    -webkit-text-fill-color:#D9DDEA!important;
+  }
+
+  /* Keep the video import card focused on progress only: no filename or frame-generation text. */
+  #evltImportFileName,
+  #evltImportProgressBackdrop #evltImportPhase{
+    display:none!important;
+  }
+</style>
+
+
+<style id="ethvelle-v182-consent-logo-search-border-and-import-filename">
+  /* Consent dialog: use the actual Ethvelle logo instead of the decorative check mark. */
+  .ev-login-consent-mark{
+    width:82px!important;height:62px!important;margin:0 auto 15px!important;
+    padding:0!important;border:0!important;border-radius:0!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    background:transparent!important;box-shadow:none!important;color:transparent!important;
+    font-size:0!important;
+  }
+  .ev-login-consent-mark img{
+    display:block!important;width:82px!important;height:62px!important;
+    max-width:100%!important;object-fit:contain!important;
+  }
+  .ev-login-consent-option a,
+  .ev-login-consent-option a:visited{
+    color:#0068FF!important;-webkit-text-fill-color:#0068FF!important;
+    text-decoration:underline!important;text-underline-offset:2px!important;
+  }
+  .ev-login-consent-option a:focus-visible{
+    outline:2px solid #0068FF!important;outline-offset:3px!important;
+  }
+
+  /* Search focus: show one blue perimeter only. The wrapper around asset-search inputs
+     stays borderless; the input itself is the visible field. This removes the duplicate
+     lower/inner edge introduced by the earlier combined wrapper + input rules. */
+  #app .tutorial-search-bar:focus-within,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within,
+  #app #screen-projects .projects-search-field:focus-within,
+  #app #screen-editor .evca-anim-search-wrap .tutorial-search-bar:focus-within{
+    border:2px solid #0068FF!important;
+    border-top:2px solid #0068FF!important;
+    border-right:2px solid #0068FF!important;
+    border-bottom:2px solid #0068FF!important;
+    border-left:2px solid #0068FF!important;
+    border-style:solid!important;border-image:none!important;
+    outline:0!important;box-shadow:none!important;background-image:none!important;
+  }
+  #app :is([class*="search-bar" i],[class*="search-box" i],[class*="search-field" i]):focus-within{
+    border:2px solid #0068FF!important;border-style:solid!important;
+    border-image:none!important;outline:0!important;box-shadow:none!important;background-image:none!important;
+  }
+  #app :is([class*="search-bar" i],[class*="search-box" i],[class*="search-field" i]):focus-within input{
+    border:0!important;border-bottom:0!important;outline:0!important;
+    box-shadow:none!important;background:transparent!important;
+  }
+  #app .editor-asset-search-wrap:focus-within,
+  #app .evca-search-wrap:focus-within,
+  #app .evca-anim-search-wrap:focus-within{
+    border:0!important;border-bottom:0!important;outline:0!important;
+    box-shadow:none!important;background:transparent!important;background-image:none!important;
+  }
+  #app .tutorial-search-bar:focus-within input,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within input,
+  #app #screen-projects .projects-search-field:focus-within input{
+    border:0!important;border-bottom:0!important;outline:0!important;
+    box-shadow:none!important;background:transparent!important;
+  }
+  #app #screen-editor .editor-asset-search:focus,
+  #app #screen-editor .editor-asset-search:focus-visible{
+    border:2px solid #0068FF!important;
+    border-top:2px solid #0068FF!important;
+    border-right:2px solid #0068FF!important;
+    border-bottom:2px solid #0068FF!important;
+    border-left:2px solid #0068FF!important;
+    border-style:solid!important;border-image:none!important;
+    outline:0!important;box-shadow:none!important;background-image:none!important;
+  }
+  #app .tutorial-search-bar:focus-within::before,
+  #app .tutorial-search-bar:focus-within::after,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::before,
+  #app #screen-keyframeInfo .prompt-search-box:focus-within::after,
+  #app #screen-projects .projects-search-field:focus-within::before,
+  #app #screen-projects .projects-search-field:focus-within::after,
+  #app .editor-asset-search-wrap:focus-within::before,
+  #app .editor-asset-search-wrap:focus-within::after,
+  #app .evca-search-wrap:focus-within::before,
+  #app .evca-search-wrap:focus-within::after,
+  #app .evca-anim-search-wrap:focus-within::before,
+  #app .evca-anim-search-wrap:focus-within::after{
+    content:none!important;display:none!important;border:0!important;
+    box-shadow:none!important;filter:none!important;background:none!important;
+  }
+
+  /* Keep the selected media filename directly underneath the import progress bar.
+     Do not restore the old frame-generation/status sentence. */
+  #evltImportFileName{
+    display:block!important;min-height:0!important;margin:12px auto 0!important;
+    max-width:100%!important;color:#E1E7F4!important;
+    font-size:11px!important;font-weight:600!important;line-height:1.45!important;
+    text-align:center!important;overflow-wrap:anywhere!important;word-break:break-word!important;
+  }
+</style>
+
+
+<style id="ethvelle-v183-unified-selection-blue-and-gray-import-name">
+  /* Use one exact blue for interactive field focus borders throughout the main site. */
+  #app input:focus,
+  #app input:focus-visible,
+  #app textarea:focus,
+  #app textarea:focus-visible,
+  #app select:focus,
+  #app select:focus-visible,
+  #app [contenteditable="true"]:focus,
+  #app [contenteditable="true"]:focus-visible,
+  #screen-login #loginEmailInput:focus,
+  #screen-login #loginPasswordInput:focus,
+  #screen-settings .admin-input:focus,
+  #screen-help #supportMsgInput:focus,
+  #exportModalBackdrop .evlt-export-field select:focus,
+  #screen-editor .evv-panel .evv-track-select:focus {
+    border-color:#0068FF!important;
+    outline-color:#0068FF!important;
+  }
+
+  /* Selected/focused field containers and choice cards in every site section. */
+  #app .plan-card.selected:not(.current-plan),
+  #app .checkout-method-card.selected,
+  #app .project-card.selected,
+  #app .ratio-opt.selected,
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid .ratio-opt.selected,
+  #app .bg-swatch.selected,
+  #app .editor-asset-filter.user-selected,
+  #app .settings-edit-field:focus-within,
+  #app .evlt-export-field:focus-within,
+  #app .evv-track-select:focus,
+  #app .evv-slider-card:focus-within {
+    border-color:#0068FF!important;
+    outline-color:#0068FF!important;
+  }
+
+  /* Keep the small selected indicators in cards and aspect-ratio choices in sync. */
+  #app .project-card.selected .project-check,
+  #app .ratio-opt.selected .ratio-shape,
+  #app .layer-row.selected .layer-badge,
+  #app #timelineInner .overlay-track-row[data-group="text"].selected .layer-badge {
+    border-color:#0068FF!important;
+  }
+
+  /* Text color swatches and gradient/texture presets use the same selection outline. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextComposer .evtc-color-swatch.active,
+  #ethvelleTextComposer .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active,
+  #ethvellePicsartTextDock .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-gradient-chip.active,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.selected,
+  #ethvellePicsartTextDock .evpa-image-texture-chip.active {
+    border-color:#0068FF!important;
+    outline-color:#0068FF!important;
+  }
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.selected,
+  #ethvellePicsartTextDock .evpa-controls .evpa-gradient-chip.active {
+    border:2px solid #0068FF!important;
+    outline:2px solid #0068FF!important;
+    outline-offset:1px!important;
+  }
+
+  /* Active crop-frame handles are selection outlines too; keep their geometry unchanged. */
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame.ev-v89-crop-frame {
+    border-color:#0068FF!important;
+  }
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot::before {
+    border-color:#0068FF!important;
+  }
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="n"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="s"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="w"]::before,
+  html body #screen-editor #canvasStage #evV89CropRoot.evpc-active #evV89CropFrame .ev-v89-crop-handle.evpc-hot[data-handle="e"]::before {
+    background-color:#0068FF!important;
+  }
+
+  /* Media loading: keep the filename below the progress bar, but render it in gray. */
+  #evltImportProgressBackdrop #evltImportFileName,
+  #evltImportFileName {
+    display:block!important;
+    color:#A8A8B3!important;
+    -webkit-text-fill-color:#A8A8B3!important;
+    font-size:11px!important;
+    font-weight:500!important;
+    line-height:1.45!important;
+    text-align:center!important;
+    overflow-wrap:anywhere!important;
+    word-break:break-word!important;
+  }
+</style>
+
+
+<style id="ethvelle-v184-payment-asset-filter-patch">
+  /* Remove only the Payment screen's plan subtitle; keep the Payment heading and layout. */
+  #screen-payment .demo-topbar .demo-subtitle { display:none!important; }
+
+  /* Asset category selection outline matches the site's search focus blue. */
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.active,
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.user-selected,
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.active.user-selected {
+    border-color:#0068FF!important;
+    outline-color:#0068FF!important;
+  }
+</style>
+
+<style id="capExportStyle">
+#evltExportProgressScreen{display:none!important}
+.cap-screen{position:fixed;inset:0;z-index:2147483000;display:none;flex-direction:column;background:#000;color:#fff;font-family:inherit;overflow-y:auto;-webkit-overflow-scrolling:touch}
+.cap-screen.show{display:flex}
+#capDone{background:var(--bg,#0F0F12)}
+.cap-back{width:44px;height:44px;border:0;background:none;color:#fff;display:grid;place-items:center;cursor:pointer;padding:0}
+.cap-back svg{width:24px;height:24px;stroke:currentColor;fill:none;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
+.cap-top{display:flex;align-items:center;justify-content:space-between;padding:calc(env(safe-area-inset-top,0px) + 12px) 12px 0 12px;min-height:56px}
+#capExp h1{font-size:28px;font-weight:500;text-align:center;margin:34px 16px 12px;letter-spacing:-.01em}
+#capExp p{font-size:15px;line-height:1.35;color:#9a9aa0;text-align:center;margin:0 auto;max-width:360px;padding:0 24px}
+.cap-frame{--p:0;margin:50px auto 0;padding:5px;background:conic-gradient(from 180deg,#fff calc(var(--p)*1%),#3a3a3d 0);position:relative;width:min(84vw,440px);box-sizing:content-box}
+.cap-frame-in{position:relative;width:100%;background:#111;overflow:hidden;line-height:0}
+.cap-frame canvas{width:100%;height:auto;display:block}
+.cap-dim{position:absolute;inset:0;background:rgba(0,0,0,.55)}
+.cap-pct{position:absolute;inset:0;display:grid;place-items:center;font-size:44px;font-weight:500;text-shadow:0 2px 12px rgba(0,0,0,.5);font-variant-numeric:tabular-nums}
+.cap-doneTitle{flex:1;text-align:center;font-size:17px;color:#a9a9b1}
+.cap-doneBtn{border:0;background:none;color:#fff;font-size:20px;font-weight:600;padding:10px 12px;cursor:pointer;font-family:inherit}
+.cap-wrap{padding:6px 16px calc(env(safe-area-inset-bottom,0px) + 24px)}
+.cap-card{background:var(--panel,#17171C);border:1px solid var(--line,#313139);border-radius:22px;padding:22px 16px 18px;margin-top:8px}
+.cap-vid{position:relative;width:150px;margin:0 auto;border-radius:14px;overflow:hidden;background:#000;line-height:0;cursor:pointer}
+.cap-vid video{width:100%;height:auto;display:block;max-height:300px;object-fit:contain;background:#000}
+.cap-play{position:absolute;left:50%;top:50%;width:54px;height:54px;margin:-27px 0 0 -27px;border-radius:50%;background:rgba(0,0,0,.45);display:grid;place-items:center}
+.cap-play svg{width:24px;height:24px;fill:#fff}
+.cap-vid.playing .cap-play{display:none}
+.cap-meta{text-align:center;font-size:13px;color:var(--text-dim,#8A8A94);margin:18px 0 16px}
+.cap-btn{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;height:54px;border-radius:12px;border:0;font-size:18px;font-weight:600;cursor:pointer;font-family:inherit}
+.cap-btn svg{width:22px;height:22px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.cap-btn.p{background:#fff;color:#111}
+.cap-btn.s{background:var(--elevated,#202027);color:#fff;margin-top:12px}
+.cap-share{display:flex;justify-content:space-around;margin-top:26px}
+.cap-share button{border:0;background:none;color:var(--text-dim,#8A8A94);font-size:13px;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;font-family:inherit;padding:0}
+.cap-share i{width:42px;height:42px;border-radius:12px;display:grid;place-items:center}
+.cap-share i svg{width:26px;height:26px}
+.cap-h2{font-size:22px;font-weight:700;margin:26px 2px 14px}
+.cap-quick{display:grid;grid-template-columns:repeat(4,1fr);gap:10px}
+.cap-quick button{border:0;background:none;color:#cfcfd6;font-size:12.5px;line-height:1.25;display:flex;flex-direction:column;align-items:center;gap:8px;cursor:pointer;font-family:inherit;padding:0}
+.cap-quick i{width:100%;height:76px;border-radius:14px;background:var(--panel,#17171C);border:1px solid var(--line,#313139);display:grid;place-items:center}
+.cap-quick i svg{width:30px;height:30px;stroke:#fff;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.cap-tip{margin-top:22px;background:linear-gradient(160deg,rgba(47,92,232,.18),var(--panel,#17171C));border:1px solid var(--line,#313139);border-radius:18px;padding:16px;font-size:14px;line-height:1.5;color:#d6d9e6}
+.cap-tip b{display:block;font-size:16px;margin-bottom:4px;color:#fff}
+</style>
+
+<div class="cap-screen" id="capExp" role="status" aria-live="polite">
+  <div class="cap-top"><button class="cap-back" id="capCancel" aria-label="Cancel export"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button></div>
+  <h1>Exporting video</h1>
+  <p>This may take a while. Your video will be automatically exported afterward.</p>
+  <div class="cap-frame" id="capFrame"><div class="cap-frame-in"><canvas id="capPrev" width="270" height="480"></canvas><div class="cap-dim"></div><div class="cap-pct" id="capPct">0%</div></div></div>
+</div>
+
+<div class="cap-screen" id="capDone">
+  <div class="cap-top"><button class="cap-back" id="capDoneBack" aria-label="Back"><svg viewBox="0 0 24 24"><path d="M15 5l-7 7 7 7"/></svg></button><div class="cap-doneTitle">Saved to device</div><button class="cap-doneBtn" id="capDoneBtn">Done</button></div>
+  <div class="cap-wrap">
+    <div class="cap-card">
+      <div class="cap-vid" id="capVid"><video id="capVideo" playsinline preload="metadata"></video><div class="cap-play"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div></div>
+      <div class="cap-meta" id="capMeta"></div>
+      <button class="cap-btn p" id="capShare"><svg viewBox="0 0 24 24"><path d="M4 12v7a1 1 0 001 1h14a1 1 0 001-1v-7M16 6l-4-4-4 4M12 2v13"/></svg>Share video</button>
+      <button class="cap-btn s" id="capSave"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg>Save again</button>
+      <div class="cap-share">
+        <button data-share><i style="background:#fff"><svg viewBox="0 0 24 24"><rect x="2" y="5" width="20" height="14" rx="4" fill="#F00"/><path d="M10 9l5 3-5 3z" fill="#fff"/></svg></i>YouTube</button>
+        <button data-share><i style="background:linear-gradient(45deg,#F9A13B,#D6249F,#515BD4)"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2"><rect x="4" y="4" width="16" height="16" rx="5"/><circle cx="12" cy="12" r="3.6"/><circle cx="17" cy="7" r=".8" fill="#fff"/></svg></i>Instagram</button>
+        <button data-share><i style="background:#25D366"><svg viewBox="0 0 24 24" fill="none" stroke="#fff" stroke-width="2" stroke-linejoin="round"><path d="M4 20l1.3-4A8 8 0 1 1 8.2 18.8z"/></svg></i>WhatsApp</button>
+        <button data-share><i style="background:var(--elevated,#202027)"><svg viewBox="0 0 24 24" fill="#fff"><circle cx="5" cy="12" r="2"/><circle cx="12" cy="12" r="2"/><circle cx="19" cy="12" r="2"/></svg></i>More</button>
+      </div>
+    </div>
+    <div class="cap-h2">Quick actions</div>
+    <div class="cap-quick">
+      <button id="capQNew"><i><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="3"/><path d="M12 8v8M8 12h8"/></svg></i>New project</button>
+      <button id="capQOpts"><i><svg viewBox="0 0 24 24"><path d="M12 15V4M8 8l4-4 4 4M5 14v5a1 1 0 001 1h12a1 1 0 001-1v-5"/></svg></i>Export options</button>
+      <button id="capQQual"><i><svg viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="14" rx="3"/><path d="M8 9v6M8 12h4M12 9v6M16 9h-1v6h1a2 2 0 002-2v-2a2 2 0 00-2-2z"/></svg></i>Video quality</button>
+      <button id="capQEdit"><i><svg viewBox="0 0 24 24"><path d="M4 20h4l11-11-4-4L4 16zM13.5 6.5l4 4"/></svg></i>Edit more</button>
+    </div>
+  </div>
+</div>
+
+<script id="capExportScript">
+(function(){
+  const $=id=>document.getElementById(id);
+  let target=0,shown=0,raf=0,frameW=9,frameH=16,last=null;
+  const prev=$('capPrev'),pctEl=$('capPct'),frame=$('capFrame');
+  function paint(){
+    shown+=(target-shown)*0.18; if(Math.abs(target-shown)<0.05)shown=target;
+    pctEl.textContent=(shown>=100?'100':shown.toFixed(1))+'%';
+    frame.style.setProperty('--p',shown);
+    raf=(shown!==target&&$('capExp').classList.contains('show'))?requestAnimationFrame(paint):0;
+  }
+  function setPrevSize(w,h){
+    if(!w||!h)return; frameW=w;frameH=h;
+    const pw=270,ph=Math.max(2,Math.round(pw*h/w)); if(prev.width!==pw||prev.height!==ph){prev.width=pw;prev.height=ph;}
+    // keep very tall frames inside the screen
+    const landscape=w>=h,maxW=landscape?Math.min(window.innerWidth*0.84,440):Math.min(window.innerWidth*0.58,300);
+    frame.style.width=Math.min(maxW,(window.innerHeight*0.52)*w/h)+'px';
+  }
+  window.__capExportBegin=function(w,h){
+    if(last&&last.url){try{URL.revokeObjectURL(last.url);}catch(e){} last=null;}
+    $('capDone').classList.remove('show');
+    const v=$('capVideo');try{v.pause();v.removeAttribute('src');v.load();}catch(e){}
+    target=0;shown=0;frame.style.setProperty('--p',0);setPrevSize(w||9,h||16);
+    const c=prev.getContext('2d');c.fillStyle='#111';c.fillRect(0,0,prev.width,prev.height);
+  };
+  window.__capExportFrame=function(cv){
+    try{ if(cv.width!==frameW||cv.height!==frameH)setPrevSize(cv.width,cv.height);
+      prev.getContext('2d').drawImage(cv,0,0,prev.width,prev.height);}catch(e){}
+  };
+  window.showExportProgress=function(pct){
+    target=Math.max(0,Math.min(100,Number(pct)||0));
+    $('capExp').classList.add('show');
+    if(!raf)raf=requestAnimationFrame(paint);
+  };
+  window.hideExportProgress=function(){$('capExp').classList.remove('show');};
+  $('capCancel').onclick=function(){
+    if(confirm('Stop exporting? Your credits will be refunded.')){window.__capExportCancelled=true;}
+  };
+
+  function fmtSize(b){return b>1048576?(b/1048576).toFixed(1)+' MB':Math.max(1,Math.round(b/1024))+' KB';}
+  function fmtDur(s){s=Math.round(s||0);return String(Math.floor(s/60)).padStart(2,'0')+':'+String(s%60).padStart(2,'0');}
+  window.__capExportDone=function(info){
+    last=info;
+    let dur=0;try{dur=getExportContentDurationSec();}catch(e){}
+    const q=(typeof exportQuality!=='undefined'?exportQuality:720);
+    $('capMeta').textContent=[q===2160?'4K':q+'p',(Number(window.exportFrameRate)||30)+' fps',fmtDur(dur),fmtSize(info.blob.size)].join(' · ');
+    const v=$('capVideo');v.src=info.url;v.currentTime=0.01;
+    const box=$('capVid');box.classList.remove('playing');
+    target=100;shown=100;pctEl.textContent='100%';
+    $('capExp').classList.remove('show');
+    $('capDone').classList.add('show');$('capDone').scrollTop=0;
+  };
+  function closeDone(){const v=$('capVideo');try{v.pause();}catch(e){}$('capDone').classList.remove('show');}
+  $('capDoneBtn').onclick=closeDone;$('capDoneBack').onclick=closeDone;$('capQEdit').onclick=closeDone;
+  $('capVid').onclick=function(){const v=$('capVideo'),b=$('capVid');if(v.paused){v.play();b.classList.add('playing');}else{v.pause();b.classList.remove('playing');}};
+  $('capVideo').onended=function(){$('capVid').classList.remove('playing');};
+  function saveAgain(){
+    if(!last)return;const a=document.createElement('a');a.href=last.url;a.download=last.filename;document.body.appendChild(a);a.click();a.remove();
+    if(typeof showToast==='function')showToast('Saved to device',{duration:1600});
+  }
+  $('capSave').onclick=saveAgain;
+  async function shareVideo(){
+    if(!last)return;
+    try{
+      const file=new File([last.blob],last.filename,{type:last.blob.type});
+      if(navigator.canShare&&navigator.canShare({files:[file]})){await navigator.share({files:[file],title:last.filename});return;}
+    }catch(e){if(e&&e.name==='AbortError')return;}
+    if(typeof showToast==='function')showToast('Sharing isn\u2019t supported here  -  video saved to your device',{duration:2400});
+    saveAgain();
+  }
+  $('capShare').onclick=shareVideo;
+  document.querySelectorAll('#capDone [data-share]').forEach(b=>b.onclick=shareVideo);
+  $('capQNew').onclick=function(){closeDone();try{exitEditor();}catch(e){}};
+  const openOpts=function(){closeDone();setTimeout(()=>{try{openExportSheet();}catch(e){}},50);};
+  $('capQOpts').onclick=openOpts;$('capQQual').onclick=openOpts;
+})();
+</script>
+
+<style id="ethvelle-v186-swatch-plus-bend-fix">
+  /* 1) Gradient + Texture presets: ONE thin solid blue selection border (no outline ring, no inner white line). */
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-gradient-chip.selected,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-gradient-chip.active,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-image-texture-chip.selected,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-image-texture-chip.active{
+    border:2px solid #0068FF!important;outline:0!important;outline-offset:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-gradient-chip.selected::after,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-gradient-chip.active::after,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-image-texture-chip.selected::after,
+  html body #ethvellePicsartTextDock .evpa-controls .evpa-gradient-presets > .evpa-image-texture-chip.active::after{
+    content:none!important;display:none!important;border:0!important;box-shadow:none!important;
+  }

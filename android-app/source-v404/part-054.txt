@@ -1,0 +1,1000 @@
+      if(typeof window.ethvelleApplyCropPreview==='function')window.ethvelleApplyCropPreview();
+      return result;
+    };
+    window.renderFrame.__evv102CropInvalidate=true;
+  }
+
+})();
+</script>
+
+
+<!-- Ethvelle v103: reliable custom-crop edge hit-testing, separated Background-row dragging,
+     expanded Transform controls, and lighter native scrolling. -->
+<style id="ethvelle-v103-final-css">
+  /* Crop handles keep their visible size but gain a genuine touch target around each square. */
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle::after{
+    content:""!important;display:block!important;position:absolute!important;
+    left:-12px!important;right:-12px!important;top:-12px!important;bottom:-12px!important;
+    border:0!important;background:transparent!important;box-shadow:none!important;
+    pointer-events:auto!important;
+  }
+  #canvasStage #evV89CropRoot.ev-v89-crop-root{z-index:2147483000!important;pointer-events:none!important;touch-action:none!important;}
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame{pointer-events:auto!important;touch-action:none!important;user-select:none!important;-webkit-user-select:none!important;}
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle{pointer-events:auto!important;touch-action:none!important;}
+
+  /* The fitted panel grows only into the gap above transport, never over #canvasStage. */
+  #screen-editor #toolPanel.evv100-panel-fit{min-height:0!important;}
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel{
+    padding:8px 0 12px!important;gap:0!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-group{
+    margin-bottom:16px!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-group:last-of-type{
+    margin-bottom:10px!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-label-row{
+    margin-bottom:9px!important;gap:12px!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-slider{
+    margin:7px 0!important;height:7px!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-reset-btn{
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    width:100%!important;min-height:44px!important;margin-top:4px!important;padding:11px 12px!important;
+    background:#2F5CE8!important;color:#FFFFFF!important;border:0!important;border-radius:11px!important;
+    box-shadow:none!important;font-size:13px!important;font-weight:750!important;
+  }
+  #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-reset-btn svg{display:none!important;}
+  @media(max-height:740px){
+    #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-group{margin-bottom:13px!important;}
+    #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-group:last-of-type{margin-bottom:8px!important;}
+    #screen-editor #toolPanel.evv100-panel-fit .evv-transform-slider-panel .transform-label-row{margin-bottom:7px!important;}
+  }
+
+  /* Native horizontal toolbar scrolling: no competing JS driver or forced extra GPU layer. */
+  
+  #screen-editor #bottomToolsDefault > .tool-item,
+  #screen-editor #bottomToolsClip > .tool-item,
+  #screen-editor #bottomToolsKeyframe > .tool-item,
+  #screen-editor #bottomToolsDefault button,
+  #screen-editor #bottomToolsClip button,
+  #screen-editor #bottomToolsKeyframe button{
+    flex:0 0 auto!important;flex-shrink:0!important;touch-action:pan-x!important;
+  }
+  #screen-editor #bottomToolsDefault::-webkit-scrollbar,
+  #screen-editor #bottomToolsClip::-webkit-scrollbar,
+  #screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+
+  /* Keep the shared layer scroller native and avoid browser scroll anchoring jumps. */
+  #screen-editor #timelineScroll{
+    scroll-behavior:auto!important;-webkit-overflow-scrolling:touch!important;
+    touch-action:pan-y!important;overflow-anchor:none!important;will-change:auto!important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v104: touch-reliable crop handles, live Background badge clearance,
+     and media-driven shared timeline extent. -->
+<style id="ethvelle-v104-crop-touch-and-shadow-css">
+  /* Crop mode owns all touches over the stage so Android WebView cannot pass a grip drag
+     through to the selected image/video or the canvas transform gesture handlers. */
+  #screen-editor.ev-v89-crop-active #canvasStage{touch-action:none!important;}
+  #canvasStage #evV89CropRoot.ev-v89-crop-root{
+    z-index:2147483000!important;pointer-events:auto!important;touch-action:none!important;
+    user-select:none!important;-webkit-user-select:none!important;
+  }
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame{
+    pointer-events:auto!important;touch-action:none!important;user-select:none!important;
+    -webkit-user-select:none!important;cursor:move!important;
+    /* Darken everything outside the crop and give the live crop window a soft depth edge. */
+    box-shadow:0 0 0 9999px rgba(3,5,12,.62),
+      0 7px 20px rgba(0,0,0,.48),
+      0 0 0 1px rgba(255,255,255,.52),
+      inset 0 0 12px rgba(255,255,255,.055)!important;
+  }
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle{
+    pointer-events:auto!important;touch-action:none!important;z-index:4!important;
+    width:16px!important;height:16px!important;
+  }
+  #canvasStage #evV89CropFrame .ev-v89-crop-handle::after{
+    content:""!important;display:block!important;position:absolute!important;
+    left:-14px!important;right:-14px!important;top:-14px!important;bottom:-14px!important;
+    border:0!important;background:transparent!important;box-shadow:none!important;
+    pointer-events:auto!important;
+  }
+  /* Do not rely only on :has() for the Background badge: mark it from the live
+     selection state so it shifts consistently on Android WebView too. */
+  html body #screen-editor #timelineInner .layer-row[data-layer="background"].evv104-bg-selected .layer-badge{
+    transform:translateX(-21px)!important;transition:transform .13s ease!important;
+  }
+</style>
+<script id="ethvelle-v104-media-timeline-extent-js">
+(function(){
+  'use strict';
+  /*
+   * Every row lives in the same timelineInner coordinate space. Some legacy add paths
+   * rebuild the Clips/Text/Audio rows after updating timelineDuration but omit the width
+   * sync. Reconcile only when the content width is actually short; this does not rebuild
+   * media rows and does not run on every animation frame.
+   */
+  const baseRender=window.renderOverlayLayers;
+  if(typeof baseRender==='function'&&!baseRender.__evv104TimelineExtent){
+    let extentRaf=0;
+    const syncIfShort=()=>{
+      extentRaf=0;
+      try{
+        if(typeof window.ensureTimelineCoversContent==='function')window.ensureTimelineCoversContent();
+        const inner=document.getElementById('timelineInner');
+        const scroller=document.getElementById('timelineScroll');
+        if(!inner||!scroller||typeof window.syncTimelineInnerWidth!=='function')return;
+        const pps=typeof window.pxPerSecond==='function'?Number(window.pxPerSecond()):0;
+        const duration=typeof timelineDuration!=='undefined'?Number(timelineDuration):0;
+        if(!(pps>0&&duration>0))return;
+        const pad=scroller.clientWidth/2;
+        const wanted=duration*pps+pad*2;
+        const current=parseFloat(inner.style.width)||inner.getBoundingClientRect().width||0;
+        if(wanted>current+1)window.syncTimelineInnerWidth();
+      }catch(err){console.warn('Ethvelle timeline extent sync:',err);}
+    };
+    const wrapped=function(){
+      const result=baseRender.apply(this,arguments);
+      if(!extentRaf)extentRaf=requestAnimationFrame(syncIfShort);
+      return result;
+    };
+    wrapped.__evv104TimelineExtent=true;
+    window.renderOverlayLayers=wrapped;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v105: smart on-demand panels, batched asset libraries, safe idle cleanup,
+     long-press feedback, and lower-cost timeline/media rendering. -->
+<style id="ethvelle-v105-smart-loading-performance-css">
+  .evv105-loader{
+    min-height:148px;width:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:11px;padding:22px 16px;text-align:center;color:#F5F5F7;
+  }
+  .evv105-loader b{font-size:13px;font-weight:800;letter-spacing:.01em;color:#F4F6FF;}
+  .evv105-loader small{font-size:11px;line-height:1.4;color:#9CA3B5;}
+  .evv105-spinner{
+    width:27px;height:27px;border-radius:50%;border:3px solid rgba(126,153,230,.20);
+    border-top-color:#4E7CFF;border-right-color:#2F5CE8;animation:evv105Spin .72s linear infinite;
+  }
+  @keyframes evv105Spin{to{transform:rotate(360deg)}}
+  .evv105-global-loader{
+    position:fixed;inset:0;z-index:2147483600;display:none;align-items:center;justify-content:center;
+    padding:22px;background:rgba(5,6,12,.76);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);
+    pointer-events:auto;
+  }
+  .evv105-global-loader.active{display:flex;}
+  .evv105-global-loader-card{
+    width:min(260px,88vw);min-height:145px;border:1px solid #353746;border-radius:17px;
+    background:#191A22;box-shadow:0 12px 38px rgba(0,0,0,.42);display:flex;align-items:center;justify-content:center;
+  }
+  .evv105-global-loader .evv105-loader{min-height:140px;}
+  #editorAssetResults .editor-assets-grid{contain:layout style;}
+  #editorAssetResults .editor-asset-card img,
+  #modelAssetListBody .model-asset-thumb{display:block;max-width:100%;height:auto;object-fit:cover;}
+  #editorAssetResults .editor-asset-card img{width:100%;height:100%;}
+  #screen-editor #timelineInner .layer-row.char-row .layer-badge{
+    margin-top:7px!important;
+  }
+  #canvasStage #evV89CropFrame.ev-v89-crop-frame{min-width:1px!important;min-height:1px!important;}
+  /* Avoid reserving a separate GPU/compositor layer for every idle timeline clip/media node.
+     A layer is promoted only for the media element being actively manipulated. */
+  html body #screen-editor #timelineInner .overlay-track-row .layer-track{will-change:auto!important;}
+  html body #screen-editor #timelineInner .overlay-clip:not(.dragging){will-change:auto!important;}
+  html body #screen-editor #timelineInner .overlay-clip.dragging{will-change:left,top!important;}
+  html body #screen-editor #canvasStage .overlay-media-layer>img,
+  html body #screen-editor #canvasStage .overlay-media-layer>video,
+  html body #screen-editor #canvasStage .bg-img-layer{will-change:auto!important;}
+  html body #screen-editor #stickCanvas{will-change:auto!important;}
+  @media(prefers-reduced-motion:reduce){.evv105-spinner{animation:none;border-top-color:#4E7CFF;}}
+</style>
+<script id="ethvelle-v105-smart-loading-performance-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  // v88 limited crop margins to 45% per side (and 80% per axis). The newer manual crop
+  // handles and selection geometry support 92%, so the old limit made Apply/preview stop
+  // shrinking even though the blue frame could be dragged farther. Keep every crop reader
+  // on the same normalized range so small Free and preset crops are applied exactly.
+  window.ethvelleCropFractions=function(value){
+    const source=value&&typeof value==='object'?value:{};
+    const clamp=v=>Math.max(0,Math.min(.92,Number(v)||0));
+    let left=clamp(source.left),right=clamp(source.right),top=clamp(source.top),bottom=clamp(source.bottom);
+    if(left+right>.92){const f=.92/(left+right);left*=f;right*=f;}
+    if(top+bottom>.92){const f=.92/(top+bottom);top*=f;bottom*=f;}
+    return {left,right,top,bottom};
+  };
+
+  // Compact temporary toast: shown only after a clip's long-press timer has entered move mode.
+  window.ethvelleNotifyClipMoveReady=function(){
+    try{if(typeof showToast==='function')showToast('Ready to move clip  -  drag to reposition',{duration:1250});}catch(_e){}
+  };
+  window.ethvelleNotifyClipMoved=function(deltaSeconds){
+    const delta=Number(deltaSeconds);if(!Number.isFinite(delta)||Math.abs(delta)<0.0001)return;
+    try{if(typeof showToast==='function')showToast(delta>0?'Clip moved forward':'Clip moved backward',{duration:1150});}catch(_e){}
+  };
+
+  // One reusable full-screen loader is used only for the text composer and character uploader.
+  let globalLoader=null;
+  function getGlobalLoader(){
+    if(globalLoader&&globalLoader.isConnected)return globalLoader;
+    globalLoader=$('evv105GlobalLoader');
+    if(!globalLoader){
+      globalLoader=document.createElement('div');globalLoader.id='evv105GlobalLoader';
+      globalLoader.className='evv105-global-loader';globalLoader.setAttribute('role','status');
+      globalLoader.setAttribute('aria-live','polite');
+      globalLoader.innerHTML='<div class="evv105-global-loader-card"><div class="evv105-loader"><span class="evv105-spinner" aria-hidden="true"></span><b class="evv105-loader-title">Loading…</b><small>Preparing editing tools</small></div></div>';
+      document.body.appendChild(globalLoader);
+    }
+    return globalLoader;
+  }
+  function showGlobalLoader(label){
+    const node=getGlobalLoader();const title=node.querySelector('.evv105-loader-title');
+    if(title)title.textContent='Loading '+String(label||'tools')+'…';
+    node.classList.add('active');
+  }
+  function hideGlobalLoader(){const node=$('evv105GlobalLoader');if(node)node.classList.remove('active');}
+  function panelLoaderMarkup(label){
+    return '<div class="evv105-loader" role="status" aria-live="polite"><span class="evv105-spinner" aria-hidden="true"></span><b>Loading '+String(label||'tools')+'…</b><small>Preparing this section</small></div>';
+  }
+
+  // Heavy panel UI is initialized only after the user opens that tool. Basic editing tools
+  // (Select, Split, Crop, Keyframe, Transform, Undo/Redo) keep their immediate path.
+  const heavyPanelKeys=new Set([
+    'assets','anim','overlay','audio','audioAdjust','audioEffects','audioEnhance','audioNoise','audioVoice','audioPitch',
+    'chroma','evltEnhance','evltAdjustments','clipAnimations','clipFilter','characterTracking'
+  ]);
+  const panelTitles={
+    assets:'Assets',anim:'Character Animation',overlay:'Media Library',audio:'Audio Tools',audioAdjust:'Audio Adjustments',
+    audioEffects:'Audio Effects',audioEnhance:'Audio Enhance',audioNoise:'Background Noise',audioVoice:'Voice Filters',audioPitch:'Pitch',
+    chroma:'Chroma Key',evltEnhance:'Enhance',evltAdjustments:'Adjustments',clipAnimations:'Clip Animations',
+    clipFilter:'Filters',characterTracking:'Character Tracking'
+  };
+  let panelLoadToken=0,activeLazyPanel='';
+  const previousOpenPanel=window.openPanel;
+  if(typeof previousOpenPanel==='function'&&!previousOpenPanel.__evv105Lazy){
+    const lazyOpenPanel=function(key){
+      const k=String(key||'');
+      if(!heavyPanelKeys.has(k)){
+        panelLoadToken++;activeLazyPanel='';
+        return previousOpenPanel.apply(this,arguments);
+      }
+      // Keep the original no-character guard and all of the original click behavior.
+      if(k==='anim'&&typeof characters!=='undefined'&&!characters.length){
+        panelLoadToken++;activeLazyPanel='';return previousOpenPanel.apply(this,arguments);
+      }
+      if(typeof panelContent==='undefined'||!panelContent[k]){
+        panelLoadToken++;activeLazyPanel='';return previousOpenPanel.apply(this,arguments);
+      }
+      const token=++panelLoadToken,args=Array.from(arguments),ctx=this;
+      activeLazyPanel=k;
+      const panel=$('toolPanel'),body=$('panelBody'),backdrop=$('panelBackdrop'),title=$('panelTitle');
+      if(!panel||!body||!backdrop)return previousOpenPanel.apply(this,args);
+      document.querySelectorAll('.tool-item').forEach(t=>t.classList.remove('active'));
+      const tool=Array.from(document.querySelectorAll('.tool-item')).find(t=>t.dataset.tool===k);
+      if(tool)tool.classList.add('active');
+      if(title)title.textContent=(panelContent[k]&&panelContent[k].title)||panelTitles[k]||'Tools';
+      body.dataset.evv105LastKey=k;body.setAttribute('aria-busy','true');body.innerHTML=panelLoaderMarkup(panelTitles[k]||panelContent[k].title);
+      backdrop.classList.add('active');panel.classList.add('open');
+      // A short visible loading state, then the existing renderer builds the real controls.
+      setTimeout(()=>{
+        requestAnimationFrame(()=>{
+          if(token!==panelLoadToken||activeLazyPanel!==k||!panel.classList.contains('open')||body.dataset.evv105LastKey!==k)return;
+          try{previousOpenPanel.apply(ctx,args);}
+          finally{
+            if(token===panelLoadToken&&body.dataset.evv105LastKey===k){body.removeAttribute('aria-busy');}
+          }
+        });
+      },115);
+      return undefined;
+    };
+    lazyOpenPanel.__evv105Lazy=true;window.openPanel=lazyOpenPanel;
+  }
+
+  // Closing a heavy panel cancels pending initialization and releases its generated controls.
+  const previousClosePanel=window.closePanel;
+  if(typeof previousClosePanel==='function'&&!previousClosePanel.__evv105Cleanup){
+    const lazyClosePanel=function(){
+      const key=activeLazyPanel||$('panelBody')?.dataset?.evv105LastKey||'';
+      const token=++panelLoadToken;activeLazyPanel='';
+      if(key==='assets'){
+        try{assetRenderToken++;fontVisibilityObserver?.disconnect();fontVisibilityObserver=null;}catch(_e){}
+      }
+      const result=previousClosePanel.apply(this,arguments);
+      if(heavyPanelKeys.has(key))requestAnimationFrame(()=>{
+        const panel=$('toolPanel'),body=$('panelBody');
+        if(token===panelLoadToken&&panel&&!panel.classList.contains('open')&&body){
+          body.replaceChildren();body.removeAttribute('aria-busy');delete body.dataset.evv105LastKey;
+        }
+      });
+      return result;
+    };
+    lazyClosePanel.__evv105Cleanup=true;window.closePanel=lazyClosePanel;
+  }
+
+  // Text tools use a separate full-screen composer, not #toolPanel. Defer construction until
+  // the user explicitly opens it, then retain the existing draft/clip state on close.
+  const previousTextOpen=window.openEthvelleTextComposer;
+  let textOpenToken=0;
+  if(typeof previousTextOpen==='function'&&!previousTextOpen.__evv105Lazy){
+    const lazyTextOpen=function(){
+      if($('ethvelleTextComposer')?.classList.contains('active'))return previousTextOpen.apply(this,arguments);
+      const token=++textOpenToken,args=Array.from(arguments),ctx=this;
+      showGlobalLoader('Text Editor');
+      setTimeout(()=>requestAnimationFrame(()=>{
+        if(token!==textOpenToken)return;
+        hideGlobalLoader();previousTextOpen.apply(ctx,args);
+      }),105);
+      return undefined;
+    };
+    lazyTextOpen.__evv105Lazy=true;window.openEthvelleTextComposer=lazyTextOpen;
+  }
+  const previousTextClose=window.closeEthvelleTextComposer;
+  if(typeof previousTextClose==='function'&&!previousTextClose.__evv105Cleanup){
+    const closeText=function(){textOpenToken++;hideGlobalLoader();return previousTextClose.apply(this,arguments);};
+    closeText.__evv105Cleanup=true;window.closeEthvelleTextComposer=closeText;
+  }
+
+  // Character rig/uploader tools are also deferred; no file picker is triggered from the timer.
+  const previousOpenRig=window.openAutoRigUploader;
+  let rigToken=0;
+  if(typeof previousOpenRig==='function'&&!previousOpenRig.__evv105Lazy){
+    const lazyOpenRig=function(){
+      const token=++rigToken,args=Array.from(arguments),ctx=this;showGlobalLoader('Character Tools');
+      setTimeout(()=>requestAnimationFrame(()=>{if(token!==rigToken)return;hideGlobalLoader();previousOpenRig.apply(ctx,args);}),110);
+      return undefined;
+    };
+    lazyOpenRig.__evv105Lazy=true;window.openAutoRigUploader=lazyOpenRig;
+  }
+  const previousCloseRig=window.closeAutoRigUploader;
+  if(typeof previousCloseRig==='function'&&!previousCloseRig.__evv105Cleanup){
+    const closeRig=function(){rigToken++;hideGlobalLoader();return previousCloseRig.apply(this,arguments);};
+    closeRig.__evv105Cleanup=true;window.closeAutoRigUploader=closeRig;
+  }
+
+  // Model library: show an initial loader, then construct its rows in small batches.
+  const previousOpenModelLibrary=window.openModelLibrary;
+  const previousCloseModelLibrary=window.closeModelLibrary;
+  let modelOpenToken=0,modelRenderToken=0;
+  if(typeof previousOpenModelLibrary==='function'&&!previousOpenModelLibrary.__evv105Lazy){
+    const lazyOpenModelLibrary=function(){
+      const token=++modelOpenToken,backdrop=$('modelLibraryBackdrop'),list=$('modelAssetListBody');
+      if(!backdrop||!list)return previousOpenModelLibrary.apply(this,arguments);
+      backdrop.classList.add('active');list.innerHTML=panelLoaderMarkup('Character Assets');
+      setTimeout(()=>requestAnimationFrame(()=>{
+        if(token!==modelOpenToken||!backdrop.classList.contains('active'))return;
+        previousOpenModelLibrary.apply(this,arguments);
+      }),120);
+      return undefined;
+    };
+    lazyOpenModelLibrary.__evv105Lazy=true;window.openModelLibrary=lazyOpenModelLibrary;
+  }
+  if(typeof previousCloseModelLibrary==='function'&&!previousCloseModelLibrary.__evv105Cleanup){
+    const closeModelLibrary=function(){
+      modelOpenToken++;modelRenderToken++;const result=previousCloseModelLibrary.apply(this,arguments);
+      requestAnimationFrame(()=>{const b=$('modelLibraryBackdrop'),list=$('modelAssetListBody');if(b&&!b.classList.contains('active')&&list)list.replaceChildren();});
+      return result;
+    };
+    closeModelLibrary.__evv105Cleanup=true;window.closeModelLibrary=closeModelLibrary;
+  }
+
+  // Build model-library tiles 12 at a time; keep all existing actions and project data intact.
+  window.renderModelLibraryList=function(){
+    const container=$('modelAssetListBody');if(!container)return;
+    const token=++modelRenderToken;
+    const ordered=typeof getAvailableModelAssets==='function'?getAvailableModelAssets():((Array.isArray(modelAssets)?modelAssets:[]).slice());
+    container.replaceChildren();
+    if(!ordered.length){const empty=document.createElement('p');empty.className='model-asset-empty';empty.textContent='No saved models yet  -  upload one to get started.';container.appendChild(empty);return;}
+    const editSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9M16.5 3.5a2.12 2.12 0 013 3L7 19l-4 1 1-4L16.5 3.5z"/></svg>';
+    const deleteSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2m3 0v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6h14z"/></svg>';
+    let index=0;
+    const appendBatch=()=>{
+      if(token!==modelRenderToken||!container.isConnected)return;
+      const fragment=document.createDocumentFragment(),end=Math.min(index+12,ordered.length);
+      for(;index<end;index++){
+        const asset=ordered[index],id=String(asset.id||''),item=document.createElement('div');item.className='model-asset-item';
+        const thumb=document.createElement('img');thumb.className='model-asset-thumb';thumb.alt='';thumb.loading='lazy';thumb.decoding='async';thumb.draggable=false;
+        const fallbackSrc=typeof modelAssetThumbSrc==='function'?modelAssetThumbSrc(asset):'';
+        const src=typeof modelGridThumbSrc==='function'?modelGridThumbSrc(asset):fallbackSrc;
+        if(src)thumb.src=src;
+        else{
+          if(fallbackSrc)thumb.src=fallbackSrc;
+          if(asset&&typeof modelFaceSourceFor==='function'&&modelFaceSourceFor(asset)&&typeof generateModelGridFullBodyPreview==='function')generateModelGridFullBodyPreview(asset).then(preview=>{if(preview&&thumb.isConnected)thumb.src=preview;}).catch(()=>{});
+        }
+        if(asset&&asset.origin==='admin'&&!(asset.sheet&&asset.sheet.parts)&&typeof evFaceTileFor==='function')evFaceTileFor(asset).then(preview=>{if(preview&&thumb.isConnected)thumb.src=preview;}).catch(()=>{});
+        thumb.addEventListener('click',()=>window.useModelAsset(id));
+        const name=document.createElement('span');name.className='model-asset-name';name.textContent=String(asset.name||'Untitled model');name.addEventListener('click',()=>window.useModelAsset(id));
+        const actions=document.createElement('div');actions.className='model-asset-actions';
+        const makeAction=(title,svg,fn,danger)=>{const el=document.createElement('div');el.className='model-asset-icon-btn'+(danger?' danger':'');el.title=title;el.setAttribute('role','button');el.setAttribute('tabindex','0');el.setAttribute('aria-label',title);el.innerHTML=svg;el.addEventListener('click',e=>{e.stopPropagation();fn();});el.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();e.stopPropagation();fn();}});actions.appendChild(el);};
+        if(asset.origin==='admin'){evModelDecorate(item,asset);}
+        else{makeAction('Edit model',editSvg,()=>window.edOpenFromAsset(id,true),false);makeAction('Delete',deleteSvg,()=>window.openDeleteModelConfirm(id),true);}
+        item.append(thumb,name,actions);fragment.appendChild(item);
+      }
+      container.appendChild(fragment);
+      if(index<ordered.length)requestAnimationFrame(appendBatch);
+    };
+    requestAnimationFrame(appendBatch);
+  };
+
+  // Asset panel cards are filtered once, then appended in short batches. Images use native lazy
+  // decoding; remote fonts are downloaded only when their preview tile approaches visibility.
+  let assetRenderToken=0,fontVisibilityObserver=null;
+  window.renderFilteredEditorAssets=function(){
+    const host=$('editorAssetResults');if(!host)return;
+    const token=++assetRenderToken;
+    if(fontVisibilityObserver){try{fontVisibilityObserver.disconnect();}catch(_e){}fontVisibilityObserver=null;}
+    const all=typeof getEditorAssets==='function'?getEditorAssets():[];
+    const q=String(typeof editorAssetSearchQuery!=='undefined'?editorAssetSearchQuery:'').trim().toLocaleLowerCase();
+    const categoryFilter=typeof editorAssetCategoryFilter!=='undefined'?editorAssetCategoryFilter:'all';
+    const assets=all.filter(a=>{
+      const category=editorAssetCategory(a);
+      if(categoryFilter!=='all'&&category!==categoryFilter)return false;
+      const searchable=[a.name,a.description,a.keywords,a.tags,a.fontFamily,category,editorAssetLabel(a)].flat().join(' ').toLocaleLowerCase();
+      return !q||searchable.includes(q);
+    });
+    host.replaceChildren();
+    if(!assets.length){const empty=document.createElement('div');empty.className='editor-asset-empty';empty.textContent=all.length?'No matching assets found. Try another search or category.':'No admin assets published yet. Assets added in the Admin → Assets section will appear here.';host.appendChild(empty);return;}
+    const grid=document.createElement('div');grid.className='editor-assets-grid';host.appendChild(grid);
+    if(typeof IntersectionObserver==='function')fontVisibilityObserver=new IntersectionObserver(entries=>{
+      for(const entry of entries){if(!entry.isIntersecting)continue;const card=entry.target,asset=card.__evv105Asset;
+        if(asset&&typeof ensureAdminFontLoaded==='function')ensureAdminFontLoaded(asset);
+        fontVisibilityObserver?.unobserve(card);
+      }
+    },{root:host,rootMargin:'100px 0px'});
+    let index=0;
+    const appendBatch=()=>{
+      if(token!==assetRenderToken||!host.isConnected)return;
+      const fragment=document.createDocumentFragment(),end=Math.min(index+18,assets.length);
+      for(;index<end;index++){
+        const asset=assets[index],category=editorAssetCategory(asset),src=String(asset.src||'');
+        const card=document.createElement('button');card.type='button';card.className='editor-asset-card';card.__evv105Asset=asset;
+        const thumb=document.createElement('span');thumb.className='editor-asset-thumb';
+        const assetWidth=Number(asset.width||asset.videoWidth||asset.naturalWidth||asset.dimensions?.width||asset.metadata?.width||0);
+        const assetHeight=Number(asset.height||asset.videoHeight||asset.naturalHeight||asset.dimensions?.height||asset.metadata?.height||0);
+        if(assetWidth>0&&assetHeight>0)thumb.style.aspectRatio=assetWidth+' / '+assetHeight;
+        const applyIntrinsicRatio=media=>{const w=Number(media?.naturalWidth||media?.videoWidth||0),h=Number(media?.naturalHeight||media?.videoHeight||0);if(w>0&&h>0)thumb.style.aspectRatio=w+' / '+h;};
+        if(category==='font'){
+          const preview=document.createElement('div');preview.className='editor-asset-font-preview';preview.textContent='Aa';
+          preview.style.fontFamily='"'+String(asset.fontFamily||asset.name||'sans-serif').replace(/["\\]/g,'')+'",sans-serif';thumb.appendChild(preview);
+          if(fontVisibilityObserver)fontVisibilityObserver.observe(card);
+          else if(typeof ensureAdminFontLoaded==='function')ensureAdminFontLoaded(asset);
+        }else if(category==='image'||category==='background-image'){
+          if(src){const img=document.createElement('img');img.alt='';img.loading='lazy';img.decoding='async';img.draggable=false;img.addEventListener('load',()=>applyIntrinsicRatio(img),{once:true});img.src=src;thumb.appendChild(img);}else thumb.textContent='IMAGE';
+        }else if(category==='video'||category==='background-video'){
+          if(src){
+            const video=document.createElement('video');video.className='editor-asset-video';video.muted=true;video.playsInline=true;video.preload='metadata';video.controls=false;video.tabIndex=-1;
+            video.addEventListener('loadedmetadata',()=>{applyIntrinsicRatio(video);try{if(Number(video.duration)>0)video.currentTime=Math.min(.05,video.duration/20);}catch(_e){}},{once:true});
+            video.addEventListener('seeked',()=>{try{video.pause();}catch(_e){}},{once:true});
+            video.addEventListener('error',()=>{const fallback=document.createElement('div');fallback.className='editor-asset-video';fallback.textContent='▶ VIDEO';video.replaceWith(fallback);},{once:true});
+            video.src=src;thumb.appendChild(video);
+          }else{const video=document.createElement('div');video.className='editor-asset-video';video.textContent='▶ VIDEO';thumb.appendChild(video);} 
+        }else if(category==='audio'){
+          const audio=document.createElement('div');audio.className='editor-asset-font-preview';audio.textContent='♫';thumb.appendChild(audio);
+        }else thumb.textContent='MEDIA';
+        const name=document.createElement('span');name.className='editor-asset-name';name.textContent=String(asset.name||'Asset');
+        const label=document.createElement('span');label.className='editor-asset-category';label.textContent=String(editorAssetLabel(asset)||'Asset');
+        card.append(thumb,name,label);card.addEventListener('click',()=>window.addAdminAssetToProject(asset.id));fragment.appendChild(card);
+      }
+      grid.appendChild(fragment);
+      if(index<assets.length)requestAnimationFrame(appendBatch);
+    };
+    requestAnimationFrame(appendBatch);
+  };
+
+  // The existing timeline calls renderBackgroundTrack frequently via syncTimelineInnerWidth.
+  // Rebuild its DOM only when clip geometry, selection, source or keyframe markers really change.
+  const previousRenderBackground=window.renderBackgroundTrack;
+  if(typeof previousRenderBackground==='function'&&!previousRenderBackground.__evv105Cache){
+    const sourceStamp=value=>{const str=String(value||'');return str.length+':'+str.slice(0,44)+':'+str.slice(-18);};
+    const getSignature=()=>{
+      const pps=typeof pxPerSecond==='function'?Number(pxPerSecond()):0;
+      const list=Array.isArray(backgrounds)?backgrounds:[];
+      const selected=typeof selectedClip!=='undefined'?String(selectedClip??''):'';
+      const kf=typeof selectedKfIdx!=='undefined'?String(selectedKfIdx??''):'';
+      return [pps.toFixed(4),selected,kf,list.map(b=>{
+        const markers=Array.isArray(b.ethvelleMediaKeyframes)?b.ethvelleMediaKeyframes:(Array.isArray(b.keyframes)?b.keyframes:[]);
+        const markerStamp=markers.map(x=>String(x.t)+'/'+String(x.property||'')).join(',');
+        return [b.id,Number(b.trimStart||0).toFixed(4),Number(b.trimEnd||0).toFixed(4),sourceStamp(b.src),String(b.name||''),markerStamp].join('~');
+      }).join('|')].join('||');
+    };
+    const cached=function(){
+      const track=$('track-background');
+      if(!track||typeof bgHandleDragActive!=='undefined'&&bgHandleDragActive)return previousRenderBackground.apply(this,arguments);
+      const signature=getSignature();
+      if(track.dataset.evv105BgSignature===signature){
+        const badge=$('bgLayerBadge');
+        if(badge&&Array.isArray(backgrounds)&&backgrounds.length&&badge.innerHTML!==String(BG_FILLED_ICON||''))badge.innerHTML=BG_FILLED_ICON;
+        return;
+      }
+      const result=previousRenderBackground.apply(this,arguments);
+      if(track.isConnected&&!(typeof bgHandleDragActive!=='undefined'&&bgHandleDragActive))track.dataset.evv105BgSignature=signature;
+      return result;
+    };
+    cached.__evv105Cache=true;window.renderBackgroundTrack=cached;
+  }
+
+  // During overlay drag, pack lanes once but only write row/clip geometry when the actual lane
+  // assignment changes. Moving a clip horizontally within its existing lane no longer writes
+  // every sibling's top/height on every pointer event.
+  window.applyOverlayLanes=function(groupKey){
+    const row=document.querySelector('.overlay-track-row[data-group="'+String(groupKey).replace(/"/g,'\\"')+'"]');
+    if(!row)return;const track=row.querySelector('.layer-track');if(!track)return;
+    const groupClips=(Array.isArray(overlays)?overlays:[]).filter(o=>groupKey==='audio'?o.type==='audio':(groupKey==='text'?o.type==='text':o.type!=='audio'&&o.type!=='text'));
+    const lanes=typeof packIntoLanes==='function'?packIntoLanes(groupClips):[];
+    const laneCount=Math.max(1,lanes.length),rowH=overlayRowHeightForLanes(laneCount);
+    const signature=lanes.map((lane,i)=>i+':'+lane.map(o=>String(o.id)).join(',')).join('|');
+    if(track.dataset.evv105LaneSignature===signature&&Math.round(parseFloat(track.style.height)||0)===Math.round(rowH)&&Math.round(parseFloat(row.style.height)||0)===Math.round(rowH+4))return;
+    const setIfChanged=(el,prop,value)=>{if(el.style[prop]!==value)el.style[prop]=value;};
+    setIfChanged(row,'height',(rowH+4)+'px');setIfChanged(row,'minHeight',(rowH+4)+'px');setIfChanged(row,'maxHeight','none');
+    setIfChanged(track,'height',rowH+'px');setIfChanged(track,'minHeight',rowH+'px');setIfChanged(track,'maxHeight',rowH+'px');
+    lanes.forEach((lane,laneIdx)=>lane.forEach(ov=>{
+      const el=track.querySelector('.overlay-clip[data-overlay-id="'+String(ov.id).replace(/"/g,'\\"')+'"]');
+      if(el)setIfChanged(el,'top',overlayLaneTop(laneIdx)+'px');
+    }));
+    track.dataset.evv105LaneSignature=signature;
+  };
+
+  // Promote only the currently selected large media surface while the user is manipulating it;
+  // release the GPU hint shortly after the gesture so inactive 720p/1080p media does not all
+  // retain its own compositor surface. No source pixels or export dimensions are altered.
+  let promotedMedia=null,demoteTimer=0;
+  function selectedMediaElement(){
+    try{
+      const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+      const bg=Array.isArray(backgrounds)?backgrounds.find(x=>String(x.id)===id):null;
+      if(bg)return $('bgImgLayer');
+      const ov=Array.isArray(overlays)?overlays.find(x=>String(x.id)===id&&(x.type==='image'||x.type==='video')):null;
+      if(!ov)return null;
+      const node=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[ov.id]:null;
+      return node||document.querySelector('.overlay-media-item[data-overlay-id="'+id.replace(/"/g,'\\"')+'"] img, .overlay-media-item[data-overlay-id="'+id.replace(/"/g,'\\"')+'"] video');
+    }catch(_e){return null;}
+  }
+  function promoteMedia(){
+    if(demoteTimer){clearTimeout(demoteTimer);demoteTimer=0;}
+    const el=selectedMediaElement();if(!el)return;
+    if(promotedMedia&&promotedMedia!==el)promotedMedia.style.willChange='auto';
+    promotedMedia=el;el.style.willChange='transform, clip-path';
+  }
+  function scheduleDemote(){
+    if(demoteTimer)clearTimeout(demoteTimer);
+    demoteTimer=setTimeout(()=>{demoteTimer=0;if(promotedMedia){promotedMedia.style.willChange='auto';promotedMedia=null;}},130);
+  }
+  const stage=$('canvasStage');if(stage){stage.addEventListener('pointerdown',promoteMedia,{capture:true,passive:true});stage.addEventListener('touchstart',promoteMedia,{capture:true,passive:true});}
+  const toolPanel=$('toolPanel');if(toolPanel){toolPanel.addEventListener('pointerdown',e=>{if(e.target?.matches?.('input[type="range"]'))promoteMedia();},{capture:true,passive:true});toolPanel.addEventListener('input',e=>{if(e.target?.matches?.('input[type="range"]'))promoteMedia();},{passive:true});}
+  window.addEventListener('pointerup',scheduleDemote,{capture:true,passive:true});window.addEventListener('pointercancel',scheduleDemote,{capture:true,passive:true});
+  window.addEventListener('blur',scheduleDemote);
+})();
+</script>
+
+
+<!-- Ethvelle v106: keep clip movement on the compositor; no per-frame row reflow. -->
+<style id="ethvelle-v106-smooth-drag-css">
+  html body #screen-editor #timelineInner .anim-clip.dragging.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .track-clip.dragging.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .overlay-clip.dragging.evv-timeline-transform-dragging{
+    will-change:transform!important;
+    transition:none!important;
+    backface-visibility:hidden!important;
+    -webkit-backface-visibility:hidden!important;
+  }
+  /* A body drag is a pure translation. Lane/row geometry is reconciled only at release. */
+  html body #screen-editor #timelineInner .overlay-clip.dragging.evv-timeline-transform-dragging{
+    transition:none!important;
+  }
+</style>
+
+
+<!-- Ethvelle v107: smoother canvas/timeline gestures, crisp drag rendering and full text-plate bounds. -->
+<style id="ethvelle-v107-performance-fixes-css">
+  /* Keep the character badge centered vertically. When its clip's left selection tab
+     overlaps it, nudge the badge only enough to clear the tab (not off the row). */
+  #screen-editor #timelineInner #characterRows .layer-row.char-row .layer-badge{
+    /* Default/resting icon sits 2px higher. Selection keeps the exact same vertical position. */
+    margin-top:7px!important;
+    z-index:8!important;
+    transform:translateY(-2px)!important;
+    transition:none!important;
+  }
+  
+  
+
+  /* Keep compositor movement, but avoid the low-quality back-face raster path on active clips. */
+  html body #screen-editor #timelineInner .anim-clip.dragging.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .track-clip.dragging.evv-timeline-transform-dragging,
+  html body #screen-editor #timelineInner .overlay-clip.dragging.evv-timeline-transform-dragging{
+    will-change:transform!important;
+    transition:none!important;
+    backface-visibility:visible!important;
+    -webkit-backface-visibility:visible!important;
+    transform-style:flat!important;
+  }
+</style>
+<script id="ethvelle-v107-performance-fixes-js">
+(function(){
+  'use strict';
+
+  /* The visible background plate is a ::before pseudo-element extending `padding`
+     pixels beyond the text node. The original text selection bounds measured only the
+     node itself; v54 already adds textHighlightPadding, so apply only the missing delta. */
+  const previousSelBoxTarget=window.selBoxTarget;
+  if(typeof previousSelBoxTarget==='function'&&!previousSelBoxTarget.__evv107TextPlateBounds){
+    const wrapped=function(){
+      const target=previousSelBoxTarget.apply(this,arguments);
+      if(!target||target.kind!=='overlay')return target;
+      let list=[];
+      try{list=Array.isArray(window.overlays)?window.overlays:(typeof overlays!=='undefined'?overlays:[]);}catch(_e){}
+      const id=String(window.selectedClip??(typeof selectedClip!=='undefined'?selectedClip:''));
+      const model=list.find(item=>item&&item.type==='text'&&String(item.id)===id);
+      if(!model)return target;
+      const plateEnabled=!!(model.textBackgroundEnabled||model.textHighlightEnabled);
+      const bgPadding=model.textBackgroundPadding;
+      const highlightPadding=model.textHighlightPadding;
+      const platePadding=plateEnabled?Math.max(0,Number(bgPadding==null?(highlightPadding==null?8:highlightPadding):bgPadding)||0):0;
+      const alreadyIncluded=model.textHighlightEnabled?Math.max(0,Number(highlightPadding)||0):0;
+      const correction=platePadding-alreadyIncluded;
+      if(Math.abs(correction)>.01){
+        target.w0=Math.max(34,(Number(target.w0)||34)+2*correction);
+        target.h0=Math.max(30,(Number(target.h0)||30)+2*correction);
+      }
+      return target;
+    };
+    wrapped.__evv107TextPlateBounds=true;
+    window.selBoxTarget=wrapped;
+  }
+
+  /* Padding/background controls update the text node live. Reposition the white selection
+     frame in the same display frame so it grows/shrinks with the visible background plate. */
+  const boundsKeys=new Set([
+    'textBackgroundEnabled','textBackgroundPadding',
+    'textHighlightEnabled','textHighlightPadding'
+  ]);
+  let boundsRefreshRaf=0;
+  function scheduleTextBoundsRefresh(key){
+    if(!boundsKeys.has(String(key))||boundsRefreshRaf)return;
+    boundsRefreshRaf=requestAnimationFrame(function(){
+      boundsRefreshRaf=0;
+      if(typeof window.updateSelBox==='function')window.updateSelBox();
+    });
+  }
+  function wrapBoundsSetter(name){
+    const previous=window[name];
+    if(typeof previous!=='function'||previous.__evv107BoundsRefresh)return;
+    const wrapped=function(key){
+      const result=previous.apply(this,arguments);
+      scheduleTextBoundsRefresh(key);
+      return result;
+    };
+    wrapped.__evv107BoundsRefresh=true;
+    window[name]=wrapped;
+  }
+  wrapBoundsSetter('ethvellePicsartSetValue');
+  wrapBoundsSetter('ethvelleTextStyleChanged');
+})();
+</script>
+
+
+<!-- Ethvelle v108: latest-position input scheduling, lower preview overdraw, and selected-only badge nudge. -->
+<style id="ethvelle-v108-smooth-touch-css">
+  
+  #screen-editor #bottomToolsDefault>.tool-item,
+  #screen-editor #bottomToolsClip>.tool-item,
+  #screen-editor #bottomToolsKeyframe>.tool-item,
+  #screen-editor #bottomToolsDefault button,
+  #screen-editor #bottomToolsClip button,
+  #screen-editor #bottomToolsKeyframe button{flex:0 0 auto!important;touch-action:pan-x!important;}
+</style>
+<script id="ethvelle-v108-smooth-touch-js">
+(function(){
+  'use strict';
+  // Reassert a clean native scroller after the editor's dynamic toolbar rebuilds.
+  ['bottomToolsDefault','bottomToolsClip','bottomToolsKeyframe'].forEach(id=>{
+    const row=document.getElementById(id);if(!row)return;
+    row.style.setProperty('touch-action','pan-x','important');
+    row.style.setProperty('scroll-behavior','auto','important');
+  });
+})();
+</script>
+
+
+
+<!-- Ethvelle v109: shared thumb-only slider engine, lighter live edits, cached rig painting and consistent effect controls. -->
+<style id="ethvelle-v109-responsive-controls-css">
+  /* Match the Text Editing > Shadow control exactly: same label/value row, 4px rail and
+     14px blue thumb with a white ring. Scope to the two clip panels only. */
+  #toolPanel .evca-panel .evpa-range{
+    display:block!important;margin:7px 0 8px!important;color:#D7DBF1!important;
+    font-size:11px!important;font-weight:700!important;
+  }
+  #toolPanel .evca-panel .evpa-range>span{
+    display:flex!important;align-items:center!important;justify-content:space-between!important;
+    gap:8px!important;margin-bottom:4px!important;
+  }
+  #toolPanel .evca-panel .evpa-range output{
+    color:#AAB3FF!important;font-size:11px!important;font-variant-numeric:tabular-nums!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]{
+    -webkit-appearance:none!important;appearance:none!important;display:block!important;
+    width:100%!important;height:17px!important;min-height:17px!important;margin:0!important;padding:0!important;
+    border:0!important;outline:none!important;background:transparent!important;accent-color:#2F5CE8!important;
+    pointer-events:auto!important;touch-action:none!important;-webkit-tap-highlight-color:transparent!important;
+    cursor:ew-resize!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]::-webkit-slider-thumb{
+    -webkit-appearance:none!important;appearance:none!important;width:14px!important;height:14px!important;
+    margin-top:-5px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]::-moz-range-track{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#45495D!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]::-moz-range-progress{
+    height:4px!important;border:0!important;border-radius:4px!important;background:#2F5CE8!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]::-moz-range-thumb{
+    width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  #toolPanel .evca-panel .evpa-range input[type="range"]:focus{outline:none!important;}
+</style>
+
+
+<!-- Ethvelle v110: instant touch scrolling, inertial layer-row movement, strict thumb-only sliders,
+     four-action keyframe toolbar, and safe selection-box deselection. -->
+<style id="ethvelle-v110-instant-touch-css">
+  /* Native vertical scrolling for empty timeline space; clip surfaces use the RAF handoff below. */
+  #screen-editor #timelineScroll{
+    overflow-y:auto!important;overscroll-behavior-y:contain!important;
+    -webkit-overflow-scrolling:touch!important;scroll-behavior:auto!important;
+    touch-action:pan-y!important;
+  }
+
+  /* The bottom tool strips use direct pointer tracking, not a long-press gate. */
+  
+  #screen-editor #bottomToolsDefault .tool-item,
+  #screen-editor #bottomToolsClip .tool-item,
+  #screen-editor #bottomToolsKeyframe .tool-item,
+  #screen-editor #bottomToolsDefault .tool-item *,
+  #screen-editor #bottomToolsClip .tool-item *,
+  #screen-editor #bottomToolsKeyframe .tool-item *{
+    touch-action:pan-y!important;user-select:none!important;-webkit-user-select:none!important;
+    -webkit-touch-callout:none!important;
+  }
+  #screen-editor #bottomToolsDefault .tool-item svg,
+  #screen-editor #bottomToolsClip .tool-item svg,
+  #screen-editor #bottomToolsKeyframe .tool-item svg,
+  #screen-editor #bottomToolsDefault .tool-item span,
+  #screen-editor #bottomToolsClip .tool-item span,
+  #screen-editor #bottomToolsKeyframe .tool-item span{pointer-events:none!important;}
+  #screen-editor #bottomToolsDefault::-webkit-scrollbar,
+  #screen-editor #bottomToolsClip::-webkit-scrollbar,
+  #screen-editor #bottomToolsKeyframe::-webkit-scrollbar{display:none!important;width:0!important;height:0!important;}
+
+  /* Character-keyframe toolbar: exactly the four actions visible in the reference screenshot. */
+  
+  #screen-editor #bottomToolsKeyframe>:not(#keyframeMediaAccessTool):not(#evcaFrameCaptureTool-keyframe):not(#keyframeDoneTool):not(#keyframeDeleteTool):not(.evv-kf-mirror){
+    display:none!important;
+  }
+  #screen-editor #bottomToolsKeyframe>.tool-item:not(#keyframeMediaAccessTool):not(#evcaFrameCaptureTool-keyframe):not(#keyframeDoneTool):not(#keyframeDeleteTool):not(.evv-kf-mirror){
+    display:none!important;
+  }
+  #screen-editor #bottomToolsKeyframe #evv72SaveFrame-keyframe,
+  #screen-editor #bottomToolsKeyframe #evv72AddFrame-keyframe{display:none!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{
+    display:flex!important;flex:1 1 25%!important;flex-shrink:1!important;
+    width:25%!important;min-width:0!important;max-width:25%!important;
+    align-items:center!important;justify-content:center!important;text-align:center!important;
+    padding:10px 2px 8px!important;gap:5px!important;
+  }
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool{order:0!important;}
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe{order:1!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool{order:2!important;}
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{order:3!important;}
+  #screen-editor #bottomToolsKeyframe .evca-frame-capture-tool{flex-basis:25%!important;}
+
+  /* No native range value changes from a rail tap. The visible thumb remains draggable. */
+  #screen-editor input[type="range"]{
+    touch-action:pan-y!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  #screen-editor #toolPanel .evtr-ruler{touch-action:none!important;}
+</style>
+<script id="ethvelle-v110-instant-touch-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const clock=()=>((window.performance&&performance.now)?performance.now():Date.now());
+
+  /* 1. Native-feeling bottom toolbar swipe: begin after a normal 6px move, never a long press. */
+  const toolbarStates=new WeakMap();
+  function bindToolbar(row){
+    if(!row||row.dataset.evv110TouchScroll==='1')return;
+    row.dataset.evv110TouchScroll='1';
+    row.style.setProperty('touch-action','pan-y','important');
+    const state={id:null,mode:'idle',x:0,y:0,lastX:0,lastAt:0,startScroll:0,targetScroll:0,maxScroll:0,velocity:0,moveRaf:0,glideRaf:0,suppressUntil:0};
+    toolbarStates.set(row,state);
+    const stopGlide=()=>{if(state.glideRaf){cancelAnimationFrame(state.glideRaf);state.glideRaf=0;}state.velocity=0;};
+    const flush=()=>{
+      state.moveRaf=0;
+      if(state.mode==='drag')row.scrollLeft=clamp(state.targetScroll,0,state.maxScroll);
+    };
+    const glide=()=>{
+      if(Math.abs(state.velocity)<0.07)return;
+      let previous=clock();
+      const tick=()=>{
+        const t=clock(),dt=Math.min(32,Math.max(1,t-previous));previous=t;
+        const next=clamp(row.scrollLeft+state.velocity*dt,0,state.maxScroll);
+        row.scrollLeft=next;
+        state.velocity*=Math.pow(0.925,dt/16.667);
+        if(next<=0||next>=state.maxScroll||Math.abs(state.velocity)<0.035){state.glideRaf=0;state.velocity=0;return;}
+        state.glideRaf=requestAnimationFrame(tick);
+      };
+      state.glideRaf=requestAnimationFrame(tick);
+    };
+    row.addEventListener('pointerdown',e=>{
+      if(e.isPrimary===false||(e.pointerType==='mouse'&&e.button!==0))return;
+      // Geometry is stable for the duration of one swipe. Read the scroll range once here,
+      // instead of asking layout for scrollWidth/clientWidth on every RAF flush and glide tick.
+      state.maxScroll=Math.max(0,row.scrollWidth-row.clientWidth);
+      if(state.maxScroll<=2)return;
+      stopGlide();
+      state.id=e.pointerId;state.mode='pending';state.x=state.lastX=e.clientX;state.y=e.clientY;
+      state.lastAt=clock();state.startScroll=row.scrollLeft;state.targetScroll=row.scrollLeft;state.velocity=0;
+    },{capture:true,passive:true});
+    row.addEventListener('pointermove',e=>{
+      if(state.id!==e.pointerId)return;
+      const dx=e.clientX-state.x,dy=e.clientY-state.y;
+      if(state.mode==='pending'){
+        if(Math.max(Math.abs(dx),Math.abs(dy))<6)return;
+        if(Math.abs(dy)>Math.abs(dx)*1.12){
+          // Keep the pointer identity until pointerup so the generated click from a vertical
+          // swipe that starts on a tool cannot activate that tool. Clearing state.id here
+          // made pointerup invisible to this controller and let the synthetic click through.
+          state.mode='cancelled';
+          state.suppressUntil=clock()+500;
+          return;
+        }
+        if(Math.abs(dx)<6)return;
+        state.mode='drag';
+        state.suppressUntil=clock()+260;
+        try{row.setPointerCapture(e.pointerId);}catch(_e){}
+      }
+      if(state.mode!=='drag')return;
+      const t=clock(),dt=Math.max(1,t-state.lastAt),deltaX=e.clientX-state.lastX;
+      const instant=-deltaX/dt;
+      state.velocity=clamp(state.velocity*.32+instant*.68,-2.4,2.4);
+      state.lastX=e.clientX;state.lastAt=t;
+      state.targetScroll=state.startScroll-dx;
+      if(!state.moveRaf)state.moveRaf=requestAnimationFrame(flush);
+      if(e.cancelable)e.preventDefault();
+      e.stopPropagation();
+    },{passive:false});
+    row.addEventListener('pointerup',e=>{
+      if(state.id!==e.pointerId)return;
+      const dragged=state.mode==='drag';
+      if(state.moveRaf){cancelAnimationFrame(state.moveRaf);state.moveRaf=0;flush();}
+      state.id=null;state.mode='idle';
+      if(dragged){state.suppressUntil=clock()+260;try{row.releasePointerCapture(e.pointerId);}catch(_e){}glide();}
+    },{passive:true});
+    row.addEventListener('pointercancel',e=>{
+      if(state.id!==e.pointerId)return;
+      state.id=null;state.mode='idle';state.velocity=0;state.suppressUntil=0;
+      if(state.moveRaf){cancelAnimationFrame(state.moveRaf);state.moveRaf=0;}
+    },{passive:true});
+    row.addEventListener('click',e=>{
+      if(!state.suppressUntil)return;
+      if(clock()>state.suppressUntil){state.suppressUntil=0;return;}
+      state.suppressUntil=0;e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+    },true);
+  }
+  ['bottomToolsDefault','bottomToolsClip','bottomToolsKeyframe'].forEach(id=>bindToolbar($(id)));
+
+  /* 2. Hidden Transform ruler: require a grab on its centre marker, not a random rail tap. */
+  document.addEventListener('pointerdown',e=>{
+    const target=e.target;
+    const ruler=target&&target.closest?target.closest('#screen-editor #toolPanel .evtr-ruler'):null;
+    if(ruler){
+      const r=ruler.getBoundingClientRect();
+      // The transform ruler has a fixed blue centre marker; only that marker can start a drag.
+      if(Math.abs(e.clientX-(r.left+r.width/2))>13||Math.abs(e.clientY-(r.top+r.height/2))>Math.min(24,r.height/2+1)){
+        if(e.cancelable)e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      }
+    }
+  },{capture:true,passive:false});
+
+  /* 3. Finish clip-row scrolling with gentle inertia after the direct RAF handoff. */
+  let clipGlideRaf=0,clipGlideGeneration=0;
+  function stopClipGlide(){clipGlideGeneration++;if(clipGlideRaf){cancelAnimationFrame(clipGlideRaf);clipGlideRaf=0;}}
+  function startClipGlide(){
+    const generation=++clipGlideGeneration;
+    const motion=window.__ethvelleV110ClipScrollMotion;
+    if(!motion||!motion.scroller||!motion.scroller.isConnected)return;
+    motion.active=false;
+    let velocity=clamp(Number(motion.velocity)||0,-2.4,2.4);
+    const scroller=motion.scroller;
+    // Flush the last finger position first; the original helper may have one RAF queued.
+    requestAnimationFrame(()=>{
+      if(generation!==clipGlideGeneration)return;
+      if(Number.isFinite(motion.targetTop))scroller.scrollTop=clamp(motion.targetTop,0,Math.max(0,scroller.scrollHeight-scroller.clientHeight));
+      if(Math.abs(velocity)<0.07)return;
+      let previous=clock();
+      const tick=()=>{
+        const t=clock(),dt=Math.min(32,Math.max(1,t-previous));previous=t;
+        const max=Math.max(0,scroller.scrollHeight-scroller.clientHeight);
+        const next=clamp(scroller.scrollTop+velocity*dt,0,max);
+        scroller.scrollTop=next;
+        velocity*=Math.pow(0.93,dt/16.667);
+        if(next<=0||next>=max||Math.abs(velocity)<0.035){clipGlideRaf=0;return;}
+        clipGlideRaf=requestAnimationFrame(tick);
+      };
+      clipGlideRaf=requestAnimationFrame(tick);
+    });
+  }
+  document.addEventListener('pointerdown',e=>{
+    if(e.target?.closest?.('#screen-editor #timelineScroll')){
+      stopClipGlide();
+      const m=window.__ethvelleV110ClipScrollMotion;if(m)m.active=false;
+    }
+  },{capture:true,passive:true});
+  document.addEventListener('pointerup',()=>{
+    const m=window.__ethvelleV110ClipScrollMotion;
+    if(m&&m.active)startClipGlide();
+  },{capture:true,passive:true});
+  document.addEventListener('pointercancel',()=>{
+    const m=window.__ethvelleV110ClipScrollMotion;if(m)m.active=false;
+    stopClipGlide();
+  },{capture:true,passive:true});
+
+  /* 4. Selection-outline X: block the legacy pointer/click delete handlers, then deselect. */
+  const closeButton=$('sbDelete');
+  if(closeButton){
+    closeButton.title='Deselect layer';closeButton.setAttribute('aria-label','Deselect layer');
+    closeButton.setAttribute('role','button');closeButton.tabIndex=0;
+    closeButton.addEventListener('pointerdown',e=>{e.stopPropagation();e.stopImmediatePropagation();},true);
+    const deselect=e=>{
+      e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();
+      if(typeof window.deselectAllClips==='function')window.deselectAllClips();
+      else if(typeof deselectAllClips==='function')deselectAllClips();
+    };
+    closeButton.addEventListener('click',deselect,true);
+    closeButton.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){deselect(e);}},true);
+  }
+})();
+</script>
+
+<style id="ethvelle-v110-keyframe-toolbar-options-css">
+  
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool,
+  #screen-editor #bottomToolsKeyframe #evcaFrameCaptureTool-keyframe,
+  #screen-editor #bottomToolsKeyframe #keyframeDoneTool,
+  #screen-editor #bottomToolsKeyframe #keyframeDeleteTool{
+    flex:0 0 25%!important;width:25%!important;min-width:0!important;max-width:25%!important;
+  }
+  #screen-editor #bottomToolsKeyframe .evv-kf-mirror{
+    display:flex!important;flex:0 0 auto!important;flex-shrink:0!important;
+    min-width:68px!important;max-width:none!important;width:auto!important;
+    align-items:center!important;justify-content:center!important;text-align:center!important;
+    padding:10px 7px 8px!important;gap:5px!important;cursor:pointer!important;
+  }
+  #screen-editor #bottomToolsKeyframe .evv-kf-mirror *{pointer-events:none!important;}
+</style>
+<script id="ethvelle-v110-keyframe-toolbar-options-js">
+(function(){
+  'use strict';
+  const clipRow=document.getElementById('bottomToolsClip');
+  const keyRow=document.getElementById('bottomToolsKeyframe');
+  if(!clipRow||!keyRow)return;

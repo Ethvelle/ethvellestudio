@@ -1,0 +1,1000 @@
+      try{const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls[model.id])||null;if(el){if(model.type==='video'){el.autoplay=false;el.removeAttribute('autoplay');try{el.pause();}catch(_e){}}if(el.src!==url){el.src=url;if(model.type==='video'){el.dataset.evWarmSrc=window.evEffectiveVideoSrc(model);el.load();window.evPrimeEnhancedVideo(el,url);try{el.pause();}catch(_e){}}}else if(model.type==='video'){el.dataset.evWarmSrc=window.evEffectiveVideoSrc(model);window.evPrimeEnhancedVideo(el,url);}el.style.filter='none';el.style.opacity='1';}}catch(e){}
+    }else{try{if(typeof refreshCurrentBgFromPlayhead==='function')refreshCurrentBgFromPlayhead();if(typeof applyBackground==='function')applyBackground();}catch(e){}}
+    try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();}catch(e){}
+    try{if(typeof renderFrame==='function')renderFrame();}catch(e){}
+    try{if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();}catch(e){}
+    // Only save the project pointer when the large media Blob itself was stored successfully.
+    if(assetInfo)try{if(typeof persistProjectState==='function')persistProjectState();}catch(e){}
+    return url;
+  }
+  async function restoreEnhancedAssets(){
+    const tasks=[];
+    const all=[...(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds)?backgrounds:[]),...(typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[])];
+    all.forEach(model=>{if(!model||!model.enhancedAssetKey||!model.enhancedBaseStamp||mediaStamp(model.deviceMediaKey?'ethvelle-device-media:'+model.deviceMediaKey:model.src)!==model.enhancedBaseStamp)return;tasks.push((async()=>{try{const rec=await loadEnhancedMedia(model.enhancedAssetKey);if(!rec||!rec.blob||mediaStamp(model.deviceMediaKey?'ethvelle-device-media:'+model.deviceMediaKey:model.src)!==rec.stamp)return;defineRuntimeUrl(model,URL.createObjectURL(rec.blob),rec.quality||model.enhancedAssetQuality||1080);}catch(e){console.warn('Ethvelle: saved enhanced media could not be restored',e);}})());});
+    await Promise.all(tasks);if(tasks.length){try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();if(typeof refreshCurrentBgFromPlayhead==='function')refreshCurrentBgFromPlayhead();if(typeof applyBackground==='function')applyBackground();if(typeof renderFrame==='function')renderFrame();}catch(e){}}
+  }
+  const oldOpenEditor=window.openEditor;
+  if(typeof oldOpenEditor==='function'&&!oldOpenEditor.__evltV5Restore){const wrapped=function(){const r=oldOpenEditor.apply(this,arguments);setTimeout(()=>restoreEnhancedAssets(),60);return r;};wrapped.__evltV5Restore=true;window.openEditor=wrapped;}
+  function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>{try{URL.revokeObjectURL(url);}catch(e){}},60000);}
+  function outputSize(iw,ih,quality){const ratio=iw/ih;let w,h;if(ratio>=1){h=quality;w=Math.round(quality*ratio);}else{w=quality;h=Math.round(quality/ratio);}return {w:Math.max(2,w-(w%2)),h:Math.max(2,h-(h%2))};}
+  // Per-frame enhancement renderer. WebGL performs bicubic sampling/upscale and the
+  // denoise/contrast/sharpen/vibrance passes on the GPU; Canvas2D is the compatibility path.
+  function createEnhancePipeline(sourceWidth,sourceHeight,outWidth,outHeight,pipeOpts){
+    const sw=Math.max(2,Math.round(sourceWidth||2)),sh=Math.max(2,Math.round(sourceHeight||2));
+    const ow=Math.max(2,Math.round(outWidth||sw)),oh=Math.max(2,Math.round(outHeight||sh));
+    const stage=document.createElement('canvas');stage.width=sw;stage.height=sh;
+    const stageCtx=stage.getContext('2d',{alpha:false,desynchronized:true});
+    if(!stageCtx)throw new Error('Frame staging is unavailable in this browser.');
+    stageCtx.imageSmoothingEnabled=true;stageCtx.imageSmoothingQuality='high';
+    const vertexSource='attribute vec2 a_position; varying vec2 v_uv; void main(){v_uv=(a_position+1.0)*0.5;gl_Position=vec4(a_position,0.0,1.0);}';
+    const fragmentSource=`
+      precision highp float;
+      uniform sampler2D u_image;
+      uniform vec2 u_sourceSize;
+      uniform vec2 u_outputSize;
+      uniform float u_amount;
+      varying vec2 v_uv;
+      float luma(vec3 c){return dot(c,vec3(0.2126,0.7152,0.0722));}
+      float cubic(float v){v=abs(v);if(v<=1.0)return 1.5*v*v*v-2.5*v*v+1.0;if(v<2.0)return -0.5*v*v*v+2.5*v*v-4.0*v+2.0;return 0.0;}
+      vec4 bicubicSample(vec2 uv){
+#ifdef EV_UNITY
+        /* v288: output is the same size as the source, so every output pixel centre lands exactly on a source
+           texel centre and the 16-tap bicubic collapses to that single texel. Identical result, 1 fetch. */
+        return texture2D(u_image,uv);
+#else
+#ifdef EV_LITE
+        /* v289 lite: one hardware-bilinear tap for the upscale. The enhance passes below (denoise / contrast / unsharp) still run. */
+        return texture2D(u_image,uv);
+#else
+#ifdef EV_FAST
+        /* v288: exact Catmull-Rom (same weights as the legacy loop below) using 9 hardware-bilinear fetches
+           instead of 16 nearest fetches. */
+        vec2 sp=uv*u_sourceSize;
+        vec2 t1=floor(sp-0.5)+0.5;
+        vec2 f=sp-t1;
+        vec2 w0=f*(-0.5+f*(1.0-0.5*f));
+        vec2 w1=1.0+f*f*(-2.5+1.5*f);
+        vec2 w2=f*(0.5+f*(2.0-1.5*f));
+        vec2 w3=f*f*(-0.5+0.5*f);
+        vec2 w12=w1+w2;
+        vec2 o12=w2/max(w12,vec2(0.0001));
+        vec2 inv=1.0/u_sourceSize;
+        vec2 p0=(t1-1.0)*inv;
+        vec2 p3=(t1+2.0)*inv;
+        vec2 p12=(t1+o12)*inv;
+        vec4 c=texture2D(u_image,vec2(p0.x,p0.y))*(w0.x*w0.y);
+        c+=texture2D(u_image,vec2(p12.x,p0.y))*(w12.x*w0.y);
+        c+=texture2D(u_image,vec2(p3.x,p0.y))*(w3.x*w0.y);
+        c+=texture2D(u_image,vec2(p0.x,p12.y))*(w0.x*w12.y);
+        c+=texture2D(u_image,vec2(p12.x,p12.y))*(w12.x*w12.y);
+        c+=texture2D(u_image,vec2(p3.x,p12.y))*(w3.x*w12.y);
+        c+=texture2D(u_image,vec2(p0.x,p3.y))*(w0.x*w3.y);
+        c+=texture2D(u_image,vec2(p12.x,p3.y))*(w12.x*w3.y);
+        c+=texture2D(u_image,vec2(p3.x,p3.y))*(w3.x*w3.y);
+        return c;
+#else
+        vec2 pixel=uv*u_sourceSize-0.5;vec2 base=floor(pixel);vec2 f=fract(pixel);
+        vec4 sum=vec4(0.0);float total=0.0;
+        for(int y=-1;y<=2;y++){for(int x=-1;x<=2;x++){
+          float weight=cubic(float(x)-f.x)*cubic(float(y)-f.y);
+          vec2 at=(base+vec2(float(x),float(y))+0.5)/u_sourceSize;
+          sum+=texture2D(u_image,clamp(at,vec2(0.0),vec2(1.0)))*weight;total+=weight;
+        }}
+        return sum/max(total,0.0001);
+#endif
+#endif
+#endif
+      }
+      void main(){
+        vec4 raw=bicubicSample(v_uv);vec3 original=raw.rgb;
+        float a=clamp(u_amount,0.0,1.0);
+        if(a<0.0001){gl_FragColor=vec4(original,raw.a);return;}
+        vec2 t=1.0/u_sourceSize;
+        vec3 n1=texture2D(u_image,clamp(v_uv+vec2(t.x,0.0),vec2(0.0),vec2(1.0))).rgb;
+        vec3 n2=texture2D(u_image,clamp(v_uv-vec2(t.x,0.0),vec2(0.0),vec2(1.0))).rgb;
+        vec3 n3=texture2D(u_image,clamp(v_uv+vec2(0.0,t.y),vec2(0.0),vec2(1.0))).rgb;
+        vec3 n4=texture2D(u_image,clamp(v_uv-vec2(0.0,t.y),vec2(0.0),vec2(1.0))).rgb;
+        float y=luma(original);
+        float w1=exp(-abs(y-luma(n1))*16.0)*0.25;
+        float w2=exp(-abs(y-luma(n2))*16.0)*0.25;
+        float w3=exp(-abs(y-luma(n3))*16.0)*0.25;
+        float w4=exp(-abs(y-luma(n4))*16.0)*0.25;
+        vec3 local=(n1*w1+n2*w2+n3*w3+n4*w4)/max(w1+w2+w3+w4,0.0001);
+        vec3 denoised=mix(original,local,a*0.18);
+        float localY=luma((n1+n2+n3+n4)*0.25);
+        float adaptive=clamp(abs(y-localY)*3.0,0.0,1.0);
+        vec3 contrasted=(denoised-0.5)*(1.0+a*(0.20+0.15*adaptive))+0.5;
+        float shadow=pow(max(0.0,1.0-y),2.0);
+        contrasted+=vec3(shadow*a*0.105);
+        vec3 sharpened=contrasted+(denoised-local)*a*0.58;
+        float gray=luma(sharpened);
+        float saturation=max(max(sharpened.r,sharpened.g),sharpened.b)-min(min(sharpened.r,sharpened.g),sharpened.b);
+        sharpened+=(sharpened-vec3(gray))*a*0.27*(1.0-clamp(saturation,0.0,1.0));
+        // A second, lighter post-upscale sharpen keeps fine edges legible after interpolation.
+        sharpened+=(original-local)*a*0.12;
+        gl_FragColor=vec4(clamp(sharpened,0.0,1.0),raw.a);
+      }`;
+    function compile(gl,type,source){const shd=gl.createShader(type);gl.shaderSource(shd,source);gl.compileShader(shd);if(!gl.getShaderParameter(shd,gl.COMPILE_STATUS)){const msg=gl.getShaderInfoLog(shd)||'Shader compilation failed';gl.deleteShader(shd);throw new Error(msg);}return shd;}
+    function createGLCanvas(){
+      const unity=(ow===sw&&oh===sh);
+      const lite=!!(pipeOpts&&pipeOpts.lite)&&!unity&&ow>=sw&&oh>=sh;
+      let r=null;
+      if(lite){try{r=buildGLCanvas('#define EV_FAST 1\n#define EV_LITE 1\n');if(r)r.lite=true;}catch(_e){r=null;}}
+      if(!r){try{r=buildGLCanvas('#define EV_FAST 1\n'+(unity?'#define EV_UNITY 1\n':''));}catch(_e){r=null;}}
+      if(!r){try{r=buildGLCanvas('');}catch(_e){r=null;}}
+      return r;
+    }
+    function buildGLCanvas(shaderDefs){
+      const canvas=document.createElement('canvas');canvas.width=ow;canvas.height=oh;
+      let gl=null;try{gl=canvas.getContext('webgl',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance',preserveDrawingBuffer:true,premultipliedAlpha:false})||canvas.getContext('experimental-webgl',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance',preserveDrawingBuffer:true,premultipliedAlpha:false});}catch(_e){}
+      if(!gl)return null;
+      let program=null,texture=null,buffer=null,uAmountLoc=null,texW=0,texH=0;
+      try{
+        const vs=compile(gl,gl.VERTEX_SHADER,vertexSource),fs=compile(gl,gl.FRAGMENT_SHADER,shaderDefs+fragmentSource);
+        program=gl.createProgram();gl.attachShader(program,vs);gl.attachShader(program,fs);gl.linkProgram(program);
+        if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw new Error(gl.getProgramInfoLog(program)||'WebGL program link failed');
+        gl.deleteShader(vs);gl.deleteShader(fs);
+        buffer=gl.createBuffer();gl.bindBuffer(gl.ARRAY_BUFFER,buffer);gl.bufferData(gl.ARRAY_BUFFER,new Float32Array([-1,-1,1,-1,-1,1,1,1]),gl.STATIC_DRAW);
+        texture=gl.createTexture();gl.bindTexture(gl.TEXTURE_2D,texture);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE);gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+        gl.useProgram(program);const pos=gl.getAttribLocation(program,'a_position');gl.enableVertexAttribArray(pos);gl.vertexAttribPointer(pos,2,gl.FLOAT,false,0,0);
+        gl.uniform1i(gl.getUniformLocation(program,'u_image'),0);uAmountLoc=gl.getUniformLocation(program,'u_amount');gl.uniform2f(gl.getUniformLocation(program,'u_sourceSize'),sw,sh);gl.uniform2f(gl.getUniformLocation(program,'u_outputSize'),ow,oh);
+        gl.viewport(0,0,ow,oh);gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);gl.pixelStorei(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL,false);
+        return {canvas,gl,program,texture,buffer,draw(src){gl.viewport(0,0,ow,oh);gl.useProgram(program);gl.activeTexture(gl.TEXTURE0);gl.bindTexture(gl.TEXTURE_2D,texture);const us=src||stage,uw=us.videoWidth||us.naturalWidth||us.width,uh=us.videoHeight||us.naturalHeight||us.height;/* v289: allocate once, then only overwrite the texels */if(texW===uw&&texH===uh){gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,gl.RGBA,gl.UNSIGNED_BYTE,us);}else{gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,us);texW=uw;texH=uh;}gl.uniform1f(uAmountLoc,amountValue);gl.drawArrays(gl.TRIANGLE_STRIP,0,4);},dispose(){try{gl.deleteTexture(texture);gl.deleteBuffer(buffer);gl.deleteProgram(program);}catch(_e){}}};
+      }catch(_e){console.warn('Ethvelle WebGL enhancement fallback:',_e);try{if(texture)gl.deleteTexture(texture);if(buffer)gl.deleteBuffer(buffer);if(program)gl.deleteProgram(program);}catch(__e){}try{const lose=gl.getExtension&&gl.getExtension('WEBGL_lose_context');if(lose)lose.loseContext();}catch(__e){}return null;}
+    }
+    let amountValue=0,glRenderer=createGLCanvas(),canvas=glRenderer?glRenderer.canvas:document.createElement('canvas'),ctx=null;
+    if(!glRenderer){canvas.width=ow;canvas.height=oh;ctx=canvas.getContext('2d',{alpha:false,willReadFrequently:true});if(!ctx)throw new Error('Neither WebGL nor Canvas2D frame processing is available.');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';}
+    function renderFallback(amount){
+      ctx.clearRect(0,0,ow,oh);ctx.drawImage(stage,0,0,ow,oh);
+      if(amount<=0)return;
+      const image=ctx.getImageData(0,0,ow,oh),src=image.data,out=ctx.createImageData(ow,oh),dst=out.data;
+      const lum=(r,g,b)=>r*.2126+g*.7152+b*.0722,scale=amount/100;
+      for(let y=0;y<oh;y++){for(let x=0;x<ow;x++){
+        const i=(y*ow+x)*4,r=src[i],g=src[i+1],b=src[i+2],yy=lum(r,g,b);
+        let sr=r,sg=g,sb=b,weights=1;
+        const offsets=[x>0?i-4:-1,x<ow-1?i+4:-1,y>0?i-ow*4:-1,y<oh-1?i+ow*4:-1];
+        for(let k=0;k<4;k++){const n=offsets[k];if(n<0)continue;const ny=lum(src[n],src[n+1],src[n+2]),w=Math.exp(-Math.abs(yy-ny)/255*16)*.25;sr+=src[n]*w;sg+=src[n+1]*w;sb+=src[n+2]*w;weights+=w;}
+        const lr=sr/weights,lg=sg/weights,lb=sb/weights,localY=lum((r+lr)/2,(g+lg)/2,(b+lb)/2);
+        const denR=r+(lr-r)*scale*.18,denG=g+(lg-g)*scale*.18,denB=b+(lb-b)*scale*.18;
+        const adapt=Math.min(1,Math.abs(yy-localY)/255*3),contrast=1+scale*(.20+.15*adapt),shadow=Math.pow(Math.max(0,1-yy/255),2)*scale*26.8;
+        let nr=(denR-127.5)*contrast+127.5+shadow+(denR-lr)*scale*.58;
+        let ng=(denG-127.5)*contrast+127.5+shadow+(denG-lg)*scale*.58;
+        let nb=(denB-127.5)*contrast+127.5+shadow+(denB-lb)*scale*.58;
+        const gray=lum(nr,ng,nb),sat=(Math.max(nr,ng,nb)-Math.min(nr,ng,nb))/255,vib=scale*.27*(1-Math.max(0,Math.min(1,sat)));
+        nr+=(nr-gray)*vib+(r-lr)*scale*.12;ng+=(ng-gray)*vib+(g-lg)*scale*.12;nb+=(nb-gray)*vib+(b-lb)*scale*.12;
+        dst[i]=Math.max(0,Math.min(255,nr));dst[i+1]=Math.max(0,Math.min(255,ng));dst[i+2]=Math.max(0,Math.min(255,nb));dst[i+3]=src[i+3];
+      }}
+      ctx.putImageData(out,0,0);
+      // Separate, restrained post-sharpen after the upscale/denoise pass.
+      const post=ctx.getImageData(0,0,ow,oh),pd=post.data,sharpened=ctx.createImageData(ow,oh),sd=sharpened.data;
+      for(let y=0;y<oh;y++){for(let x=0;x<ow;x++){
+        const i=(y*ow+x)*4;for(let c=0;c<3;c++){
+          let sum=0,n=0;if(x>0){sum+=pd[i-4+c];n++;}if(x<ow-1){sum+=pd[i+4+c];n++;}if(y>0){sum+=pd[i-ow*4+c];n++;}if(y<oh-1){sum+=pd[i+ow*4+c];n++;}
+          sd[i+c]=Math.max(0,Math.min(255,pd[i+c]+(pd[i+c]-(n?sum/n:pd[i+c]))*scale*.12));
+        }sd[i+3]=pd[i+3];
+      }}ctx.putImageData(sharpened,0,0);
+    }
+    let directBroken=false;
+    const directAllowed=!!(pipeOpts&&pipeOpts.direct);
+    return {canvas,renderer:glRenderer?'WebGL':'Canvas2D',lite:!!(glRenderer&&glRenderer.lite),render(source,filter,amount){
+      amountValue=clamp(amount,0,100)/100;
+      /* v289: when no CSS adjustment filter is active, hand the decoded video frame straight to the GPU instead of
+         first copying it through a full-resolution 2D staging canvas (one whole extra frame copy per frame). */
+      if(glRenderer&&directAllowed&&!directBroken&&(!filter||filter==='none')){
+        const dw=source.videoWidth||source.naturalWidth||source.width,dh=source.videoHeight||source.naturalHeight||source.height;
+        if(dw===sw&&dh===sh){try{glRenderer.draw(source);return canvas;}catch(_e){directBroken=true;}}
+      }
+      stageCtx.save();stageCtx.filter=filter&&filter!=='none'?filter:'none';stageCtx.clearRect(0,0,sw,sh);stageCtx.drawImage(source,0,0,sw,sh);stageCtx.restore();
+      if(glRenderer)glRenderer.draw();else renderFallback(amountValue*100);return canvas;
+    },dispose(){if(glRenderer)glRenderer.dispose();stage.width=stage.height=1;canvas.width=canvas.height=1;}};
+  }
+  window.ethvelleCreateEnhancePipeline=createEnhancePipeline;
+  window.ethvelleGetEnhanceOutputSize=outputSize;
+  function status(text,pct){const el=$('evltEnhanceStatus');if(el)el.textContent=text||'';const bar=$('evltEnhanceProgress'),fill=$('evltEnhanceProgressFill');if(bar)bar.style.display=pct==null?'none':'block';if(fill&&pct!=null)fill.style.width=clamp(pct,0,100)+'%';}
+  function setCompare(percent){
+    const p=clamp(percent,0,100),after=$('evltAfterLayer'),wipe=$('evltCompareWipe'),range=$('evltCompare');
+    // Base image/video is BEFORE on the left; enhanced media is AFTER on the right.
+    if(after)after.style.clipPath=`inset(0 0 0 ${100-p}%)`;
+    if(wipe)wipe.style.left=p+'%';if(range)range.value=String(p);
+  }
+  window.ethvelleSetEnhanceCompare=setCompare;
+  function showRuntimeInCompare(){
+    const t=liveTarget();if(!t||!t.model.__evltRuntimeEnhancedSrc)return;
+    const afterLayer=$('evltAfterLayer');if(!afterLayer)return;
+    const media=afterLayer.querySelector('video,img');if(!media)return;
+    const url=t.model.__evltRuntimeEnhancedSrc;
+    if(media.src!==url){media.src=url;if(media.tagName==='VIDEO'){media.muted=true;media.playsInline=true;media.loop=false;media.preload='metadata';try{media.pause();}catch(_e){}}}
+    if(media.tagName==='VIDEO'){try{media.pause();}catch(_e){}}
+    afterLayer.style.filter='none';setCompare($('evltCompare')?.value||50);
+  }
+  function syncComparePanel(){setCompare($('evltCompare')?.value||50);showRuntimeInCompare();}
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__evltV5Compare){
+    const wrapped=function(key){const r=oldOpenPanel.apply(this,arguments);if(key==='evltEnhance')setTimeout(syncComparePanel,40);return r;};wrapped.__evltV5Compare=true;window.openPanel=wrapped;
+  }
+  // Apply a processed runtime source after the editor's own renderer has updated its media elements.
+  const oldRenderMedia=window.renderOverlayMedia;
+  if(typeof oldRenderMedia==='function'&&!oldRenderMedia.__evltV5Runtime){
+    const wrapped=function(){const r=oldRenderMedia.apply(this,arguments);try{(overlays||[]).forEach(ov=>{if(!ov||!ov.__evltRuntimeEnhancedSrc)return;const el=overlayMediaEls&&overlayMediaEls[ov.id];if(!el)return;const u=ov.__evltRuntimeEnhancedSrc;if(ov.type==='video'){el.autoplay=false;el.removeAttribute('autoplay');}if(el.src!==u){el.src=u;if(ov.type==='video'){el.dataset.evWarmSrc=window.evEffectiveVideoSrc(ov);el.load();window.evPrimeEnhancedVideo(el,u);try{el.pause();}catch(_e){}}}else if(ov.type==='video'){el.dataset.evWarmSrc=window.evEffectiveVideoSrc(ov);window.evPrimeEnhancedVideo(el,u);}el.style.filter='none';});}catch(e){}return r;};wrapped.__evltV5Runtime=true;window.renderOverlayMedia=wrapped;
+  }
+  const oldApplyBg=window.applyBackground;
+  if(typeof oldApplyBg==='function'&&!oldApplyBg.__evltV5Runtime){
+    const wrapped=function(){const r=oldApplyBg.apply(this,arguments);try{const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0)):null;const url=bg&&bg.__evltRuntimeEnhancedSrc,img=$('bgImgLayer');if(url&&img){if(img.src!==url)img.src=url;img.style.display='block';img.style.filter='none';}}catch(e){}return r;};wrapped.__evltV5Runtime=true;window.applyBackground=wrapped;
+  }
+  function setPendingOutput(target,blob,quality){
+    if(pendingPreviewURL){try{URL.revokeObjectURL(pendingPreviewURL);}catch(e){}}
+    pendingPreviewURL=URL.createObjectURL(blob);
+    pendingEnhancement={target,blob,quality:Number(quality)||1080};
+    try{Object.defineProperty(target.model,'__evltPendingEnhancedSrc',{value:pendingPreviewURL,writable:true,configurable:true,enumerable:false});}catch(e){target.model.__evltPendingEnhancedSrc=pendingPreviewURL;}
+    try{Object.defineProperty(target.model,'__evltPendingEnhancedQuality',{value:Number(quality)||1080,writable:true,configurable:true,enumerable:false});}catch(e){target.model.__evltPendingEnhancedQuality=Number(quality)||1080;}
+    try{Object.defineProperty(target.model,'__evltEnhanceChosenQuality',{value:Number(quality)||1080,writable:true,configurable:true,enumerable:false});}catch(e){target.model.__evltEnhanceChosenQuality=Number(quality)||1080;}
+    try{if(typeof window.__ethvelleV46RefreshQualityBadges==='function')window.__ethvelleV46RefreshQualityBadges();}catch(_e){}
+    const apply=$('evltEnhanceApply');if(apply)apply.disabled=false;
+  }
+  window.ethvelleApplyVideoEnhance=async function(){
+    const pending=pendingEnhancement;if(!pending){status('Tap Enhance first, then Apply.',null);return;}
+    const current=resolvePendingTarget(pending);if(!current){status('The enhanced clip is no longer available in this project.',null);return;}
+    const apply=$('evltEnhanceApply');if(apply){apply.disabled=true;apply.textContent='Applying…';}
+    try{
+      const stored=await storeEnhancedMedia(current,pending.blob,pending.quality);
+      if(current.kind==='overlay'&&current.type==='video'){
+        const m=current.model;
+        if(m.enhancedOriginalSourceOffset==null)m.enhancedOriginalSourceOffset=Number(m.sourceOffset)||0;
+        if(m.enhancedOriginalSpeed==null)m.enhancedOriginalSpeed=Number(m.speed)||1;
+        m.sourceOffset=0;m.speed=1;
+      }
+      setRuntimeOutput(current,pending.blob,pending.quality,stored);
+      try{delete current.model.__evltPendingEnhancedSrc;delete current.model.__evltPendingEnhancedQuality;}catch(e){}
+      if(pendingPreviewURL){try{URL.revokeObjectURL(pendingPreviewURL);}catch(e){}pendingPreviewURL=null;}
+      pendingEnhancement=null;
+      status(`${qualityLabel(pending.quality)} · Applied`,100);
+      if(typeof showToast==='function')showToast(stored?'Enhancement applied to the clip':'Enhancement applied for this session; device storage was unavailable.',{duration:stored?1800:2600});
+      setTimeout(syncComparePanel,50);
+      try{if(typeof window.__ethvelleDeviceSaveNow==='function')window.__ethvelleDeviceSaveNow();}catch(e){}
+    }catch(err){console.error('Ethvelle Apply:',err);status(err&&err.message?err.message:'Could not apply the enhancement.',null);if(typeof showToast==='function')showToast(err&&err.message?err.message:'Could not apply enhancement',{duration:2400});}
+    finally{if(apply){apply.disabled=!pendingEnhancement;apply.textContent='Apply';}}
+  };
+  /* Videos restored after a refresh (and enhanced clips, which are MediaRecorder .webm blobs) often report
+     duration = Infinity/0 or have no decoded frame size yet, which used to fail with "Video has no readable
+     frames". Wait for the first frame, force the browser to compute the real duration, and as a last
+     resort fall back to the clip's own trim length. */
+  async function evPrepareReadableVideo(v,model){
+    const waitEvt=(name,ms)=>new Promise(res=>{let d=false;const fin=()=>{if(d)return;d=true;v.removeEventListener(name,fin);clearTimeout(g);res();};const g=setTimeout(fin,ms);v.addEventListener(name,fin,{once:true});});
+    if(!v.videoWidth||!v.videoHeight||v.readyState<2){if(v.readyState<2)await waitEvt('loadeddata',5000);}
+    if(!Number.isFinite(v.duration)||v.duration<=0){
+      await new Promise(res=>{let d=false;const fin=()=>{if(d)return;d=true;v.removeEventListener('durationchange',chk);v.removeEventListener('seeked',fin);clearTimeout(g);res();};const chk=()=>{if(Number.isFinite(v.duration)&&v.duration>0)fin();};const g=setTimeout(fin,3500);v.addEventListener('durationchange',chk);v.addEventListener('seeked',fin);try{v.currentTime=1e7;}catch(_e){fin();}});
+      const seekedBack=waitEvt('seeked',1500);try{v.currentTime=0;}catch(_e){}await seekedBack;
+    }
+    if(!Number.isFinite(v.duration)||v.duration<=0){
+      const span=Math.max(0,Number(model&&model.trimEnd)-Number(model&&model.trimStart))*Math.max(.05,Number(model&&model.speed)||1),fallback=(Number(model&&model.sourceOffset)||0)+span;
+      if(fallback>0){try{Object.defineProperty(v,'duration',{configurable:true,get:()=>fallback});}catch(_e){}}
+    }
+    if(!v.videoWidth||!v.videoHeight){await waitEvt('loadeddata',2500);}
+  }
+  /* v286 ENCODER FIX: Chrome (especially on Android) says H.264 is "supported" but its hardware encoder rejects
+     2K/4K frames with "The given encoder configuration is not supported by the encoder." Before recording we now
+     really test each size/codec on a throw-away canvas stream and use the first combination that actually starts
+     encoding (H.264 hardware -> VP8 -> VP9 -> WebM default), stepping the size down 4K -> 2K -> 1080p -> 720p only
+     if nothing at the requested size can encode. */
+  const EV_ENHANCE_LADDER=[2160,1440,1080,720];
+  const EV_OUT_FPS=30; /* v289: output is capped at 30 fps; faster sources are decimated, which halves the work for 50/60 fps clips */
+  const evFastPathOn=()=>{try{if(window.EV_ENHANCE_FAST_PATH===false)return false;if(localStorage.getItem('ethvelle.enhanceFastPath')==='0')return false;}catch(_e){}return true;};
+  const evEncProbeCache=new Map();
+  async function evProbeEnhanceEncoder(w,h,mime,bitrate){
+    let c=null,s=null,t=null,r=null,timer=0,killer=0,failed=false,gotData=false;
+    try{
+      if(typeof MediaRecorder==='undefined')return false;
+      c=document.createElement('canvas');c.width=w;c.height=h;const x=c.getContext('2d');if(!x)return false;
+      x.fillStyle='#202020';x.fillRect(0,0,w,h);
+      s=c.captureStream(0);t=s.getVideoTracks&&s.getVideoTracks()[0];
+      r=mime?new MediaRecorder(s,{mimeType:mime,videoBitsPerSecond:bitrate}):new MediaRecorder(s,{videoBitsPerSecond:bitrate});
+      await new Promise(resolve=>{
+        let done=false;const fin=()=>{if(done)return;done=true;clearInterval(timer);clearTimeout(killer);resolve();};
+        r.ondataavailable=e=>{if(e.data&&e.data.size>0){gotData=true;fin();}};
+        r.onerror=()=>{failed=true;fin();};
+        let n=0;
+        const tick=()=>{try{x.fillStyle='hsl('+((n*37)%360)+',60%,40%)';x.fillRect(0,0,w,h);x.fillStyle='#fff';x.fillRect((n*17)%Math.max(1,w-64),(n*29)%Math.max(1,h-64),64,64);if(t&&t.requestFrame)t.requestFrame();}catch(_e){}n++;};
+        try{r.start(100);}catch(_e){failed=true;fin();return;}
+        tick();timer=setInterval(tick,80);killer=setTimeout(fin,1100);
+      });
+      if(failed)return false;
+      if(r.state==='inactive'&&!gotData)return false;
+      return true;
+    }catch(_e){return false;}
+    finally{
+      clearInterval(timer);clearTimeout(killer);
+      try{if(r&&r.state!=='inactive')r.stop();}catch(_e){}
+      try{if(s)s.getTracks().forEach(tt=>tt.stop());}catch(_e){}
+      if(c){try{c.width=c.height=1;}catch(_e){}}
+    }
+  }
+  async function evChooseEnhanceEncoder(iw,ih,requested,maxQuality,notify){
+    const cap=Math.min(Number(requested)||1080,Number(maxQuality)||99999);
+    let ladder=EV_ENHANCE_LADDER.filter(q=>q<=cap);if(!ladder.length)ladder=[cap];
+    const families=[
+      ['video/webm;codecs=h264,opus','video/webm;codecs=avc1,opus'],
+      ['video/webm;codecs=vp8,opus','video/webm;codecs=vp8'],
+      ['video/webm;codecs=vp9,opus','video/webm;codecs=vp9'],
+      ['video/webm']
+    ];
+    const mimes=[];
+    families.forEach(f=>{const m=f.find(v=>{try{return !MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(v);}catch(_e){return false;}});if(m)mimes.push(m);});
+    if(!mimes.length)mimes.push('');
+    for(const q of ladder){
+      const size=outputSize(iw,ih,q);
+      for(const mime of mimes){
+        const isH264=/h264|avc1/i.test(mime);
+        const bitrate=isH264?(q>=2160?14000000:q>=1440?9000000:6000000):(q>=2160?18000000:q>=1440?12000000:8000000);
+        const key=size.w+'x'+size.h+'|'+mime;
+        if(typeof notify==='function')notify(q,mime);
+        let ok=evEncProbeCache.get(key);
+        if(ok===undefined){ok=await evProbeEnhanceEncoder(size.w,size.h,mime,bitrate);evEncProbeCache.set(key,ok);}
+        if(ok)return {quality:q,mime,bitrate,size};
+      }
+    }
+    return null;
+  }
+  function evNextLowerEnhanceQuality(q){const lower=EV_ENHANCE_LADDER.filter(v=>v<q);return lower.length?lower[0]:0;}
+  function evQLabel(q){return q>=2160?'4K':q+'p';}
+  /* v294 DEVICE COMFORT TEST. Runs once, the first time the Enhance panel opens (the panel shows a loading state meanwhile).
+     It checks, per output size, whether this phone can really handle it: GPU texture limit, RAM, canvas throughput and a real
+     MediaRecorder encoder probe. Result: window.__evEnhanceCaps = {state:'idle|running|done|error', ok:{1080,1440,2160}}.
+       - 1080p not comfortable  -> Enhance still SAYS 1080p, but quietly encodes at 720p (no toast, no status change).
+       - 1440p / 4K not comfortable -> an error is shown BEFORE anything starts, nothing is encoded. */
+  window.__evEnhanceCaps={state:'idle',ok:null};
+  let evCapsPromise=null;
+  function evEncMimeList(){
+    const families=[['video/webm;codecs=h264,opus','video/webm;codecs=avc1,opus'],['video/webm;codecs=vp8,opus','video/webm;codecs=vp8'],['video/webm;codecs=vp9,opus','video/webm;codecs=vp9'],['video/webm']];
+    const mimes=[];families.forEach(f=>{const m=f.find(v=>{try{return !MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(v);}catch(_e){return false;}});if(m)mimes.push(m);});
+    if(!mimes.length)mimes.push('');return mimes;
+  }
+  async function evQualityComfortable(q){
+    const size=outputSize(1920,1080,q);
+    try{
+      const gc=document.createElement('canvas');const gl=gc.getContext('webgl2')||gc.getContext('webgl');
+      if(gl){const mt=Number(gl.getParameter(gl.MAX_TEXTURE_SIZE))||0,rb=Number(gl.getParameter(gl.MAX_RENDERBUFFER_SIZE))||0;
+        try{const ext=gl.getExtension('WEBGL_lose_context');if(ext)ext.loseContext();}catch(_e){}
+        if((mt&&mt<size.w)||(rb&&rb<size.w))return false;}
+    }catch(_e){}
+    const mem=Number(navigator.deviceMemory)||0;
+    if(mem&&((q>=2160&&mem<4)||(q>=1440&&mem<3)||(q>=1080&&mem<1.5)))return false;
+    try{
+      const a=document.createElement('canvas'),b=document.createElement('canvas');a.width=b.width=size.w;a.height=b.height=size.h;
+      const xa=a.getContext('2d'),xb=b.getContext('2d');if(!xa||!xb)return false;
+      const t0=performance.now();
+      for(let i=0;i<4;i++){xa.fillStyle='hsl('+(i*70)+',60%,45%)';xa.fillRect(0,0,size.w,size.h);xb.drawImage(a,0,0);}
+      xb.getImageData(0,0,1,1);
+      const per=(performance.now()-t0)/4;
+      a.width=a.height=b.width=b.height=1;
+      if(per>(q>=2160?450:q>=1440?350:300))return false;
+    }catch(_e){return false;}
+    for(const mime of evEncMimeList()){
+      const isH264=/h264|avc1/i.test(mime);
+      const bitrate=isH264?(q>=2160?14000000:q>=1440?9000000:6000000):(q>=2160?18000000:q>=1440?12000000:8000000);
+      const key=size.w+'x'+size.h+'|'+mime;
+      let ok=evEncProbeCache.get(key);
+      if(ok===undefined){ok=await evProbeEnhanceEncoder(size.w,size.h,mime,bitrate);evEncProbeCache.set(key,ok);}
+      if(ok)return true;
+    }
+    return false;
+  }
+  window.ethvelleEnsureEnhanceCaps=function(){
+    if(evCapsPromise)return evCapsPromise;
+    const caps=window.__evEnhanceCaps;caps.state='running';
+    const t0=performance.now();
+    evCapsPromise=(async()=>{
+      const ok={1080:false,1440:false,2160:false};
+      try{
+        let prev=true;
+        for(const q of [1080,1440,2160]){ok[q]=prev?await evQualityComfortable(q):false;prev=ok[q];}
+        caps.ok=ok;caps.state='done';
+      }catch(_e){caps.ok=null;caps.state='error';}
+      const wait=500-(performance.now()-t0);if(wait>0)await new Promise(r=>setTimeout(r,wait));
+      return caps;
+    })();
+    return evCapsPromise;
+  };
+  function evEnhanceUnsupported(rq){
+    const msg=evQLabel(rq)+' enhancement isn\'t supported on this device. Choose 1080p instead.';
+    status(msg,null);
+    if(typeof showToast==='function')showToast(msg,{duration:3400,icon:'<svg viewBox="0 0 24 24" fill="none" stroke="#FF5C6C" stroke-width="2.3" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7.5v5.5M12 16.5v.01"/></svg>'});
+  }
+  window.ethvelleStartVideoEnhance=async function evltStartEnhanceCore(opts){
+    opts=(opts&&typeof opts==='object'&&typeof opts.maxQuality==='number')?opts:{};
+    const target=liveTarget();if(!target){status('');return;}if(window.__ethvelleV5EnhanceBusy)return;
+    /* v294: make sure the device comfort test has finished, and refuse >1080p BEFORE doing any work if this device can't do it. */
+    if(target.type==='video'&&typeof opts.maxQuality!=='number'){
+      try{
+        const rq0=Number($('evltEnhanceQuality')?.value)||1080;
+        const caps0=await window.ethvelleEnsureEnhanceCaps();
+        if(rq0>1080&&caps0&&caps0.ok&&caps0.ok[rq0]===false){evEnhanceUnsupported(rq0);return;}
+      }catch(_e){}
+      if(window.__ethvelleV5EnhanceBusy)return;
+    }
+    window.__ethvelleV5EnhanceBusy=true;
+    const btn=$('evltEnhanceStart'),amount=clamp($('evltEnhanceAmount')?.value??target.model.enhanceAmount??0,0,100);
+    let quality=Number($('evltEnhanceQuality')?.value)||1080,label=qualityLabel(quality),chosenEnc=null,retryMax=0;
+    const requestedQuality=quality;
+    try{if(typeof window.pausePlaybackAtCurrentTime==='function')window.pausePlaybackAtCurrentTime();else if(typeof window.pausePlayback==='function')window.pausePlayback();}catch(_e){}
+    const mediaAudioSnapshot=[];
+    try{document.querySelectorAll('audio,video').forEach(media=>{mediaAudioSnapshot.push({media,muted:!!media.muted,volume:Number(media.volume)});try{media.pause();media.muted=true;media.volume=0;}catch(_e){}});}catch(_e){}
+    if(btn){btn.disabled=true;btn.textContent='Enhancing…';}status('',0);
+    let sourceVideo=null,outStream=null,sourceStream=null,recorder=null,raf=0,rvfc=0,watchdog=0,stopResolve=null,stopped=false,pipeline=null,audioContext=null,audioSource=null,audioDestination=null,silentGain=null,canvas=null,ctx=null,canvasTrack=null;
+    let stopMinTimer=0,stopFlushTimer=0,stopScheduled=false,recordingStartedAt=0,endPoll=0;
+    let directCapture=false,usedLite=false,liteAvailable=false,retryOpts={},evStatusAt=0,evLastDrawMedia=-1,evLastWall=0,evBaseAt=0,evBaseFrames=0,evBasePresented=-1,evBaseWall=0,evExpectedFps=0;
+    let evFramesDrawn=0,evFirstDrawAt=0,evPresentedFirst=-1,evPresentedLast=-1,evThroughputChecked=false,evSlowAbort=false,evMeasuredFps=0,evTargetFps=24,evFpsKnown=false;
+    try{
+      if(target.type==='image'){
+        const img=new Image();img.decoding='async';if(/^https?:/i.test(target.src))img.crossOrigin='anonymous';
+        await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('Image cannot be processed in this browser.'));img.src=target.src;if(img.complete&&img.naturalWidth)resolve();});
+        const size=outputSize(img.naturalWidth||img.width,img.naturalHeight||img.height,quality);
+        pipeline=createEnhancePipeline(img.naturalWidth||img.width,img.naturalHeight||img.height,size.w,size.h);
+        pipeline.render(img,filterFor(target.model,amount),amount);
+        const finalCanvas=document.createElement('canvas');finalCanvas.width=size.w;finalCanvas.height=size.h;const finalCtx=finalCanvas.getContext('2d');
+        if(!finalCtx)throw new Error('Image output canvas is unavailable.');finalCtx.imageSmoothingEnabled=true;finalCtx.imageSmoothingQuality='high';finalCtx.drawImage(pipeline.canvas,0,0,size.w,size.h);
+        const blob=await new Promise((resolve,reject)=>finalCanvas.toBlob(b=>b?resolve(b):reject(new Error('Image export failed.')),'image/png'));
+        pipeline.dispose();pipeline=null;if(!blob||!blob.size)throw new Error('Image export failed.');
+        setPendingOutput(target,blob,quality);status(`${label} · ${size.w} × ${size.h} · Ready to apply`,100);if(typeof showToast==='function')showToast('Enhancement ready  -  tap Apply to use it',{duration:1800});setTimeout(syncComparePanel,50);return;
+      }
+      if(target.type!=='video')throw new Error('Choose an image or video clip.');
+      if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream)throw new Error('Video enhancement is not supported by this browser.');
+      sourceVideo=document.createElement('video');sourceVideo.preload='auto';sourceVideo.playsInline=true;sourceVideo.crossOrigin=/^https?:/i.test(target.src)?'anonymous':'';sourceVideo.muted=false;sourceVideo.volume=1;sourceVideo.setAttribute('playsinline','');sourceVideo.src=target.src;
+      await new Promise((resolve,reject)=>{let complete=false;const finish=e=>{if(complete)return;complete=true;sourceVideo.removeEventListener('loadedmetadata',loaded);sourceVideo.removeEventListener('error',failed);e?reject(e):resolve();};const loaded=()=>finish();const failed=()=>finish(new Error('Video could not be read. Local files or CORS-enabled media are required.'));sourceVideo.addEventListener('loadedmetadata',loaded,{once:true});sourceVideo.addEventListener('error',failed,{once:true});sourceVideo.load();if(sourceVideo.readyState>=1)finish();});
+      await evPrepareReadableVideo(sourceVideo,target.model);
+      if(!sourceVideo.videoWidth||!sourceVideo.videoHeight||!Number.isFinite(sourceVideo.duration)||sourceVideo.duration<=0)throw new Error('Video has no readable frames.');
+      const sourceStart=clamp(Number(target.model.sourceOffset)||0,0,Math.max(0,sourceVideo.duration-.06)),clipSpeed=clamp(Number(target.model.speed)||1,.05,4);
+      const timelineSpan=Math.max(MIN_CLIP_SEC,Number(target.model.trimEnd)-Number(target.model.trimStart)||sourceVideo.duration),sourceSpan=Math.min(Math.max(.06,sourceVideo.duration-sourceStart),timelineSpan*clipSpeed),duration=Math.max(.06,sourceSpan/clipSpeed);
+      if(sourceStart>.025){await new Promise(resolve=>{let settled=false,guard=0;const done=()=>{if(settled)return;settled=true;sourceVideo.removeEventListener('seeked',done);clearTimeout(guard);resolve();};sourceVideo.addEventListener('seeked',done,{once:true});guard=setTimeout(done,2600);try{sourceVideo.currentTime=sourceStart;}catch(_e){done();}});}
+      sourceVideo.playbackRate=clipSpeed;
+      try{const cap=sourceVideo.captureStream||sourceVideo.mozCaptureStream;if(typeof cap==='function')sourceStream=cap.call(sourceVideo);}catch(_e){}
+      let sourceFps=30;try{const vt=sourceStream&&sourceStream.getVideoTracks&&sourceStream.getVideoTracks()[0],settings=vt&&vt.getSettings?vt.getSettings():null;const detected=Number(settings&&settings.frameRate);if(Number.isFinite(detected)&&detected>=1&&detected<=120){sourceFps=detected;evFpsKnown=true;}}catch(_e){}
+      status('Checking encoder…',0);
+      const capsNow=window.__evEnhanceCaps;
+      /* v294: 1080p requested but this device is not comfortable at 1080p -> encode at 720p quietly (the UI keeps saying 1080p). */
+      const silent720=requestedQuality<=1080&&!!(capsNow&&capsNow.state==='done'&&capsNow.ok&&capsNow.ok[1080]===false);
+      chosenEnc=await evChooseEnhanceEncoder(sourceVideo.videoWidth,sourceVideo.videoHeight,quality,Math.min(Number(opts.maxQuality)||99999,silent720?720:99999),()=>status('Checking '+evQLabel(requestedQuality)+' encoder…',0));
+      if(!chosenEnc)throw new Error('This phone\'s browser cannot encode video here. Close other apps/tabs and try again.');
+      if(chosenEnc.quality<requestedQuality){
+        if(requestedQuality<=1080){quality=chosenEnc.quality;/* v294: silent 720p behind a 1080p label, no toast */}
+        else{const e=new Error(evQLabel(requestedQuality)+' enhancement isn\'t supported on this device. Choose 1080p instead.');e.evUnsupported=true;throw e;}
+      }
+      const size=chosenEnc.size;
+      const shownSize=outputSize(sourceVideo.videoWidth,sourceVideo.videoHeight,requestedQuality);
+      /* v289: above QHD (4K) start with the light upscaler; it only differs from the full one when upscaling. */
+      const wantLite=(typeof opts.lite==='boolean')?opts.lite:(size.w*size.h>3700000);
+      liteAvailable=size.w>=sourceVideo.videoWidth&&size.h>=sourceVideo.videoHeight;
+      pipeline=createEnhancePipeline(sourceVideo.videoWidth,sourceVideo.videoHeight,size.w,size.h,{lite:wantLite,direct:evFastPathOn()});
+      usedLite=!!pipeline.lite;
+      /* v289: record straight from the WebGL canvas (no second full-size 2D canvas copy per frame). */
+      directCapture=(pipeline.renderer==='WebGL')&&!opts.noDirect&&evFastPathOn();
+      if(directCapture){canvas=pipeline.canvas;ctx=null;}
+      else{canvas=document.createElement('canvas');canvas.width=size.w;canvas.height=size.h;ctx=canvas.getContext('2d',{alpha:false,desynchronized:true});if(!ctx)throw new Error('Video output canvas is unavailable.');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';}
+      let manualFrames=false;try{outStream=canvas.captureStream(0);canvasTrack=outStream.getVideoTracks&&outStream.getVideoTracks()[0];manualFrames=!!(canvasTrack&&typeof canvasTrack.requestFrame==='function');if(!manualFrames){outStream.getTracks().forEach(t=>t.stop());outStream=canvas.captureStream(sourceFps);canvasTrack=outStream.getVideoTracks&&outStream.getVideoTracks()[0];}}catch(_e){outStream=canvas.captureStream(sourceFps);canvasTrack=outStream.getVideoTracks&&outStream.getVideoTracks()[0];}
+      // Route the decoded source audio into the output stream without playing it through phone speakers.
+      let audioAdded=false;
+      try{
+        const AC=window.AudioContext||window.webkitAudioContext;
+        if(AC&&sourceVideo){audioContext=new AC();await audioContext.resume();audioSource=audioContext.createMediaElementSource(sourceVideo);audioDestination=audioContext.createMediaStreamDestination();audioSource.connect(audioDestination);silentGain=audioContext.createGain();silentGain.gain.value=0;audioSource.connect(silentGain);silentGain.connect(audioContext.destination);const tracks=audioDestination.stream.getAudioTracks();tracks.forEach(t=>outStream.addTrack(t));audioAdded=tracks.length>0;}
+      }catch(audioErr){console.warn('Ethvelle: Web Audio routing unavailable; using the captured source audio track when present.',audioErr);}
+      if(!audioAdded&&sourceStream){try{sourceStream.getAudioTracks().forEach(t=>outStream.addTrack(t));}catch(_e){}}
+      const mimeCandidates=['video/webm;codecs=h264,opus','video/webm;codecs=avc1,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9,opus','video/webm;codecs=vp8','video/webm;codecs=vp9','video/webm'];
+      const isH264Mime=candidate=>candidate==='video/webm;codecs=h264,opus'||candidate==='video/webm;codecs=avc1,opus';
+      const supportedMimeCandidates=mimeCandidates.filter(candidate=>{try{return isH264Mime(candidate)?!!(MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(candidate)):(!MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(candidate));}catch(_e){return false;}});
+      const mime=(chosenEnc&&chosenEnc.mime)||supportedMimeCandidates[0]||'';
+      let recorderError=null;for(const candidate of [mime,...supportedMimeCandidates.filter(x=>x!==mime),'']){if(recorder||candidate===null)break;try{recorder=candidate?new MediaRecorder(outStream,{mimeType:candidate,videoBitsPerSecond:(chosenEnc&&candidate===chosenEnc.mime)?chosenEnc.bitrate:isH264Mime(candidate)?(quality>=2160?14000000:quality>=1440?9000000:6000000):(quality>=2160?18000000:quality>=1440?12000000:8000000)}):new MediaRecorder(outStream);}catch(err){recorderError=err;recorder=null;}}
+      if(!recorder)throw new Error((recorderError&&recorderError.message)||'This browser could not start a compatible video encoder. Try 1080p or reopen the source clip.');
+      const chunks=[];const stopPromise=new Promise((resolve,reject)=>{stopResolve=resolve;recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};recorder.onerror=e=>reject(e.error||new Error('Video encoding failed.'));recorder.onstop=resolve;});
+      recordingStartedAt=Date.now();try{recorder.start(500);}catch(err){throw new Error('The browser video recorder could not start: '+(err&&err.message||'unknown error'));}
+      evTargetFps=Math.max(4,evFpsKnown?Math.min(30,sourceFps*clipSpeed):Math.min(24,30*clipSpeed));
+      const drawFrame=()=>{if(sourceVideo.readyState<2||!sourceVideo.videoWidth)return false;pipeline.render(sourceVideo,filterFor(target.model,amount),amount);if(!directCapture){ctx.clearRect(0,0,size.w,size.h);ctx.drawImage(pipeline.canvas,0,0,size.w,size.h);}try{if(manualFrames&&canvasTrack&&canvasTrack.requestFrame)canvasTrack.requestFrame();}catch(_e){}evFramesDrawn++;if(!evFirstDrawAt)evFirstDrawAt=performance.now();return true;};
+      const stopOnce=()=>{if(stopped||stopScheduled)return;const elapsed=Date.now()-recordingStartedAt;if(elapsed<750){stopScheduled=true;stopMinTimer=setTimeout(()=>{stopScheduled=false;stopOnce();},750-elapsed);return;}stopped=true;if(endPoll){clearInterval(endPoll);endPoll=0;}if(raf)cancelAnimationFrame(raf);if(rvfc&&sourceVideo&&sourceVideo.cancelVideoFrameCallback){try{sourceVideo.cancelVideoFrameCallback(rvfc);}catch(_e){}}if(watchdog)clearTimeout(watchdog);try{if(recorder&&recorder.state!=='inactive'){try{if(typeof recorder.requestData==='function')recorder.requestData();}catch(_e){}stopFlushTimer=setTimeout(()=>{try{if(recorder&&recorder.state!=='inactive')recorder.stop();else if(stopResolve)stopResolve();}catch(_e){if(stopResolve)stopResolve();}},160);}else if(stopResolve)stopResolve();}catch(_e){if(stopResolve)stopResolve();}};
+      watchdog=setTimeout(()=>stopOnce(),Math.max(15000,Math.ceil(duration*1000)+10000));
+      /* v288: the baked clip can only be as smooth as the number of frames this phone really processed in real time.
+         If the GPU/encoder cannot sustain it at this resolution, stop early and redo it one quality step lower. */
+      const evCheckThroughput=()=>{
+        if(evThroughputChecked||stopped||!evFirstDrawAt)return;
+        const nowT=performance.now();
+        /* v289: skip the first ~1 s (decoder start-up, shader warm-up, encoder spin-up) and judge the device on a clean 2.6 s window. */
+        if(!evBaseAt){if(nowT-evFirstDrawAt<1000)return;evBaseAt=nowT;evBaseFrames=evFramesDrawn;evBasePresented=evPresentedLast;evBaseWall=evLastWall;return;}
+        const secs=(nowT-evBaseAt)/1000,drawn=evFramesDrawn-evBaseFrames;
+        if(secs<2.6||drawn<8)return;
+        evThroughputChecked=true;evMeasuredFps=drawn/secs;
+        let expected=evTargetFps;
+        if(evBasePresented>=0&&evLastWall>evBaseWall+400&&evPresentedLast>evBasePresented+5){
+          /* what the video element really presented per second (so a decoder-limited clip is not blamed on our pipeline), capped at the 30 fps output rate */
+          expected=Math.min(EV_OUT_FPS,(evPresentedLast-evBasePresented)/((evLastWall-evBaseWall)/1000));
+        }
+        evExpectedFps=expected;
+        const slow=evMeasuredFps<expected*0.65;
+        if(slow&&(evNextLowerEnhanceQuality(quality)||(!usedLite&&liteAvailable&&opts.lite!==true))){evSlowAbort=true;stopOnce();}
+      };
+      const reportAndContinue=()=>{evCheckThroughput();if(evSlowAbort)return false;const pct=clamp((sourceVideo.currentTime-sourceStart)/Math.max(.06,sourceSpan)*100,0,99);const tStat=performance.now();if(tStat-evStatusAt>=250){evStatusAt=tStat;status(`${Math.floor(pct)}%`,pct);}if(sourceVideo.ended||sourceVideo.currentTime>=sourceStart+sourceSpan-.025){stopOnce();return false;}return true;};
+      const onVideoFrame=(_now,meta)=>{if(stopped)return;if(meta&&typeof meta.presentedFrames==='number'){if(evPresentedFirst<0)evPresentedFirst=meta.presentedFrames;evPresentedLast=meta.presentedFrames;evLastWall=_now;}
+        /* v289: 50/60 fps sources are decimated to the 30 fps output rate, so the GPU and encoder only do half the frames. */
+        let due=true;const hasMT=!!(meta&&typeof meta.mediaTime==='number');
+        if(hasMT&&evLastDrawMedia>=0){const gap=(meta.mediaTime-evLastDrawMedia)/clipSpeed;if(gap>=0)due=gap>=(1/EV_OUT_FPS)-0.0045;}
+        if(due){try{if(drawFrame()&&hasMT)evLastDrawMedia=meta.mediaTime;}catch(e){status('Video frame processing failed: '+(e&&e.message||''),null);stopOnce();return;}}
+        if(!reportAndContinue())return;if(typeof sourceVideo.requestVideoFrameCallback==='function')rvfc=sourceVideo.requestVideoFrameCallback(onVideoFrame);};
+      try{drawFrame();}catch(_e){}
+      await sourceVideo.play();
+      evFramesDrawn=0;evFirstDrawAt=0;evPresentedFirst=-1;evPresentedLast=-1;evLastDrawMedia=-1;evBaseAt=0;evLastWall=0;
+      endPoll=setInterval(()=>{if(stopped){clearInterval(endPoll);endPoll=0;return;}try{if(sourceVideo&&(sourceVideo.ended||sourceVideo.currentTime>=sourceStart+sourceSpan-.025))stopOnce();}catch(_e){}},120);
+      if(typeof sourceVideo.requestVideoFrameCallback==='function')rvfc=sourceVideo.requestVideoFrameCallback(onVideoFrame);
+      else{let lastDraw=0;const draw=now=>{if(stopped)return;if(sourceVideo.readyState>=2&&now-lastDraw>=1000/sourceFps){lastDraw=now;try{drawFrame();}catch(e){status('Video frame processing failed: '+(e&&e.message||''),null);stopOnce();return;}if(!reportAndContinue())return;}raf=requestAnimationFrame(draw);};raf=requestAnimationFrame(draw);}
+      await stopPromise;
+      if(evSlowAbort){const slowErr=new Error('This phone could not process '+evQLabel(quality)+' in real time ('+Math.round(evMeasuredFps)+' fps).');slowErr.evSlow=true;slowErr.evFps=evMeasuredFps;throw slowErr;}
+      const usableChunks=chunks.filter(c=>c&&c.size>0);if(!usableChunks.length)throw new Error('The browser recorder started but produced no video frames. Try 1080p, then reopen the clip and try again.');
+      const blob=new Blob(usableChunks,{type:recorder.mimeType||mime||'video/webm'});if(!blob.size)throw new Error('The video output is empty.');
+      let finalBlob=blob;try{if(typeof window.__evltMakeRecordedMediaSeekable==='function')finalBlob=(await window.__evltMakeRecordedMediaSeekable(blob))||blob;}catch(_e){finalBlob=blob;}
+      try{const secsAll=evFirstDrawAt?(performance.now()-evFirstDrawAt)/1000:0;if(requestedQuality>1080&&secsAll>2.2&&evFramesDrawn/secsAll<(evExpectedFps||evTargetFps)*0.65&&typeof showToast==='function')showToast('This phone processed only '+Math.round(evFramesDrawn/secsAll)+' fps, so the enhanced clip may look choppy. A lower quality will be smoother.',{duration:4200});}catch(_e){}
+      setPendingOutput(target,finalBlob,requestedQuality);status(`${label} · ${shownSize.w} × ${shownSize.h} · Ready to apply`,100);if(typeof showToast==='function')showToast('Enhancement ready  -  tap Apply to use it',{duration:1800});setTimeout(syncComparePanel,50);
+    }catch(err){console.error('Ethvelle V5 enhancement:',err);
+      const msg=String(err&&(err.message||err.name)||'');
+      const lowerQ=evNextLowerEnhanceQuality(quality);
+      const evSlowErr=!!(err&&err.evSlow);
+      if(target.type==='video'&&evSlowErr&&!usedLite&&liteAvailable&&opts.lite!==true&&pipeline&&pipeline.renderer==='WebGL'){
+        /* v289: before giving up resolution, retry the SAME resolution with the lighter upscaler. */
+        retryMax=quality;retryOpts={lite:true,noDirect:opts.noDirect};
+        const why='Keeping '+evQLabel(quality)+'  -  switching to lighter processing';
+        status(why+'…',0);if(typeof showToast==='function')showToast(why,{duration:2400});
+      }else if(target.type==='video'&&lowerQ&&requestedQuality<=1080&&(evSlowErr||/encoder|encoding|configuration|not supported|no video frames|recorder/i.test(msg))){
+        retryMax=lowerQ;retryOpts={noDirect:opts.noDirect};
+        try{evEncProbeCache.forEach((v,k)=>{if(k.startsWith(chosenEnc&&chosenEnc.size?chosenEnc.size.w+'x'+chosenEnc.size.h+'|':'\u0000'))evEncProbeCache.delete(k);});}catch(_e){}
+        /* v294: 1080p -> 720p happens silently; the user only ever sees "1080p". */
+        status('Enhancing…',0);
+      }else{
+        /* v294: above 1080p there is no fallback - show a clear error instead. */
+        const hardMsg=(target.type==='video'&&requestedQuality>1080&&(evSlowErr||(err&&err.evUnsupported)||/encoder|encoding|configuration|not supported|no video frames|recorder/i.test(msg)))?(evQLabel(requestedQuality)+' enhancement isn\'t supported on this device. Choose 1080p instead.'):'';
+        const shownMsg=hardMsg||(err&&err.message?err.message:'Enhancement failed.');
+        status(shownMsg,null);if(typeof showToast==='function')showToast(shownMsg,{duration:hardMsg?3400:2200});
+      }
+    }
+    finally{
+      if(raf)cancelAnimationFrame(raf);if(rvfc&&sourceVideo&&sourceVideo.cancelVideoFrameCallback){try{sourceVideo.cancelVideoFrameCallback(rvfc);}catch(_e){}}if(watchdog)clearTimeout(watchdog);if(endPoll){clearInterval(endPoll);endPoll=0;}if(stopMinTimer)clearTimeout(stopMinTimer);if(stopFlushTimer)clearTimeout(stopFlushTimer);
+      try{if(recorder&&recorder.state!=='inactive')recorder.stop();}catch(_e){}
+      try{if(sourceVideo){sourceVideo.pause();sourceVideo.removeAttribute('src');sourceVideo.load();}}catch(_e){}
+      try{if(sourceStream)sourceStream.getTracks().forEach(t=>t.stop());}catch(_e){}try{if(outStream)outStream.getTracks().forEach(t=>t.stop());}catch(_e){}
+      try{if(audioContext&&audioContext.state!=='closed')await audioContext.close();}catch(_e){}try{if(pipeline)pipeline.dispose();}catch(_e){}
+      mediaAudioSnapshot.forEach(state=>{try{if(state.media&&state.media.isConnected){state.media.muted=state.muted;state.media.volume=Number.isFinite(state.volume)?state.volume:1;if(state.media.tagName==='VIDEO'){state.media.autoplay=false;state.media.removeAttribute('autoplay');state.media.pause();}}}catch(_e){}});
+      window.__ethvelleV5EnhanceBusy=false;if(btn){btn.disabled=false;btn.textContent='Enhance';}const apply=$('evltEnhanceApply');if(apply)apply.disabled=!pendingEnhancement;
+    }
+    if(retryMax)return evltStartEnhanceCore(Object.assign({maxQuality:retryMax},retryOpts));
+  };
+  // Toolbar visibility is deliberately not written from this V5 enhancement patch.
+  // V80 is the single owner of bottomToolsDefault / bottomToolsClip / bottomToolsKeyframe
+  // display state. Previously this patch wrote non-important inline display values and
+  // observed those same writes while V80 re-applied important values, creating a feedback loop.
+  // Opening Enhance renders the old base preview first; restore the proper right-side AFTER layer.
+  const panel=$('toolPanel');if(panel)new MutationObserver(()=>{if($('evltCompare'))syncComparePanel();}).observe(panel,{childList:true,subtree:true});
+})();
+</script>
+
+<style id="ethvelle-device-storage-enhance-fix-css">
+  /* All range controls share the same thumb-only interaction: tapping the track never jumps. */
+  input[type="range"]{touch-action:none!important;-webkit-tap-highlight-color:transparent!important;}
+  #ethvelleStoragePermission{position:fixed;inset:0;z-index:1000000;display:none;align-items:flex-end;justify-content:center;background:rgba(0,0,0,.72);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);padding:18px 12px calc(18px + env(safe-area-inset-bottom,0px));}
+  #ethvelleStoragePermission.active{display:none!important;} /* v219-fix: panel removed; storage is granted automatically */
+  #ethvelleStoragePermission .evsp-sheet{width:min(100%,460px);border:1px solid #34343f;border-radius:24px;background:#17171d;color:#f5f5f7;padding:23px 20px 18px;box-shadow:0 20px 70px #0009;}
+  #ethvelleStoragePermission .evsp-mark{width:48px;height:48px;border-radius:15px;background:rgba(47,92,232,.16);display:grid;place-items:center;color:#8facff;font-size:24px;margin-bottom:14px;}
+  #ethvelleStoragePermission h2{font-size:20px;line-height:1.25;margin:0 0 9px;font-weight:800;}
+  #ethvelleStoragePermission p{font-size:13px;line-height:1.6;color:#b8b8c4;margin:0 0 16px;}
+  #ethvelleStoragePermission .evsp-info{display:flex;gap:10px;align-items:flex-start;border:1px solid #30303a;border-radius:13px;padding:12px;margin:0 0 18px;color:#d5d5df;font-size:12px;line-height:1.5;}
+  #ethvelleStoragePermission .evsp-actions{display:flex;gap:10px;}
+  #ethvelleStoragePermission button{min-height:45px;border-radius:12px;font-size:13px;font-weight:800;padding:0 14px;}
+  #ethvelleStoragePermission .evsp-cancel{flex:1;background:#24242c;border:1px solid #383842;color:#c8c8d2;}
+  #ethvelleStoragePermission .evsp-allow{flex:1.35;background:#2f5ce8;color:#fff;}
+  #ethvelleStoragePermission button:disabled{opacity:.6;}
+  #ethvelleCanvasCompareRoot{position:absolute;inset:0;z-index:80;overflow:hidden;pointer-events:none;background:#08090c;isolation:isolate;}
+  #ethvelleCanvasCompareRoot .evcc-layer{position:absolute;inset:0;overflow:hidden;pointer-events:none;}
+  #ethvelleCanvasCompareRoot .evcc-media{position:absolute;inset:0;width:100%;height:100%;display:block;object-position:center;pointer-events:none;background:#08090c;}
+  #ethvelleCanvasCompareRoot .evcc-before .evcc-media{filter:none;}
+  #ethvelleCanvasCompareRoot .evcc-after{clip-path:inset(0 0 0 50%);}
+  #ethvelleCanvasCompareRoot .evcc-wipe{position:absolute;top:0;bottom:0;left:50%;width:64px;margin-left:-32px;transform:none;z-index:4;background:transparent;box-shadow:none;pointer-events:auto;touch-action:none;cursor:ew-resize;overflow:visible;}
+  #ethvelleCanvasCompareRoot .evcc-wipe:before{content:'';position:absolute;top:0;bottom:0;left:var(--evcc-line-offset,31px);width:2px;background:#fff;box-shadow:0 0 0 1px #0005;pointer-events:none;}
+  #ethvelleCanvasCompareRoot .evcc-handle{position:absolute;left:32px;top:50%;width:28px;height:28px;transform:translate(-50%,-50%);display:flex;align-items:center;justify-content:center;border:2px solid #fff;border-radius:50%;background:#08090C;color:#fff;box-shadow:0 2px 6px rgba(0,0,0,.62),0 0 0 1px rgba(0,0,0,.5);pointer-events:none;}
+  #ethvelleCanvasCompareRoot .evcc-handle svg{display:block;width:15px;height:15px;fill:none;stroke:#fff;stroke-width:2.4;stroke-linecap:round;stroke-linejoin:round;}
+  #ethvelleCanvasCompareRoot .evcc-tag{position:absolute;top:8px;z-index:5;padding:5px 8px;border-radius:7px;background:#08090cbd;color:#fff;font:800 10px/1 Inter,Arial,sans-serif;letter-spacing:.04em;pointer-events:none;}
+  #ethvelleCanvasCompareRoot .evcc-tag.before{left:8px;}
+  #ethvelleCanvasCompareRoot .evcc-tag.after{right:8px;}
+  .tool-panel.evlt-enhance-compact{top:var(--evlt-enhance-panel-top,0px)!important;bottom:0!important;height:auto!important;max-height:none!important;min-height:0!important;}
+  .evlt-enhance-settings{display:flex;flex-direction:column;gap:16px;padding:3px 0 8px;}
+  .evlt-enhance-settings .evlt-field{display:flex;flex-direction:column;gap:8px;}
+  .evlt-enhance-settings .evlt-field-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:13px;font-weight:700;}
+  .evlt-enhance-settings input[type=range]{width:100%;height:20px;margin:0;accent-color:var(--accent);}
+  .evlt-enhance-settings select{width:100%;height:46px;background:var(--elevated);color:var(--text);border:1px solid var(--line);border-radius:12px;padding:0 12px;font:inherit;font-size:14px;}
+  .evlt-enhance-settings .evlt-primary{margin-top:2px;min-height:46px;}
+  @media(min-width:650px){#ethvelleStoragePermission{align-items:center}.evlt-enhance-settings{gap:18px;}}
+</style>
+<div id="ethvelleStoragePermission" role="dialog" aria-modal="true" aria-labelledby="evspTitle">
+  <div class="evsp-sheet">
+    <div class="evsp-mark" aria-hidden="true">▣</div>
+    <h2 id="evspTitle">Allow device storage</h2>
+    <p>Ethvelle needs local browser storage to keep your projects on this device, including timeline edits, uploaded clips, images, and project settings. When supported, the media picker can link directly to a selected device file instead of copying a long video.</p>
+    <div class="evsp-info"><span aria-hidden="true">ⓘ</span><span>This approval enables Ethvelle's browser storage; it is not unrestricted Android storage permission. Browser storage can still be cleared, and direct file access depends on browser support and permission, so export important work as a backup.</span></div>
+    <div class="evsp-actions"><button class="evsp-cancel" id="evspCancel" type="button">Not now</button><button class="evsp-allow" id="evspAllow" type="button">Allow &amp; continue</button></div>
+  </div>
+</div>
+<script id="ethvelle-device-storage-enhance-fix-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const CONSENT_KEY='ethvelle.deviceStorageConsent.v1';
+  const DB_NAME='ethvelle-device-project-storage-v1';
+  const SOURCE_DB_NAME='ethvelle-source-media-v1';
+  let dbPromise=null,sourceDbPromise=null,saveTimer=0,lastStorageErrorAt=0,pendingCreate=false;
+  let canvasComparePercent=50,canvasCompareDrag=null;
+  function openSourceMediaDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('This browser does not support device media storage.'));
+    if(!sourceDbPromise){
+      sourceDbPromise=new Promise((resolve,reject)=>{
+        const req=indexedDB.open(SOURCE_DB_NAME,1);
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('assets'))db.createObjectStore('assets');};
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not open device media storage.'));
+        req.onblocked=()=>reject(new Error('Device media storage is busy in another tab.'));
+      }).catch(err=>{sourceDbPromise=null;throw err;});
+    }
+    return sourceDbPromise;
+  }
+  async function putSourceMedia(key,blob,meta={}){
+    const db=await openSourceMediaDb();
+    await new Promise((resolve,reject)=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put({blob,name:meta.name||'Video',type:meta.type||blob.type||'video/mp4',size:blob.size||0,lastModified:meta.lastModified||0,savedAt:Date.now()},key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Could not save the selected media file.'));tx.onabort=()=>reject(tx.error||new Error('Media save was interrupted.'));});
+    return key;
+  }
+  async function getSourceMedia(key){const db=await openSourceMediaDb();return new Promise((resolve,reject)=>{const tx=db.transaction('assets','readonly'),req=tx.objectStore('assets').get(key);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error||new Error('Could not read the saved media file.'));});}
+  async function listSourceMediaRecords(){
+    const db=await openSourceMediaDb();
+    return new Promise((resolve,reject)=>{
+      const tx=db.transaction('assets','readonly'),req=tx.objectStore('assets').openCursor(),rows=[];
+      req.onsuccess=()=>{const cur=req.result;if(!cur){resolve(rows);return;}rows.push({key:String(cur.key),...(cur.value||{})});cur.continue();};
+      req.onerror=()=>reject(req.error||new Error('Could not list device media.'));
+    });
+  }
+  function mediaFamilyMatches(model,record){
+    const family=String(model&&model.type||'').toLowerCase();
+    const mime=String(record&&record.type||'').toLowerCase();
+    const name=String(record&&record.name||'').toLowerCase();
+    if(family==='video')return mime.startsWith('video/')||/\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(name);
+    if(family==='audio')return mime.startsWith('audio/')||/\.(mp3|m4a|aac|wav|ogg|opus|flac|aiff?)$/i.test(name);
+    if(family==='image')return mime.startsWith('image/')||/\.(png|apng|jpe?g|jfif|webp|gif|avif|bmp|dib|heic|heif|tif|tiff|svg|ico|jxl)$/i.test(name);
+    return true;
+  }
+  function repairLegacyOverlayMediaRefs(root,records){
+    let changed=false;
+    const list=Array.isArray(root)?root:[root];
+    for(const project of list){
+      const state=project&&project.savedState;if(!state)continue;
+      const updatedAt=Number(project.updatedAt)||0;
+      const mediaModels=[...(Array.isArray(state.overlays)?state.overlays:[]),...(Array.isArray(state.backgrounds)?state.backgrounds:[])];
+      for(const model of mediaModels){
+        if(!model||typeof model.src!=='string')continue;
+        const wrapped=/^url\(\s*blob:/i.test(model.src);
+        const isBlob=model.src.startsWith('blob:')||wrapped;
+        if(!isBlob)continue;
+        let key=model.deviceMediaKey?String(model.deviceMediaKey):'';
+        let record=key?records.find(r=>String(r.key)===key):null;
+        if(!record){
+          const names=[model.deviceMediaName,model.name].filter(Boolean).map(v=>String(v));
+          let candidates=records.filter(r=>names.includes(String(r.name||''))&&mediaFamilyMatches(model,r));
+          // If duplicate filenames exist, prefer the saved file closest to this project's last
+          // edit time. A small timestamp window prevents an old, unrelated same-name asset from
+          // being attached to the wrong clip when a more precise metadata match is unavailable.
+          if(updatedAt){
+            const near=candidates.filter(r=>!Number(r.savedAt)||Math.abs(Number(r.savedAt)-updatedAt)<=14*24*60*60*1000);
+            if(near.length)candidates=near;
+            candidates.sort((a,b)=>Math.abs((Number(a.savedAt)||0)-updatedAt)-Math.abs((Number(b.savedAt)||0)-updatedAt));
+          }else candidates.sort((a,b)=>(Number(b.savedAt)||0)-(Number(a.savedAt)||0));
+          record=candidates[0]||null;
+          if(record){key=String(record.key);model.deviceMediaKey=key;model.deviceMediaName=record.name||model.name;model.deviceMediaSize=Number(record.size)||undefined;model.deviceMediaLastModified=Number(record.lastModified)||undefined;}
+        }
+        if(key){
+          model.src=wrapped?'url(ethvelle-device-media://'+key+')':'ethvelle-device-media://'+key;
+          changed=true;
+        }
+      }
+    }
+    return changed;
+  }
+  function projectSnapshotWithMediaRefs(){
+    return JSON.parse(JSON.stringify(projects,function(key,value){
+      if(key==='src'&&typeof value==='string'&&this&&this.deviceMediaKey){
+        if(value.startsWith('blob:'))return 'ethvelle-device-media://'+this.deviceMediaKey;
+        const m=value.match(/^url\((blob:[^)]+)\)$/i);if(m)return 'url(ethvelle-device-media://'+this.deviceMediaKey+')';
+      }
+      return value;
+    }));
+  }
+  async function rehydrateDeviceMediaRefs(root){
+    const tasks=[],seen=new Set();
+    const walk=(v)=>{if(!v||typeof v!=='object'||seen.has(v))return;seen.add(v);
+      if(v.deviceMediaKey&&typeof v.src==='string'&&v.src.includes('ethvelle-device-media://')){
+        const wrapped=/^url\(/i.test(v.src),key=String(v.deviceMediaKey);
+        tasks.push((async()=>{try{
+          const rec=await getSourceMedia(key);if(!rec)throw new Error('Saved media is missing');let mediaBlob=rec.blob||null;
+          if(!mediaBlob&&rec.handle&&typeof rec.handle.getFile==='function'){
+            if(typeof rec.handle.queryPermission==='function'){
+              const permission=await rec.handle.queryPermission({mode:'read'});
+              if(permission!=='granted')throw new Error('The browser needs renewed permission for this device file. Re-select it from the device picker.');
+            }
+            mediaBlob=await rec.handle.getFile();
+            // Cache a durable Blob copy now so later refreshes do not depend on the original path.
+            try{await putSourceMedia(key,mediaBlob,{name:rec.name,type:rec.type,lastModified:rec.lastModified});}
+            catch(cacheErr){console.warn('Ethvelle: legacy media could not be upgraded to Blob storage',key,cacheErr);}
+          }
+          if(!mediaBlob)throw new Error('Saved media is missing');
+          const url=URL.createObjectURL(mediaBlob);v.src=wrapped?'url('+url+')':url;delete v.__evDeviceMediaMissing;
+        }catch(e){v.__evDeviceMediaMissing=true;console.warn('Ethvelle: could not restore device media',key,e);if(!window.__evDeviceMediaWarningShown){window.__evDeviceMediaWarningShown=true;setTimeout(()=>toast('A media file needs renewed device-file permission. Re-select that file if it appears missing.'),900);}}})());
+      }
+      if(Array.isArray(v))v.forEach(walk);else Object.keys(v).forEach(k=>walk(v[k]));
+    };
+    walk(root);await Promise.all(tasks);
+  }
+  function toast(msg){try{if(typeof window.showToast==='function')window.showToast(msg,{duration:2600});}catch(_e){}}
+  function openProjectDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('This browser does not support IndexedDB.'));
+    if(!dbPromise){
+      dbPromise=new Promise((resolve,reject)=>{
+        const req=indexedDB.open(DB_NAME,1);
+        req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('snapshots'))db.createObjectStore('snapshots',{keyPath:'key'});};
+        req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not open device storage.'));
+        req.onblocked=()=>reject(new Error('Device storage is busy in another tab.'));
+      }).catch(err=>{dbPromise=null;throw err;});
+    }
+    return dbPromise;
+  }
+  function approxJsonSize(root,limit){
+    let total=0,stack=[root],seen=0;
+    while(stack.length){const v=stack.pop();if(v==null)continue;const t=typeof v;
+      if(t==='string'){total+=v.length+2;}
+      else if(t==='number'||t==='boolean'){total+=16;}
+      else if(t==='object'){
+        if(++seen>150000)return limit+1;
+        if(Array.isArray(v)){total+=2;for(let i=0;i<v.length;i++)stack.push(v[i]);}
+        else{total+=2;for(const k of Object.keys(v)){total+=k.length+4;stack.push(v[k]);}}
+      }
+      if(total>limit)return total;
+    }
+    return total;
+  }
+  function makeProjectIndex(){
+    try{return projects.map(p=>({id:p.id,name:p.name,ratio:p.ratio,created:p.created,duration:p.duration,updatedAt:p.updatedAt||0,thumbnail:(typeof p.thumbnail==='string'&&!/^data:/i.test(p.thumbnail))?p.thumbnail:undefined,savedState:null,__evIndexOnly:true}));}
+    catch(_e){return [];}
+  }
+  let deviceSnapshotQueue=Promise.resolve();
+  async function saveFullProjectsToDevice(snapshotOverride){
+    const snapshot=snapshotOverride||projectSnapshotWithMediaRefs();
+    const task=deviceSnapshotQueue.catch(()=>{}).then(async()=>{
+      const db=await openProjectDb();
+      await new Promise((resolve,reject)=>{
+        const tx=db.transaction('snapshots','readwrite');
+        tx.objectStore('snapshots').put({key:'all-projects',projects:snapshot,savedAt:Date.now()});
+        tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Project save failed.'));tx.onabort=()=>reject(tx.error||new Error('Project save was interrupted.'));
+      });
+      return true;
+    });
+    deviceSnapshotQueue=task;
+    return task;
+  }
+  window.__ethvelleDeviceSaveNow=()=>saveFullProjectsToDevice();
+  function queueDeviceSave(delay){
+    clearTimeout(saveTimer);
+    saveTimer=setTimeout(()=>{saveTimer=0;saveFullProjectsToDevice().catch(err=>{
+      console.error('Ethvelle project storage:',err);
+      const now=Date.now();if(now-lastStorageErrorAt>10000){lastStorageErrorAt=now;toast('Could not save all project data to this device. Export a backup before leaving.');}
+    });},Number.isFinite(delay)?delay:250);
+  }
+  // Keep small projects in localStorage for quick startup; keep big video/image projects in IndexedDB
+  // so a few large Base64 media files cannot exhaust the usual localStorage quota.
+  let localIndexGeneration=0;
+  window.saveProjectsToStorage=function(){
+    let size=0;try{size=approxJsonSize(projects,1400000);}catch(_e){size=1400001;}
+    // Every save supersedes previous asynchronous index publications, including a transition
+    // from a large/device-media project back to the small localStorage branch.
+    const generation=++localIndexGeneration;
+    let hasDeviceMedia=false;
+    try{hasDeviceMedia=(projects||[]).some(p=>{const st=p&&p.savedState;if(!st)return false;return [...(Array.isArray(st.overlays)?st.overlays:[]),...(Array.isArray(st.backgrounds)?st.backgrounds:[])].some(m=>m&&m.deviceMediaKey);});}catch(_e){}
+    if(size<=1400000&&!hasDeviceMedia){
+      try{localStorage.setItem('riggy.projects.v1',JSON.stringify(projects));}catch(err){console.warn('Ethvelle local project save:',err);}
+      queueDeviceSave(240);
+      return true;
+    }
+    const snapshot=projectSnapshotWithMediaRefs();
+    return saveFullProjectsToDevice(snapshot).then(()=>{
+      if(generation===localIndexGeneration)localStorage.setItem('riggy.projects.v1',JSON.stringify(makeProjectIndex()));
+      return true;
+    }).catch(err=>{
+      console.error('Ethvelle durable project save failed:',err);
+      const now=Date.now();if(now-lastStorageErrorAt>10000){lastStorageErrorAt=now;toast('Could not finish saving this project to device storage. Keep the editor open and export a backup before leaving.');}
+      return false;
+    });
+  };
+  async function restoreProjectsFromDevice(){
+    try{
+      const db=await openProjectDb();
+      const rec=await new Promise((resolve,reject)=>{const tx=db.transaction('snapshots','readonly'),req=tx.objectStore('snapshots').get('all-projects');req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error||new Error('Could not read stored projects.'));});
+      if(!rec||!Array.isArray(rec.projects))return;
+      const device=rec.projects;
+      let sourceMediaRecords=[];
+      try{sourceMediaRecords=await listSourceMediaRecords();}catch(mediaErr){console.warn('Ethvelle media recovery lookup:',mediaErr);}
+      const repairedDevice=repairLegacyOverlayMediaRefs(device,sourceMediaRecords);
+      await rehydrateDeviceMediaRefs(device);
+      const local=Array.isArray(projects)?projects:[],byId=new Map();
+      device.forEach(p=>{if(p&&p.id!=null)byId.set(String(p.id),p);});
+      local.forEach(p=>{
+        if(!p||p.id==null)return;const id=String(p.id),saved=byId.get(id);
+        if(!saved||(!p.__evIndexOnly&&Number(p.updatedAt||0)>Number(saved.updatedAt||0)))byId.set(id,p);
+      });
+      projects=Array.from(byId.values()).map(p=>{if(p&&p.__evIndexOnly){const q={...p};delete q.__evIndexOnly;return q;}return p;});
+      const repairedMerged=repairLegacyOverlayMediaRefs(projects,sourceMediaRecords);
+      await rehydrateDeviceMediaRefs(projects);
+      try{await Promise.race([window.__evFramesGate,new Promise(r=>setTimeout(r,5000))]);if(window.__evSourceFrames)await window.__evSourceFrames.restoreForProjects(projects);}catch(frameErr){console.warn('Ethvelle frame restore:',frameErr);}
+      projects.sort((a,b)=>new Date(b.created||0)-new Date(a.created||0));
+      // Make repaired references durable so the next refresh does not have to rediscover them.
+      if(repairedDevice||repairedMerged){
+        try{window.saveProjectsToStorage();await saveFullProjectsToDevice();}catch(saveErr){console.warn('Ethvelle repaired-media snapshot:',saveErr);}
+      }
+      try{if(typeof window.renderProjects==='function')window.renderProjects();if(typeof window.updateProfileUI==='function')window.updateProfileUI();}catch(_e){}
+    }catch(err){console.warn('Ethvelle: stored project recovery unavailable:',err);}
+  }
+  // Promote the storage request immediately from the user's click, then open the device DB.
+  async function requestStorageAndContinue(){
+    const allow=$('evspAllow'),backdrop=$('ethvelleStoragePermission');if(allow){allow.disabled=true;allow.textContent='Preparing storage…';}
+    let persistenceGranted=null;
+    try{if(navigator.storage&&typeof navigator.storage.persist==='function'){try{persistenceGranted=await navigator.storage.persist();}catch(_e){persistenceGranted=false;}}}catch(_e){persistenceGranted=false;}
+    try{await openProjectDb();}catch(err){console.warn('Ethvelle: IndexedDB could not be opened:',err);}
+    try{localStorage.setItem(CONSENT_KEY,'yes');}catch(_e){}
+    backdrop?.classList.remove('active');if(allow){allow.disabled=false;allow.textContent='Allow & continue';}
+    if(persistenceGranted===false)toast('Browser storage is available, but permanent retention was not guaranteed. Export important projects as backups.');
+    if(pendingCreate){pendingCreate=false;try{if(originalCreateProject)originalCreateProject.call(window);if(projects&&projects[0])projects[0].updatedAt=Date.now();window.saveProjectsToStorage();}catch(err){console.error(err);toast('Project could not be created. Please try again.');}}
+  }
+  const modal=$('ethvelleStoragePermission');
+  $('evspAllow')?.addEventListener('click',requestStorageAndContinue);
+  $('evspCancel')?.addEventListener('click',()=>{pendingCreate=false;modal?.classList.remove('active');});
+  modal?.addEventListener('click',e=>{if(e.target===modal){pendingCreate=false;modal.classList.remove('active');}});
+  const originalCreateProject=window.createProject;
+  if(typeof originalCreateProject==='function'&&!originalCreateProject.__evStorageGate){
+    const gatedCreateProject=function(){
+      let consent=false;try{consent=localStorage.getItem(CONSENT_KEY)==='yes';}catch(_e){}
+      /* v219-fix: no permission panel any more. Storage is requested automatically in the background
+         (persistent-storage request + opening the device DB) and the project is created straight away. */
+      if(!consent){
+        try{localStorage.setItem(CONSENT_KEY,'yes');}catch(_e){}
+        try{if(navigator.storage&&typeof navigator.storage.persist==='function'){Promise.resolve(navigator.storage.persist()).catch(()=>{});}}catch(_e){}
+        try{Promise.resolve(openProjectDb()).catch(err=>console.warn('Ethvelle: IndexedDB could not be opened:',err));}catch(_e){}
+      }
+      const result=originalCreateProject.apply(this,arguments);
+      try{if(projects&&projects[0])projects[0].updatedAt=Date.now();window.saveProjectsToStorage();}catch(_e){}
+      return result;
+    };
+    gatedCreateProject.__evStorageGate=true;window.createProject=gatedCreateProject;
+  }
+  const originalPersist=window.persistProjectState;
+  if(typeof originalPersist==='function'&&!originalPersist.__evDeviceSave){
+    const wrappedPersist=function(){try{if(typeof currentProject!=='undefined'&&currentProject)currentProject.updatedAt=Date.now();}catch(_e){}return originalPersist.apply(this,arguments);};
+    wrappedPersist.__evDeviceSave=true;window.persistProjectState=wrappedPersist;
+  }
+  window.addEventListener('pagehide',()=>{clearTimeout(saveTimer);saveTimer=0;saveFullProjectsToDevice().catch(()=>{});});
+  document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden'){clearTimeout(saveTimer);saveTimer=0;saveFullProjectsToDevice().catch(()=>{});}});
+  // Opening a project before the IndexedDB restore finishes used to pass the early
+  // localStorage index-only record (savedState:null) into openEditor. That made every Clips
+  // row appear empty until the user re-uploaded media, even though the full snapshot existed.
+  // Publish a restore promise and let the final openEditor guard wait for it.
+  window.__evFramesGate = new Promise(r=>{window.__evFramesGateResolve=r;});
+  window.__ethvelleProjectsRestoreReady = false;
+  window.__ethvelleProjectsRestorePromise = Promise.resolve()
+    .then(()=>restoreProjectsFromDevice())
+    .catch(err=>{console.warn('Ethvelle project restore:',err);})
+    .finally(()=>{window.__ethvelleProjectsRestoreReady = true;});
+
+  // Video thumbnails are generated only by the time-windowed sequential decoder in V9.
+  // The compatibility generateVideoThumbnails() helper above resolves metadata only.
+
+  // Legacy per-tile live-video fallback removed; video rows use the shared lazy tile decoder.
+
+  // Compare the selected media directly on the main canvas. Only the white wipe/handle accepts
+  // pointer input; the comparison slider in the settings sheet is deliberately removed.
+  function unwrappedSource(src){let s=String(src||'').trim(),m=s.match(/^url\((.*)\)$/i);if(m)s=m[1].trim().replace(/^['"]|['"]$/g,'');return s;}
+  function getEnhanceTarget(){
+    const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+    try{const bg=(typeof backgrounds!=='undefined'?backgrounds:[]).find(x=>String(x.id)===id);if(bg&&unwrappedSource(bg.src))return {kind:'background',model:bg,type:'image',src:unwrappedSource(bg.src)};}catch(_e){}
+    try{const ov=(typeof overlays!=='undefined'?overlays:[]).find(x=>String(x.id)===id);if(ov&&['video','image'].includes(ov.type)&&unwrappedSource(ov.src))return {kind:'overlay',model:ov,type:ov.type,src:unwrappedSource(ov.src)};}catch(_e){}
+    if(!id){try{const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0):null;if(bg&&unwrappedSource(bg.src))return {kind:'background',model:bg,type:'image',src:unwrappedSource(bg.src)};}catch(_e){}}
+    return null;
+  }
+  function transformFor(target){
+    const t=target.kind==='background'?(target.model.transform||((typeof bgTransform!=='undefined')?bgTransform:null)):target.model.transform;
+    if(!t)return 'none';return `translate(${Number(t.offsetX)||0}px,${Number(t.offsetY)||0}px) rotate(${Number(t.rotation)||0}deg) scale(${Number(t.scale)||1})`;
+  }
+  function referenceMediaForCompare(target){
+    try{
+      if(target.kind==='background')return $('bgImgLayer');
+      const host=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[target.model.id]:null;
+      if(!host)return null;
+      if(host.matches&&host.matches('video,img,canvas'))return host;
+      return host.querySelector?host.querySelector('video,img,canvas'):host;
+    }catch(_e){return null;}
+  }
+  let comparePipeline=null,comparePipelineKey='',compareLastPlaybackSyncAt=0;
+  let compareSnap=null,compareSnapCtx=null,compareLastSource=null,compareLastKey='',compareLastTime=-1,compareLastCost=0,compareRvfcEl=null,compareRvfcId=0,compareLoopTimer=0;
+  const COMPARE_PREVIEW_LONG_SIDE=720;
+  function makeCompareMedia(target,after){
+    const el=document.createElement('canvas');el.className='evcc-media';el.width=2;el.height=2;el.dataset.evSide=after?'after':'before';
+    el.style.width='100%';el.style.height='100%';el.style.objectFit='contain';el.style.objectPosition='center';el.style.transform=transformFor(target);el.style.transformOrigin='center center';el.draggable=false;
+    const reference=referenceMediaForCompare(target);if(reference){try{const cs=getComputedStyle(reference);if(cs.objectFit)el.style.objectFit=cs.objectFit;if(cs.objectPosition)el.style.objectPosition=cs.objectPosition;if(cs.transform&&cs.transform!=='none')el.style.transform=cs.transform;if(cs.transformOrigin)el.style.transformOrigin=cs.transformOrigin;}catch(_e){}}
+    return el;
+  }
+  /* The tool panel's full-screen click-catcher (#panelBackdrop, z-index 100100) sits above the
+     preview and swallowed every touch meant for the divider. Cut a hole in it exactly over the
+     divider so the handle can be dragged while taps elsewhere still behave as before. */
+  function updateBackdropHole(){
+    const bd=document.getElementById('panelBackdrop');if(!bd)return;
+    const wipe=document.querySelector('#ethvelleCanvasCompareRoot .evcc-wipe');
+    if(!wipe){bd.style.removeProperty('clip-path');return;}
+    const b=bd.getBoundingClientRect(),w0=wipe.getBoundingClientRect(),rr=wipe.parentElement.getBoundingClientRect();if(!b.width||!w0.width)return;
+    const l=Math.max(w0.left,rr.left),r=Math.min(w0.right,rr.right),w={left:l,top:w0.top,width:Math.max(0,r-l),height:w0.height};if(!w.width)return;
+    const x=Math.round(w.left-b.left),y=Math.round(w.top-b.top),ww=Math.round(w.width),hh=Math.round(w.height),W=Math.round(b.width),H=Math.round(b.height);
+    bd.style.setProperty('clip-path',`path(evenodd,'M0 0H${W}V${H}H0Z M${x} ${y}h${ww}v${hh}h-${ww}Z')`,'important');
+  }
+  window.__evUpdateBackdropHole=updateBackdropHole;
+  function setCanvasComparePosition(p){
+    canvasComparePercent=Math.max(0,Math.min(100,Number(p)||0));const root=$('ethvelleCanvasCompareRoot');if(!root)return;
+    const after=root.querySelector('.evcc-after'),wipe=root.querySelector('.evcc-wipe');if(after)after.style.clipPath=`inset(0 0 0 ${canvasComparePercent}%)`;
+    if(wipe){const width=root.clientWidth||root.getBoundingClientRect().width||0,x=width*canvasComparePercent/100;wipe.style.left=x+'px';wipe.style.setProperty('--evcc-line-offset','31px');updateBackdropHole();}
+  }
+  /* v287 BEFORE/AFTER SYNC FIX. The two halves used to be filled by two separate reads of the live video
+     (the AFTER half through a full-resolution WebGL pass that was also rebuilt every time playback started or
+     stopped), so AFTER could trail BEFORE by 0.1-0.5 s. Now:
+       1. ONE snapshot of the current video frame is taken per update;
+       2. BEFORE and AFTER are both drawn from that same snapshot in the same synchronous block, so they can never
+          show different moments;
+       3. updates are driven by the video's own frame callback (requestVideoFrameCallback) plus seeked/loadeddata,
+          so both halves advance on exactly the frames the video presents;
+       4. the preview pipeline works on the small snapshot and is NOT rebuilt on play/pause, so it is cheap and
+          never stalls the start of playback. */
+  function syncCanvasCompare(force){
+    force=(force===true);
+    const root=$('ethvelleCanvasCompareRoot');if(!root)return;
+    const target=getEnhanceTarget();if(!target)return;
+    const before=root.querySelector('.evcc-before .evcc-media'),after=root.querySelector('.evcc-after .evcc-media');if(!before||!after)return;
+    const source=referenceMediaForCompare(target);if(!source)return;
+    const isVideo=source.tagName==='VIDEO';
+    const sw=Number(source.videoWidth||source.naturalWidth||source.width)||0,sh=Number(source.videoHeight||source.naturalHeight||source.height)||0;
+    if(!sw||!sh||(isVideo&&source.readyState<2))return;
+    const live=!!(isPlaying||window.__ethvelleTimelineScrubbing);
+    const now=performance.now();
+    if(live&&!force){
+      // While playing, the video frame callback drives the updates; only fall back to the render loop when it is unavailable.
+      if(isVideo&&compareRvfcEl===source&&typeof source.requestVideoFrameCallback==='function')return;
+      if(compareLastPlaybackSyncAt&&now-compareLastPlaybackSyncAt<33)return;
+    }
+    const factor=Math.min(1,COMPARE_PREVIEW_LONG_SIDE/Math.max(sw,sh)),pw=Math.max(2,Math.round(sw*factor)),ph=Math.max(2,Math.round(sh*factor));
+    const amount=Math.max(0,Math.min(100,Number($('evltEnhanceAmount')?.value??target.model.enhanceAmount??0)||0));
+    const filter=typeof window.ethvelleAdjustmentFilter==='function'?window.ethvelleAdjustmentFilter(target.model.adjustments,0):'none';
+    const key=`${source.currentSrc||source.src||''}|${pw}x${ph}|${amount}|${filter}`,t=isVideo?Number(source.currentTime)||0:0;
+    if(!live&&!force&&source===compareLastSource&&key===compareLastKey&&t===compareLastTime)return;
+    if(!isVideo&&!force&&source===compareLastSource&&key===compareLastKey)return;
+    const started=performance.now();
+    // 1) ONE snapshot of the current frame - both halves are built from this and nothing else.
+    if(!compareSnap)compareSnap=document.createElement('canvas');
+    if(compareSnap.width!==pw||compareSnap.height!==ph){compareSnap.width=pw;compareSnap.height=ph;compareSnapCtx=null;}
+    if(!compareSnapCtx){compareSnapCtx=compareSnap.getContext('2d',{alpha:false});if(!compareSnapCtx)return;compareSnapCtx.imageSmoothingEnabled=true;compareSnapCtx.imageSmoothingQuality='high';}
+    try{compareSnapCtx.drawImage(source,0,0,pw,ph);}catch(_e){return;}
+    // 2) Preview pipeline sized to the snapshot (rebuilt only if the preview size itself changes).
+    const pkey=pw+'x'+ph;
+    if(comparePipelineKey!==pkey||!comparePipeline){
+      try{if(comparePipeline)comparePipeline.dispose();comparePipeline=window.ethvelleCreateEnhancePipeline(pw,ph,pw,ph);comparePipelineKey=pkey;}
+      catch(err){console.warn('Ethvelle: comparison processor unavailable',err);comparePipeline=null;comparePipelineKey='';}
+    }
+    let processed=null;
+    if(comparePipeline){try{processed=comparePipeline.render(compareSnap,filter,amount);}catch(err){console.warn('Ethvelle: comparison frame failed',err);}}
+    // 3) Paint BEFORE and AFTER back-to-back in the same synchronous block, from the same snapshot.
+    if(before.width!==pw||before.height!==ph){before.width=pw;before.height=ph;}
+    if(after.width!==pw||after.height!==ph){after.width=pw;after.height=ph;}
+    const beforeCtx=before.getContext('2d'),afterCtx=after.getContext('2d');
+    if(beforeCtx){beforeCtx.save();beforeCtx.filter=filter;beforeCtx.imageSmoothingEnabled=true;beforeCtx.imageSmoothingQuality='high';beforeCtx.clearRect(0,0,pw,ph);beforeCtx.drawImage(compareSnap,0,0,pw,ph);beforeCtx.restore();}
+    if(afterCtx&&processed){afterCtx.clearRect(0,0,pw,ph);afterCtx.imageSmoothingEnabled=true;afterCtx.imageSmoothingQuality='high';afterCtx.drawImage(processed,0,0,pw,ph);}
+    if(!live)setCanvasComparePosition(canvasComparePercent);
+    compareLastSource=source;compareLastKey=key;compareLastTime=t;compareLastPlaybackSyncAt=performance.now();compareLastCost=compareLastPlaybackSyncAt-started;
+  }
+  const compareFrameHandler=()=>{try{syncCanvasCompare(true);}catch(_e){}};
+  function detachCompareFrameLoop(){
+    if(compareLoopTimer){clearInterval(compareLoopTimer);compareLoopTimer=0;}

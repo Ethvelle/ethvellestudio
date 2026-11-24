@@ -1,0 +1,1000 @@
+  scheduleCharacterAdjustPlacement();
+  setTimeout(scheduleCharacterAdjustPlacement,350);
+})();
+</script>
+
+
+<style id="ethvelle-v301-requested-polish-css">
+  /* Site icon and metadata are defined in <head>; keep the tutorial logo badge clean and white. */
+  #tutorialGrid .tutorial-meta-icon,
+  .tutorial-meta-icon{
+    background:#FFFFFF!important;
+    box-shadow:none!important;
+    filter:none!important;
+  }
+  #tutorialGrid .tutorial-meta-icon img,
+  .tutorial-meta-icon img{
+    -webkit-filter:none!important;
+    filter:none!important;
+    box-shadow:none!important;
+  }
+
+  /* Strong, deep-blue focus treatment for the Credits History search field. */
+  #screen-credits-history .myplan-credit-search input:focus{
+    border:2px solid #2F5CE8!important;
+    border-color:#2F5CE8!important;
+    box-shadow:0 0 0 2px rgba(47,92,232,.24)!important;
+    outline:none!important;
+  }
+
+
+  /* Active plan: both progress bars align to the same card column; keep only the teal bar, not a tinted panel. */
+  .ev-plan-credit-block{
+    margin-top:12px!important;
+    padding:0!important;
+    border:0!important;
+    border-radius:0!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+  .ev-plan-meter-head,.ev-plan-credit-meta{
+    display:flex!important;align-items:center!important;justify-content:space-between!important;
+    gap:10px!important;color:#D0D4DF!important;
+    font-size:11.5px!important;font-weight:700!important;line-height:1.3!important;
+  }
+  .ev-plan-credit-meta b{
+    color:#55D2B5!important;
+    font-size:12px!important;font-weight:800!important;
+    font-variant-numeric:tabular-nums!important;white-space:nowrap!important;
+  }
+  .ev-plan-timebar,.ev-plan-credit-bar{
+    width:100%!important;height:7px!important;margin-top:8px!important;
+    overflow:hidden!important;border-radius:99px!important;
+    background:rgba(255,255,255,.10)!important;
+  }
+  .ev-plan-credit-bar>i{background:linear-gradient(90deg,#36B99D,#68D9C1)!important;}
+  .ev-plan-timeline-countdown{
+    color:#91ACFF!important;font-size:11px!important;font-weight:800!important;
+    font-variant-numeric:tabular-nums!important;text-align:right!important;white-space:nowrap!important;
+  }
+</style>
+
+
+
+<style id="ethvelle-v302-history-scroll-and-tutorial-icon-css">
+  /* Credits History: fixed search row + independently scrolling transaction list. */
+  #screen-credits-history #creditsHistoryScroll{
+    display:flex!important;
+    flex-direction:column!important;
+    min-height:0!important;
+    overflow:hidden!important;
+    overscroll-behavior:contain!important;
+  }
+  #screen-credits-history .myplan-credit-history-card{
+    display:flex!important;
+    flex:1 1 auto!important;
+    flex-direction:column!important;
+    width:100%!important;
+    min-height:0!important;
+    height:100%!important;
+    max-height:none!important;
+    overflow:hidden!important;
+    position:relative!important;
+  }
+  #screen-credits-history .myplan-credit-search{
+    position:relative!important;
+    top:auto!important;
+    z-index:2!important;
+    flex:0 0 auto!important;
+    width:100%!important;
+    box-sizing:border-box!important;
+    margin:0 0 10px!important;
+    padding:5px 0 8px!important;
+    background:var(--bg,#0B0B0F)!important;
+    box-shadow:none!important;
+    isolation:isolate!important;
+  }
+  #screen-credits-history .myplan-credit-history-card>.myplan-credit-history{
+    position:relative!important;
+    z-index:0!important;
+    display:flex!important;
+    flex:1 1 auto!important;
+    flex-direction:column!important;
+    min-height:0!important;
+    height:auto!important;
+    max-height:none!important;
+    overflow-x:hidden!important;
+    overflow-y:auto!important;
+    overscroll-behavior:contain!important;
+    -webkit-overflow-scrolling:touch!important;
+    padding:0 0 30px!important;
+  }
+  #screen-credits-history .myplan-credit-row{scroll-margin-top:0!important;}
+
+  /* Marking controls are no longer part of Credits History. */
+
+  /* Use the supplied tutorial artwork cleanly inside the existing white badge. */
+  #tutorialGrid .tutorial-meta-icon{
+    width:34px!important;height:34px!important;
+    min-width:34px!important;min-height:34px!important;
+    overflow:hidden!important;
+    background:#FFFFFF!important;
+    border-radius:50%!important;
+    box-shadow:none!important;
+  }
+  #tutorialGrid .tutorial-meta-icon img{
+    display:block!important;
+    width:30px!important;height:30px!important;
+    max-width:30px!important;max-height:30px!important;
+    object-fit:contain!important;
+    background:transparent!important;
+    box-shadow:none!important;
+  }
+</style>
+
+
+
+<style id="ethvelle-v303-tutorial-icon-history-height-css">
+  /* Fill the white tutorial badge edge-to-edge with the supplied artwork. */
+  #tutorialGrid .tutorial-meta-icon,
+  #tutorialGrid .tutorial-meta-icon img{
+    width:34px!important;height:34px!important;
+    min-width:34px!important;min-height:34px!important;
+    max-width:34px!important;max-height:34px!important;
+    padding:0!important;margin:0!important;
+  }
+  #tutorialGrid .tutorial-meta-icon{overflow:hidden!important;background:#FFFFFF!important;}
+  #tutorialGrid .tutorial-meta-icon img{
+    display:block!important;object-fit:cover!important;object-position:center!important;
+    border-radius:50%!important;background:#FFFFFF!important;
+    box-shadow:none!important;filter:none!important;-webkit-filter:none!important;
+  }
+
+  /* Credits History alone must not reserve the generic 132px bottom gap used by other pages.
+     Its transaction scroller now reaches the bottom of the available app viewport. */
+  #screen-credits-history{overflow:hidden!important;}
+  #screen-credits-history #creditsHistoryScroll{
+    flex:1 1 0%!important;min-height:0!important;height:auto!important;
+    padding-bottom:0!important;margin-bottom:0!important;
+    overflow:hidden!important;display:flex!important;flex-direction:column!important;
+    align-items:stretch!important;box-sizing:border-box!important;
+  }
+  #screen-credits-history .myplan-credit-history-card{
+    flex:1 1 0%!important;min-height:0!important;height:auto!important;
+    max-height:none!important;margin:0!important;padding:0!important;
+    overflow:hidden!important;box-sizing:border-box!important;
+  }
+  #screen-credits-history .myplan-credit-history-card>.myplan-credit-history{
+    flex:1 1 0%!important;min-height:0!important;height:auto!important;
+    max-height:none!important;overflow-x:hidden!important;overflow-y:auto!important;
+    padding-bottom:calc(18px + env(safe-area-inset-bottom,0px))!important;
+    overscroll-behavior:contain!important;-webkit-overflow-scrolling:touch!important;
+  }
+</style>
+
+<!-- v304: (1) blue text caret that always sits beside the rendered text, (2) "Retype" action in the text-editing bottom toolbar -->
+<style id="ethvelle-v304-caret-retype-css">
+  /* The writing caret ("scrubber") is blue. While the styled preview is showing, the caret is drawn
+     by #evtcBlueCaret from the preview's real glyph positions and the native one is hidden. */
+  #ethvelleTextComposer #evtcStageText{caret-color:#2F7BFF!important;}
+  #ethvelleTextComposer #evtcStageText.ev-v304-own-caret{caret-color:transparent!important;}
+  #ethvelleTextComposer #evtcBlueCaret{
+    position:fixed;z-index:100006;display:none;box-sizing:border-box;width:2px;margin:0;padding:0;border:0;
+    border-radius:1px;background:#2F7BFF;pointer-events:none;user-select:none;-webkit-user-select:none;
+    animation:evtcBlueCaretBlink 1.1s steps(1,end) infinite;
+  }
+  @keyframes evtcBlueCaretBlink{0%,55%{opacity:1}56%,100%{opacity:0}}
+
+  /* Retype: first entry of the text-editing bottom toolbar (hidden inside the composer itself). */
+  #ethvellePicsartTextDock .evpa-tab.evpa-retype-tab{position:relative;margin-right:7px;}
+  #ethvellePicsartTextDock .evpa-tab.evpa-retype-tab{color:#A4A7B7;}
+  #ethvellePicsartTextDock .evpa-tab.evpa-retype-tab svg{stroke:currentColor;}
+  #ethvellePicsartTextDock .evpa-tab.evpa-retype-tab::after{
+    content:"";position:absolute;right:-5px;top:13px;bottom:13px;width:1px;background:rgba(255,255,255,.14);pointer-events:none;
+  }
+  #ethvellePicsartTextDock .evpa-tab.evpa-retype-tab:active{background:rgba(255,255,255,.08);color:#DDE6FF;}
+  #ethvellePicsartTextDock.evpa-in-composer .evpa-tab.evpa-retype-tab{display:none!important;}
+</style>
+<script id="ethvelle-v304-caret-retype-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  let caretEl=null,rafId=0,lastKey='',moInput=null,moHost=null,moHostEl=null,globalsWired=false;
+
+  const composerOn=()=>{const r=$('ethvelleTextComposer');return !!(r&&r.classList.contains('active'));};
+
+  function ensureCaretEl(input){
+    if(!caretEl){caretEl=document.createElement('div');caretEl.id='evtcBlueCaret';caretEl.setAttribute('aria-hidden','true');}
+    if(caretEl.parentNode!==input.parentNode)input.parentNode.appendChild(caretEl);
+    return caretEl;
+  }
+  function hideCaret(input){
+    if(caretEl&&caretEl.style.display!=='none')caretEl.style.display='none';
+    if(input&&input.classList.contains('ev-v304-own-caret'))input.classList.remove('ev-v304-own-caret');
+  }
+
+  /* 1) The textarea only supplies typing, selection and the on-screen keyboard; the styled preview paints the
+        text. Give the textarea the preview's own letter-spacing / line-height / text-transform so both lay the
+        text out identically (it used to keep its CSS defaults, so any Spacing / line-height change, or even
+        just a big font, pushed the caret away from the text). */
+  function syncTypography(input,glyph,host){
+    const ls=glyph.style.letterSpacing;
+    const want={
+      'letter-spacing':(ls&&ls!=='normal')?ls:'0px',
+      'line-height':glyph.style.lineHeight||'1.16',
+      'text-transform':(host&&host.style.textTransform)||'none'
+    };
+    for(const k in want){
+      if(input.style.getPropertyValue(k)!==want[k]||input.style.getPropertyPriority(k)!=='important')input.style.setProperty(k,want[k],'important');
+    }
+  }
+
+  /* 2) Caret position measured from the preview's real glyphs, so it stays beside the visible text whatever
+        font, size, stroke, spacing, bend or perspective is applied. Returns null when it cannot be measured
+        (then the native caret, also blue, is used). */
+  /* v305: the outline (stroke), its 3D extrusion and the font size make the visible text wider than its glyph box,
+        so a caret placed exactly on the glyph edge touched / hid under the outline. Measure how far the outline
+        reaches on screen and keep the caret a small, size-based distance outside of it. */
+  function edgePad(host,glyph){
+    const gs=getComputedStyle(glyph),fs=parseFloat(gs.fontSize)||40;
+    let k=1;                                                 // on-screen scale of the preview (zoom / transform)
+    try{if(glyph.offsetWidth>0){const bw=glyph.getBoundingClientRect().width/glyph.offsetWidth;if(isFinite(bw)&&bw>0.05)k=bw;}}catch(_e){}
+    let out=0;
+    const clone=host.querySelector(':scope > .evpa-stroke-clone');
+    if(clone){
+      const cs=getComputedStyle(clone);
+      const w=(parseFloat(cs.webkitTextStrokeWidth)||0)/2;   // the stroke is painted at 2x width, half of it outside the glyph
+      const vis=parseFloat(cs.opacity);
+      if(w>0.01&&!(vis===0)){
+        out=w;
+        if(typeof window.ethvelleStrokeExtrude==='function'&&cs.filter&&cs.filter!=='none'){
+          try{out+=window.ethvelleStrokeExtrude(w,1,cs.webkitTextStrokeColor).depth*0.32;}catch(_e){}
+        }
+      }
+    }
+    const gap=Math.max(3,Math.min(12,fs*0.07));            // breathing room that grows with the font size
+    return (out+gap)*k;
+  }
+
+  function caretFromGlyph(input,glyph){
+    const val=input.value,idx=input.selectionStart;
+    if(!val||idx==null)return null;
+    const segs=[];let total=0;
+    const walker=document.createTreeWalker(glyph,NodeFilter.SHOW_TEXT);
+    for(let n=walker.nextNode();n;n=walker.nextNode()){if(n.data.length){segs.push({n:n,s:total});total+=n.data.length;}}
+    if(total!==val.length)return null;                      // preview has not caught up with the text yet
+    const rectOf=(a,b)=>{
+      for(let i=0;i<segs.length;i++){
+        const sg=segs[i];
+        if(a>=sg.s&&a<sg.s+sg.n.data.length){
+          const rg=document.createRange();
+          rg.setStart(sg.n,a-sg.s);rg.setEnd(sg.n,Math.min(b,sg.s+sg.n.data.length)-sg.s);
+          const rs=rg.getClientRects();
+          return rs.length?rs[rs.length-1]:null;
+        }
+      }
+      return null;
+    };
+    const pack=(x,top,h,e)=>(isFinite(x)&&isFinite(top)&&isFinite(h)&&h>0)?{x:x,top:top,h:h,e:e||0}:null;   // e: +1 = after the last glyph of a line, -1 = before the first glyph, 0 = between glyphs
+    const gs=getComputedStyle(glyph),rtl=gs.direction==='rtl';
+    const fs=parseFloat(gs.fontSize)||40;
+    const lhPx=parseFloat(gs.lineHeight)||fs*1.16;
+    let r;
+    if(idx>0){
+      if(val.charAt(idx-1)==='\n'){                         // caret sits at the start of a new line
+        if(idx<val.length&&val.charAt(idx)!=='\n'){
+          r=rectOf(idx,idx+1);
+          return r?pack(rtl?r.right:r.left,r.top,r.height,-1):null;
+        }
+        let k=idx-1,nl=0;while(k>=0&&val.charAt(k)==='\n'){nl++;k--;}
+        if(k<0)return null;
+        r=rectOf(k,k+1);if(!r)return null;                  // empty line: same column as the line above, one line lower
+        const gr=glyph.getBoundingClientRect(),al=getComputedStyle(input).textAlign;
+        const l=gr.left+(parseFloat(gs.paddingLeft)||0),rr=gr.right-(parseFloat(gs.paddingRight)||0);
+        const x=al==='center'?(l+rr)/2:(al==='right'?rr:l);
+        return pack(x,r.top+nl*lhPx,r.height);
+      }
+      let a=idx-1;
+      const lo=val.charCodeAt(idx-1);
+      if(lo>=0xDC00&&lo<=0xDFFF&&idx>=2){const hi=val.charCodeAt(idx-2);if(hi>=0xD800&&hi<=0xDBFF)a=idx-2;}
+      r=rectOf(a,idx);
+      return r?pack(rtl?r.left:r.right,r.top,r.height,(idx>=val.length||val.charAt(idx)==='\n')?1:0):null;
+    }
+    r=rectOf(0,1);                                          // caret before the first character
+    return r?pack(rtl?r.right:r.left,r.top,r.height,-1):null;
+  }
+
+  function update(){
+    rafId=0;
+    const input=$('evtcStageText');
+    if(!input)return;
+    if(!composerOn()){hideCaret(input);return;}
+    const host=$('evtcStagePreview');
+    const glyph=(host&&host.style.display!=='none')?host.querySelector(':scope > .evpa-text-effect-layer'):null;
+    let pos=null,pad=0,rtlDir=1;
+    if(glyph){
+      syncTypography(input,glyph,host);
+      if(document.activeElement===input&&input.selectionStart===input.selectionEnd){
+        try{pos=caretFromGlyph(input,glyph);if(pos&&pos.e){pad=edgePad(host,glyph);rtlDir=getComputedStyle(glyph).direction==='rtl'?-1:1;}}catch(_e){pos=null;}
+      }
+    }
+    if(!pos){hideCaret(input);return;}
+    const c=ensureCaretEl(input),h=Math.max(8,pos.h);
+    pos.x+=pos.e*rtlDir*pad;
+    c.style.left=(pos.x-1)+'px';c.style.top=pos.top+'px';c.style.height=h+'px';
+    if(c.style.display!=='block')c.style.display='block';
+    const key=Math.round(pos.x*10)+':'+Math.round(pos.top*10)+':'+Math.round(h*10);
+    if(key!==lastKey){lastKey=key;c.style.animation='none';void c.offsetWidth;c.style.animation='';}   // solid right after it moves
+    if(!input.classList.contains('ev-v304-own-caret'))input.classList.add('ev-v304-own-caret');
+  }
+  function schedule(){if(!rafId)rafId=requestAnimationFrame(update);}
+
+  function wire(){
+    const input=$('evtcStageText');
+    if(input&&!input.__ev304){
+      input.__ev304=true;
+      ['input','keydown','keyup','click','focus','blur','select','pointerup','touchend','compositionupdate','compositionend'].forEach(ev=>input.addEventListener(ev,schedule,{passive:true}));
+      if(typeof MutationObserver==='function'){moInput=new MutationObserver(schedule);moInput.observe(input,{attributes:true,attributeFilter:['style','class']});}
+    }
+    const host=$('evtcStagePreview');
+    if(host&&host!==moHostEl&&typeof MutationObserver==='function'){
+      moHostEl=host;if(moHost)moHost.disconnect();
+      moHost=new MutationObserver(schedule);moHost.observe(host,{childList:true,subtree:true,attributes:true,characterData:true});
+    }
+    if(!globalsWired){
+      globalsWired=true;
+      document.addEventListener('selectionchange',schedule,{passive:true});
+      window.addEventListener('resize',schedule,{passive:true});
+      if(window.visualViewport){window.visualViewport.addEventListener('resize',schedule,{passive:true});window.visualViewport.addEventListener('scroll',schedule,{passive:true});}
+      if(document.fonts&&document.fonts.addEventListener)document.fonts.addEventListener('loadingdone',schedule);
+      /* Safety net: re-measure a few times a second while the writing screen is open. */
+      setInterval(function(){if(composerOn()){wire();schedule();}},160);
+    }
+  }
+
+  /* ---- Retype: reopen the writing screen for the selected text layer from the text-editing bottom toolbar ---- */
+  const RETYPE_ICON='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L8 18l-4 1 1-4Z"/></svg>';
+  function selectedTextId(){
+    let id=null;
+    try{id=(typeof selectedClip!=='undefined'&&selectedClip!=null)?selectedClip:null;}catch(_e){}
+    if(id==null){try{const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;if(t&&t.id!=null)id=t.id;}catch(_e){}}
+    return id;
+  }
+  function onRetype(e){
+    e.preventDefault();e.stopPropagation();
+    const id=selectedTextId();
+    if(id==null||typeof window.openEthvelleTextComposer!=='function'){if(typeof window.showToast==='function')window.showToast('Select a text layer first');return;}
+    window.openEthvelleTextComposer(id);
+    wire();
+    /* Ready to type straight away, caret after the last character. */
+    setTimeout(function(){
+      const input=$('evtcStageText');
+      if(!input||!composerOn())return;
+      try{input.focus({preventScroll:true});const n=input.value.length;input.setSelectionRange(n,n);}catch(_e){}
+      schedule();
+    },120);
+  }
+  function ensureRetypeTab(){
+    const tabs=$('evpaTabs');if(!tabs)return;
+    let b=tabs.querySelector('.evpa-retype-tab');
+    if(!b){
+      b=document.createElement('button');b.type='button';b.className='evpa-tab evpa-retype-tab';
+      b.setAttribute('aria-label','Retype text');b.title='Retype text';
+      b.innerHTML=RETYPE_ICON+'<span>Retype</span>';
+      b.addEventListener('click',onRetype);
+    }
+    if(tabs.firstElementChild!==b)tabs.insertBefore(b,tabs.firstChild);
+  }
+
+  function wrapAfter(name,fn){
+    const orig=window[name];
+    if(typeof orig!=='function'||orig.__ev304)return;
+    const w=function(){const r=orig.apply(this,arguments);try{fn();}catch(_e){}return r;};
+    w.__ev304=true;window[name]=w;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  }
+  wrapAfter('openEthvelleTextComposer',function(){wire();schedule();});
+  wrapAfter('closeEthvelleTextComposer',function(){schedule();});
+  wrapAfter('openEthvelleTextStylePanel',ensureRetypeTab);
+  wrapAfter('ethvellePicsartSetTool',ensureRetypeTab);
+
+  ensureRetypeTab();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',function(){ensureRetypeTab();wire();},{once:true});
+  window.addEventListener('load',function(){ensureRetypeTab();},{once:true});
+  setTimeout(ensureRetypeTab,1500);
+  wire();
+})();
+</script>
+
+
+<style id="ethvelle-v330-face-hands-css">
+  #screen-editor .evpa-choice-preview canvas.evpa-compose{max-width:100%;max-height:46px;object-fit:contain;display:block}
+  #screen-editor .evpa-wings-section .evpa-choice-add,#screen-editor .evpa-wings-section .evpa-section-add{display:none!important}
+</style>
+<script id="ethvelle-v330-face-hands-current-structure">
+(function(){
+  'use strict';
+  /* v330: Face & hands panel previews for the CURRENT humanoid (14+19 part) and bird (7+7 part) sheets.
+     Expression / mouth tiles are composited from the model's own head, eye, brow, beak and inner-mouth
+     parts, using the same nesting transforms the stage renderer uses, so each tile shows what you get. */
+  const back=()=>document.getElementById('ethvelleClipFaceActionsBackdrop');
+  const curChar=()=>{try{return typeof activeCharacter==='function'?activeCharacter():null;}catch(_e){return null;}};
+  function parseSpec(str){const o={};String(str||'').split('|').forEach(pair=>{const i=pair.indexOf(':');if(i>0)o[pair.slice(0,i)]=pair.slice(i+1);});return o;}
+  function composeFace(c,spec){
+    const sh=c&&c.sheet;if(!sh||!sh.parts||!sh.draw||typeof sheetImgFor!=='function'||typeof sheetNestInfo!=='function')return {canvas:null,pending:[]};
+    const P=sh.parts,D=sh.draw,type=String(c.modelType||sh.modelType||'humanoid'),bird=type==='bird';
+    const emo=spec.emo&&spec.emo!=='none'?spec.emo:null;
+    const headKey=(!bird&&emo&&P['head_'+emo])?'head_'+emo:'head';
+    const head=P[headKey],hd=D[headKey]||D.head,baseHd=D.head||hd;
+    if(!head||!head.src||!hd||!baseHd)return {canvas:null,pending:[]};
+    const pending=[];
+    const imgOf=src=>{const im=sheetImgFor(src);if(!(im.complete&&im.naturalWidth)){pending.push(im);return null;}return im;};
+    const headImg=imgOf(head.src);if(!headImg)return {canvas:null,pending};
+    const num=(v,d)=>Number.isFinite(Number(v))?Number(v):d;
+    const hsx=num(hd.sx,1),hsy=num(hd.sy,1),hpx=num(hd.pvx,0),hpy=num(hd.pvy,0);
+    const xa=-hpx*hsx,xb=(headImg.naturalWidth-hpx)*hsx,ya=-hpy*hsy,yb=(headImg.naturalHeight-hpy)*hsy;
+    const x0=Math.min(xa,xb),x1=Math.max(xa,xb),y0=Math.min(ya,yb),y1=Math.max(ya,yb);
+    const CW=128,CH=96,pad=6,sc=Math.min((CW-pad*2)/Math.max(1,x1-x0),(CH-pad*2)/Math.max(1,y1-y0));
+    const cv=document.createElement('canvas');cv.width=CW;cv.height=CH;cv.className='evpa-compose';
+    const g=cv.getContext('2d');if(!g)return {canvas:null,pending:[]};
+    g.save();g.translate(CW/2-((x0+x1)/2)*sc,CH/2-((y0+y1)/2)*sc);g.scale(sc,sc);
+    const bsx=num(baseHd.sx,1),bsy=num(baseHd.sy,1);
+    /* inner mouth sits behind an expression head (humanoid kit) */
+    if(!bird&&P.mouth_inner&&headKey!=='head'&&typeof sheetAnimalMouthInnerLayer==='function'){
+      try{const L=sheetAnimalMouthInnerLayer(sh);if(L&&L.canvas){g.save();g.scale(bsx,bsy);g.drawImage(L.canvas,-L.pivotX,-L.pivotY,P.head.w,P.head.h);g.restore();}}catch(_e){}
+    }
+    g.save();g.scale(hsx,hsy);g.drawImage(headImg,-hpx,-hpy);g.restore();
+    const nested=(key,moodRot)=>{
+      const part=P[key];if(!part||!part.src)return;
+      let nest=sheetNestInfo(sh,key);if(!nest)return;
+      if(key==='beak_open'){const cn=sheetNestInfo(sh,'beak_closed');if(cn)nest={...nest,nestDx:cn.nestDx,nestDy:cn.nestDy,nestRot:cn.nestRot};}
+      const im=imgOf(part.src);if(!im)return;
+      const pvx=num(nest.nestPivotX,num((D[key]||{}).pvx,num(part.dpx,0))),pvy=num(nest.nestPivotY,num((D[key]||{}).pvy,num(part.dpy,0)));
+      g.save();g.translate(num(nest.nestDx,0)*bsx,num(nest.nestDy,0)*bsy);g.rotate(num(nest.nestRot,0)+(moodRot||0));
+      g.scale(num(nest.nestSx,1),num(nest.nestSy,1));g.drawImage(im,-pvx,-pvy,part.w,part.h);g.restore();
+    };
+    if(bird){
+      const e=emo||'';const r=e==='angry'?.30:e==='sad'?-.24:e==='laugh'?.13:e==='shock'?-.10:0;
+      nested(spec.eyes==='closed'&&P.bird_eye_closed?'bird_eye_closed':'bird_eye');
+      nested('bird_brow',r);
+      nested(spec.mouth==='open'&&P.beak_open?'beak_open':'beak_closed');
+    }else{
+      const e=emo||'';
+      const rot=left=>e==='angry'?(left?1:-1)*.18:e==='sad'?(left?-1:1)*.11:e==='laugh'?(left?1:-1)*.07:e==='shock'?(left?-1:1)*.04:0;
+      if(spec.eyes==='closed'&&P.eye_closed_L&&P.eye_closed_R){nested('eye_closed_L');nested('eye_closed_R');}
+      else{nested('eye_L');nested('eye_R');}
+      nested('brow_L',rot(true));nested('brow_R',rot(false));
+    }
+    g.restore();
+    if(pending.length)return {canvas:null,pending};
+    return {canvas:cv,pending:[]};
+  }
+  let repaintQueued=false;
+  function paintPreviews(){
+    const root=back();if(!root||!root.classList.contains('active'))return;
+    const c=curChar();if(!c||!c.sheet)return;
+    root.querySelectorAll('.evpa-choice[data-compose]').forEach(btn=>{
+      const holder=btn.querySelector('.evpa-choice-preview');if(!holder||holder.querySelector('canvas.evpa-compose'))return;
+      let res;try{res=composeFace(c,parseSpec(btn.dataset.compose));}catch(err){console.warn('Face preview skipped',err);return;}
+      if(res.canvas){holder.innerHTML='';holder.appendChild(res.canvas);}
+      else if(res.pending.length&&!repaintQueued){
+        repaintQueued=true;let left=res.pending.length;
+        const done=()=>{if(--left<=0){repaintQueued=false;requestAnimationFrame(paintPreviews);}};
+        res.pending.forEach(im=>{im.addEventListener('load',done,{once:true});im.addEventListener('error',done,{once:true});});
+      }
+    });
+  }
+  const prior=window.openClipCharacterActions;
+  if(typeof prior==='function'&&!prior.__ethvelleV330){
+    const wrapped=function(){
+      const result=prior.apply(this,arguments);
+      paintPreviews();requestAnimationFrame(()=>{paintPreviews();requestAnimationFrame(paintPreviews);});
+      return result;
+    };
+    wrapped.__ethvelleV330=true;window.openClipCharacterActions=wrapped;
+  }
+})();
+</script>
+
+<script id="ethvelle-v334-character-effect-library">
+/* Ethvelle character effects library (v334).
+   Every effect is drawn procedurally from time, in "head units": 1 unit = the character's head
+   radius, origin = head centre, up = -y. The same function feeds the live canvas, the exported
+   video and the little frame-by-frame thumbnails shown inside the timeline effect clip. */
+(function(){
+  'use strict';
+  if(window.ethvelleCharFxLib)return;
+  const TAU=Math.PI*2;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+  const fr=x=>x-Math.floor(x);
+  const hs=i=>fr(Math.sin((i+1)*127.1+37.7)*43758.5453);
+  const ease=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
+  const lerp=(a,b,t)=>a+(b-a)*t;
+  const rgba=(r,g,b,a)=>'rgba('+r+','+g+','+b+','+clamp(a,0,1)+')';
+
+  const TYPES=[
+    ['anger','Anger'],['fire','Fire'],['tears','Tears'],['chi','Chi Ball'],
+    ['blood','Blood'],['bandage','Bandage'],['bruise','Black Eye'],['nosebleed','Nosebleed'],
+    ['sweat','Sweat'],['dizzy','Dizzy Stars'],['hearts','Hearts'],['sleep','Sleeping'],
+    ['electric','Electric Shock'],['sparkle','Sparkles']
+  ];
+
+  /* ---------- small shape helpers (all in head units) ---------- */
+  function dropPath(ctx,x,y,s){
+    ctx.beginPath();ctx.moveTo(x,y-s*1.7);
+    ctx.bezierCurveTo(x-s*.18,y-s*.75,x-s,y-s*.15,x-s,y+s*.35);
+    ctx.bezierCurveTo(x-s,y+s*1.0,x+s,y+s*1.0,x+s,y+s*.35);
+    ctx.bezierCurveTo(x+s,y-s*.15,x+s*.18,y-s*.75,x,y-s*1.7);ctx.closePath();
+  }
+  function heartPath(ctx,x,y,s){
+    ctx.beginPath();ctx.moveTo(x,y+s*.95);
+    ctx.bezierCurveTo(x-s*1.7,y-s*.2,x-s*.95,y-s*1.3,x,y-s*.48);
+    ctx.bezierCurveTo(x+s*.95,y-s*1.3,x+s*1.7,y-s*.2,x,y+s*.95);ctx.closePath();
+  }
+  function starPath(ctx,x,y,s,rot,points,inner){
+    ctx.beginPath();
+    for(let i=0;i<points*2;i++){const a=rot-Math.PI/2+i*Math.PI/points,r=i%2?s*inner:s;ctx.lineTo(x+Math.cos(a)*r,y+Math.sin(a)*r);}
+    ctx.closePath();
+  }
+  function softDisc(ctx,x,y,r,rgb,a){
+    const g=ctx.createRadialGradient(x,y,0,x,y,r);
+    const strength=clamp(a*1.38,0,1);g.addColorStop(0,rgba(rgb[0],rgb[1],rgb[2],strength));g.addColorStop(1,rgba(rgb[0],rgb[1],rgb[2],0));
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fill();
+  }
+  function bloodDrip(ctx,H,x0,y0,len,t,seed,period,w){
+    /* A streak that grows downward, swells into a bulb, lets the bulb fall, then starts again. */
+    const p=fr(t/period+hs(seed)),grow=ease(p/.72),L=len*(.25+.75*grow);
+    const fade=p>.9?1-(p-.9)/.1:1;
+    ctx.save();ctx.globalAlpha*=fade;ctx.lineCap='round';
+    const wob=Math.sin(t*2.1+seed)*.012;
+    ctx.strokeStyle='#7E0C14';ctx.lineWidth=w*1.45;ctx.beginPath();ctx.moveTo(x0,y0);ctx.quadraticCurveTo(x0+wob,y0+L*.5,x0+wob*2,y0+L);ctx.stroke();
+    ctx.strokeStyle='#D2202B';ctx.lineWidth=w;ctx.beginPath();ctx.moveTo(x0,y0);ctx.quadraticCurveTo(x0+wob,y0+L*.5,x0+wob*2,y0+L);ctx.stroke();
+    ctx.strokeStyle='rgba(255,185,185,.8)';ctx.lineWidth=w*.22;ctx.beginPath();ctx.moveTo(x0-w*.22,y0+L*.08);ctx.lineTo(x0-w*.22+wob,y0+L*.72);ctx.stroke();
+    if(p<.8){
+      const bulb=w*(.62+.5*ease((p-.3)/.5));
+      ctx.fillStyle='#D2202B';ctx.strokeStyle='#7E0C14';ctx.lineWidth=w*.3;
+      dropPath(ctx,x0+wob*2,y0+L-bulb*.25,bulb);ctx.fill();ctx.stroke();
+    }else{
+      const q=(p-.8)/.2,fy=y0+L+q*q*1.1,s=w*.7*(1-.25*q);
+      ctx.globalAlpha*=1-q*.85;ctx.fillStyle='#D2202B';ctx.strokeStyle='#7E0C14';ctx.lineWidth=w*.3;
+      dropPath(ctx,x0+wob*2,fy,s);ctx.fill();ctx.stroke();
+    }
+    ctx.restore();
+  }
+  function waterDrop(ctx,x,y,s,alpha){
+    ctx.save();ctx.globalAlpha*=alpha;
+    const g=ctx.createLinearGradient(x,y-s*1.7,x,y+s);g.addColorStop(0,'#F4FBFF');g.addColorStop(.48,'#A6DDFF');g.addColorStop(1,'#368FE5');
+    ctx.fillStyle=g;ctx.strokeStyle='#155B9D';ctx.lineWidth=s*.25;dropPath(ctx,x,y,s);ctx.fill();ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.9)';ctx.beginPath();ctx.ellipse(x-s*.38,y+s*.1,s*.17,s*.34,.25,0,TAU);ctx.fill();
+    ctx.restore();
+  }
+
+  /* ---------- the effects ---------- */
+  const FX={};
+
+  FX.anger=function(ctx,t,k,H){
+    // flushed cheeks that throb with the pulse of the pop
+    const throb=.5+.5*Math.sin(t*7);
+    softDisc(ctx,-.52,.28,.5,[255,60,60],.34+.2*throb);softDisc(ctx,.52,.28,.5,[255,60,60],.34+.2*throb);
+    // steam puffs rising from both temples
+    for(let side=-1;side<=1;side+=2)for(let j=0;j<3;j++){
+      const p=fr(t*.85+j/3+(side>0?.17:0)),x=side*(.98+.2*p+Math.sin(t*3+j*2+side)*.05),y=-.1-p*1.25,r=.17+p*.3,a=Math.sin(p*Math.PI)*.85;
+      ctx.fillStyle=rgba(244,244,250,a*.9);ctx.strokeStyle=rgba(150,150,175,a*.7);ctx.lineWidth=.035;
+      ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.arc(x+side*r*.55,y-r*.35,r*.72,0,TAU);ctx.fill();ctx.stroke();
+    }
+    // the anime "cross-pop" vein: snaps big, settles, then pulses
+    const c=t%.95,pop=c<.12?ease(c/.12)*1.35:c<.3?lerp(1.35,1,ease((c-.12)/.18)):1+.06*Math.sin(t*10);
+    ctx.save();ctx.translate(.82,-.82);ctx.scale(pop*.5,pop*.5);ctx.rotate(-.12);
+    ctx.lineCap='round';
+    for(const pass of [[.27,'#6E0A12'],[.17,'#EE2433']]){
+      ctx.strokeStyle=pass[1];ctx.lineWidth=pass[0];
+      for(let sx=-1;sx<=1;sx+=2)for(let sy=-1;sy<=1;sy+=2){ctx.beginPath();ctx.moveTo(sx*.08,sy*.62);ctx.quadraticCurveTo(sx*.08,sy*.08,sx*.62,sy*.08);ctx.stroke();}
+    }
+    ctx.restore();
+  };
+
+  function flame(ctx,x,by,w,h,t,seed){
+    const sway=Math.sin(t*7+seed*5)*w*.4+Math.sin(t*13+seed*3)*w*.18,hh=h*(.86+.14*Math.sin(t*9+seed*7));
+    ctx.beginPath();ctx.moveTo(x-w,by);
+    ctx.bezierCurveTo(x-w*1.3,by-hh*.32,x-w*.25+sway*.5,by-hh*.62,x+sway,by-hh);
+    ctx.bezierCurveTo(x+w*.3+sway*.5,by-hh*.58,x+w*1.3,by-hh*.32,x+w,by);
+    ctx.bezierCurveTo(x+w*.6,by+w*.55,x-w*.6,by+w*.55,x-w,by);ctx.closePath();
+  }
+  FX.fire=function(ctx,t,k,H){
+    const by=-.55;
+    softDisc(ctx,0,-1.05,1.6,[255,120,30],.5);
+    const spec=[[-.78,.34,.95],[.78,.34,.95],[-.42,.4,1.45],[.42,.4,1.4],[0,.5,1.95]];
+    ctx.save();ctx.shadowColor='#FF7A1A';ctx.shadowBlur=.35*H.R;
+    spec.forEach((s,i)=>{
+      const g=ctx.createLinearGradient(0,by-s[2],0,by+.2);g.addColorStop(0,'#FFB347');g.addColorStop(.5,'#FF6A1E');g.addColorStop(1,'#D8281A');
+      ctx.fillStyle=g;flame(ctx,s[0],by,s[1],s[2],t,i);ctx.fill();
+    });
+    ctx.shadowBlur=0;
+    spec.forEach((s,i)=>{
+      const g=ctx.createLinearGradient(0,by-s[2]*.7,0,by+.1);g.addColorStop(0,'#FFE27A');g.addColorStop(1,'#FF9A1F');
+      ctx.fillStyle=g;flame(ctx,s[0],by,s[1]*.62,s[2]*.7,t+.13,i+3);ctx.fill();
+    });
+    spec.forEach((s,i)=>{ctx.fillStyle='rgba(255,248,196,.95)';flame(ctx,s[0],by,s[1]*.3,s[2]*.38,t+.29,i+8);ctx.fill();});
+    ctx.restore();
+    const n=Math.round(9*clamp(k,.4,2));
+    for(let i=0;i<n;i++){
+      const p=fr(t*.75+hs(i)),x=(hs(i+9)-.5)*1.9+Math.sin(t*3+i)*.12,y=-.7-p*2.1,r=.055*(1-p*.7);
+      ctx.fillStyle=rgba(255,196+Math.round(40*hs(i+4)),70,1-p);ctx.beginPath();ctx.arc(x,y,r,0,TAU);ctx.fill();
+    }
+  };
+
+  FX.tears=function(ctx,t,k,H){
+    for(let s=-1;s<=1;s+=2){
+      const ex=s*.4,ey=.08;
+      // watery eye + flowing cheek stream
+      const sh=.5+.5*Math.sin(t*5+s);
+      ctx.fillStyle=rgba(140,210,255,.72+.2*sh);ctx.beginPath();ctx.ellipse(ex,ey,.27,.17,0,0,TAU);ctx.fill();
+      ctx.fillStyle='rgba(255,255,255,.85)';ctx.beginPath();ctx.arc(ex-s*.08,ey-.05,.045,0,TAU);ctx.fill();
+      ctx.save();ctx.lineCap='round';
+      ctx.strokeStyle='rgba(65,153,225,.88)';ctx.lineWidth=.1;ctx.beginPath();ctx.moveTo(ex,ey+.12);ctx.quadraticCurveTo(s*.5,.5,s*.46,.98);ctx.stroke();
+      ctx.setLineDash([.16,.14]);ctx.lineDashOffset=-t*1.1;ctx.strokeStyle='rgba(255,255,255,.98)';ctx.lineWidth=.028;ctx.beginPath();ctx.moveTo(ex-s*.02,ey+.12);ctx.quadraticCurveTo(s*.48,.5,s*.44,.98);ctx.stroke();
+      ctx.restore();
+      for(let i=0;i<3;i++){
+        const p=fr(t*.8+i/3+(s>0?.19:0)),y=.2+p*p*2.5,x=s*(.44+.08*p),sz=(.06+.06*ease(p/.25))*(1-.2*p),a=1-clamp((p-.72)/.28,0,1);
+        waterDrop(ctx,x,y,sz,a);
+      }
+    }
+  };
+
+  FX.chi=function(ctx,t,k,H){
+    // drawn at the hand (translation done by the caller)
+    const pulse=1+.09*Math.sin(t*8.5),rb=.62*pulse;
+    softDisc(ctx,0,0,1.9*pulse,[70,150,255],.8);
+    ctx.save();ctx.lineCap='round';
+    for(let i=0;i<12;i++){
+      const a=i*TAU/12+t*1.4,fl=.55+.45*Math.sin(t*14+i*2.1),r0=rb*.95,r1=rb*(1.5+.6*fl);
+      ctx.strokeStyle=rgba(170,220,255,.55*fl);ctx.lineWidth=.05;ctx.beginPath();ctx.moveTo(Math.cos(a)*r0,Math.sin(a)*r0);ctx.lineTo(Math.cos(a)*r1,Math.sin(a)*r1);ctx.stroke();
+    }
+    ctx.restore();
+    const g=ctx.createRadialGradient(-rb*.2,-rb*.2,0,0,0,rb);g.addColorStop(0,'#FFFFFF');g.addColorStop(.35,'#A9DBFF');g.addColorStop(1,'#2E6BFF');
+    ctx.fillStyle=g;ctx.beginPath();ctx.arc(0,0,rb,0,TAU);ctx.fill();
+    ctx.lineCap='round';
+    ctx.strokeStyle='rgba(205,236,255,.95)';ctx.lineWidth=.06;ctx.beginPath();ctx.arc(0,0,rb*1.35,t*3.2,t*3.2+Math.PI*1.3);ctx.stroke();
+    ctx.lineWidth=.045;ctx.beginPath();ctx.arc(0,0,rb*1.7,-t*2.4,-t*2.4+Math.PI*1.05);ctx.stroke();
+    for(let i=0;i<7;i++){
+      const p=fr(t*.9+i/7),a=i*2.4+t*2.2,d=lerp(1.9,.7,p);
+      ctx.fillStyle=rgba(200,235,255,.9*Math.sin(p*Math.PI));ctx.beginPath();ctx.arc(Math.cos(a)*d,Math.sin(a)*d,.06*(1.2-p*.5),0,TAU);ctx.fill();
+    }
+  };
+  FX.chi.atHand=true;
+
+  FX.blood=function(ctx,t,k,H){
+    // gash on the forehead + the dark stain around it
+    softDisc(ctx,-.34,-.6,.5,[140,10,20],.45);
+    ctx.save();ctx.translate(-.34,-.6);ctx.rotate(-.35);ctx.lineCap='round';
+    ctx.strokeStyle='#5A0710';ctx.lineWidth=.12;ctx.beginPath();ctx.moveTo(-.28,0);ctx.lineTo(.28,.02);ctx.stroke();
+    ctx.strokeStyle='#C4141C';ctx.lineWidth=.06;ctx.beginPath();ctx.moveTo(-.26,0);ctx.lineTo(.26,.02);ctx.stroke();
+    ctx.restore();
+    bloodDrip(ctx,H,-.52,-.56,.95,t,1,2.1,.075);
+    bloodDrip(ctx,H,-.34,-.58,1.35,t,2,2.6,.085);
+    bloodDrip(ctx,H,-.16,-.6,.7,t,3,1.8,.065);
+    bloodDrip(ctx,H,.3,.62,.5,t,4,2.2,.05);
+    // one-off spatter burst when the clip starts
+    if(t>=0&&t<.55){
+      for(let i=0;i<14;i++){
+        const a=-Math.PI*(.15+.7*hs(i)),sp=1.2+1.8*hs(i+5),x=-.34+Math.cos(a)*sp*t,y=-.6+Math.sin(a)*sp*t+3.2*t*t;
+        ctx.fillStyle=rgba(190,20,30,1-t/.55);ctx.beginPath();ctx.arc(x,y,.045+.045*hs(i+2),0,TAU);ctx.fill();
+      }
+    }
+  };
+
+  FX.bandage=function(ctx,t,k,H){
+    const wrap=ease(t/.55);
+    ctx.save();
+    // head wrap, revealed left to right when the clip starts
+    ctx.beginPath();ctx.rect(-1.1,-1,2.2*wrap,2);ctx.clip();
+    const band=()=>{ctx.beginPath();ctx.moveTo(-.97,-.74);ctx.quadraticCurveTo(0,-.58,.97,-.74);ctx.lineTo(.97,-.36);ctx.quadraticCurveTo(0,-.2,-.97,-.36);ctx.closePath();};
+    band();let g=ctx.createLinearGradient(0,-.75,0,-.25);g.addColorStop(0,'#FBF5E8');g.addColorStop(1,'#E2D5BC');ctx.fillStyle=g;ctx.fill();
+    ctx.save();band();ctx.clip();ctx.strokeStyle='rgba(140,115,80,.3)';ctx.lineWidth=.022;
+    for(let x=-1.5;x<1.6;x+=.13){ctx.beginPath();ctx.moveTo(x,-.9);ctx.lineTo(x+.5,-.1);ctx.stroke();}
+    for(let x=-1.5;x<1.6;x+=.13){ctx.beginPath();ctx.moveTo(x+.5,-.9);ctx.lineTo(x,-.1);ctx.stroke();}
+    // blood slowly soaking through
+    const soak=.5+.5*Math.sin(t*.9);
+    softDisc(ctx,.34,-.52,.2+.1*soak,[185,20,30],.85);softDisc(ctx,.34,-.52,.09+.05*soak,[110,8,16],.9);
+    ctx.restore();
+    band();ctx.strokeStyle='#B9AB92';ctx.lineWidth=.035;ctx.stroke();
+    ctx.restore();
+    // fluttering tail of the wrap
+    if(wrap>.95){
+      const fl=Math.sin(t*3.4)*.07;
+      ctx.fillStyle='#EFE4CE';ctx.strokeStyle='#B9AB92';ctx.lineWidth=.03;
+      ctx.beginPath();ctx.moveTo(.9,-.6);ctx.quadraticCurveTo(1.15,-.62+fl,1.34,-.46+fl*1.4);ctx.lineTo(1.2,-.34+fl*1.4);ctx.quadraticCurveTo(1.02,-.46+fl,.9,-.42);ctx.closePath();ctx.fill();ctx.stroke();
+    }
+    // adhesive cross plaster on the cheek, pops in with a little overshoot
+    const q=clamp((t-.45)/.3,0,1),sc=q<1?ease(q)*1.18:1+.0*Math.sin(t);
+    if(q>0){
+      ctx.save();ctx.translate(.44,.3);ctx.scale(sc,sc);
+      for(const rot of [Math.PI/4,-Math.PI/4]){
+        ctx.save();ctx.rotate(rot);
+        ctx.fillStyle='#EFC9A2';ctx.strokeStyle='#CFA47A';ctx.lineWidth=.03;
+        ctx.beginPath();ctx.roundRect?ctx.roundRect(-.34,-.1,.68,.2,.04):ctx.rect(-.34,-.1,.68,.2);ctx.fill();ctx.stroke();
+        ctx.fillStyle='rgba(190,140,100,.55)';
+        for(let x=-.28;x<=.29;x+=.1)for(let y=-.05;y<=.06;y+=.1){ctx.beginPath();ctx.arc(x,y,.012,0,TAU);ctx.fill();}
+        ctx.restore();
+      }
+      ctx.fillStyle='#FCF8EE';ctx.strokeStyle='#D8CDB8';ctx.lineWidth=.025;ctx.beginPath();ctx.rect(-.1,-.1,.2,.2);ctx.fill();ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  FX.bruise=function(ctx,t,k,H){
+    const pulse=.85+.15*Math.sin(t*2.4);
+    ctx.save();ctx.translate(-.4,.06);ctx.scale(1,.8);
+    softDisc(ctx,0,0,.62,[160,185,60],.3*pulse);
+    softDisc(ctx,0,0,.5,[70,80,170],.5*pulse);
+    softDisc(ctx,0,0,.38,[90,35,130],.7*pulse);
+    softDisc(ctx,0,.02,.2,[45,12,70],.55*pulse);
+    ctx.restore();
+    ctx.strokeStyle='rgba(255,255,255,.55)';ctx.lineWidth=.04;ctx.lineCap='round';ctx.beginPath();ctx.arc(-.4,.0,.3,Math.PI*1.1,Math.PI*1.4);ctx.stroke();
+    // impact ticks that flash at the start of each beat
+    const beat=fr(t*.9);
+    if(beat<.4){
+      const a=1-beat/.4,d=.12+beat*.3;ctx.strokeStyle=rgba(255,205,60,a);ctx.lineWidth=.06;
+      for(let i=0;i<3;i++){const an=-2.5+i*.45;ctx.beginPath();ctx.moveTo(-.78+Math.cos(an)*(.25+d),-.12+Math.sin(an)*(.25+d));ctx.lineTo(-.78+Math.cos(an)*(.45+d),-.12+Math.sin(an)*(.45+d));ctx.stroke();}
+    }
+  };
+
+  FX.nosebleed=function(ctx,t,k,H){
+    softDisc(ctx,0,.36,.3,[170,15,25],.3);
+    bloodDrip(ctx,H,-.07,.34,.62,t,5,1.9,.06);
+    bloodDrip(ctx,H,.07,.34,.82,t,6,2.3,.065);
+    // little dried streak on the lip
+    ctx.strokeStyle='rgba(120,10,18,.55)';ctx.lineWidth=.04;ctx.lineCap='round';ctx.beginPath();ctx.moveTo(-.12,.42);ctx.lineTo(.12,.42);ctx.stroke();
+  };
+
+  FX.sweat=function(ctx,t,k,H){
+    // sliding drop on the temple
+    const p=fr(t*.55),y=-.5+p*1.1,s=.09+.07*ease(p/.25);
+    waterDrop(ctx,.86,y,s,1-clamp((p-.85)/.15,0,1));
+    // drops flung off the head
+    for(let i=0;i<4;i++){
+      const side=i%2?1:-1,q=fr(t*1.05+i*.27),x=side*(.95+q*.95),y=-.55-.9*q+1.9*q*q;
+      waterDrop(ctx,x,y,.075*(1-.2*q),1-clamp((q-.7)/.3,0,1));
+    }
+    // nervous cheek lines
+    ctx.strokeStyle='rgba(90,140,200,.7)';ctx.lineWidth=.04;ctx.lineCap='round';
+    for(let i=0;i<3;i++){const a=.5+Math.sin(t*5+i)*.1;ctx.beginPath();ctx.moveTo(-.62+i*.12,-.82+i*.02);ctx.lineTo(-.6+i*.12,-.82+.22+a*.05);ctx.stroke();}
+  };
+
+  FX.dizzy=function(ctx,t,k,H){
+    const n=5,items=[];
+    for(let i=0;i<n;i++){const a=t*2.6+i*TAU/n;items.push({a,s:Math.sin(a),c:Math.cos(a),i});}
+    items.sort((a,b)=>a.s-b.s);
+    items.forEach(o=>{
+      const depth=.72+.28*(o.s+1)/2,x=o.c*1.0,y=-1.02+o.s*.3;
+      ctx.save();ctx.globalAlpha*=.82+.18*(o.s+1)/2;
+      ctx.fillStyle='#FFD21F';ctx.strokeStyle='#E5890A';ctx.lineWidth=.045;ctx.lineJoin='round';
+      starPath(ctx,x,y,.21*depth,t*3+o.i,5,.46);ctx.fill();ctx.stroke();
+      ctx.restore();
+    });
+    // swirl above the head
+    ctx.strokeStyle='rgba(255,210,31,.55)';ctx.lineWidth=.03;ctx.lineCap='round';ctx.beginPath();
+    for(let a=0;a<TAU*1.6;a+=.2){const r=.12+a*.05,x=Math.cos(a+t*4)*r,y=-1.28+Math.sin(a+t*4)*r*.45;a?ctx.lineTo(x,y):ctx.moveTo(x,y);}
+    ctx.stroke();
+  };
+
+  FX.hearts=function(ctx,t,k,H){
+    softDisc(ctx,-.52,.3,.42,[255,110,150],.5);softDisc(ctx,.52,.3,.42,[255,110,150],.5);
+    const n=Math.round(7*clamp(k,.4,2)),cols=['#FF4D79','#FF86AE','#E8224F'];
+    for(let i=0;i<n;i++){
+      const p=fr(t*.55+i/n),x=(hs(i)-.5)*1.6+Math.sin(t*2.3+i*2)*.18,y=-.95-p*2.1;
+      const pop=p<.14?ease(p/.14)*1.25:1,s=(.12+.17*hs(i+3))*pop,a=1-clamp((p-.7)/.3,0,1);
+      ctx.save();ctx.globalAlpha*=a;ctx.translate(x,y);ctx.rotate(Math.sin(t*2+i)*.35);
+      ctx.fillStyle=cols[i%3];ctx.strokeStyle='#A8143A';ctx.lineWidth=s*.16;heartPath(ctx,0,0,s);ctx.fill();ctx.stroke();
+      ctx.fillStyle='rgba(255,255,255,.75)';ctx.beginPath();ctx.ellipse(-s*.5,-s*.45,s*.2,s*.12,-.6,0,TAU);ctx.fill();
+      ctx.restore();
+    }
+  };
+
+  function zPath(ctx,s){ctx.beginPath();ctx.moveTo(-s,-s);ctx.lineTo(s,-s);ctx.lineTo(-s,s);ctx.lineTo(s,s);}
+  FX.sleep=function(ctx,t,k,H){
+    for(let i=0;i<3;i++){
+      const p=fr(t*.42+i/3),x=.72+p*.95+Math.sin(p*6+i)*.07,y=-.75-p*1.55,s=.1+p*.2,a=Math.pow(Math.sin(p*Math.PI),.7);
+      ctx.save();ctx.globalAlpha*=a;ctx.translate(x,y);ctx.rotate(-.22);ctx.lineJoin='round';ctx.lineCap='round';
+      ctx.strokeStyle='#4E78CF';ctx.lineWidth=s*.62;zPath(ctx,s);ctx.stroke();
+      ctx.strokeStyle='#CFE0FF';ctx.lineWidth=s*.34;zPath(ctx,s);ctx.stroke();
+      ctx.restore();
+    }
+    // snot bubble breathing in and out
+    const br=.09+.1*(.5+.5*Math.sin(t*1.7));
+    ctx.fillStyle='rgba(190,228,255,.7)';ctx.strokeStyle='rgba(110,165,230,.95)';ctx.lineWidth=.03;
+    ctx.beginPath();ctx.arc(.1,.34+br*.5,br,0,TAU);ctx.fill();ctx.stroke();
+    ctx.fillStyle='rgba(255,255,255,.85)';ctx.beginPath();ctx.ellipse(.1-br*.35,.34+br*.5-br*.4,br*.22,br*.12,-.6,0,TAU);ctx.fill();
+  };
+
+  FX.electric=function(ctx,t,k,H){
+    const step=Math.floor(t*14);
+    softDisc(ctx,0,0,1.7,[110,190,255],.5);
+    ctx.save();ctx.lineCap='round';ctx.lineJoin='round';ctx.shadowColor='#7DD3FF';ctx.shadowBlur=.25*H.R;
+    const bolts=Math.round(7*clamp(k,.5,1.6));
+    for(let i=0;i<bolts;i++){
+      if(hs(step*3.1+i*1.7)<.22)continue;
+      const base=i*TAU/bolts+hs(step+i)*.8,r0=1.02,r1=1.55+hs(step*2+i)*.55,segs=5;
+      const pts=[];
+      for(let s=0;s<=segs;s++){
+        const r=lerp(r0,r1,s/segs),off=(hs(step*5+i*7+s)-.5)*.34*(s>0&&s<segs?1:0);
+        pts.push([Math.cos(base)*r-Math.sin(base)*off,Math.sin(base)*r+Math.cos(base)*off]);
+      }
+      const draw=()=>{ctx.beginPath();pts.forEach((p,j)=>j?ctx.lineTo(p[0],p[1]):ctx.moveTo(p[0],p[1]));ctx.stroke();};
+      ctx.strokeStyle='rgba(90,175,255,.75)';ctx.lineWidth=.11;draw();
+      ctx.strokeStyle='#FFFFFF';ctx.lineWidth=.04;draw();
+    }
+    ctx.restore();
+    for(let i=0;i<10;i++){
+      const a=hs(step+i*3)*TAU,r=1.05+hs(step*2+i)*.8;
+      ctx.fillStyle=rgba(255,245,160,.9);ctx.beginPath();ctx.arc(Math.cos(a)*r,Math.sin(a)*r,.035,0,TAU);ctx.fill();
+    }
+  };
+
+  FX.sparkle=function(ctx,t,k,H){
+    const n=Math.round(8*clamp(k,.5,2)),cols=['#FFFFFF','#FFF2A8','#CDEBFF','#FFD6F2'];
+    for(let i=0;i<n;i++){
+      const a=hs(i)*TAU,r=1.05+hs(i+7)*.75,x=Math.cos(a)*r,y=Math.sin(a)*r*.95-.1;
+      const tw=.5+.5*Math.sin(t*4.2+i*2.3),s=(.1+.2*hs(i+2))*(.25+.75*tw*tw);
+      ctx.save();ctx.shadowColor='#FFF2A8';ctx.shadowBlur=.2*H.R;
+      ctx.fillStyle=cols[i%4];ctx.strokeStyle='rgba(230,170,40,.65)';ctx.lineWidth=.018;
+      starPath(ctx,x,y,s*2.3,t*.6+i,4,.2);ctx.fill();ctx.stroke();
+      ctx.restore();
+    }
+  };
+
+  /* ---------- public API ---------- */
+  function draw(ctx,frame,type,tt,cfg){
+    const fn=FX[type];if(!fn||!frame||!(frame.r>0))return;
+    cfg=cfg||{};
+    const k=clamp(cfg.k==null?1:cfg.k,0,2.5),size=clamp(cfg.size==null?1:cfg.size,.25,2.5);
+    const R=frame.r*size;
+    const hand=fn.atHand&&frame.hand?frame.hand:null;
+    ctx.save();
+    ctx.globalAlpha*=clamp(k,0,1);
+    if(hand){ctx.translate(hand.x+(cfg.ox||0)*frame.r,hand.y+(cfg.oy||0)*frame.r);ctx.scale(R*.85,R*.85);}
+    else{
+      ctx.translate(frame.x+(cfg.ox||0)*frame.r,frame.y+(cfg.oy||0)*frame.r);
+      ctx.rotate(frame.rot||0);ctx.scale(frame.flip?-1:1,1);ctx.scale(R,R);
+    }
+    ctx.lineCap='round';ctx.lineJoin='round';
+    try{fn(ctx,Number(tt)||0,k,{R:R});}catch(e){try{console.warn('Character effect',type,e);}catch(_e){}}
+    ctx.restore();
+  }
+
+  /* Tiny thumbnails: the real effect, drawn over a stylised head, at several moments in time.
+     They fill the timeline effect clip so it reads as a frame-by-frame strip. */
+  const thumbCache=Object.create(null);
+  /* v338: the frame artwork is centred exactly in the middle of the thumbnail. Effects such as
+     Anger/Fire/Hearts sit far above the head, Tears/Blood far below it, so the old fixed head
+     position pushed the visible art up or down inside the timeline frame. We measure the union of
+     the real painted pixels over all 8 phases (same offset for every frame, so the strip does not
+     jitter) and translate that box to the centre of the 56x62 thumbnail. */
+  const thumbBoxCache=Object.create(null);
+  function thumbPaint(x,cx,cy,type,phase){
+    const r=11;
+    x.fillStyle='rgba(255,255,255,.14)';x.fillRect(cx-4,cy+r-2,8,8);
+    const g=x.createRadialGradient(cx-3,cy-4,2,cx,cy,r);g.addColorStop(0,'#FFE0C6');g.addColorStop(1,'#E8B08A');
+    x.fillStyle=g;x.beginPath();x.arc(cx,cy,r,0,TAU);x.fill();
+    x.fillStyle='#3A2A3E';x.beginPath();x.arc(cx-4.4,cy+.8,1.3,0,TAU);x.arc(cx+4.4,cy+.8,1.3,0,TAU);x.fill();
+    x.strokeStyle='#7A4A44';x.lineWidth=1;x.beginPath();x.arc(cx,cy+4,3,.2,Math.PI-.2);x.stroke();
+    const frame={x:cx,y:cy,r:r,rot:0,flip:false,hand:{x:cx+17,y:cy+7}};
+    draw(x,frame,type,.12+phase*.17,{k:1,size:FX[type]&&FX[type].atHand?.8:1});
+  }
+  function thumbBox(type){
+    if(thumbBoxCache[type]!==undefined)return thumbBoxCache[type];
+    let box=null;
+    try{
+      const W=168,H=186,OX=56,OY=58;           /* roomy work canvas so tall effects are never clipped */
+      const c=document.createElement('canvas');c.width=W;c.height=H;
+      const x=c.getContext('2d',{willReadFrequently:true});
+      let x0=1e9,y0=1e9,x1=-1,y1=-1;
+      for(let p=0;p<8;p++){
+        x.clearRect(0,0,W,H);thumbPaint(x,OX+28,OY+29,type,p);
+        const d=x.getImageData(0,0,W,H).data;
+        for(let yy=0;yy<H;yy++){for(let xx=0;xx<W;xx++){
+          if(d[(yy*W+xx)*4+3]>12){if(xx<x0)x0=xx;if(xx>x1)x1=xx;if(yy<y0)y0=yy;if(yy>y1)y1=yy;}
+        }}
+      }
+      if(x1>=x0&&y1>=y0)box={x0:x0-OX,y0:y0-OY,x1:x1+1-OX,y1:y1+1-OY};
+    }catch(_e){box=null;}
+    thumbBoxCache[type]=box;return box;
+  }
+  function thumb(type,i){
+    const phase=((Number(i)||0)%8+8)%8,key=type+'|'+phase;
+    if(thumbCache[key])return thumbCache[key];
+    let url='';
+    try{
+      const c=document.createElement('canvas');c.width=56;c.height=62;const x=c.getContext('2d');
+      x.clearRect(0,0,56,62);
+      const box=thumbBox(type);
+      x.save();
+      if(box){
+        const bw=Math.max(1,box.x1-box.x0),bh=Math.max(1,box.y1-box.y0);
+        const s=Math.min(1,52/bw,58/bh);                      /* shrink only if it would not fit */
+        x.translate(28,31);x.scale(s,s);x.translate(-(box.x0+box.x1)/2,-(box.y0+box.y1)/2);
+        thumbPaint(x,28,29,type,phase);
+      }else{
+        thumbPaint(x,28,29,type,phase);
+      }
+      x.restore();
+      url=c.toDataURL('image/png');
+    }catch(_e){url='';}
+    thumbCache[key]=url;return url;
+  }
+  function frameInner(type,i,fallbackSvg){
+    if(!FX[type])return fallbackSvg||'';
+    const u=thumb(type,i);
+    return u?'<img class="ev-v334-frame-img" alt="" draggable="false" src="'+u+'">':(fallbackSvg||'');
+  }
+
+  window.ethvelleCharFxLib={types:TYPES,ids:TYPES.map(x=>x[0]),draw,thumb,frameInner,has:t=>!!FX[t],_fx:FX};
+})();
+
+</script>
+<script id="ethvelle-v334-character-effect-clips">
+(function(){
+  'use strict';
+  const lib=window.ethvelleCharFxLib;
+  if(!lib)return;
+  const $=id=>document.getElementById(id);
+  const list=()=>{try{return Array.isArray(overlays)?overlays:[];}catch(_e){return [];}};
+  const chars=()=>{try{return Array.isArray(characters)?characters:[];}catch(_e){return [];}};
+  const selId=()=>{try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');}catch(_e){return '';}};
+  const selOverlay=()=>list().find(o=>o&&String(o.id)===selId())||null;
+  const isCharEffectClip=o=>!!(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character');
+  const labelOf=type=>{const row=lib.types.find(x=>x[0]===type);return row?row[1]:'Effect';};
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+
+  /* Which character is selected on the timeline (same rule the Effects panel uses). */
+  function selectedCharIndex(){
+    const sc=selId();
+    if(!(sc==='main'||sc.startsWith('seg')||sc.startsWith('char')))return -1;
+    let idx=typeof activeCharIdx==='number'?activeCharIdx:0;
+    if(sc.startsWith('char')){const n=parseInt(sc.slice(4),10);if(Number.isInteger(n))idx=n;}
+    return chars()[idx]?idx:-1;
+  }
+  function charRange(ch){
+    const clips=[];
+    try{
+      const arr=(typeof activeCharacter==='function'&&ch===activeCharacter())?getAllStickmanClips(activeClip,splitStickmanSegments):getAllStickmanClips(ch.clip,ch.segments||[]);
+      (arr||[]).forEach(x=>{if(x&&x.clip)clips.push(x.clip);});
+    }catch(_e){}
+    if(!clips.length){if(ch.clip)clips.push(ch.clip);(ch.segments||[]).forEach(s=>clips.push(s));}
+    if(!clips.length)return {start:0,end:Number(typeof timelineDuration!=='undefined'?timelineDuration:5)||5};
+    return {start:Math.min(...clips.map(c=>Number(c.trimStart)||0)),end:Math.max(...clips.map(c=>Number(c.trimEnd)||0))};
+  }
+  function charVisibleAt(ch,t){
+    try{
+      const arr=(typeof activeCharacter==='function'&&ch===activeCharacter())?getAllStickmanClips(activeClip,splitStickmanSegments):getAllStickmanClips(ch.clip,ch.segments||[]);
+      if(!arr||!arr.length)return true;
+      return arr.some(x=>x&&x.clip&&t>=Number(x.clip.trimStart)&&t<Number(x.clip.trimEnd));
+    }catch(_e){return true;}
+  }
+
+  /* ---------- drawing a character-effect clip (live canvas, still preview and export) ---------- */
+  window.ethvelleDrawCharacterEffectClip=function(ctx,ov,t){
+    if(!ctx||!ov||!ov.visualEffects)return;
+    const type=String(ov.visualEffects.type||'');if(!lib.has(type))return;
+    if(t<Number(ov.trimStart||0)||t>=Number(ov.trimEnd||0))return;
+    const ch=chars().find(c=>c&&c.id===ov.ethvelleEffectCharId);if(!ch)return;
+    if(!charVisibleAt(ch,t))return;
+    const frame=typeof window.__ethvelleCharFrame==='function'?window.__ethvelleCharFrame(ch):null;if(!frame)return;
+    let tr=null;
+    try{tr=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',t):null;}catch(_e){}
+    tr=tr||ov.transform||{};
+    const cfg=window.__ethvelleCharFxCfg(ov.visualEffects);
+    cfg.ox+=(Number(tr.offsetX)||0)/Math.max(1,frame.r);
+    cfg.oy+=(Number(tr.offsetY)||0)/Math.max(1,frame.r);
+    cfg.size*=Math.max(.1,Number(tr.scale)||1);
+    lib.draw(ctx,frame,type,Math.max(0,t-Number(ov.trimStart||0))*cfg.speed,cfg);
+  };
+
+  /* ---------- creating / re-typing the effect clip ---------- */
+  function addCharacterEffectClip(idx,type){
+    const ch=chars()[idx];if(!ch||!lib.has(type))return null;
+    const range=charRange(ch);
+    const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+    const start=(now>=range.start&&now<range.end)?now:range.start;
+    const id='ovfx'+Date.now().toString(36)+Math.random().toString(36).slice(2,6);
+    const blank='<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512"><rect width="512" height="512" fill="none"/></svg>';

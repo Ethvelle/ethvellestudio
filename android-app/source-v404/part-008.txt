@@ -1,0 +1,1000 @@
+        <svg class="gmail-contact-icon" viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M3.5 7v11" stroke="#4285F4" stroke-width="2.8" stroke-linecap="round"/><path d="M3.5 7 12 13.2 20.5 7" stroke="#EA4335" stroke-width="2.8" stroke-linecap="round" stroke-linejoin="round"/><path d="M12 13.2 20.5 7" stroke="#FBBC04" stroke-width="2.8" stroke-linecap="round"/><path d="M20.5 7v11" stroke="#34A853" stroke-width="2.8" stroke-linecap="round"/></svg>
+        <div class="hc-text"><b>Email support</b><span>${escapeHtml(info.email)}</span></div>
+      </div>`;
+  }
+  if(info.whatsapp){
+    const digits = String(info.whatsapp).replace(/[^\d+]/g, '');
+    html += `
+      <div class="help-contact-card tappable whatsapp-contact-card" onclick="window.open('https://wa.me/${escapeHtml(digits.replace(/^\+/,''))}', '_blank', 'noopener')">
+        <svg class="whatsapp-contact-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="11.6" r="9.3" fill="#25D366"/><path d="M5.3 20.2 6.5 16.8" stroke="#25D366" stroke-width="2.2" stroke-linecap="round"/><path d="M8.4 7.6c-.4.2-.8.9-.8 1.5 0 2.6 3.5 6.1 6.2 6.1.7 0 1.4-.4 1.7-1l.4-.9-2.2-1.1-.9 1c-1.3-.5-2.1-1.3-2.7-2.6l.9-1-1.1-2.1-.9.1c-.2 0-.4 0-.6 0Z" fill="none" stroke="#fff" stroke-width="1.45" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        <div class="hc-text"><b>WhatsApp</b><span>${escapeHtml(info.whatsapp)}</span></div>
+      </div>`;
+  }
+  wrap.innerHTML = html;
+  // The message box redirects to WhatsApp, so it's only shown when a number is configured.
+  const compose = document.getElementById('helpComposeWrap');
+  if(compose) compose.style.display = info.whatsapp ? '' : 'none';
+}
+
+/* ================= MY PLAN (Billing & plan detail  -  real usage) =================
+   Replaces the old behavior of tapping "Billing & plan" and being redirected straight to
+   the Payment/upgrade screen. This shows what the person actually has: their plan, how many
+   projects they've used against their limit, how many exports they have left this month,
+   remaining quota blocks, order status, and the max export quality allowed by the plan. */
+function openMyPlanScreen(){
+  goTo('myplan');
+  renderMyPlanScreen();
+}
+function usageBarClass(used, max){
+  if(max == null) return '';
+  const ratio = max > 0 ? used / max : 1;
+  if(ratio >= 1) return 'at-limit';
+  if(ratio >= 0.75) return 'near-limit';
+  return '';
+}
+function getMyOwnedPlansForBilling(){
+  const plans = Array.isArray(getPlans()) ? getPlans() : [];
+  const byId = new Map(plans.map(p=>[String(p.id),p]));
+  const ids = [];
+  if(currentUser){
+    Object.keys(myPlanOrderStates || {}).forEach(id=>{
+      const state=myPlanOrderStates[id];
+      if(state && String(state.status||'').toLowerCase()==='approved') ids.push(String(id));
+    });
+    if(myActivePlanId && String(myActivePlanId)!=='free' && !ids.includes(String(myActivePlanId))) ids.unshift(String(myActivePlanId));
+  }
+  if(!ids.length){
+    const fallback = currentUser ? (byId.get(String(myActivePlanId)) || plans.find(p=>Number(p.price)===0)) : plans.find(p=>Number(p.price)===0);
+    if(fallback) ids.push(String(fallback.id));
+  }
+  const unique = [...new Set(ids)];
+  const found = unique.map(id=>byId.get(id)).filter(Boolean);
+  return found.length ? found : [{id:'free',name:'Free',price:0,features:['3 projects','720p export'],maxProjects:3,unlimitedProjects:false,unlimitedExports:false,maxExports:null,maxQuality:720,creditsPerCycle:0}];
+}
+function getMyCombinedCreditAllowance(ownedPlans){
+  const list=Array.isArray(ownedPlans)?ownedPlans:getMyOwnedPlansForBilling();
+  return list.reduce((sum,p)=>sum+Math.max(0,Number(getPlanCreditGrant(p))||0),0);
+}
+function renderHomeCreditSummary(){
+  const planEl=document.getElementById('homeAccountPlan');
+  const balanceEl=document.getElementById('homeAccountBalance');
+  const button=document.getElementById('homeAccountSummary');
+  const profileButton=document.getElementById('homeProfileBtn');
+  if(profileButton)profileButton.style.display=currentUser?'flex':'none';
+  if(!planEl||!balanceEl||!button)return;
+  if(!currentUser){
+    planEl.textContent='Login';
+    balanceEl.textContent='Sign in to view credits';
+    button.setAttribute('aria-label','Login to view your plan and credits');
+    return;
+  }
+  const owned=typeof getMyOwnedPlansForBilling==='function'?getMyOwnedPlansForBilling():[];
+  const names=[...new Set((owned||[]).map(plan=>String(plan&&plan.name||'').trim()).filter(Boolean))];
+  const planLabel=(names.length?names.join(' + '):getMyActivePlanName())+' plan';
+  const balance=Math.max(0,Number(myCreditsBalance)||0);
+  const allowance=typeof getMyCombinedCreditAllowance==='function'?getMyCombinedCreditAllowance(owned):0;
+  planEl.textContent=planLabel;
+  balanceEl.textContent=(allowance>0?balance.toLocaleString()+' / '+allowance.toLocaleString():balance.toLocaleString())+' credits';
+  button.setAttribute('aria-label',planLabel+', '+balance.toLocaleString()+' credits. Open billing and plan');
+}
+function openHomeAccountSummary(){
+  if(currentUser)openMyPlanScreen();
+  else openLoginScreen();
+}
+
+async function hideMyCreditExpense(transactionId){
+  const id=String(transactionId||'');
+  if(!id||!(currentUser&&currentUser.uid)){showToast('Sign in to manage credit history.',{icon:toastIcons.info,duration:2400});return;}
+  const entry=(Array.isArray(myCreditTransactions)?myCreditTransactions:[]).find(t=>String(t&&t.id)===id);
+  if(!entry||String(entry.uid||'')!==String(currentUser.uid)||String(entry.type||'').toLowerCase()!=='usage'||!(Number(entry.amount)<0)){
+    showToast('Only your credit-usage expenses can be removed.',{icon:toastIcons.info,duration:2600});return;
+  }
+  if(myHiddenCreditTransactionIds.includes(id))return;
+  const confirmed=window.confirm('Delete this expense from your Credits History? Your credit balance and original accounting record will not change.');
+  if(!confirmed)return;
+  const uid=String(currentUser.uid);
+  const next=[...new Set([...myHiddenCreditTransactionIds,id])];
+  let synced=false;
+  try{
+    if(!(firebaseReady&&fbDb&&firebase&&firebase.firestore&&firebase.firestore.FieldValue))throw new Error('CREDIT_HISTORY_SYNC_UNAVAILABLE');
+    await fbDb.collection('users').doc(uid).set({hiddenCreditTransactionIds:firebase.firestore.FieldValue.arrayUnion(id)},{merge:true});
+    synced=true;
+  }catch(err){console.warn('Ethvelle: could not sync hidden credit expense; keeping this removal on this device.',err);}
+  const savedLocally=writeLocalHiddenCreditIds(uid,next);
+  myHiddenCreditTransactionIds=next;
+  if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+  if(synced){showToast('Expense removed from your visible history. Your credit balance was not changed.',{icon:toastIcons.check,duration:3000});}
+  else if(savedLocally){showToast('Expense hidden on this device. Account sync is unavailable.',{icon:toastIcons.info,duration:3200});}
+  else{showToast('Could not save this history change. Please check device storage and try again.',{icon:toastIcons.info,duration:3200});}
+}
+
+window.hideMyCreditExpense=hideMyCreditExpense;
+
+function renderCreditsHistoryScreen(){
+  const scroll=document.getElementById('creditsHistoryScroll');if(!scroll)return;
+  const visibleCreditTransactions=(Array.isArray(myCreditTransactions)?myCreditTransactions:[]).filter(t=>!myHiddenCreditTransactionIds.includes(String(t&&t.id)));
+  const creditHistoryHtml=!currentUser?'<div class="myplan-credit-empty">Sign in to view your credit balance and history.</div>':(!visibleCreditTransactions.length?'<div class="myplan-credit-empty">No credit activity to show.</div>':visibleCreditTransactions.slice(0,50).map(t=>{
+    const amount=Number(t.amount)||0;
+    const type=String(t.type||'').toLowerCase();
+    const title=t.description||({usage:'Video export',plan_grant:'Plan credits added',refund:'Export refund',admin_adjustment:'Admin credit adjustment'}[type]||'Credit transaction');
+    const amountText=(amount>0?'+':'')+amount.toLocaleString()+' credits';
+    const canDeleteExpense=type==='usage'&&amount<0;
+    const deleteButton=canDeleteExpense?`<button type="button" class="myplan-credit-delete" data-delete-credit-expense="${escapeHtml(String(t.id||''))}" aria-label="Delete this credit expense" title="Delete"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16"/><path d="M9 7V4.8c0-.4.3-.8.8-.8h4.4c.5 0 .8.4.8.8V7"/><path d="M6.2 7l.9 12.2c.1.9.8 1.8 1.8 1.8h6.2c1 0 1.7-.9 1.8-1.8L17.8 7"/><path d="M10 11v6M14 11v6"/></svg></button>`:'';
+    return `<div class="myplan-credit-row"><div class="myplan-credit-row-main"><div class="myplan-credit-row-title">${escapeHtml(title)}</div><div class="myplan-credit-row-meta">${escapeHtml(formatCreditDate(t.createdAt))}${t.quality?' · '+escapeHtml(String(t.quality)+'p'):''}${t.durationSeconds?' · '+Math.round(Number(t.durationSeconds))+' sec':''}${t.balanceAfter!=null?' · Balance '+Number(t.balanceAfter).toLocaleString():''}</div></div><div class="myplan-credit-row-side"><div class="myplan-credit-amount ${amount<0?'negative':''}">${escapeHtml(amountText)}</div>${deleteButton}</div></div>`;
+  }).join(''));
+  scroll.innerHTML=`
+    <section class="myplan-credit-history-card" aria-label="Credit history"><div class="myplan-credit-search"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-3.5-3.5"/></svg><input id="creditHistorySearchInput" type="search" autocomplete="off" aria-label="Search credit history" placeholder="Search credit history…" value="${escapeHtml(window.__evCreditQuery||'')}" oninput="filterCreditHistory(this.value)"></div><div class="myplan-credit-history">${creditHistoryHtml}</div></section>
+  `;
+  scroll.querySelectorAll('[data-delete-credit-expense]').forEach(button=>{button.addEventListener('click',()=>hideMyCreditExpense(button.getAttribute('data-delete-credit-expense')));});
+  try{if(window.__evCreditQuery)window.filterCreditHistory(window.__evCreditQuery);}catch(_e){}
+}
+window.renderCreditsHistoryScreen=renderCreditsHistoryScreen;
+function renderMyPlanScreen(){
+  const scroll = document.getElementById('myPlanScroll');
+  if(!scroll) return;
+  const ownedPlans=getMyOwnedPlansForBilling();
+  const plan=getMyPlanData();
+  const planName=ownedPlans.map(p=>p.name||p.id||'Plan').filter(Boolean).join(' + ') || (currentUser?getMyActivePlanName():'Free');
+  const usedProjectsThisMonth=getProjectsCreatedThisMonth();
+  const usedExports=getExportsUsedThisMonth();
+  const creditsExpendedThisMonth=getCreditsExpendedThisMonth();
+  const maxExportQuality=Math.max(480,...ownedPlans.map(p=>Number(p.maxQuality)||720));
+  const qualityOptions=[{value:480,label:'480p'},{value:720,label:'720p'},{value:1080,label:'1080p'},{value:1440,label:'1440p'},{value:2160,label:'4K'}];
+  const qualityOptionsHtml=qualityOptions.map(q=>{
+    const available=q.value<=maxExportQuality;
+    return `<div class="myplan-quality-option ${available?'available':'unavailable'}"><div class="myplan-quality-name">${q.label}</div><div class="myplan-quality-status">${available?'Available':'Unavailable'}</div></div>`;
+  }).join('');
+  const isFree=ownedPlans.every(p=>Number(p.price)===0||String(p.id)==='free'||String(p.id)==='p_free');
+  const statusLabel=!currentUser?'Guest view':isFree?'Free tier':'Active';
+  const allFeatures=[];
+  ownedPlans.forEach(p=>(p.features||[]).forEach(f=>{const value=String(f||'').trim();if(value&&!allFeatures.includes(value))allFeatures.push(value);}));
+  const creditGrant=getMyCombinedCreditAllowance(ownedPlans);
+  if(creditGrant>0)allFeatures.push(creditGrant.toLocaleString()+' credits per cycle');
+  const featuresHtml=allFeatures.map(f=>`<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" width="15" height="15" style="margin-right:8px;vertical-align:-3px;stroke:var(--accent);"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(f)}</div>`).join('');
+  const order=currentUser?myLatestOrderInfo:null;
+  const orderStatus=order?String(order.status||'pending').toLowerCase():'';
+  const orderStatusText=orderStatus==='approved'?'Order approved':orderStatus==='rejected'?'Order rejected':orderStatus==='pending'?'Order pending':'Order update';
+  const orderStatusClass=['pending','approved','rejected'].includes(orderStatus)?orderStatus:'pending';
+  const orderMethod=order&&order.method?escapeHtml(String(order.method).replace(/[_-]+/g,' ')):' - ';
+  const orderPrice=order?'৳'+Number(order.price||0).toLocaleString('en-BD'):'';
+  const orderDateValue=order&&order.createdAt;
+  let orderDateLabel='';
+  if(orderDateValue){try{const d=typeof orderDateValue.toDate==='function'?orderDateValue.toDate():new Date(orderDateValue);if(Number.isFinite(d.getTime()))orderDateLabel=d.toLocaleDateString(undefined,{day:'numeric',month:'short',year:'numeric'});}catch(e){}}
+  const usageCards=`
+    <div class="myplan-stats-grid">
+      <div class="myplan-stat-card">
+        <div class="myplan-stat-label">Projects created this month</div>
+        <div class="myplan-stat-value">${usedProjectsThisMonth.toLocaleString()}</div>
+      </div>
+      <div class="myplan-stat-card">
+        <div class="myplan-stat-label">Credits expended this month</div>
+        <div class="myplan-stat-value">${currentUser?creditsExpendedThisMonth.toLocaleString():' - '}</div>
+      </div>
+      <div class="myplan-stat-card">
+        <div class="myplan-stat-label">Exports this month</div>
+        <div class="myplan-stat-value">${currentUser?usedExports.toLocaleString():' - '}</div>
+      </div>
+      <div class="myplan-stat-card">
+        <div class="myplan-stat-label">Credits available</div>
+        <div class="myplan-stat-value">${currentUser?myCreditsBalance.toLocaleString():' - '}</div>
+      </div>
+    </div>
+    <div class="settings-group-label">Export Quality</div>
+    <div class="myplan-quality-grid">${qualityOptionsHtml}</div>`;
+  const orderCard=order?`
+    <div class="settings-group-label">Latest plan order</div>
+    <section class="myplan-order-card">
+      <div class="myplan-order-top"><div><div class="myplan-order-name">${escapeHtml(order.planName||'Plan')}</div><div class="myplan-order-meta">${orderPrice}${order.method?' · '+orderMethod:''}${orderDateLabel?' · '+escapeHtml(orderDateLabel):''}</div></div><span class="myplan-order-status ${orderStatusClass}">${escapeHtml(orderStatusText)}</span></div>
+    </section>`:'';
+  const ownedIds=new Set(ownedPlans.map(p=>String(p.id)));
+  const availablePlans=(getPlans()||[]).filter(p=>Number(p.price)>0&&!ownedIds.has(String(p.id)));
+  const availablePlansHtml=availablePlans.length?availablePlans.map(p=>{
+    const discount=computePlanDiscount(p);
+    const priceHtml=discount?`<span class="plan-price-strike">৳${discount.originalPrice}</span> ৳${discount.finalPrice}<span>/month</span>`:`৳${Number(p.price)||0}<span>/month</span>`;
+    const planFeatures=(p.features||[]).map(f=>`<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(f)}</div>`).join('');
+    const planCredits=getPlanCreditGrant(p);
+    const creditsFeature=planCredits>0?`<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>${planCredits.toLocaleString()} credits per cycle</div>`:'';
+    const state=currentUser?myPlanOrderStates[String(p.id)]:null;
+    const stateText=String(state&&state.status||'').toLowerCase();
+    const pending=stateText==='pending';
+    const badge= pending?'<div class="plan-badge plan-badge-order pending">Order pending</div>':discount?`<div class="plan-badge plan-badge-discount">${escapeHtml(discount.label||'Offer')}</div>`:p.popular&&p.badgeText?`<div class="plan-badge">${escapeHtml(p.badgeText)}</div>`:'';
+    const cta=pending?'<div class="myplan-plan-pending">Upgrade request pending</div>':`<button type="button" class="plan-cta" onclick="event.stopPropagation();confirmPlan('${String(p.id).replace(/'/g,"\\'")}')">Upgrade to ${escapeHtml(p.name||'Plan')}</button>`;
+    return `<section class="plan-card myplan-available-plan" data-plan-id="${escapeHtml(String(p.id))}" data-plan-name="${escapeHtml(p.name||'')}" data-plan-price="${escapeHtml(String(p.price==null?'':p.price))}"><div class="plan-card-top">${badge}</div><div class="plan-name">${escapeHtml(p.name||'Plan')}</div><p class="plan-price">${priceHtml}</p><p class="plan-desc">${escapeHtml(p.desc||'')}</p><div class="plan-feature-list">${planFeatures}${creditsFeature}</div>${cta}</section>`;
+  }).join(''):'<div class="myplan-available-empty">No other plans are available right now.</div>';
+  scroll.innerHTML=`
+    <div class="myplan-card">
+      <div class="myplan-card-top"><div class="myplan-name">${escapeHtml(planName)} plan</div><div class="myplan-badge ${!currentUser?'guest':isFree?'free':''}">${escapeHtml(statusLabel)}</div></div>
+      ${featuresHtml?`<div class="myplan-feature-list myplan-combined-features">${featuresHtml}</div>`:''}
+    </div>
+    <div class="settings-group-label">Credits</div>
+    <section class="myplan-credits-card">
+      <div class="myplan-credits-head"><div><div class="myplan-credits-label">Available balance</div><div class="myplan-credits-value">${currentUser?myCreditsBalance.toLocaleString():' - '}</div></div><div class="myplan-badge myplan-credit-badge">${currentUser?'CREDITS':'SIGN IN'}</div></div>
+    </section>
+    <div class="settings-group-label">Active plans</div>
+    ${window.evActivePlansHtml?window.evActivePlansHtml(ownedPlans):''}
+    <div class="settings-group-label">Usage &amp; remaining limits</div>
+    ${usageCards}
+    ${orderCard}
+    <div class="settings-group-label">Available plans</div>
+    <div class="myplan-available-plans">${availablePlansHtml}</div>
+  `;
+  scroll.querySelectorAll('[data-delete-credit-expense]').forEach(button=>{
+    button.addEventListener('click',()=>hideMyCreditExpense(button.getAttribute('data-delete-credit-expense')));
+  });
+  try{if(window.__evCreditQuery)window.filterCreditHistory(window.__evCreditQuery);}catch(_e){}
+  try{renderCreditsHistoryScreen();}catch(_e){}
+  renderHomeCreditSummary();
+}
+// Legal acceptance is collected in a separate confirmation panel only after a user
+// starts an email or Google sign-in/sign-up action. No auth request runs before acceptance.
+let pendingLoginConsentAction = null; // 'email' | 'google' | null
+let loginLegalConsentAcceptedOnce = false;
+function updateLoginConsentContinueButton(){
+  const privacy=document.getElementById('loginPrivacyConsent');
+  const terms=document.getElementById('loginTermsConsent');
+  const btn=document.getElementById('loginConsentContinueBtn');
+  if(btn)btn.disabled=!(privacy&&terms&&privacy.checked&&terms.checked);
+  const error=document.getElementById('loginConsentError');
+  if(error&&privacy&&terms&&privacy.checked&&terms.checked)error.textContent='';
+}
+function openLoginConsentPanel(action,preserveChoices){
+  pendingLoginConsentAction=action;
+  loginLegalConsentAcceptedOnce=false;
+  const privacy=document.getElementById('loginPrivacyConsent');
+  const terms=document.getElementById('loginTermsConsent');
+  if(!preserveChoices){if(privacy)privacy.checked=false;if(terms)terms.checked=false;}
+  const title=document.getElementById('loginConsentTitle');
+  const copy=document.getElementById('loginConsentCopy');
+  if(title)title.textContent='Before you continue';
+  if(copy)copy.textContent=action==='email'
+    ?'Please accept both documents to create your Ethvelle account.'
+    :'Please accept both documents before continuing with Google.';
+  const error=document.getElementById('loginConsentError');if(error)error.textContent='';
+  updateLoginConsentContinueButton();
+  const backdrop=document.getElementById('loginConsentBackdrop');
+  if(backdrop)backdrop.classList.add('active');
+}
+function cancelLoginConsentPanel(){
+  const backdrop=document.getElementById('loginConsentBackdrop');
+  if(backdrop)backdrop.classList.remove('active');
+  pendingLoginConsentAction=null;
+  loginLegalConsentAcceptedOnce=false;
+  const privacy=document.getElementById('loginPrivacyConsent');
+  const terms=document.getElementById('loginTermsConsent');
+  if(privacy)privacy.checked=false;if(terms)terms.checked=false;
+  const error=document.getElementById('loginConsentError');if(error)error.textContent='';
+  updateLoginConsentContinueButton();
+}
+function requireLoginLegalConsent(){
+  const privacy=document.getElementById('loginPrivacyConsent');
+  const terms=document.getElementById('loginTermsConsent');
+  if(!privacy||!terms||!privacy.checked||!terms.checked){
+    const error=document.getElementById('loginConsentError');
+    if(error)error.textContent='Please accept both the Privacy Policy and Terms & Conditions to continue.';
+    updateLoginConsentContinueButton();
+    return false;
+  }
+  return true;
+}
+function acceptLoginConsentAndContinue(){
+  if(!requireLoginLegalConsent())return;
+  const action=pendingLoginConsentAction;
+  if(!action)return;
+  const backdrop=document.getElementById('loginConsentBackdrop');
+  if(backdrop)backdrop.classList.remove('active');
+  pendingLoginConsentAction=null;
+  loginLegalConsentAcceptedOnce=true;
+  if(action==='email')performEmailAuth();
+  else if(action==='google')performGoogleSignIn();
+}
+function openLoginLegalPage(which){
+  window.__ethvelleLegalReturnScreen='login';
+  window.__ethvelleReturnToLoginConsent=true;
+  const backdrop=document.getElementById('loginConsentBackdrop');
+  if(backdrop)backdrop.classList.remove('active');
+  if(typeof window.openEthvelleLegalPage==='function')window.openEthvelleLegalPage(which);
+  else goTo(which==='terms'?'terms':'privacy');
+}
+function returnFromEthvelleLegalPage(){
+  const target=window.__ethvelleLegalReturnScreen||'profile';
+  goTo(target);
+  window.__ethvelleLegalReturnScreen='profile';
+  if(target==='login'&&window.__ethvelleReturnToLoginConsent){
+    window.__ethvelleReturnToLoginConsent=false;
+    openLoginConsentPanel(pendingLoginConsentAction,true);
+  }
+}
+// Opens the login screen. `after` is an optional zero-arg function run automatically once
+// sign-in succeeds (used to resume Export right after the user logs in).
+function openLoginScreen(after){
+  pendingAfterLogin = (typeof after === 'function') ? after : null;
+  const active = document.querySelector('.screen.active');
+  const activeId = active && active.id && active.id.indexOf('screen-') === 0 ? active.id.slice(7) : null;
+  pendingBeforeLoginScreen = (activeId && activeId !== 'login') ? activeId : 'editor';
+  setLoginMode('signin');
+  document.getElementById('loginError').classList.remove('show');
+  showLoginStatus('');
+  document.getElementById('loginEmailInput').value = '';
+  document.getElementById('loginPasswordInput').value = '';
+  cancelLoginConsentPanel();
+  window.__ethvelleLegalReturnScreen='profile';
+  window.__ethvelleReturnToLoginConsent=false;
+  goTo('login');
+}
+function cancelLoginFlow(){
+  cancelLoginConsentPanel();
+  pendingAfterLogin = null;
+  goTo(currentUser ? 'profile' : 'home');
+}
+function setLoginMode(mode){
+  loginMode = mode;
+  const isSignup = mode === 'signup';
+  document.getElementById('loginTitle').textContent = isSignup ? 'Create your account' : 'Sign in for Export';
+  document.getElementById('loginSub').textContent = isSignup ? 'Sign up to export your animations' : 'Sign in to export your animations';
+  document.getElementById('loginSubmitBtn').textContent = isSignup ? 'Sign up' : 'Sign in';
+  document.getElementById('loginSwitchText').textContent = isSignup ? 'Already have an account?' : "Don't have an account?";
+  document.getElementById('loginSwitchLink').textContent = isSignup ? 'Sign in' : 'Sign up';
+  const forgotLink = document.getElementById('forgotPasswordLink');
+  if(forgotLink) forgotLink.style.display = isSignup ? 'none' : 'inline';
+  document.getElementById('loginError').classList.remove('show');
+  showLoginStatus('');
+}
+function toggleLoginMode(){
+  setLoginMode(loginMode === 'signup' ? 'signin' : 'signup');
+}
+function showLoginError(msg){
+  showLoginStatus('');
+  const el = document.getElementById('loginError');
+  el.textContent = msg;
+  el.classList.add('show');
+}
+function showLoginStatus(msg){
+  const el = document.getElementById('loginAuthStatus');
+  if(!el) return;
+  el.textContent = msg || '';
+  el.classList.toggle('show', !!msg);
+}
+async function handleForgotPassword(){
+  if(loginMode !== 'signin') return;
+  const email = document.getElementById('loginEmailInput').value.trim();
+  if(!email){ showLoginError('Enter your email address first to reset your password'); return; }
+  if(!firebaseReady || !fbAuth){ showLoginError('Password reset is unavailable right now  -  try again later'); return; }
+  const link = document.getElementById('forgotPasswordLink');
+  if(link && link.dataset.busy === '1') return;
+  if(link){ link.dataset.busy = '1'; link.textContent = 'Sending…'; link.style.pointerEvents = 'none'; }
+  document.getElementById('loginError').classList.remove('show');
+  showLoginStatus('');
+  try{
+    await fbAuth.sendPasswordResetEmail(email);
+    showLoginStatus('Password reset email sent. Check your inbox and spam folder.');
+  }catch(err){
+    showLoginError(friendlyAuthError(err));
+  }finally{
+    if(link){ link.dataset.busy = '0'; link.textContent = 'Forgot password?'; link.style.pointerEvents = ''; }
+  }
+}
+function friendlyAuthError(err){
+  const code = err && err.code || '';
+  if(code.indexOf('wrong-password') > -1 || code.indexOf('invalid-credential') > -1) return 'Wrong email or password';
+  if(code.indexOf('user-not-found') > -1) return 'No account found with that email';
+  if(code.indexOf('email-already-in-use') > -1) return 'That email is already registered  -  try signing in instead';
+  if(code.indexOf('weak-password') > -1) return 'Password should be at least 6 characters';
+  if(code.indexOf('invalid-email') > -1) return 'Enter a valid email address';
+  if(code.indexOf('network-request-failed') > -1) return 'Network error  -  check your connection';
+  if(code.indexOf('popup-closed-by-user') > -1) return 'Google sign-in was closed before finishing';
+  return (err && err.message) || 'Something went wrong  -  try again';
+}
+function handleEmailAuthSubmit(){
+  const email=document.getElementById('loginEmailInput').value.trim();
+  const password=document.getElementById('loginPasswordInput').value;
+  document.getElementById('loginError').classList.remove('show');
+  if(!email||!password){showLoginError('Enter both email and password');return;}
+  if(!firebaseReady||!fbAuth){showLoginError('Sign-in is unavailable right now  -  try again later');return;}
+  // Legal acceptance is a required step only when the user is creating an account.
+  // The consent checkboxes live in their own modal and are never embedded in the login form.
+  if(loginMode==='signup'){
+    openLoginConsentPanel('email',false);
+    return;
+  }
+  performEmailAuth();
+}
+async function performEmailAuth(){
+  const wasSignup=loginMode==='signup';
+  if(wasSignup&&(!loginLegalConsentAcceptedOnce||!requireLoginLegalConsent()))return;
+  loginLegalConsentAcceptedOnce=false;
+  const email=document.getElementById('loginEmailInput').value.trim();
+  const password=document.getElementById('loginPasswordInput').value;
+  const btn=document.getElementById('loginSubmitBtn');
+  if(!email||!password){showLoginError('Enter both email and password');return;}
+  if(!firebaseReady||!fbAuth){showLoginError('Sign-in is unavailable right now  -  try again later');return;}
+  btn.disabled=true;btn.textContent=wasSignup?'Signing up…':'Signing in…';
+  try{
+    if(wasSignup){await fbAuth.createUserWithEmailAndPassword(email,password);trackEvent('user_signup');}
+    else{await fbAuth.signInWithEmailAndPassword(email,password);trackEvent('user_login');}
+  }catch(err){showLoginError(friendlyAuthError(err));}
+  finally{btn.disabled=false;btn.textContent=wasSignup?'Sign up':'Sign in';}
+}
+function handleGoogleSignIn(){
+  document.getElementById('loginError').classList.remove('show');
+  if(!firebaseReady||!fbAuth){showLoginError('Sign-in is unavailable right now  -  try again later');return;}
+  openLoginConsentPanel('google',false);
+}
+async function performGoogleSignIn(){
+  if(!loginLegalConsentAcceptedOnce||!requireLoginLegalConsent())return;
+  loginLegalConsentAcceptedOnce=false;
+  if(!firebaseReady||!fbAuth){showLoginError('Sign-in is unavailable right now  -  try again later');return;}
+  const btn=document.getElementById('googleSignInBtn');
+  btn.disabled=true;
+  try{
+    const provider=new firebase.auth.GoogleAuthProvider();
+    const result=await fbAuth.signInWithPopup(provider);
+    trackEvent(result&&result.additionalUserInfo&&result.additionalUserInfo.isNewUser?'user_signup':'user_login');
+  }catch(err){
+    if(err&&(err.code==='auth/popup-blocked'||err.code==='auth/operation-not-supported-in-this-environment')){
+      try{
+        const provider=new firebase.auth.GoogleAuthProvider();
+        await fbAuth.signInWithRedirect(provider);
+        return;
+      }catch(err2){showLoginError(friendlyAuthError(err2));}
+    }else{showLoginError(friendlyAuthError(err));}
+  }finally{btn.disabled=false;}
+}
+// Picks up the isNewUser flag for the signInWithRedirect fallback above, since that flow leaves
+// and re-enters the page rather than resolving a promise inline. Safe to call unconditionally on
+// load  -  resolves to null (no-ops) when the page wasn't just returned to from a redirect sign-in.
+if(firebaseReady && fbAuth){
+  fbAuth.getRedirectResult().then(result=>{
+    if(result && result.user){
+      trackEvent(result.additionalUserInfo && result.additionalUserInfo.isNewUser ? 'user_signup' : 'user_login');
+    }
+  }).catch(()=>{});
+}
+// Runs once, right after a successful sign-in (from onAuthStateChanged below): closes the
+// login screen and resumes whatever action (e.g. Export) triggered the login prompt.
+function finishLoginFlow(){
+  showToast('Signed in', {icon: toastIcons.check, duration:1400});
+  const resume = pendingAfterLogin;
+  const returnTo = pendingBeforeLoginScreen;
+  pendingAfterLogin = null;
+  pendingBeforeLoginScreen = null;
+  goTo(resume ? returnTo : 'profile');
+  if(resume){
+    // Give goTo's screen swap a tick to settle before running the resumed action
+    // (re-opening the export sheet, re-opening checkout, etc).
+    setTimeout(resume, 50);
+  }
+}
+// Gate helper: runs `action` immediately if signed in, otherwise sends the user to the
+// login screen and re-runs `action` automatically the moment sign-in succeeds.
+function requireLoginThen(action){
+  if(currentUser){
+    action();
+  } else {
+    openLoginScreen(action);
+  }
+}
+if(firebaseReady && fbAuth){
+  fbAuth.onAuthStateChanged(function(user){
+    currentUser = user ? { uid:user.uid, email:user.email, displayName:user.displayName, photoURL:user.photoURL } : null;
+    if(currentUser){
+      loadCachedMyPlan(currentUser.uid); // show last-known plan instantly, before Firestore responds
+      startMyOrdersSync(currentUser.uid);
+      startMyCreditsSync(currentUser.uid);
+      syncUserProfileDoc(currentUser);
+      startMyNotificationsSync(currentUser.uid);
+      loadLocalProfilePhoto(currentUser.uid);
+    } else {
+      stopMyOrdersSync();
+      stopMyCreditsSync();
+      stopMyNotificationsSync();
+      myActivePlanId = 'free';
+      myActivePlanName = 'Free';
+      myHasEverOrdered = true; // signed-out visitors never see the first-purchase offer either
+      clearLocalProfilePhoto();
+    }
+    updateProfileUI();
+    _plansSig = null;
+    renderPaymentPlans();
+    if(typeof wirePromoPopups==='function') wirePromoPopups(true, activeScreenId());
+    // Only auto-advance past the login screen if the user is actually sitting on it  - 
+    // otherwise this would yank people away from whatever screen they're on every time
+    // Firebase re-confirms the existing session (e.g. on page load).
+    if(user && document.getElementById('screen-login').classList.contains('active')){
+      finishLoginFlow();
+    }
+  });
+}
+
+/* ================= USERS DIRECTORY (per-user Firestore profile doc) =================
+   Mirrors the signed-in user into users/{uid} so the admin panel can list, filter and
+   message real accounts. Previously plan/activity only ever lived in this device's
+   localStorage  -  nothing about a user existed in the cloud beyond Firebase Auth's own
+   record (which the admin panel cannot list without the Admin SDK). This runs once per
+   sign-in and again whenever the active plan changes, as a best-effort merge write  - 
+   never blocks the UI and never throws if Firestore is unreachable. */
+function syncUserProfileDoc(user){
+  if(!(firebaseReady && fbDb) || !user) return;
+  try{
+    const ref = fbDb.collection('users').doc(user.uid);
+    ref.set({
+      uid: user.uid,
+      email: user.email || null,
+      displayName: user.displayName || null,
+      photoURL: user.photoURL || null,
+      planId: myActivePlanId,
+      planName: myActivePlanName,
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp(),
+      createdAt: firebase.firestore.FieldValue.serverTimestamp() // ignored by merge if the doc already has one  -  see below
+    }, { merge:true }).catch(()=>{});
+    // createdAt should only ever be set once (on first sync)  -  a plain merge:true above
+    // would otherwise overwrite it with "now" on every later login. Firestore has no
+    // "set only if absent" in a single merge call, so read-then-maybe-write once.
+    ref.get().then(snap=>{
+      const data = snap.data();
+      if(data && data._createdOnce) return;
+      try{window.evQueueAutoEvent&&window.evQueueAutoEvent('account_created',{},user);}catch(_e){}
+      ref.set({ _createdOnce:true, createdAt: firebase.firestore.FieldValue.serverTimestamp() }, { merge:true }).catch(()=>{});
+    }).catch(()=>{});
+  }catch(e){ console.warn('Ethvelle: could not sync user profile doc', e); }
+}
+// Re-synced whenever the active plan is adopted (see applyApprovedOrders above) so the
+// admin's Users list reflects plan upgrades/downgrades without waiting for next login.
+function resyncUserPlanToProfileDoc(){
+  if(!(firebaseReady && fbDb) || !currentUser) return;
+  try{
+    fbDb.collection('users').doc(currentUser.uid).set({
+      planId: myActivePlanId, planName: myActivePlanName,
+      lastSeen: firebase.firestore.FieldValue.serverTimestamp()
+    }, { merge:true }).catch(()=>{});
+  }catch(e){}
+}
+
+/* ================= SITE-CONTENT TRACKING (feeds the admin dashboard) =================
+   Declared here (before goTo/trackEvent('visitor') below) since function declarations are
+   hoisted but the const/let bindings they close over are not  -  calling trackEvent() from
+   the bottom of the script before TRACKING_KEY had executed used to throw a
+   "Cannot access before initialization" error that silently broke visitor counting.
+   Every event bumps a localStorage counter immediately (so the dashboard always has
+   something to show) and mirrors to Firestore in the background when configured, keyed by
+   today's date so "today" counts reset naturally each day while totals keep accumulating.
+
+   EXTENDED DATA MODEL (backward compatible):
+   The original three fields (visitors/exports/projects) keep working exactly as before  - 
+   every old call site (`trackEvent('visitor')`, `trackEvent('project')`, `trackEvent('export')`)
+   still increments the same three counters, so historical totals are never broken or reset.
+   New event kinds below just add MORE fields alongside those three, in the same dailyStats
+   day-doc and the same stats/totals doc, using the same increment-based writes. A new
+   monthlyStats/{YYYY-MM} doc is written alongside dailyStats so the admin dashboard can show
+   month/quarter/year views without scanning every daily doc ever created.
+
+   ANONYMOUS IDENTITY (privacy-conscious, no personal data):
+   - visitorId: a random id persisted in localStorage  -  identifies "this browser" across visits,
+     so the dashboard can distinguish page-load COUNT from actual unique visitors. Only a random
+     string; nothing that identifies a person.
+   - sessionId: a random id kept in sessionStorage  -  identifies "this tab session"; a fresh
+     session starts whenever the app is opened in a new tab (sessionStorage is cleared then),
+     so multiple tabs from the same visitor count as multiple sessions but the SAME visitorId.
+   Both are anonymous identifiers with no link to a real identity unless the visitor separately
+   signs in, in which case authenticatedUid (the existing Firebase UID) is used for user-level
+   stats  -  never these anonymous ids. */
+function todayKey(d){
+  d = d || new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');
+}
+function monthKey(d){
+  d = d || new Date();
+  return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0');
+}
+function currentHour(){ return new Date().getHours(); } // 0-23, local time
+
+/* ---- anonymous visitor/session identity ---- */
+const VISITOR_ID_KEY = 'riggy.visitorId.v1';
+const VISITOR_FIRSTSEEN_KEY = 'riggy.visitorFirstSeen.v1';
+const SESSION_ID_KEY = 'riggy.sessionId.v1'; // sessionStorage  -  one per tab, cleared when the tab closes
+function makeAnonId(){ return 'v_'+Date.now().toString(36)+Math.random().toString(36).slice(2,10); }
+function getOrCreateVisitorId(){
+  try{
+    let id = localStorage.getItem(VISITOR_ID_KEY);
+    if(!id){
+      id = makeAnonId();
+      localStorage.setItem(VISITOR_ID_KEY, id);
+      localStorage.setItem(VISITOR_FIRSTSEEN_KEY, new Date().toISOString());
+      return { id, isNew:true };
+    }
+    return { id, isNew:false };
+  }catch(e){
+    // localStorage unavailable (private browsing lockdown, etc)  -  fall back to a per-load id;
+    // this visit will count as "unique" every time, which is the best available approximation.
+    return { id: makeAnonId(), isNew:true };
+  }
+}
+function getOrCreateSessionId(){
+  try{
+    let id = sessionStorage.getItem(SESSION_ID_KEY);
+    if(!id){
+      id = makeAnonId();
+      sessionStorage.setItem(SESSION_ID_KEY, id);
+      return { id, isNew:true };
+    }
+    return { id, isNew:false };
+  }catch(e){
+    return { id: makeAnonId(), isNew:true };
+  }
+}
+// Tracks, once per calendar day per browser, whether THIS visitorId has already been counted as
+// a "unique visitor" today  -  so refreshing the page 20 times in one day still shows as 1 unique
+// visitor (though 20 plain "visitors"/page-loads), without needing any server-side lookup.
+const VISITOR_LASTDAY_KEY = 'riggy.visitorLastCountedDay.v1';
+function isFirstVisitToday(){
+  try{
+    const last = localStorage.getItem(VISITOR_LASTDAY_KEY);
+    const today = todayKey();
+    if(last === today) return false;
+    localStorage.setItem(VISITOR_LASTDAY_KEY, today);
+    return true;
+  }catch(e){
+    return true; // can't dedupe without storage  -  treat every load as unique rather than undercount
+  }
+}
+
+const TRACKING_KEY = 'riggy.tracking.v1';
+// Local (per-device) counters  -  same shape as before, with new fields added alongside the
+// original three so old data is never touched. Anything not explicitly incremented stays 0.
+function blankDay(){
+  return {
+    visitors:0, uniqueVisitors:0, sessions:0,
+    trafficFacebook:0, trafficYoutube:0, trafficSearch:0, trafficSocial:0, trafficDirect:0, trafficOther:0,
+    users:0, newUsers:0,
+    projects:0, projectsOpened:0, projectsRenamed:0, projectsDuplicated:0, projectsDeleted:0,
+    exports:0, exportsRequested:0, exportsSucceeded:0, exportsFailed:0, animationsFree:0, animationsPaid:0,
+    modelsAdded:0, modelsSaved:0, modelsReused:0,
+    autoRigStarted:0, autoRigCompleted:0, autoRigFailed:0,
+    ordersSubmitted:0,
+    paymentPageViews:0, paymentPageSessions:0, planSelectionClicks:0, planCtaClicks:0,
+    planConfirmClicks:0, upgradeToProClicks:0, paymentProofImagesSelected:0,
+    paymentProofImagesUploaded:0, billingPlanClicks:0, billingPlanViews:0, billingUpgradeToProClicks:0, promoPopupShown:0, promoPopupClicks:0,
+    promoPlanCardClicks:0, promoPlanCtaClicks:0, promoPlanConfirmClicks:0, promoUpgradeToProClicks:0,
+    promoProofImagesSelected:0, promoProofImagesUploaded:0, promoOrdersSubmitted:0, promoPurchasesCompleted:0,
+    createSectionClicks:0, screenViews:0,
+    hours:{}
+  };
+}
+function loadTracking(){
+  try{
+    const raw = localStorage.getItem(TRACKING_KEY);
+    if(raw) return JSON.parse(raw);
+  }catch(e){}
+  return { totals:{ visitors:0, exports:0, projects:0 }, days:{} };
+}
+function saveTracking(t){
+  try{ localStorage.setItem(TRACKING_KEY, JSON.stringify(t)); }catch(e){}
+}
+
+// Maps every tracked "kind" to the field(s) it increments. A kind can bump more than one field
+// (e.g. 'export_success' bumps both the generic 'exports' legacy field is handled separately  - 
+// see EVENT_FIELDS below) so old dashboards reading only visitors/exports/projects keep working
+// unmodified, while a new dashboard can read the richer fields.
+const EVENT_FIELDS = {
+  // --- legacy kinds (unchanged meaning/behavior) ---
+  visitor:            ['visitors'],
+  project:            ['projects'],
+  export:             ['exports','exportsSucceeded'], // legacy 'export' call = a completed, successful export
+  // --- new, richer kinds ---
+  session_start:      ['sessions'],
+  unique_visitor:      ['uniqueVisitors'],
+  traffic_source_facebook:['trafficFacebook'],
+  traffic_source_youtube:['trafficYoutube'],
+  traffic_source_search:['trafficSearch'],
+  traffic_source_social:['trafficSocial'],
+  traffic_source_direct:['trafficDirect'],
+  traffic_source_other:['trafficOther'],
+  user_login:          ['users'],
+  user_signup:         ['users','newUsers'],
+  project_opened:      ['projectsOpened'],
+  project_renamed:     ['projectsRenamed'],
+  project_duplicated:  ['projectsDuplicated'],
+  project_deleted:     ['projectsDeleted'],
+  export_requested:    ['exportsRequested'],
+  export_failed:       ['exportsFailed'],
+  animation_free_used: ['animationsFree'],
+  animation_paid_used: ['animationsPaid'],
+  model_added:         ['modelsAdded'],
+  model_saved:         ['modelsSaved'],
+  model_reused:        ['modelsReused'],
+  autorig_started:     ['autoRigStarted'],
+  autorig_completed:   ['autoRigCompleted'],
+  autorig_failed:      ['autoRigFailed'],
+  order_submitted:     ['ordersSubmitted'],
+  payment_page_view:   ['paymentPageViews'],
+  payment_page_session:['paymentPageSessions'],
+  plan_selection:      ['planSelectionClicks'],
+  plan_cta_click:      ['planCtaClicks'],
+  plan_confirm_click:  ['planConfirmClicks'],
+  upgrade_to_pro_click:['upgradeToProClicks'],
+  billing_plan_click:  ['billingPlanClicks'],
+  billing_plan_view:   ['billingPlanViews'],
+  billing_upgrade_to_pro_click:['billingUpgradeToProClicks'],
+  payment_proof_selected:['paymentProofImagesSelected'],
+  payment_proof_uploaded:['paymentProofImagesUploaded'],
+  promo_popup_shown:   ['promoPopupShown'],
+  promo_popup_click:   ['promoPopupClicks'],
+  promo_plan_card_click:['promoPlanCardClicks'],
+  promo_plan_cta_click:['promoPlanCtaClicks'],
+  promo_plan_confirm_click:['promoPlanConfirmClicks'],
+  promo_upgrade_to_pro_click:['promoUpgradeToProClicks'],
+  promo_proof_image_selected:['promoProofImagesSelected'],
+  promo_proof_image_uploaded:['promoProofImagesUploaded'],
+  promo_order_submitted:['promoOrdersSubmitted'],
+  create_section_click:['createSectionClicks'],
+  screen_view:         ['screenViews'],
+};
+
+/* Per-tab session activity log. It uses the same anonymous visitor/session IDs as the
+   roll-up counters, stores no IP/location/device fingerprint, and logs only short action
+   metadata (never payment proof contents or transaction IDs). Each event is a small child
+   document so a session can have a bounded, queryable timeline without growing one Firestore
+   document forever. */
+let _ethvelleTrackingIdentity = null;
+function getTrackingIdentity(){
+  if(_ethvelleTrackingIdentity) return _ethvelleTrackingIdentity;
+  const visitor = getOrCreateVisitorId();
+  const session = getOrCreateSessionId();
+  _ethvelleTrackingIdentity = { visitorId:visitor.id, sessionId:session.id };
+  return _ethvelleTrackingIdentity;
+}
+function trackingPlanSnapshot(){
+  const signedIn = !!currentUser;
+  if(!signedIn) return { uid:null, displayName:null, email:null, planId:'guest', planName:'Guest' };
+  const id = (myActivePlanId && String(myActivePlanId)!=='') ? String(myActivePlanId) : 'free';
+  let name = myActivePlanName || '';
+  try{
+    const p = typeof getPlans==='function' ? getPlans().find(x=>String(x.id)===id) : null;
+    if(p && p.name) name = p.name;
+  }catch(e){}
+  if(!name) name = id==='free' ? 'Free' : id;
+  return { uid:currentUser.uid || null, displayName:currentUser.displayName || null,
+    email:currentUser.email || null, planId:id, planName:name };
+}
+function trackingActiveScreen(){
+  const active = document.querySelector('.screen.active');
+  return active && active.id ? active.id.replace(/^screen-/, '') : 'unknown';
+}
+function trackingEventLabel(kind, details){
+  details = details || {};
+  const labels = {
+    visitor:'Page visit', unique_visitor:'Unique visitor', session_start:'Session started',
+    screen_view:'Opened screen', payment_page_view:'Opened Payment page', payment_page_session:'First Payment visit in session',
+    traffic_source_facebook:'Visit from Facebook', traffic_source_youtube:'Visit from YouTube',
+    traffic_source_search:'Visit from search', traffic_source_social:'Visit from social media',
+    traffic_source_direct:'Direct visit', traffic_source_other:'Visit from other source',
+    plan_selection:'Selected plan card', plan_cta_click:'Clicked plan upgrade button',
+    plan_confirm_click:'Clicked plan confirmation', upgrade_to_pro_click:'Clicked Upgrade to Pro',
+    billing_plan_click:'Tapped plan on Billing & plan', billing_plan_view:'Opened Billing & plan', billing_upgrade_to_pro_click:'Tapped Upgrade on Billing & plan',
+    payment_proof_selected:'Selected payment proof image', payment_proof_uploaded:'Uploaded payment proof image',
+    order_submitted:'Submitted payment order', promo_popup_shown:'Promo popup shown',
+    promo_popup_click:'Clicked promo popup', promo_plan_card_click:'Selected payment plan after promo',
+    promo_plan_cta_click:'Clicked plan upgrade after promo', promo_plan_confirm_click:'Confirmed plan after promo',
+    promo_upgrade_to_pro_click:'Clicked Upgrade to Pro after promo',
+    promo_proof_image_selected:'Selected payment proof after promo', promo_proof_image_uploaded:'Uploaded payment proof after promo',
+    promo_order_submitted:'Submitted promo-attributed order', create_section_click:'Clicked What would you create',
+    project:'Created project', project_opened:'Opened project', project_renamed:'Renamed project',
+    project_duplicated:'Duplicated project', project_deleted:'Deleted project', export_requested:'Requested export',
+    export:'Export completed', export_failed:'Export failed', model_added:'Added model', model_saved:'Saved model',
+    model_reused:'Reused model', autorig_started:'Started auto-rig', autorig_completed:'Auto-rig completed',
+    autorig_failed:'Auto-rig failed', animation_free_used:'Used free animation', animation_paid_used:'Used paid animation', user_login:'Signed in', user_signup:'Created account'
+  };
+  let label = labels[kind] || String(kind||'Activity').replace(/_/g,' ');
+  if(details.planName) label += ' · ' + String(details.planName).slice(0,60);
+  else if(details.itemLabel) label += ' · ' + String(details.itemLabel).slice(0,70);
+  else if(details.screen && kind!=='screen_view') label += ' · ' + String(details.screen).slice(0,35);
+  return label.slice(0,160);
+}
+function recordVisitorSessionEvent(kind, details){
+  if(!(firebaseReady && fbDb)) return;
+  try{
+    details = details && typeof details==='object' ? details : {};
+    const ids = getTrackingIdentity();
+    const user = trackingPlanSnapshot();
+    const sessionRef = fbDb.collection('visitorSessions').doc(ids.sessionId);
+    const eventRef = sessionRef.collection('events').doc();
+    const safeDetails = {};
+    ['planId','planName','planPrice','popupId','source','itemLabel','screen','proofIndex'].forEach(key=>{
+      if(details[key] !== undefined && details[key] !== null){
+        const value = String(details[key]).slice(0,120);
+        safeDetails[key] = value;
+      }
+    });
+    const eventScreen = safeDetails.screen || trackingActiveScreen();
+    const inc = firebase.firestore.FieldValue.increment(1);
+    const patch = {
+      visitorId:ids.visitorId, sessionId:ids.sessionId,
+      uid:user.uid, displayName:user.displayName, email:user.email,
+      planId:user.planId, planName:user.planName,
+      currentScreen:eventScreen, lastSeen:firebase.firestore.FieldValue.serverTimestamp(),
+      lastEventKind:kind, lastEventLabel:trackingEventLabel(kind, safeDetails),
+      eventCount:inc, eventCounts:{ [kind]:inc }
+    };
+    const summaryFields = {
+      visitor:'visitorCount', session_start:'sessionStartCount', unique_visitor:'uniqueVisitorCount',
+      user_login:'loginCount', user_signup:'signupCount',
+      project:'projectsCreatedCount', project_opened:'projectsOpenedCount', project_renamed:'projectsRenamedCount',
+      project_duplicated:'projectsDuplicatedCount', project_deleted:'projectsDeletedCount',
+      export_requested:'exportsRequestedCount', export:'exportsCompletedCount', export_failed:'exportsFailedCount',
+      model_added:'modelsAddedCount', model_saved:'modelsSavedCount', model_reused:'modelsReusedCount',
+      autorig_started:'autoRigStartedCount', autorig_completed:'autoRigCompletedCount', autorig_failed:'autoRigFailedCount',
+      animation_free_used:'animationsFreeUsedCount', animation_paid_used:'animationsPaidUsedCount',
+      order_submitted:'ordersSubmittedCount', payment_page_view:'paymentPageViewCount', payment_page_session:'paymentPageSessionCount',
+      plan_selection:'planSelectionClickCount', plan_cta_click:'planCtaClickCount',
+      plan_confirm_click:'planConfirmClickCount', upgrade_to_pro_click:'upgradeToProClickCount',
+      billing_plan_click:'billingPlanClickCount', billing_plan_view:'billingPlanViewCount', billing_upgrade_to_pro_click:'billingUpgradeToProClickCount',
+      payment_proof_selected:'paymentProofImagesSelected', payment_proof_uploaded:'paymentProofImagesUploaded',
+      promo_popup_shown:'promoPopupShowCount', promo_popup_click:'promoPopupClickCount',
+      promo_plan_card_click:'promoPlanCardClickCount', promo_plan_cta_click:'promoPlanCtaClickCount',
+      promo_plan_confirm_click:'promoPlanConfirmClickCount', promo_upgrade_to_pro_click:'promoUpgradeToProClickCount',
+      promo_proof_image_selected:'promoProofImagesSelected', promo_proof_image_uploaded:'promoProofImagesUploaded',
+      promo_order_submitted:'promoOrdersSubmittedCount',
+      create_section_click:'createSectionClickCount', screen_view:'screenViewCount'
+    };
+    if(summaryFields[kind]) patch[summaryFields[kind]] = inc;
+    if(kind==='session_start') patch.startedAt = firebase.firestore.FieldValue.serverTimestamp();
+    if(kind==='payment_page_session') patch.paymentPageVisited = true;
+    // The dashboard counts a session under only its last-selected/last-confirmed plan. Each
+    // session therefore contributes to one plan at most, even if several plans were explored.
+    if(['plan_selection','plan_cta_click','plan_confirm_click','upgrade_to_pro_click'].includes(kind)){
+      patch.lastClickedPlanId = safeDetails.planId || user.planId;
+      patch.lastClickedPlanName = safeDetails.planName || user.planName;
+      patch.lastClickedPlanPrice = safeDetails.planPrice || null;
+      patch.lastPlanClickAt = firebase.firestore.FieldValue.serverTimestamp();
+    }
+    const batch = fbDb.batch();
+    batch.set(sessionRef, patch, { merge:true });
+    batch.set(eventRef, {
+      kind, label:trackingEventLabel(kind, safeDetails), details:safeDetails,
+      screen:eventScreen, planId:user.planId, planName:user.planName,
+      timestamp:firebase.firestore.FieldValue.serverTimestamp()
+    });
+    batch.commit().catch(()=>{});
+  }catch(e){ /* Tracking must never block the main experience. */ }
+}
+function trackOncePerTab(key, kind, details){
+  const storageKey = 'riggy.session.once.' + key;
+  try{
+    if(sessionStorage.getItem(storageKey)==='1') return;
+    sessionStorage.setItem(storageKey,'1');
+  }catch(e){}
+  trackEvent(kind, details);
+}
+// kind: any key of EVENT_FIELDS above (includes the original 'visitor' | 'export' | 'project')
+let _lastPaymentPageViewAt = 0;
+function trackEvent(kind, details){
+  // Payment entry could be requested twice in quick succession by overlapping navigation
+  // callbacks (notably promo-driven navigation). Count one page-view per actual entry, while
+  // still allowing a genuine later return to Payment to count again. The in-memory guard also
+  // covers restricted WebViews where sessionStorage can throw.
+  if(kind === 'payment_page_view'){
+    const stampKey = 'riggy.paymentPageView.lastAt.v1';
+    const now = Date.now();
+    if(_lastPaymentPageViewAt && now - _lastPaymentPageViewAt < 1800) return;
+    try{
+      const last = Number(sessionStorage.getItem(stampKey) || 0);
+      if(last && now - last < 1800){ _lastPaymentPageViewAt = last; return; }
+      sessionStorage.setItem(stampKey, String(now));
+    }catch(e){ /* in-memory debounce remains active if storage is unavailable */ }
+    _lastPaymentPageViewAt = now;
+  }
+  const fields = EVENT_FIELDS[kind];
+  if(!fields || !fields.length) return; // unknown kind  -  no-op rather than throw, keeps callers safe
+  const t = loadTracking();
+  const key = todayKey();
+  const hour = currentHour();
+  if(!t.days[key]) t.days[key] = blankDay();
+  // Older saved localStorage days (from before this update) may be missing newer fields  - 
+  // backfill them in place so incrementing never throws on `undefined + 1`.
+  const day = t.days[key];
+  Object.keys(blankDay()).forEach(f=>{ if(f!=='hours' && day[f]===undefined) day[f]=0; });
+  if(!day.hours) day.hours = {};
+  if(!day.hours[hour]) day.hours[hour] = {};
+  fields.forEach(field=>{
+    day[field] = (day[field]||0) + 1;
+    day.hours[hour][field] = (day.hours[hour][field]||0) + 1;
+    t.totals[field] = (t.totals[field]||0) + 1;
+  });
+  saveTracking(t);
+  // Detailed visitor timeline is independent of the roll-up counters. Failures are swallowed
+  // inside the recorder so normal editing, payment and navigation continue as usual.
+  recordVisitorSessionEvent(kind, details || {});
+  // Mirrors this event to Firestore (dailyStats/{today}, monthlyStats/{YYYY-MM} + stats/totals)
+  // so the separate admin panel's dashboard can show live, global counts covering every visitor
+  //  -  not just this device. Uses FieldValue.increment (atomic on Firestore's servers) rather than
+  // a read-modify-write, so two people using the app at the same moment both land correctly
+  // instead of one overwriting the other's count. No-ops safely if Firestore is unreachable.
+  if(firebaseReady && fbDb){
+    try{
+      const inc = firebase.firestore.FieldValue.increment(1);
+      const dayPatch = {};
+      fields.forEach(field=>{ dayPatch[field] = inc; });
+      dayPatch.hours = {};
+      fields.forEach(field=>{ dayPatch.hours[hour] = Object.assign(dayPatch.hours[hour]||{}, { [field]: inc }); });
+      const dayRef = fbDb.collection('dailyStats').doc(key);
+      dayRef.set(dayPatch, { merge:true }).catch(()=>{});
+
+      const totalsPatch = {};
+      fields.forEach(field=>{ totalsPatch[field] = inc; });
+      const totalsRef = fbDb.collection('stats').doc('totals');
+      totalsRef.set(totalsPatch, { merge:true }).catch(()=>{});
+
+      // Monthly rollup  -  same fields, no hourly breakdown (the hourly chart only ever needs
+      // "today", so monthlyStats skips that cost entirely). This lets the dashboard show a
+      // month/quarter/year view by reading ~12-36 small docs instead of scanning every day.
+      const mPatch = {};
+      fields.forEach(field=>{ mPatch[field] = inc; });
+      const monthRef = fbDb.collection('monthlyStats').doc(monthKey());
+      monthRef.set(mPatch, { merge:true }).catch(()=>{});
+    }catch(e){}
+  }
+}
+
+/* ---- session/visitor lifecycle: called once per page load, right before the legacy
+   trackEvent('visitor') call further down, so a single page view always produces at least
+   the original 'visitor' count, PLUS a 'session_start' and (once per day per browser) a
+   'unique_visitor' count. Kept as a separate small function so the legacy call site below
+   stays a clean one-liner. ---- */
+function detectTrafficSource(){
+  // Prefer explicit campaign tags; otherwise classify the referring hostname. Store only the
+  // category, never a full referrer URL or search query, so no unnecessary user data is logged.
+  let params;
+  try{ params = new URLSearchParams(window.location.search || ''); }catch(e){ params = null; }
+  const utmSource = params ? String(params.get('utm_source') || params.get('source') || '').toLowerCase() : '';
+  const utmMedium = params ? String(params.get('utm_medium') || '').toLowerCase() : '';
+  let refHost = '';
+  try{ refHost = document.referrer ? new URL(document.referrer).hostname.toLowerCase().replace(/^www\./,'') : ''; }catch(e){}
+  const tagged = (utmSource + ' ' + utmMedium).trim();
+  const hostAndTag = (tagged + ' ' + refHost).toLowerCase();
+  if(/facebook|(^|[\s._-])fb($|[\s._-])|fb\.com|meta\.com/.test(hostAndTag)) return 'facebook';
+  if(/youtube|youtu\.be|youtube-nocookie/.test(hostAndTag)) return 'youtube';
+  if(/google|bing|duckduckgo|yahoo|yandex|ecosia|search/.test(hostAndTag)) return 'search';
+  if(/instagram|tiktok|twitter|x\.com|linkedin|pinterest|reddit|threads\.net/.test(hostAndTag)) return 'social';
+  if(!refHost || refHost === String(location.hostname || '').toLowerCase().replace(/^www\./,'')) return 'direct';
+  return 'other';
+}
+function trackVisitAndSession(){
+  getOrCreateVisitorId();       // ensures a persistent id exists; return value unused here
+  const session = getOrCreateSessionId();
+  if(session.isNew) trackEvent('session_start');
+  if(isFirstVisitToday()) trackEvent('unique_visitor');
+  const trafficSource = detectTrafficSource();
+  // sessionStorage survives same-tab refreshes, preventing repeated attribution on reload.
+  trackOncePerTab('traffic-source', 'traffic_source_' + trafficSource, { source:trafficSource });
+}
+
+/* ================= NAVIGATION ================= */
+function goTo(screenName){
+  if(screenName === 'settings'){ openSettingsScreen(); return; }
+  const settingsBackdrop = document.getElementById('settingsSheetBackdrop');
+  if(settingsBackdrop) settingsBackdrop.classList.remove('active');
+  // 'models' isn't a real screen  -  it's the Projects screen's Models tab. Routed here (rather
+  // than only from the home tile's onclick) so ANY destination picker that stores plain
+  // screen names  -  including the admin panel's "When tapped → Go to a screen" dropdown for
+  // banners/tiles (see runAdminAction)  -  can target the Models tab just by name, with no
+  // separate actionType of its own.
+  if(screenName==='models'){
+    goTo('projects');
+    setProjectsTab('models');
+    return;
+  }
+  const previousScreenEl = document.getElementById('screen-settings')?.classList.contains('active')
+    ? document.getElementById('screen-settings') : document.querySelector('.screen.active');
+  const previousScreenName = previousScreenEl && previousScreenEl.id ? previousScreenEl.id.replace(/^screen-/, '') : '';
+  document.querySelectorAll('.screen').forEach(s=>s.classList.remove('active'));
+  const nextScreenEl = document.getElementById('screen-'+screenName);
+  if(nextScreenEl) nextScreenEl.classList.add('active');
+  if(previousScreenName !== screenName){
+    trackEvent('screen_view', { screen:screenName });
+    if(screenName === 'myplan') trackEvent('billing_plan_view', { screen:'myplan' });
+    if(screenName === 'payment'){
+      trackEvent('payment_page_view', { screen:'payment' });
+      trackOncePerTab('payment-page', 'payment_page_session', { screen:'payment' });
+    }
+  }
+  if(screenName==='profile'){
+    const statEl = document.getElementById('profileStatCount');

@@ -1,0 +1,1000 @@
+
+function drawStick(){
+  if(!ctx) return;
+  updateSelBox();
+  ctx.clearRect(0,0,stageW,stageH);
+  const activeC=activeCharacter();
+  const dragPreview=window.__ethvelleCharacterDragPreview;
+  if(activeC && dragPreview && dragPreview.character===activeC){
+    const dx=modelTransform.offsetX-dragPreview.startOffsetX;
+    const dy=modelTransform.offsetY-dragPreview.startOffsetY;
+    // Preserve exact layer order, but paint every NON-dragged character directly into
+    // the live high-DPI stage context. The old before/after caches were CSS-sized bitmaps;
+    // enlarging them on mobile made untouched characters blur while one character moved.
+    // The dragged character alone uses its matching-resolution snapshot for a smooth move.
+    characters.forEach(c=>{
+      if(!c||!c.bones||!c.modelTransform)return;
+      if(c===activeC){
+        ctx.save();ctx.translate(dx,dy);ctx.drawImage(dragPreview.canvas,0,0,stageW,stageH);ctx.restore();
+      }else drawCharacterToContext(ctx,c);
+    });
+    return;
+  }
+  // Paint every character in the project's actual layer order. Selection changes only
+  // which rig is editable; it must never change who visually sits in front of whom.
+  characters.forEach(c=>{
+    if(c&&c.bones&&c.modelTransform)drawCharacterToContext(ctx,c);
+  });
+  if(!activeC || !bones) return;
+  // Draw selection guides after all character artwork, within the active character's
+  // transform. This keeps handles easy to see without changing the artwork's paint order.
+  ctx.save();
+  const anchor=bones.hip;
+  ctx.translate(anchor.x+modelTransform.offsetX,anchor.y+modelTransform.offsetY);
+  ctx.rotate(modelTransform.rotation*Math.PI/180);
+  ctx.scale(modelTransform.scale,modelTransform.scale);
+  ctx.scale(activeC.mirrorX?-1:1,activeC.mirrorY?-1:1);
+  ctx.translate(-anchor.x,-anchor.y);
+  if(window.ethvelleApplyCanvasMaskClip)window.ethvelleApplyCanvasMaskClip(ctx,activeC.visualMask,stageW,stageH);
+  if(window.ethvelleRigOverlayVisible && typeof window.drawEthvelleRigOverlay==='function'){
+    window.drawEthvelleRigOverlay(ctx,activeC);
+  }
+  const mainClipIsSelected=selectedClip==='main' || String(selectedClip).startsWith('seg');
+  if(!isPlaying && mainClipIsSelected && !window.ethvelleRigOverlayVisible && !activeC.sheet){
+    ctx.fillStyle='#2F5CE8';
+    getJointList().forEach(j=>{
+      const isSelected=!!selectedJoint && j.key===selectedJoint.key;
+      ctx.beginPath();ctx.arc(j.x,j.y,isSelected?4.2:3.1,0,Math.PI*2);ctx.fill();
+      if(isSelected){
+        ctx.strokeStyle='#fff';ctx.lineWidth=1.35;ctx.beginPath();ctx.arc(j.x,j.y,5.6,0,Math.PI*2);ctx.stroke();
+      }
+    });
+  }
+  ctx.restore();
+}
+
+function sheetCharacterJointList(c){
+  // Every blue/white point drawn over a part-sheet rig must be returned here so the same
+  // screen-space point participates in hit-testing. Include all visible hand/foot endpoints
+  // and the intermediate spine joints instead of drawing decorative, non-draggable endpoints.
+  try{
+    if(!c || !c.sheet || typeof sheetRigForCharacter !== 'function' || typeof sheetSolveRig !== 'function') return null;
+    const rig = sheetRigForCharacter(c), S = sheetSolveRig(rig.bones, rig.baseAngles);
+    const required=['pelvis','spine_lower','spine_upper','chest','neck','head','clavicleL','clavicleR','upperArmL','upperArmR','forearmL','forearmR','handL','handR','thighL','thighR','shinL','shinR','footL','footR'];
+    if(required.some(k=>!S[k])) return null;
+    const point=(key,p)=>({key,x:p.x,y:p.y});
+    return [
+      point('hip',S.pelvis.s),
+      point('pelvisTop',S.pelvis.e),
+      point('spineMid',S.spine_lower.e),
+      point('spineUpper',S.spine_upper.e),
+      point('chest',S.chest.e),
+      point('spine',S.neck.e),
+      point('headTop',S.head.e),
+      point('shoulderL',S.clavicleL.e), point('elbowL',S.upperArmL.e),
+      point('wristL',S.forearmL.e), point('handL',S.handL.e),
+      point('hipL',S.thighL.s), point('kneeL',S.thighL.e),
+      point('ankleL',S.shinL.e), point('footL',S.footL.e),
+      point('shoulderR',S.clavicleR.e), point('elbowR',S.upperArmR.e),
+      point('wristR',S.forearmR.e), point('handR',S.handR.e),
+      point('hipR',S.thighR.s), point('kneeR',S.thighR.e),
+      point('ankleR',S.shinR.e), point('footR',S.footR.e)
+    ].concat((()=>{
+      // Animal / bird rigs carry a 22nd 'tail' bone. Give it real, draggable joint points.
+      const t=S.tail; if(!t||!t.s||!t.e) return [];
+      const out=[point('tailTip',t.e)];
+      if(Math.hypot(t.s.x-S.pelvis.s.x,t.s.y-S.pelvis.s.y)>6) out.push(point('tailBase',t.s));
+      return out;
+    })());
+  }catch(err){
+    console.warn('Ethvelle: could not resolve imported model joints; using legacy handles',err);
+    return null;
+  }
+}
+// Per-bone pose delta the LEGACY bone angles contribute to the 21-bone sheet rig (what the rig
+// would be without a modern preset pose). Used to mirror a legacy joint edit into the modern pose.
+function ethvelleLegacyRigDeltas(c){
+  const out={};
+  try{
+    if(typeof ethvelleOriginalSheetRigForCharacter21!=='function') return out;
+    const rig=ethvelleOriginalSheetRigForCharacter21(c);
+    Object.keys(rig.bones).forEach(k=>{
+      if(k==='root'||!Number.isFinite(rig.baseAngles[k])) return;
+      out[k]=rig.bones[k].angle-rig.baseAngles[k];
+    });
+  }catch(_e){}
+  return out;
+}
+function dragSheetCharacterJoint(key, raw){
+  const c = activeCharacter();
+  if(!c || !c.sheet || !bones) return false;
+  const rig = sheetRigForCharacter(c), S = sheetSolveRig(rig.bones, rig.baseAngles);
+  if(key === 'hip'){
+    const sh = c.sheet, ov = sh.rigOverride || {};
+    const rootScale = stageH*(Number(ov.figFrac)||.5)/Math.max(1,Number(sh.H)||1);
+    const off = sh.rootOff || {x:0,y:0};
+    bones.hip.x = raw.x - (Number(off.x)||0)*rootScale;
+    bones.hip.y = raw.y - (Number(off.y)||0)*rootScale;
+    c.hipRestY = bones.hip.y; hipRestY = c.hipRestY;
+    return true;
+  }
+  // Hip starts are position controls: update the thigh's local offset in the same rotated,
+  // figure-height-normalized coordinate system used by sheetSolveRig.
+  if(key==='hipL' || key==='hipR' || key==='tailBase'){
+    const boneKey=key==='hipL'?'thighL':key==='hipR'?'thighR':'tail', parent=S.pelvis;
+    if(!parent || !rig.bones[boneKey]) return false;
+    const sh=c.sheet,ov=sh.rigOverride||(sh.rigOverride={});
+    const offsets=ov.offsets||(ov.offsets={});
+    const scale=stageH*(Number(ov.figFrac)||.5);
+    const dx=raw.x-parent.s.x,dy=raw.y-parent.s.y,co=Math.cos(parent.D),si=Math.sin(parent.D);
+    offsets[boneKey]={x:(dx*co+dy*si)/Math.max(1e-6,scale),y:(-dx*si+dy*co)/Math.max(1e-6,scale)};
+    return 'override';
+  }
+  // Most familiar limb endpoints continue to edit the legacy animation angles, preserving
+  // the existing keyframe workflow. Additional points write only the matching 21-bone
+  // rest-rig angle, so shoulders, spine subdivisions and hand/foot tips are also movable.
+  const legacyMap={
+    spine:{segment:null,start:()=>S.pelvis.s,end:()=>S.neck.e,legacy:'spine'},
+    headTop:{segment:S.head,legacy:'head'},
+    elbowL:{segment:S.upperArmL,legacy:'armL'}, wristL:{segment:S.forearmL,legacy:'armL_lo'},
+    elbowR:{segment:S.upperArmR,legacy:'armR'}, wristR:{segment:S.forearmR,legacy:'armR_lo'},
+    kneeL:{segment:S.thighL,legacy:'legL'}, ankleL:{segment:S.shinL,legacy:'legL_lo'},
+    kneeR:{segment:S.thighR,legacy:'legR'}, ankleR:{segment:S.shinR,legacy:'legR_lo'},
+    handL:{segment:S.handL,legacy:'handL'}, handR:{segment:S.handR,legacy:'handR'}
+  };
+  const directMap={
+    pelvisTop:'pelvis', spineMid:'spine_lower', spineUpper:'spine_upper', chest:'chest',
+    shoulderL:'clavicleL', shoulderR:'clavicleR', footL:'footL', footR:'footR',
+    tailTip:'tail'
+  };
+  const m=legacyMap[key];
+  if(m){
+    const start=m.segment?m.segment.s:m.start();
+    const currentAngle=m.segment?m.segment.a:Math.atan2(m.end().y-start.y,m.end().x-start.x);
+    const targetAngle=Math.atan2(raw.y-start.y,raw.x-start.x);
+    const delta=Math.atan2(Math.sin(targetAngle-currentAngle),Math.cos(targetAngle-currentAngle));
+    const legacyBone=bones[m.legacy];
+    if(!legacyBone || !Number.isFinite(legacyBone.angle)) return false;
+    const modernPose=c._ethvelleModernPose;
+    let legacyBefore=null;
+    if(modernPose && typeof ethvelleLegacyRigDeltas==='function') legacyBefore=ethvelleLegacyRigDeltas(c);
+    legacyBone.angle+=delta;
+    if(modernPose && legacyBefore){
+      const legacyAfter=ethvelleLegacyRigDeltas(c);
+      Object.keys(legacyAfter).forEach(k=>{
+        const d=legacyAfter[k]-(legacyBefore[k]||0);
+        if(d) modernPose[k]=(Number(modernPose[k])||0)+d;
+      });
+    }
+    return true;
+  }
+  const boneKey=directMap[key], segment=boneKey&&S[boneKey];
+  if(!boneKey || !segment || !rig.baseAngles || !Number.isFinite(rig.baseAngles[boneKey])) return false;
+  const targetAngle=Math.atan2(raw.y-segment.s.y,raw.x-segment.s.x);
+  const delta=Math.atan2(Math.sin(targetAngle-segment.a),Math.cos(targetAngle-segment.a));
+  const sh=c.sheet,ov=sh.rigOverride||(sh.rigOverride={});
+  const angles=ov.angles||(ov.angles={});
+  angles[boneKey]=rig.baseAngles[boneKey]+delta;
+  return 'override';
+}
+function getJointList(){
+  // Part-sheet imports must share their exact solved rig with the visible joint handles.
+  const c = activeCharacter();
+  if(c && c.type === 'custom' && c.sheet){
+    const sheetJoints = sheetCharacterJointList(c);
+    if(sheetJoints && sheetJoints.length) return sheetJoints;
+  }
+  // Legacy and auto-rig characters retain their original 11-bone joint list.
+  const list = [];
+  const hip = getBoneEnd('hip'); list.push({key:'hip', x:hip.x, y:hip.y});
+  const spineEnd = getBoneEnd('spine'); list.push({key:'spine', x:spineEnd.x, y:spineEnd.y});
+  LIMB_KEYS.forEach(k=>{
+    const e = getBoneEnd(k); list.push({key:k, x:e.x, y:e.y});
+    const loKey = lowerKey(k);
+    const eLo = getBoneEnd(loKey); list.push({key:loKey, x:eLo.x, y:eLo.y});
+  });
+  const legacyChar=activeCharacter();
+  if(legacyChar && legacyChar.type==='custom' && legacyChar.autoRig && legacyChar.autoRig.handRig){
+    ['L','R'].forEach(side=>{
+      if(legacyChar.autoRig.joints?.['palm'+side]){
+        const palm=getBoneEnd('hand'+side); list.push({key:'hand'+side,x:palm.x,y:palm.y});
+      }
+      ['thumb','index','middle','ring','pinky'].forEach(f=>{
+        const hasBase=!!legacyChar.autoRig.joints?.[f+'Base'+side], hasMid=!!legacyChar.autoRig.joints?.[f+'Mid'+side], hasTip=!!legacyChar.autoRig.joints?.[f+'Tip'+side];
+        if(hasBase&&hasMid){const k=f+side+'_1';if(bones[k]){const e=getBoneEnd(k);list.push({key:k,x:e.x,y:e.y});}}
+        if(hasMid&&hasTip){const k=f+side+'_2';if(bones[k]){const e=getBoneEnd(k);list.push({key:k,x:e.x,y:e.y});}}
+      });
+    });
+  }
+  return list;
+}
+
+// Convert a screen-space point into rig/bone space, accounting for modelTransform
+function screenToRigSpace(px, py){
+  const anchor = bones.hip;
+  // inverse of: translate(anchor+offset) -> rotate -> scale -> translate(-anchor)
+  let x = px - (anchor.x + modelTransform.offsetX);
+  let y = py - (anchor.y + modelTransform.offsetY);
+  const rad = -modelTransform.rotation * Math.PI/180;
+  const cos = Math.cos(rad), sin = Math.sin(rad);
+  const rx = x*cos - y*sin;
+  const ry = x*sin + y*cos;
+  const sx = rx / modelTransform.scale;
+  const sy = ry / modelTransform.scale;
+  const mirrored = activeCharacter();
+  return {
+    x: anchor.x + sx*(mirrored && mirrored.mirrorX ? -1 : 1),
+    y: anchor.y + sy*(mirrored && mirrored.mirrorY ? -1 : 1)
+  };
+}
+
+/* ================= ON-CANVAS SELECTION BOX (CapCut-style) =================
+   FEATURE (\"in CapCut when I add any clip I can adjust it by my hand with dragging  -  I want that
+   same feature\"): the selected Background / image-or-video Clip / Character now gets a white box
+   on the preview stage. Drag INSIDE it to move; drag the bottom-right round handle to resize AND
+   rotate around the item's centre (exactly what CapCut's corner handle does  -  pull out to grow,
+   sweep sideways to rotate; it snaps to 0/90/180 so an un-rotated item is easy to keep straight);
+   tap the top-left \u2715 to delete. Pinching with two fingers resizes too.
+
+   It edits the SAME transform objects the Transform panel sliders edit (bg.transform,
+   ov.transform, modelTransform  -  see transformTarget()), so the box, the sliders, undo/redo,
+   save/load and export all stay in agreement with no second source of truth.
+
+   selBoxTarget() answers \"what is draggable right now, and where is its un-transformed base
+   rectangle?\"; selBoxGeom() then maps that through the item's transform to the on-screen box.
+   Both transforms use the SAME order the renderers use  -  translate(offset) then rotate then
+   scale about a pivot  -  so the frame lines up with the picture pixel-for-pixel:
+     - Background / Clip: pivot = the base rect's centre (CSS transform-origin:center).
+     - Character: pivot = the hip anchor (drawStick's translate/rotate/scale/translate(-anchor)). */
+const SB_MIN_SCALE = 0.1, SB_MAX_SCALE = 6;
+const SB_JOINT_HIT_R = 26; // keep in step with `minD=26` in setupDrag's joint hit-test
+let selBoxEdit = null; // target whose transform was changed by the gesture currently in progress
+
+// The character's box is measured from its REST pose (bone angles temporarily reset to
+// baseAngles), not its live pose, so the frame stays put while you drag a joint to pose a limb
+// instead of jittering/resizing under your finger. Bone positions are read relative to the live
+// hip, so it still follows a jump-bounce. Returns rig-space {minX,minY,maxX,maxY}.
+var __ethvelleRestBoundsCache = null;
+var __ethvelleRestBoundsCacheCharacter = null;
+var __ethvelleRestBoundsCacheValid = false;
+var __ethvelleRestBoundsCacheRaf = 0;
+function invalidateCharacterRestBoundsCache(){
+  __ethvelleRestBoundsCache = null;
+  __ethvelleRestBoundsCacheCharacter = null;
+  __ethvelleRestBoundsCacheValid = false;
+  if(__ethvelleRestBoundsCacheRaf){
+    cancelAnimationFrame(__ethvelleRestBoundsCacheRaf);
+    __ethvelleRestBoundsCacheRaf = 0;
+  }
+}
+function characterRestBounds(){
+  const character = typeof activeCharacter==='function' ? activeCharacter() : null;
+  if(__ethvelleRestBoundsCacheCharacter !== character) invalidateCharacterRestBoundsCache();
+  if(__ethvelleRestBoundsCacheValid) return __ethvelleRestBoundsCache;
+  const saved = {};
+  Object.keys(bones).forEach(k=>{
+    saved[k] = bones[k].angle;
+    if(baseAngles[k] !== undefined) bones[k].angle = baseAngles[k];
+  });
+  let minX=Infinity, minY=Infinity, maxX=-Infinity, maxY=-Infinity;
+  const add = (pt)=>{ if(!isFinite(pt.x) || !isFinite(pt.y)) return; minX=Math.min(minX,pt.x); maxX=Math.max(maxX,pt.x); minY=Math.min(minY,pt.y); maxY=Math.max(maxY,pt.y); };
+  Object.keys(bones).forEach(k=>{ add(getBoneStart(k)); add(getBoneEnd(k)); });
+  if(bones.head){
+    const hs = getBoneStart('head'), he = getBoneEnd('head');
+    const hc = { x:(hs.x+he.x)/2, y:(hs.y+he.y)/2 }, hr = bones.head.length*0.6;
+    add({x:hc.x-hr, y:hc.y-hr}); add({x:hc.x+hr, y:hc.y+hr});
+  }
+  Object.keys(saved).forEach(k=>{ bones[k].angle = saved[k]; });
+  let result = null;
+  if(isFinite(minX)){
+    // Padding = the 26px joint grab radius used by setupDrag's hit-test + a 16px margin. A joint
+    // handle takes priority over the box, and on a small character those 26px circles blanket
+    // nearly the whole body  -  so with a tight box there was NO spot left that moved the character
+    // instead of grabbing a joint. The extra margin leaves a finger-sized ring around the outside
+    // that drags the whole character; the joints inside stay draggable for posing exactly as before.
+    // (It also covers limb thickness / custom artwork extending past the bare bone lines.)
+    const pad = SB_JOINT_HIT_R + 16;
+    result = { minX:minX-pad, minY:minY-pad, maxX:maxX+pad, maxY:maxY+pad };
+  }
+  __ethvelleRestBoundsCache = result;
+  __ethvelleRestBoundsCacheCharacter = character;
+  __ethvelleRestBoundsCacheValid = true;
+  if(!__ethvelleRestBoundsCacheRaf){
+    __ethvelleRestBoundsCacheRaf = requestAnimationFrame(()=>{
+      __ethvelleRestBoundsCacheRaf = 0;
+      __ethvelleRestBoundsCache = null;
+      __ethvelleRestBoundsCacheCharacter = null;
+      __ethvelleRestBoundsCacheValid = false;
+    });
+  }
+  return result;
+}
+
+// Returns the actual object-fit:contain content rectangle for an image/video overlay.
+// The media element fills the stage, but the artwork may occupy only a centered portion of it.
+function ethvelleOverlayContentSize(ov){
+  const el=ov&&typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[String(ov.id)]:null;
+  let iw=Number(el&&(el.videoWidth||el.naturalWidth))||0;
+  let ih=Number(el&&(el.videoHeight||el.naturalHeight))||0;
+  if(!(iw>0&&ih>0)){
+    iw=Number(ov&&(ov.sourceWidth||ov.mediaWidth||ov.originalWidth||ov.videoWidth||ov.width))||0;
+    ih=Number(ov&&(ov.sourceHeight||ov.mediaHeight||ov.originalHeight||ov.videoHeight||ov.height))||0;
+  }
+  if(!(iw>0&&ih>0))return {w:stageW,h:stageH,left:0,top:0};
+  const f=Math.min(stageW/iw,stageH/ih);
+  const w=Math.max(1,iw*f),h=Math.max(1,ih*f);
+  return {w,h,left:(stageW-w)/2,top:(stageH-h)/2};
+}
+
+// What can be dragged right now? null = nothing (no selection, playing, or the selected item
+// isn't actually on screen at the playhead, in which case a box would point at nothing).
+function selBoxTarget(){
+  if(isPlaying || !stageW || !stageH) return null;
+  const t = getCurrentAbsoluteTime();
+  const centre = { x:stageW/2, y:stageH/2 };
+
+  const bg = backgroundClipForSelection();
+  if(bg){
+    if(!bg.src || !String(bg.src).startsWith('url(')) return null;   // solid colour: nothing to drag
+    if(currentBackgroundClip(t) !== bg) return null;                  // not the one on screen now
+    const img = document.getElementById('bgImgLayer');
+    const iw = img && img.naturalWidth, ih = img && img.naturalHeight;
+    if(!iw || !ih) return null;                                       // not decoded yet
+    const f = Math.min(stageW/iw, stageH/ih);                         // object-fit:contain size
+    return { kind:'background', obj:ethvelleGetObjectKeyframeValue(bg,'transform',t)||bg.transform, cB:centre, P0:centre, w0:iw*f, h0:ih*f, canDelete:true };
+  }
+
+  if(typeof selectedClip === 'string'){
+    const ov = overlays.find(o=>String(o.id)===String(selectedClip));
+    if(ov){
+      if(!ov.transform) return null;
+      if(!(t >= ov.trimStart && t < ov.trimEnd)) return null;
+      if(ov.type==='text'){
+        // Text gets a snug selection frame around its real glyph bounds rather than the
+        // full preview-stage rectangle used by image/video layers. This also enables the
+        // existing delete + resize/rotate handles for a selected text overlay.
+        let rendered=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls[ov.id])||null;
+        if(!rendered){
+          const mediaLayer=document.getElementById('overlayMediaLayer');
+          if(mediaLayer) rendered=Array.from(mediaLayer.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id))||null;
+        }
+        const textNode=rendered&&rendered.querySelector('.ethvelle-overlay-text-content');
+        if(!textNode) return null;
+        return {kind:'overlay',obj:ethvelleGetObjectKeyframeValue(ov,'transform',t)||ov.transform,cB:centre,P0:centre,w0:Math.max(34,(textNode.offsetWidth||textNode.getBoundingClientRect().width)+12),h0:Math.max(30,(textNode.offsetHeight||textNode.getBoundingClientRect().height)+12),canDelete:true};
+      }
+      if(ov.type!=='image' && ov.type!=='video') return null;
+      const mediaSize=ethvelleOverlayContentSize(ov);
+      return { kind:'overlay', obj:ethvelleGetObjectKeyframeValue(ov,'transform',t)||ov.transform, cB:centre, P0:centre, w0:mediaSize.w, h0:mediaSize.h, canDelete:true };
+    }
+  }
+
+  const isCharClip = selectedClip==='main' || (typeof selectedClip==='string' && selectedClip.startsWith('seg'));
+  if(isCharClip && activeCharacter() && bones && bones.hip){
+    const bb = characterRestBounds();
+    if(!bb) return null;
+    return {
+      kind:'character', obj:modelTransform,
+      cB:{ x:(bb.minX+bb.maxX)/2, y:(bb.minY+bb.maxY)/2 },
+      P0:{ x:bones.hip.x, y:bones.hip.y },
+      w0:bb.maxX-bb.minX, h0:bb.maxY-bb.minY,
+      // UPDATED ("add a cross button on the top-left corner where I can delete the clip or layer"):
+      // the ✕ now shows for a selected character clip too. It runs the same deleteSelectedClip()
+      // as the toolbar's Delete (removes that clip; the character itself goes when its last clip does).
+      canDelete:true
+    };
+  }
+  return null;
+}
+
+// Maps a target's base rectangle through its transform. Returns stage-local px:
+// centre (cx,cy), size (w,h), rotation in degrees, and the pivot (px,py) the transform turns about.
+function selBoxGeom(tg){
+  const tr = tg.obj, sc = tr.scale, rot = tr.rotation || 0, a = rot*Math.PI/180;
+  const cs = Math.cos(a), sn = Math.sin(a);
+  const dx = (tg.cB.x - tg.P0.x)*sc, dy = (tg.cB.y - tg.P0.y)*sc;
+  return {
+    cx: tg.P0.x + tr.offsetX + dx*cs - dy*sn,
+    cy: tg.P0.y + tr.offsetY + dx*sn + dy*cs,
+    w: tg.w0*sc, h: tg.h0*sc, rot,
+    px: tg.P0.x + tr.offsetX, py: tg.P0.y + tr.offsetY
+  };
+}
+
+// True (returning the target) if a client-space point lies inside the current box.
+function selBoxHit(clientX, clientY){
+  const tg = selBoxTarget();
+  if(!tg) return null;
+  const g = selBoxGeom(tg);
+  const r = document.getElementById('stickCanvas').getBoundingClientRect();
+  if(!r.width||!r.height)return null;
+  const x = (clientX-r.left)*(stageW/r.width) - g.cx;
+  const y = (clientY-r.top)*(stageH/r.height) - g.cy;
+  const a = -g.rot*Math.PI/180, cs = Math.cos(a), sn = Math.sin(a);
+  const lx = x*cs - y*sn, ly = x*sn + y*cs;
+  return (Math.abs(lx) <= g.w/2 && Math.abs(ly) <= g.h/2) ? tg : null;
+}
+
+// Shows/hides and positions the frame + buttons. Cheap (a handful of style writes); called from
+// drawStick() (which every render path already calls), applyBgTransform(), selection changes,
+// stage resizes and when the background image finishes decoding.
+function updateSelBox(){
+  const layer = document.getElementById('selBoxLayer');
+  if(!layer) return;
+  const tg = selBoxTarget();
+  if(!tg){ layer.style.display = 'none'; return; }
+  const stage = document.getElementById('canvasStage');
+  const g = selBoxGeom(tg);
+  layer.style.display = 'block';
+  const gestureGeometry=window.__ethvelleGestureGeometry;
+  const useGestureGeometry=!!(gestureGeometry&&gestureGeometry.stage===stage&&gestureGeometry.rect);
+  layer.style.left = (useGestureGeometry?gestureGeometry.offsetLeft:stage.offsetLeft)+'px';
+  layer.style.top = (useGestureGeometry?gestureGeometry.offsetTop:stage.offsetTop)+'px';
+  layer.style.width = stageW+'px'; layer.style.height = stageH+'px';
+  const fr = document.getElementById('selBoxFrame');
+  fr.style.width = g.w+'px'; fr.style.height = g.h+'px';
+  fr.style.left = (g.cx-g.w/2)+'px'; fr.style.top = (g.cy-g.h/2)+'px';
+  fr.style.transform = `rotate(${g.rot}deg)`;
+  // Corner buttons are LOCKED to the frame's real rotated corners.
+  // BUGFIX ("the resize/rotate arrow changes its position when I extend the box"): these used to be
+  // clamped to the STAGE rectangle (+8px), so as soon as the box grew past the stage edge the
+  // handle slid off its corner and stopped at the stage border  -  and because the drag maths then
+  // started from that displaced spot, the box also jumped when the handle was grabbed. The handles
+  // now always sit exactly on their corners, even outside the stage (this layer isn't clipped).
+  // The only clamp left is the physical SCREEN edge, purely so a corner pushed off-screen can't
+  // become unreachable.
+  const a = g.rot*Math.PI/180, cs = Math.cos(a), sn = Math.sin(a);
+  const corner = (sx, sy)=>{
+    const lx = sx*g.w/2, ly = sy*g.h/2;
+    return { x: g.cx + lx*cs - ly*sn, y: g.cy + lx*sn + ly*cs };
+  };
+  const stRect = useGestureGeometry?gestureGeometry.rect:stage.getBoundingClientRect();
+  const SB_EDGE = 16;
+  const scaleX=stRect.width/Math.max(1,stageW),scaleY=stRect.height/Math.max(1,stageH);
+  const place = (el, pt)=>{
+    const cx = Math.max(SB_EDGE, Math.min(window.innerWidth  - SB_EDGE, stRect.left + pt.x*scaleX));
+    const cy = Math.max(SB_EDGE, Math.min(window.innerHeight - SB_EDGE, stRect.top  + pt.y*scaleY));
+    el.style.left = ((cx - stRect.left)/Math.max(.001,scaleX))+'px';
+    el.style.top  = ((cy - stRect.top)/Math.max(.001,scaleY))+'px';
+  };
+  const del = document.getElementById('sbDelete'), scl = document.getElementById('sbScale');
+  del.style.display = tg.canDelete ? 'flex' : 'none';
+  place(del, corner(-1,-1));
+  let textLayerSelected=false;
+  try{
+    const selectedId=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+    textLayerSelected=!!selectedId&&Array.isArray(overlays)&&overlays.some(o=>o&&String(o.id)===selectedId&&o.type==='text');
+  }catch(_e){}
+  place(scl, corner(1,1)); /* v307: text layers use the same bottom-right resize/rotate handle as every other layer */
+}
+
+// Paint only the selected visual overlay during a direct canvas gesture. Calling renderFrame() /
+// renderOverlayMedia() on every pointermove walks every clip, touches video/audio decoders and
+// wakes several observers; on low-memory Android phones that makes the selected layer lag behind
+// the finger. This writes the same live CSS transform to the existing element without rebuilding
+// the media stack. The full renderer still runs for normal timeline playback and export.
+function applyOverlayTransformPreviewFast(tg){
+  const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+  const list=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:[];
+  const clip=list.find(o=>String(o.id)===id);
+  if(!clip)return false;
+  const elements=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls:{};
+  const el=elements[id];
+  if(!el||!el.isConnected)return false;
+  const tr=(tg&&tg.obj)||clip.transform||{scale:1,offsetX:0,offsetY:0,rotation:0};
+  const scale=Math.max(.0001,Number(tr.scale)||1);
+  const ox=Number(tr.offsetX)||0,oy=Number(tr.offsetY)||0,rotation=Number(tr.rotation)||0;
+  // v100+ uses clip-path (not zoom-transform) for crop, so always use the plain transform here.
+  // applyCropWithoutZoom() (called after every render) handles the visual crop via clip-path.
+  // Using the old zoom-scaled transform while the clip-path crop is active caused the content
+  // to jump/zoom whenever the clip was touched or dragged (the "zoom on tap" bug).
+  let value=`translate(${ox}px,${oy}px) rotate(${rotation}deg) scale(${scale})`;
+  if(clip.mirrorX)value+=' scaleX(-1)';
+  if(clip.mirrorY)value+=' scaleY(-1)';
+  value+=(window.ethvellePerspectiveSuffix?window.ethvellePerspectiveSuffix(clip):'');
+  if(el.style.transform!==value)el.style.transform=value;
+  const chroma=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases)?overlayChromaCanvases[id]:null;
+  if(chroma&&chroma.style.transform!==value)chroma.style.transform=value;
+
+  // v235: the video compositor may keep a last-good frame canvas above the live <video>
+  // while Android's decoder is seeking. That retained canvas used to keep its old CSS
+  // transform when the user moved the video on the stage, leaving a frozen picture at the
+  // previous position. Synchronize every retained stand-in with the live owner in this same
+  // fast path; do not run the full compositor or recreate any decoder during a canvas drag.
+  const paintTime=(typeof getCurrentAbsoluteTime==='function')?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+  const synced=new Set();
+  const syncRetained=node=>{
+    if(!node||node===el||synced.has(node))return;
+    synced.add(node);
+    try{
+      if(node.dataset)node.dataset.evMaskOwnerTime=String(paintTime);
+      if(typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(node,clip,paintTime,el,false);
+      else if(node.style&&node.style.transform!==value)node.style.transform=value;
+    }catch(_e){if(node.style)node.style.transform=value;}
+  };
+  if(el.__evScrubHoldCanvas)syncRetained(el.__evScrubHoldCanvas);
+  const mediaLayer=document.getElementById('overlayMediaLayer');
+  if(mediaLayer)mediaLayer.querySelectorAll('[data-ev-mask-owner-id]').forEach(node=>{
+    if(String(node.dataset.evMaskOwnerId||'')===id)syncRetained(node);
+  });
+  const outgoing=(window.renderOverlayMedia&&window.renderOverlayMedia.__evHeldOutgoing)||{};
+  Object.keys(outgoing).forEach(ownerId=>{
+    if(String(ownerId)!==id)return;
+    const entry=outgoing[ownerId];
+    if(entry){syncRetained(entry.canvas);syncRetained(entry.fallbackVideo);}
+  });
+
+  // If this clip is the tracking source for other layers, repaint those followers immediately
+  // too. Their stored transform stays independent; only the source's live delta is inherited.
+  if(typeof window.ethvelleRefreshTrackingFollowersForSource==='function'){
+    window.ethvelleRefreshTrackingFollowersForSource('ov:'+id,paintTime);
+  }
+  // A CSS transform leaves the existing clip-path intact. Crop is refreshed by the normal
+  // render path; no all-clips scan or decoder work is introduced on this pointermove path.
+  return true;
+}
+
+// Repaints whatever a drag just changed, then the box itself. Media overlays use the light
+// path above so pointer movement never forces every video/audio layer to be rendered again.
+let selBoxSliderSyncRaf=0;
+function scheduleSelBoxSliderSync(){
+  if(selBoxSliderSyncRaf)return;
+  selBoxSliderSyncRaf=requestAnimationFrame(()=>{
+    selBoxSliderSyncRaf=0;
+    const panel=document.getElementById('toolPanel');
+    if(panel&&panel.classList.contains('open')&&document.getElementById('sizeSlider'))syncTransformSliders();
+  });
+}
+function selBoxApply(tg){
+  if(tg.kind==='background'){
+    refreshCurrentBgFromPlayhead();
+    applyBgTransform(); // already refreshes the selection frame
+  }else if(tg.kind==='overlay'){
+    applyOverlayTransformPreviewFast(tg);
+    updateSelBox();
+  }else{
+    drawStick(); // drawStick updates the selection frame after painting the rig
+    const ch=typeof activeCharacter==='function'?activeCharacter():null;
+    if(ch&&typeof window.ethvelleRefreshTrackingFollowersForSource==='function'){
+      const key=ch.id!=null?String(ch.id):'index:'+String(activeCharIdx);
+      window.ethvelleRefreshTrackingFollowersForSource('char:'+key,typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec);
+    }
+  }
+  // Range controls need at most one DOM sync per display frame, not one per raw pointer event.
+  scheduleSelBoxSliderSync();
+}
+// End of a drag/pinch: one undo step + keyframe sync (character only  -  same rule updateTransform uses).
+function finishSelBoxEdit(tg){
+  if(tg.kind==='character'){
+    const updatedKeyframe = updateCurrentKeyframeFromEditorState();
+    if(!updatedKeyframe && activeCharacter()) activeCharacter().restTransform = ethvelleUntrackedModelTransform(activeCharacter());
+  }
+  persistProjectState();
+}
+function normDeg(d){ return ((d+180)%360+360)%360-180; }
+
+(function wireSelBoxButtons(){
+  const scl = document.getElementById('sbScale'), del = document.getElementById('sbDelete');
+  if(!scl || !del) return;
+  let st=null,moveRaf=0,movePoint=null;
+  function applyScaleMove(){
+    moveRaf=0;
+    const p=movePoint;movePoint=null;
+    if(!st||!p)return;
+    const fx=st.cx0+(p.x-st.downX),fy=st.cy0+(p.y-st.downY);
+    const d=Math.hypot(fx-st.px,fy-st.py)||1;
+    const a=Math.atan2(fy-st.py,fx-st.px);
+    st.tg.obj.scale=Math.max(SB_MIN_SCALE,Math.min(SB_MAX_SCALE,st.s0*d/st.d0));
+    let rot=normDeg(st.r0+(a-st.a0)*180/Math.PI);
+    for(const snap of [-180,-90,0,90,180])if(Math.abs(rot-snap)<3){rot=snap;break;}
+    st.tg.obj.rotation=rot===-180?180:rot;
+    selBoxEdit=st.tg;selBoxApply(st.tg);
+  }
+  function queueScaleMove(e){movePoint={x:e.clientX,y:e.clientY};if(!moveRaf)moveRaf=requestAnimationFrame(applyScaleMove);}
+  function flushScaleMove(){if(moveRaf){cancelAnimationFrame(moveRaf);moveRaf=0;}if(movePoint)applyScaleMove();}
+  scl.addEventListener('pointerdown',(e)=>{
+    const tg=selBoxTarget();if(!tg)return;
+    e.preventDefault();e.stopPropagation();
+    try{scl.setPointerCapture(e.pointerId);}catch(_err){}
+    const g=selBoxGeom(tg),stage=document.getElementById('canvasStage');
+    const r=stage.getBoundingClientRect(),sx=r.width/Math.max(1,stageW),sy=r.height/Math.max(1,stageH);
+    const px=r.left+g.px*sx,py=r.top+g.py*sy;
+    const ra=g.rot*Math.PI/180,rc=Math.cos(ra),rs=Math.sin(ra);
+    const isTextResizeCorner=tg.kind==='overlay'&&Array.isArray(overlays)&&overlays.some(o=>String(o.id)===String(selectedClip)&&o.type==='text');
+    const sxCorner=1; /* v307: resize/rotate grabs the bottom-right corner for text too */
+    const cx0=r.left+(g.cx+(sxCorner*g.w/2)*rc-(g.h/2)*rs)*sx;
+    const cy0=r.top+(g.cy+(sxCorner*g.w/2)*rs+(g.h/2)*rc)*sy;
+    st={tg,px,py,downX:e.clientX,downY:e.clientY,cx0,cy0,d0:Math.hypot(cx0-px,cy0-py)||1,
+      a0:Math.atan2(cy0-py,cx0-px),s0:tg.obj.scale,r0:tg.obj.rotation||0};
+  });
+  scl.addEventListener('pointermove',(e)=>{if(!st)return;e.preventDefault();queueScaleMove(e);},{passive:false});
+  const end=(e)=>{
+    if(!st)return;
+    flushScaleMove();
+    try{scl.releasePointerCapture(e.pointerId);}catch(_err){}
+    const tg=st.tg;st=null;movePoint=null;
+    if(selBoxEdit){selBoxEdit=null;finishSelBoxEdit(tg);}
+  };
+  scl.addEventListener('pointerup',end);
+  scl.addEventListener('pointercancel',end);
+  del.addEventListener('pointerdown', (e)=>{ e.preventDefault(); e.stopPropagation(); });
+  del.addEventListener('click', (e)=>{ e.stopPropagation(); if(selectedClip) deleteSelectedClip(); });
+  // The picture may finish decoding AFTER the box was first asked to draw (naturalWidth is 0
+  // until then), so re-measure the moment it loads.
+  const bgImg = document.getElementById('bgImgLayer');
+  if(bgImg) bgImg.addEventListener('load', ()=>updateSelBox());
+})();
+
+/* ---------- TAP-TO-SELECT ON THE PREVIEW (CapCut-style) ----------
+   FEATURE (\"if I tap the clip, layer or background in the project it should select automatically  - 
+   I shouldn't have to tap its layer in the timeline\"): touching the stage now selects whatever is
+   visibly under the finger, in real paint order, top to bottom:
+     characters (the selected one first, then the rest, last-added on top)
+       -> image/video clips (later in `overlays` paints over earlier)
+         -> the background clip playing at the playhead.
+   Selecting it arms the same toolbar / timeline highlight / on-canvas box as tapping its timeline
+   clip. Touching the item that is ALREADY selected keeps the old behaviour (a tap toggles
+   play/pause, a drag moves it). */
+function pointInSelGeom(g, x, y){
+  const dx = x-g.cx, dy = y-g.cy, a = -g.rot*Math.PI/180, cs = Math.cos(a), sn = Math.sin(a);
+  const lx = dx*cs - dy*sn, ly = dx*sn + dy*cs;
+  return Math.abs(lx) <= g.w/2 && Math.abs(ly) <= g.h/2;
+}
+// Snug (un-padded) on-screen box for ANY character, active or not. characterRestBounds() reads the
+// shared `bones`/`baseAngles`, so those two are pointed at this character for the duration of the
+// call and always put back.
+function charPickGeom(c){
+  if(!c || !c.bones || !c.bones.hip) return null;
+  const savedBones = bones, savedBase = baseAngles;
+  let bb = null;
+  try{ bones = c.bones; baseAngles = c.baseAngles || {}; bb = characterRestBounds(); }
+  finally{ bones = savedBones; baseAngles = savedBase; }
+  if(!bb) return null;
+  const trim = SB_JOINT_HIT_R + 16 - 14;   // undo the drag-ring padding, keep a 14px finger margin
+  const minX = bb.minX+trim, minY = bb.minY+trim, maxX = bb.maxX-trim, maxY = bb.maxY-trim;
+  return selBoxGeom({
+    obj:c.modelTransform,
+    cB:{ x:(minX+maxX)/2, y:(minY+maxY)/2 },
+    P0:{ x:c.bones.hip.x, y:c.bones.hip.y },
+    w0:Math.max(maxX-minX, 20), h0:Math.max(maxY-minY, 20)
+  });
+}
+function pickCanvasItemAt(clientX, clientY){
+  if(isPlaying || !stageW || !stageH) return null;
+  const canvasEl=document.getElementById('stickCanvas');
+  if(!canvasEl)return null;
+  const r=canvasEl.getBoundingClientRect();
+  if(!r.width||!r.height)return null;
+  const x=(clientX-r.left)*(stageW/r.width),y=(clientY-r.top)*(stageH/r.height);
+  if(x<0||y<0||x>stageW||y>stageH)return null;
+  const t=getCurrentAbsoluteTime(),centre={x:stageW/2,y:stageH/2};
+
+  // A touch on the visible selection-frame edge belongs to that selected object. The frame
+  // itself ignores pointer events, so this narrow hit band makes its border usable without
+  // letting the whole selection rectangle swallow taps on other overlapping media.
+  const selectedTarget=selBoxTarget();
+  if(selectedTarget){
+    const g=selBoxGeom(selectedTarget),dx=x-g.cx,dy=y-g.cy,a=-g.rot*Math.PI/180,cs=Math.cos(a),sn=Math.sin(a);
+    const lx=dx*cs-dy*sn,ly=dx*sn+dy*cs,halfW=g.w/2,halfH=g.h/2,band=11;
+    const withinExpanded=Math.abs(lx)<=halfW+band&&Math.abs(ly)<=halfH+band;
+    const nearEdge=Math.abs(Math.abs(lx)-halfW)<=band||Math.abs(Math.abs(ly)-halfH)<=band;
+    if(withinExpanded&&nearEdge){
+      if(selectedTarget.kind==='overlay'&&selectedClip!=null)return {kind:'overlay',id:String(selectedClip)};
+      if(selectedTarget.kind==='background'&&selectedClip!=null)return {kind:'background',id:String(selectedClip)};
+      if(selectedTarget.kind==='character')return {kind:'character',idx:activeCharIdx};
+    }
+  }
+
+  // Overlay media is painted above the character canvas. Test highest z-order first and
+  // constrain image/video hits to their real object-fit:contain content bounds, not the full stage.
+  for(let i=overlays.length-1;i>=0;i--){
+    const ov=overlays[i];
+    if(!ov||!ov.transform||!(t>=Number(ov.trimStart)&&t<Number(ov.trimEnd)))continue;
+    /* v338: a character-effect clip owns only a transparent full-stage placeholder image; it must never
+       steal a canvas tap/drag from the model under it (effects are selected from the timeline). */
+    if(ov.ethvelleEffectClip&&ov.ethvelleEffectKind==='character')continue;
+    let g=null;
+    const tr=(typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(ov,t):null)||ethvelleGetObjectKeyframeValue(ov,'transform',t)||ov.transform;
+    if(ov.type==='text'){
+      let host=null;
+      try{host=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[String(ov.id)]:null;}catch(_e){}
+      if(!host){const layer=document.getElementById('overlayMediaLayer');if(layer)host=Array.from(layer.children).find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(ov.id))||null;}
+      const textNode=host&&host.querySelector?host.querySelector('.ethvelle-overlay-text-content'):null;
+      if(!textNode)continue;
+      const rect=textNode.getBoundingClientRect();
+      g=selBoxGeom({obj:tr,cB:centre,P0:centre,w0:Math.max(34,(textNode.offsetWidth||rect.width)+12),h0:Math.max(30,(textNode.offsetHeight||rect.height)+12)});
+    }else if(ov.type==='image'||ov.type==='video'){
+      const size=ethvelleOverlayContentSize(ov);
+      g=selBoxGeom({obj:tr,cB:centre,P0:centre,w0:size.w,h0:size.h});
+    }else continue;
+    if(g&&pointInSelGeom(g,x,y))return {kind:'overlay',id:ov.id};
+  }
+
+  // Character art is below overlay media; topmost character (last drawn) wins.
+  for(let i=characters.length-1;i>=0;i--){
+    const g=charPickGeom(characters[i]);
+    if(g&&pointInSelGeom(g,x,y))return {kind:'character',idx:i};
+  }
+
+  // Background is the bottom visual layer. Restrict its hit area to the transformed image
+  // rectangle, so letterbox space does not accidentally select an unrelated background clip.
+  const bg=currentBackgroundClip(t);
+  if(bg){
+    const img=document.getElementById('bgImgLayer');
+    const iw=Number(img&&img.naturalWidth)||0,ih=Number(img&&img.naturalHeight)||0;
+    if(iw>0&&ih>0){
+      const f=Math.min(stageW/iw,stageH/ih),tr=ethvelleGetObjectKeyframeValue(bg,'transform',t)||bg.transform||{scale:1,offsetX:0,offsetY:0,rotation:0};
+      const g=selBoxGeom({obj:tr,cB:centre,P0:centre,w0:iw*f,h0:ih*f});
+      if(pointInSelGeom(g,x,y))return {kind:'background',id:bg.id};
+    }
+  }
+  return null;
+}
+// Which of the ACTIVE character's clips is under the playhead ('main' or 'segN')?
+function charClipRefAtTime(t){
+  if(activeClip && t >= activeClip.trimStart - 0.0001 && t < activeClip.trimEnd) return 'main';
+  for(let i = 0; i < splitStickmanSegments.length; i++){
+    const sg = splitStickmanSegments[i];
+    if(t >= sg.trimStart - 0.0001 && t < sg.trimEnd) return 'seg'+i;
+  }
+  if(activeClip) return 'main';
+  return 'char'+activeCharIdx;
+}
+function isCanvasPickSelected(p){
+  if(p.kind === 'character'){
+    if(p.idx !== activeCharIdx) return false;
+    return selectedClip === 'main' || String(selectedClip).startsWith('seg') ||
+           (!activeClip && selectedClip === 'char'+p.idx);
+  }
+  return selectedClip === p.id;
+}
+function applyCanvasPick(p){
+  if(p.kind === 'character'){
+    if(p.idx !== activeCharIdx) selectCharacter(p.idx);
+    selectClipForChrome(charClipRefAtTime(getCurrentAbsoluteTime()));
+  } else {
+    selectClipForChrome(p.id);
+  }
+}
+
+function setupDrag(){
+  const canvas = document.getElementById('stickCanvas');
+  // Tracks every pointer currently down on the canvas (client coords), so a second finger
+  // touching down mid-gesture switches us into pinch-zoom for the background image.
+  const activePointers = new Map();
+  let pinchState = null; // { startDist, tg, startScale }  -  two-finger resize of the SELECTED item
+  let sheetRigOverrideChanged = false;
+  // One-finger drag that started INSIDE the selection box (see selBoxHit): moves the selected
+  // Background / Clip / Character. Replaces the old "drag anywhere on the stage pans the
+  // background", which moved the background even when something else was selected.
+  let boxMove = null;    // { tg, startClientX, startClientY, startOffsetX, startOffsetY }
+  // Read layout once when a gesture starts; reusing these rectangles avoids sync layout
+  // work on every pointermove while posing joints or dragging a canvas layer.
+  let pointerCanvasRect = null;
+  let pointerStageRect = null;
+  // Stage interaction is for selecting, posing, moving and resizing only. Playback must
+  // be started explicitly with the transport Play button; a canvas tap must never start it.
+  const TAP_MOVE_TOLERANCE = 6; // px
+
+  function hasBgImage(){ return !!(currentBg && String(currentBg).startsWith('url(')); }
+  function canvasPickIdentity(p){return !p?'':p.kind==='overlay'?'ov:'+String(p.id):p.kind==='background'?'bg:'+String(p.id):p.kind==='character'?'char:'+String(p.idx):'';}
+  function findUnderlyingCanvasClip(clientX,clientY,coverage,visited){
+    if(!coverage||!stageW||!stageH)return null;
+    const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return null;
+    const x=(clientX-rect.left)*(stageW/rect.width),y=(clientY-rect.top)*(stageH/rect.height);
+    if(!pointInSelGeom(selBoxGeom(coverage),x,y))return null;
+    const t=getCurrentAbsoluteTime(),centre={x:stageW/2,y:stageH/2};
+    for(let i=overlays.length-1;i>=0;i--){
+      const ov=overlays[i];if(!ov||!['image','video','text'].includes(ov.type)||!ov.transform)continue;
+      if(ov.ethvelleEffectClip&&ov.ethvelleEffectKind==='character')continue; /* v338: never hand a drag off to an effect placeholder */
+      const key='ov:'+String(ov.id);if(visited&&visited.has(key))continue;
+      if(!(t>=Number(ov.trimStart)&&t<Number(ov.trimEnd)))continue;
+      let g=null;
+      const tr=(typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(ov,t):null)||ethvelleGetObjectKeyframeValue(ov,'transform',t)||ov.transform;
+      if(ov.type==='text'){
+        const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[ov.id]:null;
+        const text=el&&el.querySelector?el.querySelector('.ethvelle-overlay-text-content'):null;
+        if(!text)continue;
+        const w=Math.max(34,(text.offsetWidth||text.getBoundingClientRect().width)+12),h=Math.max(30,(text.offsetHeight||text.getBoundingClientRect().height)+12);
+        g=selBoxGeom({obj:tr,cB:centre,P0:centre,w0:w,h0:h});
+      }else{
+        const size=ethvelleOverlayContentSize(ov);
+        g=selBoxGeom({obj:tr,cB:centre,P0:centre,w0:size.w,h0:size.h});
+      }
+      if(g&&pointInSelGeom(g,x,y))return {kind:'overlay',id:ov.id};
+    }
+    const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(t):null;
+    if(bg&&bg.id!=null&&!(visited&&visited.has('bg:'+String(bg.id)))&&bg.src&&String(bg.src).startsWith('url('))return {kind:'background',id:bg.id};
+    return null;
+  }
+  function handoffCanvasSelection(e){
+    if(!boxMove||!boxMove.tg)return false;
+    const visited=boxMove.visited||(boxMove.visited=new Set());
+    const currentKey=canvasPickIdentity({kind:boxMove.tg.kind,id:selectedClip,idx:activeCharIdx});
+    if(currentKey)visited.add(currentKey);
+    const next=findUnderlyingCanvasClip(e.clientX,e.clientY,boxMove.tg,visited);
+    if(!next)return false;
+    const key=canvasPickIdentity(next);if(!key||visited.has(key))return false;
+    visited.add(key);
+    applyCanvasPick(next);
+    const target=selBoxTarget();
+    if(!target)return false;
+    boxMove={tg:target,startClientX:e.clientX,startClientY:e.clientY,startOffsetX:Number(target.obj.offsetX)||0,startOffsetY:Number(target.obj.offsetY)||0,visited};
+    try{if(typeof updateSelBox==='function')updateSelBox();}catch(_e){}
+    return true;
+  }
+
+  canvas.onpointerdown = (e)=>{
+    // While already playing, a stage touch may pause, but a stage touch can never start
+    // playback. Starting playback is reserved for the explicit transport Play button.
+    if(isPlaying){
+      pausePlayback();
+      return;
+    }
+    pointerCanvasRect=canvas.getBoundingClientRect();
+    const stageElement=document.getElementById('canvasStage');
+    pointerStageRect=stageElement?stageElement.getBoundingClientRect():pointerCanvasRect;
+    window.__ethvelleGestureGeometry=stageElement?{stage:stageElement,rect:pointerStageRect,offsetLeft:stageElement.offsetLeft,offsetTop:stageElement.offsetTop}:null;
+    try{ canvas.setPointerCapture(e.pointerId); }catch(err){}
+    activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+    if(activePointers.size >= 2){
+      // A second pointer takes ownership as a pinch; a pending single-finger rest-rig edit
+      // will be committed by the normal pointer cleanup path without leaving a cached preview.
+      // Second finger landed  -  this is now a pinch, regardless of what the first finger
+      // was doing (cancel any in-progress joint drag or one-finger pan).
+      dragging = false; selectedJoint = null; boxMove = null;
+      window.__ethvelleCharacterDragPreview = null;
+      const pts = [...activePointers.values()];
+      const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+      // Pinch now resizes whatever is SELECTED (background, clip or character), not only the
+      // background; with nothing draggable selected there is nothing to pinch.
+      const pinchTg = selBoxTarget();
+      pinchState = pinchTg ? { startDist: Math.hypot(dx,dy) || 1, tg: pinchTg, startScale: pinchTg.obj.scale } : null;
+      drawStick();
+      return;
+    }
+
+    // With no active character (a brand-new, still-empty project) there are no bones
+    // or joints to hit-test, so skip joint selection and leave the stage tap inert.
+    // BUGFIX (invisible draggable joints): joint handles are now only DRAWN when the
+    // character's own animation clip is selected (see drawStick's mainClipIsSelected), so
+    // hit-testing must require the exact same condition  -  otherwise a joint could still be
+    // grabbed and dragged while its handle wasn't actually showing on screen.
+    const rect = pointerCanvasRect || canvas.getBoundingClientRect();
+    const mainClipSelectedForDrag = selectedClip==='main' || String(selectedClip).startsWith('seg');
+    const activeRigCharacter=activeCharacter();
+    const isSheetRig=!!(activeRigCharacter && activeRigCharacter.type==='custom' && activeRigCharacter.sheet);
+    const selectedCharacterLayer=/^char\d+$/.test(String(selectedClip||''));
+    const hasActiveRig=!!(activeRigCharacter && bones && (
+      (mainClipSelectedForDrag && (!isSheetRig || window.ethvelleRigOverlayVisible)) ||
+      (selectedCharacterLayer && window.ethvelleRigOverlayVisible)
+    ));
+    const stageX = rect.width ? (e.clientX-rect.left)*(stageW/rect.width) : 0;
+    const stageY = rect.height ? (e.clientY-rect.top)*(stageH/rect.height) : 0;
+    const raw = hasActiveRig ? screenToRigSpace(stageX,stageY) : null;
+    const joints = hasActiveRig ? getJointList() : [];
+    let closest=null, minD=26;
+    joints.forEach(j=>{
+      const d = Math.hypot(j.x-raw.x, j.y-raw.y);
+      if(d<minD){ minD=d; closest=j; }
+    });
+    if(closest){
+      // Tapping/dragging a joint handle is for posing, not play/pause  -  leave it alone.
+      selectedJoint = closest;
+      dragging = true;
+      drawStick();
+    } else {
+      // NEW: touching a DIFFERENT item than the selected one (character / clip / background)
+      // selects it on the spot  -  see pickCanvasItemAt. Because this happens on touch-down, the
+      // same gesture can carry straight on into dragging that item. Such a touch is a selection,
+      // not a play/pause tap.
+      const pick = e.__ethvelleZoomPicked ? null : pickCanvasItemAt(e.clientX, e.clientY);
+      if(pick && !isCanvasPickSelected(pick)) applyCanvasPick(pick);
+      // Inside the selected item's box a one-finger drag moves it. A plain tap only
+      // selects the item; it never toggles playback, including on a selected item.
+      const tg = selBoxHit(e.clientX, e.clientY);
+      if(tg){
+        const visited=new Set();
+        const currentKey=canvasPickIdentity({kind:tg.kind,id:selectedClip,idx:activeCharIdx});
+        if(currentKey)visited.add(currentKey);
+        boxMove = { tg, startClientX:e.clientX, startClientY:e.clientY, startOffsetX:tg.obj.offsetX, startOffsetY:tg.obj.offsetY, visited };
+      }
+    }
+  };
+  function processCanvasPointerMove(e){
+    if(activePointers.has(e.pointerId)) activePointers.set(e.pointerId, {x:e.clientX, y:e.clientY});
+
+    if(pinchState && activePointers.size >= 2){
+      const pts = [...activePointers.values()];
+      const dx = pts[0].x - pts[1].x, dy = pts[0].y - pts[1].y;
+      const dist = Math.hypot(dx,dy) || 1;
+      pinchState.tg.obj.scale = Math.max(SB_MIN_SCALE, Math.min(SB_MAX_SCALE, pinchState.startScale * (dist/pinchState.startDist)));
+      selBoxEdit = pinchState.tg;
+      selBoxApply(pinchState.tg);
+      return;
+    }
+    if(boxMove){
+      const moved = Math.hypot(e.clientX-boxMove.startClientX, e.clientY-boxMove.startClientY);
+      if(moved <= TAP_MOVE_TOLERANCE && !selBoxEdit) return; // still a tap  -  don't nudge the item by finger jitter
+      // Cache a custom sheet-model's current pixels once at the start of a real layer move.
+      // Reuse the live canvas' decoded-image cache so this does not trigger image reloads.
+      if(boxMove.tg.kind==='character' && !window.__ethvelleCharacterDragPreview){
+        const previewCharacter=activeCharacter();
+        if(previewCharacter && previewCharacter.sheet && typeof drawCharacterToContext==='function'){
+          try{
+            // The live stage canvas is backed by a high-DPI bitmap (usually 2.5x - 4x on
+            // phones), while stageW/stageH are CSS-space dimensions. A CSS-sized drag
+            // snapshot was therefore being enlarged during movement and made the selected
+            // character look soft until pointer-up. Match the ACTIVE character snapshot to
+            // the real backing bitmap and apply the same logical-to-device transform.
+            // Other layers are painted live into the main stage context at full resolution.
+            const makePreviewCanvas=(matchStagePixels)=>{
+              const cv=document.createElement('canvas');
+              const logicalW=Math.max(1,Math.round(stageW)),logicalH=Math.max(1,Math.round(stageH));
+              const pixelW=matchStagePixels&&ctx&&ctx.canvas?Math.max(logicalW,ctx.canvas.width):logicalW;
+              const pixelH=matchStagePixels&&ctx&&ctx.canvas?Math.max(logicalH,ctx.canvas.height):logicalH;
+              cv.width=pixelW;cv.height=pixelH;
+              if(matchStagePixels){
+                const pc=cv.getContext('2d');
+                if(pc){
+                  pc.setTransform(pixelW/logicalW,0,0,pixelH/logicalH,0,0);
+                  pc.imageSmoothingEnabled=true;
+                  try{pc.imageSmoothingQuality='high';}catch(_e){}
+                }
+              }
+              return cv;
+            };
+            const previewCanvas=makePreviewCanvas(true);
+            const previewCtx=previewCanvas.getContext('2d');
+            // Cache only the dragged character. Other characters are rendered directly
+            // into the main stage context at its native backing resolution on every drag
+            // frame. This avoids both blurry low-resolution layers and extra full-stage
+            // cache allocations on memory-limited mobile devices.
+            if(ctx){
+              if(!ctx.__sheetImg)ctx.__sheetImg={};
+              if(!ctx.__skinImgCache)ctx.__skinImgCache={};
+              previewCtx.__sheetImg=ctx.__sheetImg;
+              previewCtx.__skinImgCache=ctx.__skinImgCache;
+            }
+            if(previewCtx){
+              drawCharacterToContext(previewCtx,previewCharacter);
+              if(window.ethvelleRigOverlayVisible && typeof window.drawEthvelleRigOverlay==='function'){
+                const anchor=previewCharacter.bones.hip;
+                previewCtx.save();
+                previewCtx.translate(anchor.x+modelTransform.offsetX,anchor.y+modelTransform.offsetY);
+                previewCtx.rotate(modelTransform.rotation*Math.PI/180);
+                previewCtx.scale(modelTransform.scale,modelTransform.scale);
+                previewCtx.scale(previewCharacter.mirrorX?-1:1,previewCharacter.mirrorY?-1:1);
+                previewCtx.translate(-anchor.x,-anchor.y);
+                window.drawEthvelleRigOverlay(previewCtx,previewCharacter);
+                previewCtx.restore();
+              }
+              window.__ethvelleCharacterDragPreview={
+                character:previewCharacter,canvas:previewCanvas,
+                startOffsetX:boxMove.startOffsetX,startOffsetY:boxMove.startOffsetY
+              };
+            }
+          }catch(previewError){
+            window.__ethvelleCharacterDragPreview=null;
+          }
+        }
+      }
+      // Movement confirms this is a transform gesture, not a transport command.
+      const stageRect = pointerStageRect || document.getElementById('canvasStage').getBoundingClientRect();
+      const scaleX = stageRect.width / Math.max(1, stageW);
+      const scaleY = stageRect.height / Math.max(1, stageH);
+      const localDX = (e.clientX - boxMove.startClientX) / Math.max(0.01, scaleX);
+      const localDY = (e.clientY - boxMove.startClientY) / Math.max(0.01, scaleY);
+      boxMove.tg.obj.offsetX = boxMove.startOffsetX + localDX;
+      boxMove.tg.obj.offsetY = boxMove.startOffsetY + localDY;
+      selBoxEdit = boxMove.tg;
+      selBoxApply(boxMove.tg);
+      // Restore the prior coverage-aware handoff: only a clip genuinely underneath
+      // the moving selection box, with the pointer still inside the shared coverage area,
+      // may take over. The handoff continues the same drag from the new clip's transform.
+      handoffCanvasSelection(e);
+      return;
+    }
+    if(!dragging || !selectedJoint) return;
+    const rect = pointerCanvasRect || canvas.getBoundingClientRect();
+    const stageX = rect.width ? (e.clientX-rect.left)*(stageW/rect.width) : 0;

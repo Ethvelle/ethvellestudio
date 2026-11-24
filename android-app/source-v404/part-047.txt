@@ -1,0 +1,1000 @@
+        (Array.isArray(overlays)?overlays:[]).filter(o=>o.type==='audio').forEach(ov=>{
+          const nodes=audioOverlayNodes&&audioOverlayNodes[ov.id],el=audioOverlayEls&&audioOverlayEls[ov.id];
+          if(nodes&&nodes.source&&nodes.gain&&audioOverlayAudioCtx)configureLiveGraph(ov,nodes,el,audioOverlayAudioCtx);
+        });
+      }catch(err){console.warn('Ethvelle live audio processing failed:',err);}
+      return result;
+    };
+    wrapped.__evcaV66=true;window.renderAudioOverlayMedia=wrapped;
+  }
+
+  // Offline gate for export: short-window RMS with smooth gain transitions, so noise reduction
+  // is also baked into the exported audio rather than only affecting editor playback.
+  window.ethvelleApplyOfflineNoiseGate=function(buffer,strengthValue){
+    try{
+      const channels=buffer.numberOfChannels,frames=buffer.length,sr=buffer.sampleRate;
+      if(!frames||!channels)return buffer;
+      const strength=clamp(strengthValue,0,100)/100,windowSize=Math.max(64,Math.round(sr*.012));
+      // Cache each channel once and use a rolling RMS window. This keeps memory overhead
+      // tiny on phones (no second full-size AudioBuffer or project-length prefix array).
+      const channelData=Array.from({length:channels},(_,c)=>buffer.getChannelData(c));
+      const powerWindow=new Float64Array(windowSize);
+      const threshold=.0010+strength*.0090,closedGain=.015+(1-strength)*.14;
+      let rollingPower=0,gain=1;
+      for(let i=0;i<frames;i++){
+        let framePower=0;for(let c=0;c<channels;c++){const v=channelData[c][i];framePower+=v*v;}
+        framePower/=channels;
+        const slot=i%windowSize;
+        if(i>=windowSize)rollingPower-=powerWindow[slot];
+        powerWindow[slot]=framePower;rollingPower+=framePower;
+        const rms=Math.sqrt(Math.max(0,rollingPower/Math.min(i+1,windowSize)));
+        const target=rms>threshold?1:closedGain;
+        gain+=(target-gain)*(target<gain?.025:.09);
+        for(let c=0;c<channels;c++)channelData[c][i]*=gain;
+      }
+      return buffer;
+    }catch(err){console.warn('Ethvelle offline noise gate skipped:',err);return buffer;}
+  };
+
+  // Toolbar synchronization now runs once through the wrapped syncBottomToolsMode call in
+  // selectClipForChrome itself. Avoid a second full sync from this selection wrapper.
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evcaV66){
+    const wrapped=function(){const r=oldDeselect.apply(this,arguments);if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();return r;};
+    wrapped.__evcaV66=true;window.deselectAllClips=wrapped;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v67: precise model-track corners, centered clip grips, audio adjustment, fades/pan and export DSP. -->
+<style id="ethvelle-v67-audio-quality-css">
+  /* The character's blue Default/animation clip is deliberately a true sharp-corner rectangle. */
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip,
+  #timelineInner .layer-row.char-row .char-row-track .anim-clip.selected{
+    border-radius:0!important;
+  }
+  /* Center the little trim grip vertically and horizontally in its white selection tab. */
+  #timelineInner .layer-row.char-row .anim-clip-handle{
+    top:0!important;bottom:0!important;height:auto!important;
+    display:flex!important;align-items:center!important;justify-content:center!important;
+  }
+  #timelineInner .layer-row.char-row .anim-clip-handle::before{
+    position:absolute!important;left:50%!important;top:50%!important;
+    width:3px!important;height:16px!important;border-radius:2px!important;
+    transform:translate(-50%,-50%)!important;margin:0!important;
+  }
+
+  /* Audio toolbar can scroll horizontally on narrow phones; Split is part of its own tool set. */
+  #bottomToolsClip.evca-audio-selection{
+    overflow-x:auto!important;overflow-y:hidden!important;flex-wrap:nowrap!important;
+    justify-content:flex-start!important;-webkit-overflow-scrolling:touch!important;
+    touch-action:pan-x!important;padding-left:4px!important;padding-right:4px!important;
+  }
+  #bottomToolsClip.evca-audio-selection .tool-item{
+    flex:0 0 64px!important;min-width:64px!important;max-width:64px!important;
+  }
+  #bottomToolsClip.evca-audio-selection .evca-audio-only-tool{
+    display:flex!important;flex:0 0 64px!important;min-width:64px!important;max-width:64px!important;
+  }
+  /* Selected effect cards keep the normal elevated gray surface, with only a blue border. */
+  #toolPanel .evca-audio-choice,
+  #toolPanel .evca-audio-choice.active{
+    background:#202027!important;color:#F5F5F7!important;box-shadow:none!important;
+  }
+  #toolPanel .evca-audio-choice.active{
+    border:2px solid #2F5CE8!important;color:#FFFFFF!important;
+  }
+  #toolPanel .evca-audio-choice:focus,
+  #toolPanel .evca-audio-choice:focus-visible{outline:none!important;}
+
+  /* Compact switch mirrors the Text Editing Shadow switch (39x23 track, 15px thumb). */
+  .evca-small-switch{display:flex;align-items:center;justify-content:space-between;gap:12px;margin:3px 0 6px;color:#D8DDF2;font-size:12px;font-weight:700;min-height:32px;}
+  .evca-small-switch input{position:absolute;opacity:0;width:1px;height:1px;}
+  .evca-small-switch i{display:block;width:39px;height:23px;flex:0 0 39px;border-radius:20px;background:#333748;border:1px solid #4A4E64;position:relative;transition:background .16s ease,border-color .16s ease;}
+  .evca-small-switch i::after{content:"";position:absolute;left:3px;top:3px;width:15px;height:15px;border-radius:50%;background:#DDE1F4;transition:transform .16s ease;}
+  .evca-small-switch input:checked+i{background:#2F5CE8;border-color:#6B91FF;}
+  .evca-small-switch input:checked+i::after{transform:translateX(16px);background:#FFFFFF;}
+  .evca-small-switch input:focus-visible+i{outline:2px solid #2F5CE8;outline-offset:2px;}
+  #toolPanel .evca-audio-slider{display:block!important;width:100%!important;min-height:28px!important;opacity:1!important;pointer-events:auto!important;touch-action:pan-x!important;accent-color:#2F5CE8!important;}
+  #toolPanel .evca-audio-slider-card{overflow:visible!important;}
+  .evca-audio-adjust-grid{display:grid;grid-template-columns:1fr;gap:10px;width:100%;}
+  .evca-audio-adjust-note{margin:0;color:#9DA3B5;font-size:11px;line-height:1.45;}
+</style>
+<script id="ethvelle-v67-audio-quality-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+  const audioClip=()=>{try{return Array.isArray(overlays)?overlays.find(o=>String(o.id)===String(selectedClip)&&o.type==='audio')||null:null;}catch(_e){return null;}};
+
+  /* Add the Split control to the audio-only toolbar; the original split engine already
+     supports overlay clips, and a split copy now receives its own audioSettings object. */
+  const split=$('clipSplitTool');if(split)split.classList.add('evca-audio-only-tool');
+  const adjust=$('clipAudioAdjustTool');if(adjust)adjust.classList.add('evca-audio-only-tool');
+
+  /* Extend the existing persisted settings without replacing the original getter. */
+  const oldGetter=window.getEthvelleAudioSettings;
+  if(typeof oldGetter==='function'&&!oldGetter.__evcaV67){
+    const wrapped=function(clip){
+      const cfg=oldGetter.apply(this,arguments);
+      if(clip){
+        cfg.pan=clamp(cfg.pan,-100,100);
+        cfg.fadeIn=clamp(cfg.fadeIn,0,8);
+        cfg.fadeOut=clamp(cfg.fadeOut,0,8);
+      }
+      return cfg;
+    };
+    wrapped.__evcaV67=true;window.getEthvelleAudioSettings=wrapped;
+  }
+
+  /* One Audio Adjustment panel: pitch, stereo balance, fade-in and fade-out. */
+  try{panelContent.audioAdjust={title:'Audio Adjustment',body:'<div id="evcaAudioPanel"></div>'};}catch(_e){}
+  const oldPanelRenderer=window.renderEthvelleAudioPanel;
+  let activeAudioPanel='';
+  function slider(id,label,value,min,max,step,unit,property){
+    const formatted=unit==='st'?(Number(value)>0?'+':'')+Number(value).toFixed(1)+' st':unit==='s'?Number(value).toFixed(1)+' s':unit==='pan'?(Number(value)<0?'L '+Math.abs(Math.round(value))+'%':Number(value)>0?'R '+Math.round(value)+'%':'Center'):Math.round(value)+'%';
+    const outputExpr=unit==='st'?'(Number(this.value)>0?\'+\':\'\')+Number(this.value).toFixed(1)+\' st\'':unit==='s'?'Number(this.value).toFixed(1)+\' s\'':unit==='pan'?'(Number(this.value)<0?\'L \'+Math.abs(Math.round(Number(this.value)))+\'%\':Number(this.value)>0?\'R \'+Math.round(Number(this.value))+\'%\':\'Center\')':"Math.round(Number(this.value))+'%'";
+    return `<div class="evca-audio-slider-card"><div class="evca-audio-slider-head"><label for="${id}">${label}</label><output id="${id}Value">${formatted}</output></div><input class="evca-audio-slider" id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" oninput="setEthvelleAudioSetting('${property}',this.value,false);document.getElementById('${id}Value').textContent=${outputExpr}" onchange="setEthvelleAudioSetting('${property}',this.value,true)"></div>`;
+  }
+  function switchField(label,property,checked){
+    return `<label class="evca-small-switch"><span>${label}</span><input type="checkbox" ${checked?'checked':''} onchange="setEthvelleAudioSetting('${property}',this.checked,true)"><i></i></label>`;
+  }
+  function renderAdjustPanel(){
+    const host=$('evcaAudioPanel'),clip=audioClip();if(!host)return;
+    if(!clip){host.innerHTML='';return;}
+    const cfg=window.getEthvelleAudioSettings(clip);
+    host.innerHTML=`<div class="evca-audio-panel"><div class="evca-audio-panel-title">Audio Adjustment</div><div class="evca-audio-adjust-grid">${slider('evcaAudioPitchV67','Pitch',cfg.pitch,-12,12,.5,'st','pitch')}${slider('evcaAudioPanV67','Stereo Balance',cfg.pan,-100,100,1,'pan','pan')}${slider('evcaAudioFadeInV67','Fade In',cfg.fadeIn,0,8,.1,'s','fadeIn')}${slider('evcaAudioFadeOutV67','Fade Out',cfg.fadeOut,0,8,.1,'s','fadeOut')}</div></div>`;
+  }
+  function renderEnhancePanel(key){
+    const host=$('evcaAudioPanel'),clip=audioClip();if(!host)return;
+    if(!clip){host.innerHTML='';return;}
+    const cfg=window.getEthvelleAudioSettings(clip);
+    if(key==='audioEnhance'){
+      host.innerHTML=`<div class="evca-audio-panel"><div class="evca-audio-panel-title">Audio Enhancement</div>${switchField('Enable enhancement','enhanceEnabled',!!cfg.enhanceEnabled)}${slider('evcaAudioEnhanceV67','Enhance Amount',cfg.enhance,0,100,1,'%','enhance')}</div>`;
+    }else{
+      host.innerHTML=`<div class="evca-audio-panel"><div class="evca-audio-panel-title">Background Noise Reduction</div>${switchField('Reduce background noise','noiseReduction',!!cfg.noiseReduction)}${slider('evcaAudioNoiseV67','Reduction Strength',cfg.noiseStrength,0,100,1,'%','noiseStrength')}</div>`;
+    }
+  }
+  window.renderEthvelleAudioPanel=function(key){
+    if(key==='audioAdjust'){activeAudioPanel=key;renderAdjustPanel();return;}
+    if(key==='audioEnhance'||key==='audioNoise'){activeAudioPanel=key;renderEnhancePanel(key);return;}
+    if(typeof oldPanelRenderer==='function')return oldPanelRenderer.apply(this,arguments);
+  };
+  const oldOpen=window.openPanel;
+  if(typeof oldOpen==='function'&&!oldOpen.__evcaV67){
+    const wrapped=function(key){const result=oldOpen.apply(this,arguments);if(key==='audioAdjust'){activeAudioPanel=key;window.renderEthvelleAudioPanel(key);}return result;};
+    wrapped.__evcaV67=true;window.openPanel=wrapped;
+  }
+
+  /* Commit pan/fade properties through the same state and persistence route as other audio controls. */
+  const oldSetter=window.setEthvelleAudioSetting;
+  window.setEthvelleAudioSetting=function(property,value,commit){
+    if(!['pan','fadeIn','fadeOut'].includes(property)){
+      const result=oldSetter.apply(this,arguments);
+      /* The previous setter can refresh its older panel key; re-render the panel that is open now. */
+      if(commit&&activeAudioPanel==='audioAdjust')renderAdjustPanel();
+      else if(commit&&(activeAudioPanel==='audioEnhance'||activeAudioPanel==='audioNoise'))renderEnhancePanel(activeAudioPanel);
+      return result;
+    }
+    const clip=audioClip();if(!clip)return;
+    const cfg=window.getEthvelleAudioSettings(clip);
+    cfg[property]=property==='pan'?clamp(value,-100,100):clamp(value,0,8);
+    const now=Number(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0)||0;
+    const sampleTime=now>=clip.trimStart&&now<clip.trimEnd?now:Math.max(0,clip.trimStart+.01);
+    try{if(typeof renderAudioOverlayMedia==='function')renderAudioOverlayMedia(sampleTime);}catch(err){console.warn('Ethvelle audio adjustment preview:',err);}
+    if(commit){try{persistProjectState();}catch(err){console.warn('Ethvelle audio adjustment save:',err);}if(activeAudioPanel==='audioAdjust')renderAdjustPanel();showToast('Audio adjustment updated',{icon:toastIcons.check,duration:1000});}
+  };
+
+  /* Apply fades and stereo balance to the existing live DSP output without disturbing volume. */
+  const oldAudioRender=window.renderAudioOverlayMedia;
+  if(typeof oldAudioRender==='function'&&!oldAudioRender.__evcaV67){
+    const wrapped=function(tSec){
+      const result=oldAudioRender.apply(this,arguments);
+      try{
+        (Array.isArray(overlays)?overlays:[]).filter(o=>o.type==='audio').forEach(clip=>{
+          const nodes=audioOverlayNodes&&audioOverlayNodes[clip.id],ctx=audioOverlayAudioCtx,d=nodes&&nodes.__evcaV66;
+          if(!nodes||!d||!ctx)return;
+          if(!nodes.__evcaV67){
+            const fade=ctx.createGain(),pan=(typeof ctx.createStereoPanner==='function')?ctx.createStereoPanner():null;
+            try{d.makeup.disconnect();}catch(_e){}
+            try{d.echo.disconnect();}catch(_e){}
+            if(pan){d.makeup.connect(fade);fade.connect(pan);pan.connect(nodes.gain);d.echo.connect(fade);}
+            else{d.makeup.connect(fade);fade.connect(nodes.gain);d.echo.connect(fade);}
+            nodes.__evcaV67={fade,pan};
+          }
+          const cfg=window.getEthvelleAudioSettings(clip),extra=nodes.__evcaV67;
+          if(extra.pan&&extra.pan.pan)setParam(extra.pan.pan,clamp(cfg.pan,-100,100)/100,ctx);
+          const time=Number(tSec)||0,duration=Math.max(.001,clip.trimEnd-clip.trimStart);
+          let fi=clamp(cfg.fadeIn,0,8),fo=clamp(cfg.fadeOut,0,8);
+          if(fi+fo>duration){const k=duration/(fi+fo);fi*=k;fo*=k;}
+          let amount=1;
+          if(fi>0)amount=Math.min(amount,clamp((time-clip.trimStart)/fi,0,1));
+          if(fo>0)amount=Math.min(amount,clamp((clip.trimEnd-time)/fo,0,1));
+          setParam(extra.fade.gain,amount,ctx,.02);
+        });
+      }catch(err){console.warn('Ethvelle live audio adjustment:',err);}
+      return result;
+    };
+    wrapped.__evcaV67=true;window.renderAudioOverlayMedia=wrapped;
+  }
+  function setParam(param,value,ctx,time=.025){try{param.setTargetAtTime(value,ctx.currentTime,time);}catch(_e){param.value=value;}}
+
+  /* Ensure the active-audio toolbar has only audio controls + Split + Done/Delete. */
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evcaV67){
+    const wrapped=function(){
+      const result=oldSync.apply(this,arguments),row=$('bottomToolsClip'),clip=audioClip();
+      if(row){
+        row.classList.toggle('evca-audio-selection',!!clip);
+        if(clip){
+          const keep=new Set(['clipSplitTool','clipAudioEffectsTool','clipAudioVoiceTool','clipAudioAdjustTool','clipAudioEnhanceTool','clipAudioNoiseTool']);
+          row.querySelectorAll('.tool-item').forEach(el=>{
+            const label=(el.querySelector('span:last-child')?.textContent||'').trim();
+            const common=label==='Done'||(label==='Delete'&&el.id!=='clipDeleteCharacterTool');
+            el.classList.toggle('evca-audio-common-tool',common);
+            el.classList.toggle('evca-audio-only-tool',keep.has(el.id));
+            el.style.display=(keep.has(el.id)||common)?'flex':'none';
+          });
+          /* V80 owns the parent-row display; this patch only controls audio tool visibility. */
+        }else{
+          // The base toolbar synchronizer already restored the correct normal clip tools.
+          row.classList.remove('evca-audio-selection');
+        }
+      }
+      const adjustTool=$('clipAudioAdjustTool');if(adjustTool)adjustTool.style.display=clip?'flex':'none';
+      return result;
+    };
+    wrapped.__evcaV67=true;window.syncBottomToolsMode=wrapped;
+  }
+
+  /* The base selectClipForChrome now calls the current wrapped syncBottomToolsMode once,
+     so a second selection wrapper would repeat the entire toolbar/DOM synchronization.
+     Keep the deselect wrapper because deselectAllClips still calls the original lexical
+     synchronizer directly and needs the audio-specific toolbar state restored afterward. */
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evcaV67_deselectAllClips){
+    const wrapped=function(){const r=oldDeselect.apply(this,arguments);if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();return r;};
+    wrapped.__evcaV67_deselectAllClips=true;window.deselectAllClips=wrapped;
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();},{once:true});
+  else if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+})();
+</script>
+
+
+<style id="ethvelle-v68-polish">
+/* Character clip track: both its row outline and the Default clip block are square. */
+#timelineInner .layer-row.char-row,
+#timelineInner .layer-row.char-row .char-row-track,
+#timelineInner .layer-row.char-row .char-row-track .anim-clip,
+#timelineInner .layer-row.char-row .char-row-track .anim-clip.selected,
+#timelineInner .layer-row.char-row .char-row-track .anim-clip.anim-clip-readonly {
+  border-radius:0!important;
+}
+/* Selected and normal animation clips share one exact height/vertical center. */
+#timelineInner .layer-row.char-row .char-row-track .anim-clip,
+#timelineInner .layer-row.char-row .char-row-track .anim-clip.selected,
+#timelineInner .layer-row.char-row .char-row-track .anim-clip.dragging {
+  height:36px!important;min-height:36px!important;max-height:36px!important;
+  top:3px!important;box-sizing:border-box!important;margin-top:0!important;margin-bottom:0!important;
+  transform-origin:center center;
+}
+#timelineInner .layer-row.char-row .anim-clip.selected:not(.dragging){}
+#timelineInner .anim-clip.dragging,#timelineInner .overlay-clip.dragging,#timelineInner .track-clip.dragging {will-change:transform;backface-visibility:hidden;transform-style:preserve-3d;transition:none!important;}
+/* The transport play control uses a stable circular raster layer and no scale animation. */
+#playBtn.play-btn {
+  width:38px!important;height:38px!important;min-width:38px!important;min-height:38px!important;
+  aspect-ratio:1/1!important;box-sizing:border-box!important;border-radius:50%!important;
+  overflow:hidden!important;
+  -webkit-appearance:none!important;appearance:none!important;outline:0!important;
+  background:radial-gradient(circle at 38% 28%,#5A83FF 0%,#2F5CE8 58%,#1D43B9 100%)!important;
+  border:1px solid rgba(255,255,255,.32)!important;
+  box-shadow:0 0 0 .5px rgba(255,255,255,.16),0 4px 12px rgba(27,67,185,.28)!important;
+  transform:none!important;-webkit-transform:none!important;backface-visibility:visible;isolation:isolate;
+}
+#playBtn.play-btn:active {transform:none!important;-webkit-transform:none!important;filter:brightness(.94);}
+#playBtn.play-btn svg {position:relative;z-index:1;shape-rendering:geometricPrecision;}
+/* Audio process progress dialog. */
+#evcaV68ProcessOverlay {position:fixed;inset:0;z-index:999999;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(0,0,0,.68);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+#evcaV68ProcessOverlay.active {display:flex;}
+.evca-v68-progress-card {width:min(100%,360px);padding:22px 20px 18px;border:1px solid #343744;border-radius:18px;background:#171923;box-shadow:0 18px 60px rgba(0,0,0,.48);color:#F5F5F7;text-align:center;}
+.evca-v68-progress-title {font-size:16px;font-weight:800;margin-bottom:8px;}
+.evca-v68-progress-sub {font-size:12.5px;color:#AEB5C7;min-height:20px;line-height:1.4;margin-bottom:16px;}
+.evca-v68-progress-track {height:7px;width:100%;border-radius:9px;overflow:hidden;background:#32394A;}
+.evca-v68-progress-track i {display:block;width:0;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2F5CE8,#76A0FF);transition:width .12s linear;}
+.evca-v68-progress-number {font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;margin:11px 0 0;color:#DCE6FF;}
+#evcaV68ProgressClose {margin-top:15px;min-width:96px;padding:9px 18px;border-radius:9px;background:#2F5CE8;color:#fff;font-weight:700;}
+.evca-v68-process-button {display:flex;align-items:center;justify-content:center;width:100%;min-height:42px;margin-top:12px;padding:11px 14px;border:0;border-radius:10px;background:linear-gradient(160deg,#3768EA,#244AB8);color:#fff;font:700 13px Inter,sans-serif;}
+.evca-v68-process-button:disabled {opacity:.55;}
+.evca-v68-processed-status {padding:9px 11px;border-radius:8px;background:rgba(52,211,153,.10);color:#92E3C2;font-size:12px;font-weight:700;line-height:1.4;}
+/* Audio controls keep the compact Text Editing slider geometry. */
+#evcaAudioPanel input[type=range],.evca-audio-panel input[type=range] {-webkit-appearance:none!important;appearance:none!important;width:100%!important;height:18px!important;margin:0!important;padding:0!important;background:transparent!important;accent-color:#2F5CE8;touch-action:pan-y!important;}
+#evcaAudioPanel input[type=range]::-webkit-slider-runnable-track,.evca-audio-panel input[type=range]::-webkit-slider-runnable-track {height:4px;border-radius:4px;background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--evca-progress,0%),#45495D var(--evca-progress,0%),#45495D 100%);}
+#evcaAudioPanel input[type=range]::-moz-range-progress,.evca-audio-panel input[type=range]::-moz-range-progress {height:4px;border-radius:4px;background:#2F5CE8;}
+#evcaAudioPanel input[type=range]::-webkit-slider-thumb,.evca-audio-panel input[type=range]::-webkit-slider-thumb {-webkit-appearance:none;width:10px;height:10px;margin-top:-3px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;box-shadow:none;}
+#evcaAudioPanel input[type=range]::-moz-range-track,.evca-audio-panel input[type=range]::-moz-range-track {height:4px;border-radius:4px;background:#45495D;}
+#evcaAudioPanel input[type=range]::-moz-range-thumb,.evca-audio-panel input[type=range]::-moz-range-thumb {width:10px;height:10px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;}
+</style>
+
+<script id="ethvelle-v68-final-patch">
+/* Ethvelle v68: timeline polish + practical offline audio processing + video AFTER decode repair. */
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+  function audioClip(){
+    try{return Array.isArray(overlays)?overlays.find(o=>o&&o.type==='audio'&&String(o.id)===String(selectedClip))||null:null;}catch(_e){return null;}
+  }
+  function updateAudioSliderProgress(input){
+    if(!input||input.type!=='range')return;
+    const min=Number(input.min)||0,max=Number(input.max)||100,value=Number(input.value)||0;
+    const pct=max>min?clamp((value-min)/(max-min)*100,0,100):0;
+    input.style.setProperty('--evca-progress',pct+'%');
+  }
+  function wireAudioSliderProgress(host){
+    if(!host)return;
+    if(!host.dataset.evV68RangeWired){
+      host.addEventListener('input',e=>{if(e.target&&e.target.matches('input[type="range"]'))updateAudioSliderProgress(e.target);},true);
+      host.addEventListener('change',e=>{if(e.target&&e.target.matches('input[type="range"]'))updateAudioSliderProgress(e.target);},true);
+      host.dataset.evV68RangeWired='1';
+    }
+    host.querySelectorAll('input[type="range"]').forEach(updateAudioSliderProgress);
+  }
+  function refreshAudioToolbar(){
+    const row=$('bottomToolsClip');if(!row)return;
+    const clip=audioClip();
+    if(!clip)return;
+    const keep=new Set(['clipSplitTool','clipVolumeTool','clipAudioEffectsTool','clipAudioVoiceTool','clipAudioAdjustTool','clipAudioEnhanceTool','clipAudioNoiseTool']);
+    row.querySelectorAll('.tool-item').forEach(el=>{
+      const label=(el.querySelector('span:last-child')?.textContent||'').trim();
+      const common=label==='Done'||(label==='Delete'&&el.id!=='clipDeleteCharacterTool');
+      el.style.display=(keep.has(el.id)||common)?'flex':'none';
+      el.classList.toggle('evca-audio-only-tool',keep.has(el.id));
+      el.classList.toggle('evca-audio-common-tool',common);
+    });
+    /* V80 owns the parent-row display; this patch only controls audio tool visibility. */
+  }
+  const sync0=window.syncBottomToolsMode;
+  if(typeof sync0==='function'&&!sync0.__evcaV68){
+    const sync=function(){const result=sync0.apply(this,arguments);refreshAudioToolbar();return result;};
+    sync.__evcaV68=true;window.syncBottomToolsMode=sync;
+  }
+  ['selectClipForChrome','deselectAllClips'].forEach(name=>{
+    const old=window[name];if(typeof old!=='function'||old['__evcaV68_'+name])return;
+    const wrapped=function(){return old.apply(this,arguments);};
+    wrapped['__evcaV68_'+name]=true;window[name]=wrapped;
+  });
+
+  /* Avoid repacking every clip lane on every pointer frame. Final pointer-up render still
+     rebuilds exact lane positions; during drag only the moved clip position is painted. */
+  const oldOverlayLanes=window.applyOverlayLanes;
+  if(typeof oldOverlayLanes==='function'&&!oldOverlayLanes.__evcaV68){
+    const wrapped=function(groupKey){
+      // Live lane reflow is intentionally allowed during a clip drag. It updates only
+      // lane top/height styles (no innerHTML rebuild) and keeps overlapping clips separated.
+      return oldOverlayLanes.apply(this,arguments);
+    };
+    wrapped.__evcaV68=true;window.applyOverlayLanes=wrapped;
+  }
+  const oldCharLanes=window.applyCharClipLanes;
+  if(typeof oldCharLanes==='function'&&!oldCharLanes.__evcaV68){
+    // Character lane packing is now intentionally live during a drag/trim. The base helper
+    // only changes lane/row geometry when assignments change, so it stays cheap without
+    // postponing the vertical move until pointerup.
+    const wrapped=function(){return oldCharLanes.apply(this,arguments);};
+    wrapped.__evcaV68=true;window.applyCharClipLanes=wrapped;
+  }
+  const oldInline=window.setTimelineInlineStyle;
+  if(typeof oldInline==='function'&&!oldInline.__evcaV68){
+    const wrapped=function(el,property,value){
+      const root=$('timelineInner');
+      if(el&&property==='left'&&root&&root.classList.contains('clip-drag-active')&&el.classList&&(el.classList.contains('overlay-clip')||el.classList.contains('track-clip'))){
+        if(!el.dataset.evV68BaseLeft)el.dataset.evV68BaseLeft=String(parseFloat(el.style.left)||0);
+        const base=Number(el.dataset.evV68BaseLeft)||0;
+        const wanted=parseFloat(value)||0;
+        el.style.transform=`translate3d(${wanted-base}px,0,0)`;
+        return;
+      }
+      return oldInline.apply(this,arguments);
+    };
+    wrapped.__evcaV68=true;window.setTimelineInlineStyle=wrapped;
+  }
+  function clearDragTransforms(){
+    document.querySelectorAll('#timelineInner .overlay-clip[data-ev-v68-base-left],#timelineInner .track-clip[data-ev-v68-base-left],#timelineInner .anim-clip[data-ev-v68-base-left]').forEach(el=>{el.style.transform='';delete el.dataset.evV68BaseLeft;});
+  }
+  const dragRoot=$('timelineInner');
+  if(dragRoot){['pointerup','pointercancel','touchend'].forEach(type=>dragRoot.addEventListener(type,()=>requestAnimationFrame(clearDragTransforms),{passive:true}));}
+
+  /* Actual offline audio renderer. Uses a per-clip spectral noise profile, spectral
+     subtraction, a soft dynamics pass for enhancement, then writes PCM WAV audio. */
+  let audioDbPromise=null;
+  function openAudioDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('This browser does not support offline audio storage.'));
+    if(!audioDbPromise)audioDbPromise=new Promise((resolve,reject)=>{
+      const req=indexedDB.open('ethvelle-audio-processed-v68',1);
+      req.onupgradeneeded=()=>{if(!req.result.objectStoreNames.contains('assets'))req.result.createObjectStore('assets');};
+      req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('Could not open audio storage.'));
+    });
+    return audioDbPromise;
+  }
+  async function saveAudioAsset(key,blob){
+    const db=await openAudioDb();return new Promise((resolve,reject)=>{
+      const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put({blob,createdAt:Date.now()},key);
+      tx.oncomplete=()=>resolve(key);tx.onerror=()=>reject(tx.error||new Error('Could not save processed audio.'));
+    });
+  }
+  async function readAudioAsset(key){
+    const db=await openAudioDb();return new Promise((resolve,reject)=>{
+      const req=db.transaction('assets','readonly').objectStore('assets').get(key);
+      req.onsuccess=()=>resolve(req.result?.blob||null);req.onerror=()=>reject(req.error||new Error('Could not restore processed audio.'));
+    });
+  }
+  function showAudioProgress(title){
+    let box=$('evcaV68ProcessOverlay');
+    if(!box){box=document.createElement('div');box.id='evcaV68ProcessOverlay';box.innerHTML=`<div class="evca-v68-progress-card"><div class="evca-v68-progress-title" id="evcaV68ProgressTitle"></div><div class="evca-v68-progress-sub" id="evcaV68ProgressSub">Preparing audio…</div><div class="evca-v68-progress-track"><i id="evcaV68ProgressFill"></i></div><div class="evca-v68-progress-number" id="evcaV68ProgressNumber">0%</div></div>`;document.body.appendChild(box);}
+    $('evcaV68ProgressTitle').textContent=title;$('evcaV68ProgressSub').textContent='Preparing audio…';$('evcaV68ProgressFill').style.width='0%';$('evcaV68ProgressNumber').textContent='0%';box.classList.remove('evca-applied');box.classList.add('active');
+    return (pct,msg,done=false)=>{const p=clamp(pct,0,100);$('evcaV68ProgressFill').style.width=p+'%';$('evcaV68ProgressNumber').textContent=Math.round(p)+'%';$('evcaV68ProgressSub').textContent=done?'Applied':(msg||'');if(done){box.classList.add('evca-applied');$('evcaV68ProgressTitle').textContent='Applied';}};
+  }
+  const yieldUI=()=>new Promise(resolve=>setTimeout(resolve,0));
+  function fft(re,im,inverse){
+    const n=re.length;
+    for(let i=1,j=0;i<n;i++){
+      let bit=n>>1;for(;j&bit;bit>>=1)j^=bit;j^=bit;
+      if(i<j){let t=re[i];re[i]=re[j];re[j]=t;t=im[i];im[i]=im[j];im[j]=t;}
+    }
+    for(let len=2;len<=n;len<<=1){
+      const angle=(inverse?2:-2)*Math.PI/len,wr0=Math.cos(angle),wi0=Math.sin(angle);
+      for(let i=0;i<n;i+=len){let wr=1,wi=0;const half=len>>1;
+        for(let j=0;j<half;j++){
+          const u=i+j,v=u+half,vr=re[v]*wr-im[v]*wi,vi=re[v]*wi+im[v]*wr;
+          re[v]=re[u]-vr;im[v]=im[u]-vi;re[u]+=vr;im[u]+=vi;
+          const nwr=wr*wr0-wi*wi0;wi=wr*wi0+wi*wr0;wr=nwr;
+        }
+      }
+    }
+    if(inverse)for(let i=0;i<n;i++){re[i]/=n;im[i]/=n;}
+  }
+  async function spectralClean(buffer,mode,strength,onProgress){
+    const fftSize=1024,hop=256,half=fftSize>>1,windowFn=new Float32Array(fftSize);
+    for(let i=0;i<fftSize;i++)windowFn[i]=Math.sqrt(.5-.5*Math.cos(2*Math.PI*i/(fftSize-1)));
+    const channels=[],totalFrames=Math.ceil(buffer.length/hop),channelCount=buffer.numberOfChannels;
+    for(let ch=0;ch<channelCount;ch++){
+      const source=buffer.getChannelData(ch),out=new Float32Array(buffer.length),weight=new Float32Array(buffer.length);
+      const starts=[];for(let s=-fftSize+hop;s<buffer.length;s+=hop)starts.push(s);
+      const training=[];for(const s of starts){if(s>buffer.sampleRate*1.8)break;let sum=0,n=0;for(let i=0;i<fftSize;i+=4){const ix=s+i;if(ix>=0&&ix<source.length){const v=source[ix];sum+=v*v;n++;}}if(n)training.push({s,rms:Math.sqrt(sum/n)});}
+      training.sort((a,b)=>a.rms-b.rms);const quiet=training.slice(0,Math.max(3,Math.ceil(training.length*.24)));
+      const profile=new Float32Array(half+1),re=new Float64Array(fftSize),im=new Float64Array(fftSize);
+      for(const item of quiet){re.fill(0);im.fill(0);for(let i=0;i<fftSize;i++){const ix=item.s+i;re[i]=(ix>=0&&ix<source.length?source[ix]:0)*windowFn[i];}fft(re,im,false);for(let k=0;k<=half;k++)profile[k]+=Math.hypot(re[k],im[k]);}
+      const denom=Math.max(1,quiet.length);for(let k=0;k<=half;k++)profile[k]/=denom;
+      // A short moving average keeps the learned noise floor smooth between FFT bins.
+      const smooth=profile.slice();for(let k=1;k<half;k++)profile[k]=(smooth[k-1]+2*smooth[k]+smooth[k+1])/4;
+      const modeFactor=mode==='noise'?(0.95+strength*1.8):(0.25+strength*.62);
+      const floorGain=mode==='noise'?(0.035+(1-strength)*.20):.42;
+      let done=0;
+      for(const s of starts){
+        re.fill(0);im.fill(0);
+        for(let i=0;i<fftSize;i++){const ix=s+i;re[i]=(ix>=0&&ix<source.length?source[ix]:0)*windowFn[i];}
+        fft(re,im,false);
+        const gains=new Float32Array(half+1);
+        for(let k=0;k<=half;k++){
+          const mag=Math.hypot(re[k],im[k]),noise=profile[k]*modeFactor;
+          const raw=mag>1e-9?Math.max(floorGain,Math.min(1,(mag-noise)/mag)):1;
+          gains[k]=raw;
+        }
+        // Frequency smoothing reduces the watery artifacts of a hard spectral gate.
+        const copy=gains.slice();for(let k=1;k<half;k++)gains[k]=(copy[k-1]+2*copy[k]+copy[k+1])/4;
+        for(let k=0;k<=half;k++){const g=gains[k];re[k]*=g;im[k]*=g;if(k>0&&k<half){re[fftSize-k]*=g;im[fftSize-k]*=g;}}
+        fft(re,im,true);
+        for(let i=0;i<fftSize;i++){const ix=s+i;if(ix>=0&&ix<out.length){const w=windowFn[i];out[ix]+=re[i]*w;weight[ix]+=w*w;}}
+        done++;if(done%32===0){onProgress(((ch+done/starts.length)/channelCount)*82,mode==='noise'?'Removing background noise…':'Enhancing audio…');await yieldUI();}
+      }
+      const clean=new Float32Array(buffer.length);
+      for(let i=0;i<clean.length;i++)clean[i]=weight[i]>1e-6?out[i]/weight[i]:source[i];
+      if(mode==='enhance'){
+        const amount=strength;let peak=0;
+        for(let i=0;i<clean.length;i++){let x=clean[i],a=Math.abs(x);if(a>.22){const compressed=.22+(a-.22)/(1+amount*1.8);x=Math.sign(x)*compressed;}clean[i]=x;peak=Math.max(peak,Math.abs(x));}
+        const gain=Math.min(2.8,peak>1e-6?.90/peak:1);for(let i=0;i<clean.length;i++)clean[i]=Math.max(-1,Math.min(1,clean[i]*gain));
+      }
+      channels.push(clean);onProgress(((ch+1)/channelCount)*86,mode==='noise'?'Finalizing cleaned audio…':'Finalizing enhanced audio…');await yieldUI();
+    }
+    return {numberOfChannels:channelCount,length:buffer.length,sampleRate:buffer.sampleRate,duration:buffer.duration,getChannelData:(ch)=>channels[ch]};
+  }
+  function audioBufferToWav(buffer){
+    const channels=buffer.numberOfChannels,length=buffer.length,bytes=44+length*channels*2,ab=new ArrayBuffer(bytes),view=new DataView(ab);
+    const write=(offset,string)=>{for(let i=0;i<string.length;i++)view.setUint8(offset+i,string.charCodeAt(i));};
+    write(0,'RIFF');view.setUint32(4,bytes-8,true);write(8,'WAVE');write(12,'fmt ');view.setUint32(16,16,true);view.setUint16(20,1,true);view.setUint16(22,channels,true);view.setUint32(24,buffer.sampleRate,true);view.setUint32(28,buffer.sampleRate*channels*2,true);view.setUint16(32,channels*2,true);view.setUint16(34,16,true);write(36,'data');view.setUint32(40,bytes-44,true);
+    const data=Array.from({length:channels},(_,ch)=>buffer.getChannelData(ch));let offset=44;
+    for(let i=0;i<length;i++)for(let ch=0;ch<channels;ch++){const s=Math.max(-1,Math.min(1,data[ch][i]));view.setInt16(offset,s<0?s*32768:s*32767,true);offset+=2;}
+    return new Blob([ab],{type:'audio/wav'});
+  }
+  function resetAudioRuntime(clip){
+    try{const el=audioOverlayEls&&audioOverlayEls[clip.id];if(el){el.pause();el.removeAttribute('src');el.load();}
+      const nodes=audioOverlayNodes&&audioOverlayNodes[clip.id];if(nodes){Object.values(nodes).forEach(n=>{try{if(n&&typeof n.disconnect==='function')n.disconnect();}catch(_e){}});}
+      if(audioOverlayEls)delete audioOverlayEls[clip.id];if(audioOverlayNodes)delete audioOverlayNodes[clip.id];
+    }catch(err){console.warn('Audio runtime reset:',err);}
+  }
+  async function restoreProcessedAudioAssets(){
+    if(!Array.isArray(overlays))return;
+    for(const clip of overlays){if(!clip||clip.type!=='audio'||!clip.audioProcessedAssetKey)continue;
+      try{const blob=await readAudioAsset(clip.audioProcessedAssetKey);if(!blob)continue;resetAudioRuntime(clip);if(clip.__evcaV68ObjectUrl)URL.revokeObjectURL(clip.__evcaV68ObjectUrl);clip.__evcaV68ObjectUrl=URL.createObjectURL(blob);clip.src=clip.__evcaV68ObjectUrl;clip.sourceDuration=clip.sourceDuration||0;}
+      catch(err){console.warn('Could not restore processed audio asset:',err);}
+    }
+    try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();}catch(_e){}
+  }
+  window.ethvelleProcessSelectedAudio=async function(mode){
+    const clip=audioClip();if(!clip){showToast('Select an audio clip first',{icon:toastIcons.info});return;}
+    if(!['enhance','noise'].includes(mode))return;
+    if(typeof isPlaying!=='undefined'&&isPlaying&&typeof pausePlayback==='function')pausePlayback();
+    clip.audioProcessedModes=clip.audioProcessedModes&&typeof clip.audioProcessedModes==='object'?clip.audioProcessedModes:{};
+    const showProgress=!clip.audioProcessedModes[mode];
+    const update=showProgress?showAudioProgress(mode==='noise'?'Removing Background Noise':'Enhancing Audio'):function(){};
+    const buttons=document.querySelectorAll('#evcaAudioPanel button');buttons.forEach(b=>b.disabled=true);
+    try{
+      update(3,'Loading source audio…');await yieldUI();
+      // Each processing mode keeps the exact audio that existed before its first Apply.
+      // Re-applying after a slider change uses that baseline instead of repeatedly filtering
+      // an already-filtered WAV, preventing cumulative loss of voice quality.
+      let bytes=null;
+      const baseKey=clip.audioProcessBaseKeys&&clip.audioProcessBaseKeys[mode];
+      if(clip.audioProcessedModes[mode]&&baseKey){
+        try{const baseBlob=await readAudioAsset(baseKey);if(baseBlob)bytes=await baseBlob.arrayBuffer();}catch(_e){}
+      }
+      if(!bytes){
+        const response=await fetch(clip.src);if(!response.ok)throw new Error('Could not read the selected audio source.');
+        const sourceBlob=await response.blob();bytes=await sourceBlob.arrayBuffer();
+        if(!baseKey){
+          const newBaseKey='audio-'+String(clip.id)+'-'+mode+'-base-v70';
+          try{await saveAudioAsset(newBaseKey,sourceBlob);clip.audioProcessBaseKeys=Object.assign({},clip.audioProcessBaseKeys||{},{[mode]:newBaseKey});}catch(storageErr){console.warn('Could not save the processing baseline; repeat processing will use the current clip audio.',storageErr);}
+        }
+      }
+      update(8,'Decoding audio…');await yieldUI();
+      const decodeCtx=new (window.AudioContext||window.webkitAudioContext)();
+      let sourceBuffer;try{sourceBuffer=await decodeCtx.decodeAudioData(bytes.slice(0));}finally{try{await decodeCtx.close();}catch(_e){}}
+      const cfg=window.getEthvelleAudioSettings?window.getEthvelleAudioSettings(clip):{};
+      const strength=(mode==='noise'?clamp(cfg.noiseStrength==null?70:cfg.noiseStrength,0,100):clamp(cfg.enhance==null?60:cfg.enhance,0,100))/100;
+      const processed=await spectralClean(sourceBuffer,mode,strength,update);
+      update(91,'Encoding processed audio…');await yieldUI();const blob=audioBufferToWav(processed);
+      const assetKey='audio-'+String(clip.id)+'-v68';
+      try{await saveAudioAsset(assetKey,blob);clip.audioProcessedAssetKey=assetKey;}catch(storageErr){console.warn('Audio persistence unavailable; keeping processed sound for this session.',storageErr);}
+      resetAudioRuntime(clip);if(clip.__evcaV68ObjectUrl)URL.revokeObjectURL(clip.__evcaV68ObjectUrl);
+      clip.__evcaV68ObjectUrl=URL.createObjectURL(blob);clip.src=clip.__evcaV68ObjectUrl;clip.sourceDuration=processed.duration;
+      if(!clip.audioSettings)clip.audioSettings={};
+      // The processing is baked into this WAV now, so turn off the matching live DSP stage
+      // to avoid applying the same compression/gate twice during playback.
+      // Keep the user's Enable switch on so they can immediately adjust the amount and
+      // Apply again. The live preview/export graphs below detect audioProcessedModes and
+      // skip the matching realtime stage because that processing is already baked into WAV.
+      clip.audioProcessedMode=mode;
+      clip.audioProcessedModes=Object.assign({},clip.audioProcessedModes||{},{[mode]:true});
+      if(typeof generateAudioWaveform==='function'){
+        try{const result=await generateAudioWaveform(clip.src);if(result&&result.peaks)clip.peaks=result.peaks;}catch(_e){}
+      }
+      if(typeof renderOverlayLayers==='function')renderOverlayLayers();if(typeof syncTimelineInnerWidth==='function')syncTimelineInnerWidth();if(typeof renderRuler==='function')renderRuler();
+      if(typeof persistProjectState==='function')persistProjectState();
+      if(showProgress){
+        update(100,'Applied',true);
+        await new Promise(resolve=>setTimeout(resolve,1000));
+        const progressBox=document.getElementById('evcaV68ProcessOverlay');
+        if(progressBox)progressBox.classList.remove('active');
+      }
+      if(window.renderEthvelleAudioPanel)window.renderEthvelleAudioPanel(mode==='noise'?'audioNoise':'audioEnhance');
+      autoPlayProcessedClip(clip);
+    }catch(err){console.error('Ethvelle offline audio processing failed:',err);if(showProgress){update(100,'Processing failed',true);setTimeout(()=>document.getElementById('evcaV68ProcessOverlay')?.classList.remove('active'),1200);}showToast('Audio processing failed: '+(err?.message||'unsupported audio source'),{icon:toastIcons.info,duration:3000});}
+    finally{buttons.forEach(b=>b.disabled=false);}
+  };
+  function autoPlayProcessedClip(clip){
+    try{
+      if(typeof pausePlayback==='function')pausePlayback();
+      if(typeof setCurrentAbsoluteTime==='function')setCurrentAbsoluteTime(Math.max(0,Number(clip.trimStart)||0));
+      if(typeof renderFrame==='function')renderFrame();
+      if(typeof startPlayback==='function')startPlayback();
+      // startPlayback clears selections by design; restore this clip's contextual toolbar.
+      selectedClip=clip.id;selectedKfIdx=null;
+      document.querySelectorAll('.overlay-clip.selected').forEach(el=>el.classList.remove('selected'));
+      const el=[...document.querySelectorAll('.overlay-clip[data-overlay-id]')].find(node=>String(node.getAttribute('data-overlay-id'))===String(clip.id));if(el)el.classList.add('selected');
+      if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+    }catch(err){console.warn('Could not auto-play processed audio:',err);}
+  }
+  const oldSetter=window.setEthvelleAudioSetting;
+  if(typeof oldSetter==='function'&&!oldSetter.__evcaV68){
+    // Enabling an effect is only a configuration change. Actual PCM processing is
+    // deliberately started exclusively by the dedicated Apply button in the panel.
+    const wrapped=function(property,value,commit){return oldSetter.apply(this,arguments);};
+    wrapped.__evcaV68=true;window.setEthvelleAudioSetting=wrapped;
+  }
+
+  /* Audio panel buttons invoke actual PCM processing; visual controls remain live DSP. */
+  const priorRenderer=window.renderEthvelleAudioPanel;
+  if(typeof priorRenderer==='function'&&!priorRenderer.__evcaV68){
+    const wrapped=function(key){const result=priorRenderer.apply(this,arguments);
+      if(key==='audioEnhance'||key==='audioNoise'){
+        const host=$('evcaAudioPanel'),clip=audioClip();if(host){
+          if(clip&&clip.audioProcessedMode===(key==='audioNoise'?'noise':'enhance')){const status=document.createElement('div');status.className='evca-v68-processed-status';status.textContent=key==='audioNoise'?'Background noise reduction applied to this clip':'Audio enhancement applied to this clip';host.appendChild(status);}
+          const button=document.createElement('button');button.type='button';button.className='evca-v68-process-button';button.textContent=key==='audioNoise'?'Remove Background Noise':'Enhance & Apply';button.onclick=()=>window.ethvelleProcessSelectedAudio(key==='audioNoise'?'noise':'enhance');host.appendChild(button);
+        }
+      }
+      wireAudioSliderProgress($('evcaAudioPanel'));
+      return result;
+    };
+    wrapped.__evcaV68=true;window.renderEthvelleAudioPanel=wrapped;
+  }
+  const priorOpen=window.openPanel;
+  if(typeof priorOpen==='function'&&!priorOpen.__evcaV68){
+    const wrapped=function(key){const result=priorOpen.apply(this,arguments);if(['audioEffects','audioVoice','audioAdjust','audioEnhance','audioNoise'].includes(key)){setTimeout(()=>{if(window.renderEthvelleAudioPanel)window.renderEthvelleAudioPanel(key);},0);}return result;};
+    wrapped.__evcaV68=true;window.openPanel=wrapped;
+  }
+
+  /* Restore processed assets after opening a saved project. */
+  const oldOpenEditor=window.openEditor;
+  if(typeof oldOpenEditor==='function'&&!oldOpenEditor.__evcaV68){
+    const wrapped=function(){const result=oldOpenEditor.apply(this,arguments);Promise.resolve(result).finally(()=>setTimeout(restoreProcessedAudioAssets,350));return result;};
+    wrapped.__evcaV68=true;window.openEditor=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refreshAudioToolbar,{once:true});
+  else{refreshAudioToolbar();}
+})();
+
+</script>
+
+
+
+<!-- Ethvelle v69: transport-row canvas zoom + explicit offline audio Apply workflow. -->
+<style id="ethvelle-v69-zoom-audio-final-css">
+  /* The old bottom-toolbar Custom entry is replaced by the transport-row Zoom button. */
+  #bottomToolsClip #clipCustomAnimTool {display:none!important;}
+  #bottomToolsClip #clipCustomAnimTool[style] {display:none!important;}
+  #transportZoomBtn.transport-zoom-btn {
+    display:inline-flex;align-items:center;justify-content:center;flex:0 0 38px;
+    width:38px;height:38px;min-width:38px;min-height:38px;padding:0;
+    border:1px solid #343541;border-radius:50%;background:#202027;color:#E8ECF8;
+    box-shadow:none;outline:none;overflow:hidden;-webkit-appearance:none;appearance:none;
+    -webkit-tap-highlight-color:transparent;touch-action:manipulation;
+  }
+  #transportZoomBtn svg {width:19px;height:19px;display:block;shape-rendering:geometricPrecision;}
+  #transportZoomBtn:active {background:#292D3A;border-color:#4A5F9D;transform:none;}
+  #transportZoomBtn[aria-pressed="true"] {background:#2F5CE8;border-color:#2F5CE8;color:#fff;}
+  /* All character animation blocks, including the active Default clip and readonly clips,
+     are hard-cornered. Override every historical selected/dragging radius declaration. */
+  #timelineInner .layer-row.char-row,
+  #timelineInner .char-row .char-row-track,
+  #timelineInner .char-row .char-row-track .anim-clip,
+  #timelineInner .char-row .char-row-track .anim-clip::before,
+  #timelineInner .char-row .char-row-track .anim-clip::after,
+  #timelineInner .char-row .char-row-track .anim-clip-readonly{border-radius:0!important;}
+  /* Play button: flat deep blue, no pale sheen or white halo. */
+  #playBtn.play-btn {
+    background:#244BCB!important;border:0!important;outline:0!important;
+    box-shadow:0 3px 10px rgba(20,57,166,.28)!important;
+    -webkit-appearance:none!important;appearance:none!important;
+    border-radius:50%!important;overflow:hidden!important;transform:none!important;
+  }
+  #playBtn.play-btn svg {width:23px!important;height:23px!important;display:block!important;}
+  #playBtn.play-btn svg path {fill:#fff!important;stroke:none!important;}
+  #playBtn.play-btn:active {background:#1F43B7!important;filter:none!important;}
+  /* Red close affordance in all audio sheets, matching destructive/close semantics. */
+  #toolPanel .tool-panel-close {color:#FF626D!important;}
+  #toolPanel .tool-panel-close svg {stroke:currentColor!important;}
+  /* Audio processing switches use the compact Shadow-style switch; cards keep the text editor's slider geometry. */
+  #evcaAudioPanel .evca-small-switch {min-height:32px;margin:2px 0 8px;}
+  #evcaAudioPanel .evca-small-switch i {width:38px;height:22px;flex:0 0 38px;border-radius:20px;}
+  #evcaAudioPanel .evca-small-switch i::after {width:14px;height:14px;left:3px;top:3px;}
+  #evcaAudioPanel .evca-small-switch input:checked+i::after {transform:translateX(15px);}
+  #evcaAudioPanel .evca-audio-apply-btn {
+    width:100%;min-height:44px;margin-top:10px;padding:11px 14px;
+    display:flex;align-items:center;justify-content:center;
+    border:0;border-radius:10px;background:#2F5CE8;color:#fff;
+    font:800 13px Inter,Arial,sans-serif;box-shadow:none;
+  }
+  #evcaAudioPanel .evca-audio-apply-btn:disabled {opacity:.5;}
+  #evcaAudioPanel .evca-audio-apply-btn:active {background:#244BCB;transform:none;}
+  /* Prevent flex-shrink from collapsing the wide 16:9 stage before its 90-degree rotation. */
+  #screen-editor .canvas-wrap.evca-custom-mode {padding:58px 12px calc(154px + env(safe-area-inset-bottom))!important;}
+  #screen-editor .canvas-wrap.evca-custom-mode #canvasStage {flex:0 0 auto!important;max-width:none!important;max-height:none!important;}
+  /* Existing keyframe stage is now presented as Canvas Zoom, not a custom-creation page. */
+  #evcaCustomMotionHud .evca-motion-title {font-size:0!important;}
+  #evcaCustomMotionHud .evca-motion-title::after {content:'CANVAS ZOOM';font-size:11px;letter-spacing:.08em;color:#C4C9D8;}
+</style>
+<script id="ethvelle-v69-zoom-audio-final-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+  const selectedAudio=()=>{try{return Array.isArray(overlays)?overlays.find(o=>o&&o.type==='audio'&&String(o.id)===String(selectedClip))||null:null;}catch(_e){return null;}};
+  const isAnimationSelected=()=>selectedClip==='main'||(typeof selectedClip==='string'&&selectedClip.startsWith('seg'));
+
+  /* Replace the bottom Custom tool with a zoom control alongside the transport keyframe button. */
+  window.toggleCanvasZoomView=function(){
+    const active=!!window.__ethvelleCustomAnimationMode;
+    if(active){if(typeof window.closeCustomAnimationStudio==='function')window.closeCustomAnimationStudio();}
+    else if(typeof window.openCustomAnimationStudio==='function')window.openCustomAnimationStudio();
+    const btn=$('transportZoomBtn');if(btn){btn.setAttribute('aria-pressed',String(!active));btn.title=active?'Zoom canvas':'Exit canvas zoom';}
+  };
+  const oldOpenStudio=window.openCustomAnimationStudio;
+  if(typeof oldOpenStudio==='function'&&!oldOpenStudio.__evcaV69){
+    const wrapped=function(){const result=oldOpenStudio.apply(this,arguments);requestAnimationFrame(()=>{
+      const hud=$('evcaCustomMotionHud');if(hud){const title=hud.querySelector('.evca-motion-title');if(title)title.textContent='Canvas Zoom';const exit=hud.querySelector('.evca-motion-top .evca-motion-btn');if(exit)exit.textContent='Normal Model';}
+      const btn=$('transportZoomBtn');if(btn){btn.setAttribute('aria-pressed','true');btn.title='Exit canvas zoom';}
+    });return result;};
+    wrapped.__evcaV69=true;window.openCustomAnimationStudio=wrapped;
+  }
+  const oldCloseStudio=window.closeCustomAnimationStudio;
+  if(typeof oldCloseStudio==='function'&&!oldCloseStudio.__evcaV69){
+    const wrapped=function(){const result=oldCloseStudio.apply(this,arguments);const btn=$('transportZoomBtn');if(btn){btn.setAttribute('aria-pressed','false');btn.title='Zoom canvas';}return result;};
+    wrapped.__evcaV69=true;window.closeCustomAnimationStudio=wrapped;
+  }
+  function syncZoomButton(){
+    const legacyCustomTool=$('clipCustomAnimTool');if(legacyCustomTool)legacyCustomTool.remove();
+    const btn=$('transportZoomBtn');if(!btn)return;
+    const show=isAnimationSelected();
+    btn.style.display='inline-flex';
+    btn.setAttribute('aria-pressed',String(!!window.__ethvelleCustomAnimationMode));
+  }
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evcaV69){
+    const wrapped=function(){const result=oldSync.apply(this,arguments);syncZoomButton();return result;};
+    wrapped.__evcaV69=true;window.syncBottomToolsMode=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evcaV69){
+    const wrapped=function(){const result=oldSelect.apply(this,arguments);syncZoomButton();return result;};
+    wrapped.__evcaV69=true;window.selectClipForChrome=wrapped;
+  }
+  /* Ensure transport button sync after entering/leaving the editor and after DOM construction. */
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',syncZoomButton,{once:true});else syncZoomButton();
+
+  /* Final audio panel renderer: toggles are preferences only; expensive PCM processing starts
+     exclusively when the user presses the dedicated Apply button. */
+  let activeAudioPanel='';
+  const audioDefs={
+    audioEffects:{title:'Audio Effects',property:'effect',items:[['none','Original'],['echo','Echo'],['studio','Studio'],['child','Child'],['boy','Boy'],['girl','Girl'],['woman','Woman'],['man','Man'],['oldman','Old Man'],['giant','Giant'],['monster','Monster'],['demon','Demon'],['ghost','Ghost'],['alien','Alien'],['chipmunk','Chipmunk'],['fairy','Fairy'],['cartoon','Cartoon'],['goblin','Goblin'],['dragon','Dragon'],['villain','Villain'],['zombie','Zombie'],['reverb','Reverb'],['hall','Hall'],['cathedral','Cathedral'],['slapback','Slapback'],['pingpong','Ping-Pong'],['stadium','Stadium'],['chorus','Chorus'],['flanger','Flanger'],['tremolo','Tremolo'],['robot','Robot'],['underwater','Underwater'],['megaphone','Megaphone'],['overdrive','Overdrive'],['lofi','Lo-Fi']]},
+    audioVoice:{title:'Voice Filters',property:'voice',items:[['natural','Natural'],['clear','Clear'],['warm','Warm'],['deep','Deep'],['bright','Bright'],['radio','Radio'],['telephone','Telephone'],['soft','Soft'],['podcast','Podcast'],['broadcast','Broadcast'],['narrator','Narrator'],['rich','Rich'],['crisp','Crisp'],['cinematic','Cinematic'],['air','Air'],['smooth','Smooth'],['nasal','Nasal'],['hollow','Hollow'],['muffled','Muffled'],['walkie','Walkie-Talkie'],['intercom','Intercom'],['vintage','Vintage']]}
+  };
+  function getCfg(clip){return window.getEthvelleAudioSettings?window.getEthvelleAudioSettings(clip):(clip.audioSettings=Object.assign({effect:'none',voice:'natural',pitch:0,pan:0,fadeIn:0,fadeOut:0,enhance:55,enhanceEnabled:false,noiseReduction:false,noiseStrength:65},clip.audioSettings||{}));}
+  function choiceGrid(key,cfg){const d=audioDefs[key];return `<div class="evca-audio-panel"><div class="evca-audio-panel-title">${d.title}</div><div class="evca-audio-choice-grid">${d.items.map(([v,label])=>`<button type="button" class="evca-audio-choice ${cfg[d.property]===v?'active':''}" onclick="setEthvelleAudioSetting('${d.property}','${v}',true)">${label}</button>`).join('')}</div></div>`;}
+  function slider(id,label,value,min,max,step,unit,property){
+    const formatted=unit==='st'?(Number(value)>0?'+':'')+Number(value).toFixed(1)+' st':unit==='s'?Number(value).toFixed(1)+' s':unit==='pan'?(Number(value)<0?'L '+Math.abs(Math.round(value))+'%':Number(value)>0?'R '+Math.round(value)+'%':'Center'):Math.round(value)+'%';
+    return `<div class="evca-audio-slider-card"><div class="evca-audio-slider-head"><label for="${id}">${label}</label><output id="${id}Value">${formatted}</output></div><input class="evca-audio-slider" id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" oninput="setEthvelleAudioSetting('${property}',this.value,false);document.getElementById('${id}Value').textContent=${unit==='st'?'(Number(this.value)>0?\'+\':\'\')+Number(this.value).toFixed(1)+\' st\'':unit==='s'?'Number(this.value).toFixed(1)+\' s\'':unit==='pan'?'(Number(this.value)<0?\'L \'+Math.abs(Math.round(Number(this.value)))+\'%\':Number(this.value)>0?\'R \'+Math.round(Number(this.value))+\'%\':\'Center\')':"Math.round(Number(this.value))+'%'"}" onchange="setEthvelleAudioSetting('${property}',this.value,true)"></div>`;
+  }
+  function switchField(label,property,checked){return `<label class="evca-small-switch"><span>${label}</span><input type="checkbox" ${checked?'checked':''} onchange="setEthvelleAudioSetting('${property}',this.checked,true)"><i></i></label>`;}
+  function wirePanelRanges(host){
+    if(!host)return;
+    host.querySelectorAll('input[type="range"]').forEach(input=>{
+      const paint=()=>{const min=Number(input.min)||0,max=Number(input.max)||100,val=Number(input.value)||0;input.style.setProperty('--evca-progress',clamp(max>min?(val-min)/(max-min)*100:0,0,100)+'%');};
+      if(!input.dataset.evcaV69Range){input.addEventListener('input',paint);input.dataset.evcaV69Range='1';}
+      paint();
+    });
+  }
+  window.renderEthvelleAudioPanel=function(key){
+    const host=$('evcaAudioPanel'),clip=selectedAudio();if(!host)return;
+    if(!clip){host.innerHTML='';return;}
+    activeAudioPanel=key||activeAudioPanel;const cfg=getCfg(clip);
+    if(audioDefs[key]){host.innerHTML=choiceGrid(key,cfg);return;}
+    if(key==='audioAdjust'){
+      host.innerHTML=`<div class="evca-audio-panel"><div class="evca-audio-panel-title">Audio Adjustment</div>${slider('evcaAudioPitchV69','Pitch',cfg.pitch,-12,12,.5,'st','pitch')}${slider('evcaAudioPanV69','Stereo Balance',cfg.pan,-100,100,1,'pan','pan')}${slider('evcaAudioFadeInV69','Fade In',cfg.fadeIn,0,8,.1,'s','fadeIn')}${slider('evcaAudioFadeOutV69','Fade Out',cfg.fadeOut,0,8,.1,'s','fadeOut')}</div>`;wirePanelRanges(host);return;
+    }
+    if(key==='audioEnhance'){
+      host.innerHTML=`<div class="evca-audio-panel">${switchField('Enable enhancement','enhanceEnabled',!!cfg.enhanceEnabled)}${slider('evcaAudioEnhanceV69','Enhance Amount',cfg.enhance,0,100,1,'%','enhance')}<button type="button" class="evca-audio-apply-btn" ${cfg.enhanceEnabled?'':'disabled'} onclick="ethvelleApplyAudioProcess('enhance')">Apply Enhancement</button></div>`;wirePanelRanges(host);return;
+    }
+    if(key==='audioNoise'){
+      host.innerHTML=`<div class="evca-audio-panel">${switchField('Remove background noise','noiseReduction',!!cfg.noiseReduction)}${slider('evcaAudioNoiseV69','Reduction Strength',cfg.noiseStrength,0,100,1,'%','noiseStrength')}<button type="button" class="evca-audio-apply-btn" ${cfg.noiseReduction?'':'disabled'} onclick="ethvelleApplyAudioProcess('noise')">Apply Noise Reduction</button></div>`;wirePanelRanges(host);return;
+    }
+  };
+  function refreshLiveAudio(clip){
+    try{
+      const now=Number(currentAbsoluteTimeSec)||0;
+      const t=now>=Number(clip.trimStart)&&now<Number(clip.trimEnd)?now:Math.max(0,Number(clip.trimStart)||0)+.01;
+      if(typeof window.renderAudioOverlayMedia==='function')window.renderAudioOverlayMedia(t);
+    }catch(e){console.warn('Ethvelle audio preview update:',e);}
+  }
+  function restartAudioOnce(clip){
+    try{
+      if(typeof window.pausePlayback==='function')window.pausePlayback();
+      if(typeof window.setCurrentAbsoluteTime==='function')window.setCurrentAbsoluteTime(Math.max(0,Number(clip.trimStart)||0));
+      if(typeof window.renderFrame==='function')window.renderFrame();
+      if(typeof window.startPlayback==='function')window.startPlayback();
+      // Re-arm selected clip UI after the player has started; this is one single restart call.
+      selectedClip=clip.id;selectedKfIdx=null;
+      requestAnimationFrame(()=>{document.querySelectorAll('.overlay-clip.selected').forEach(el=>el.classList.remove('selected'));const node=[...document.querySelectorAll('.overlay-clip[data-overlay-id]')].find(el=>String(el.getAttribute('data-overlay-id'))===String(clip.id));if(node)node.classList.add('selected');if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();});
+    }catch(e){console.warn('Audio autoplay:',e);}
+  }
+  window.setEthvelleAudioSetting=function(property,value,commit){
+    const clip=selectedAudio();if(!clip)return;
+    const cfg=getCfg(clip);
+    if(property==='effect'&&(window.__EV_AUDIO_EFFECT_KEYS||['none','echo','studio']).includes(String(value)))cfg.effect=String(value);
+    else if(property==='voice')cfg.voice=String(value);
+    else if(property==='pitch')cfg.pitch=clamp(value,-12,12);
+    else if(property==='pan')cfg.pan=clamp(value,-100,100);
+    else if(property==='fadeIn'||property==='fadeOut')cfg[property]=clamp(value,0,8);
+    else if(property==='enhance')cfg.enhance=clamp(value,0,100);
+    else if(property==='enhanceEnabled')cfg.enhanceEnabled=!!value;
+    else if(property==='noiseStrength')cfg.noiseStrength=clamp(value,0,100);
+    else if(property==='noiseReduction')cfg.noiseReduction=!!value;
+    refreshLiveAudio(clip);
+    if(commit){try{if(typeof window.persistProjectState==='function')window.persistProjectState();}catch(e){console.warn('Audio setting save:',e);}if(activeAudioPanel)window.renderEthvelleAudioPanel(activeAudioPanel);
+      // Selecting an effect/voice preset restarts playback exactly once from this clip's start.
+      if(property==='effect'||property==='voice')restartAudioOnce(clip);
+    }
+  };
+  const processBase=window.ethvelleProcessSelectedAudio;
+  window.ethvelleApplyAudioProcess=async function(mode){
+    const clip=selectedAudio();if(!clip||typeof processBase!=='function')return;
+    const cfg=getCfg(clip);
+    if(mode==='enhance'&&!cfg.enhanceEnabled){if(typeof window.showToast==='function')window.showToast('Enable enhancement before applying',{duration:1500});return;}
+    if(mode==='noise'&&!cfg.noiseReduction){if(typeof window.showToast==='function')window.showToast('Enable noise reduction before applying',{duration:1500});return;}
+    await window.ethvelleProcessSelectedAudio(mode);
+  };
+  if(typeof processBase==='function'&&!processBase.__evcaV69){
+    const wrapped=async function(mode){const clip=selectedAudio();const beforeMode=clip&&clip.audioProcessedMode;const beforeSrc=clip&&clip.src;const beforeAsset=clip&&clip.audioProcessedAssetKey;await processBase.apply(this,arguments);const applied=!!(clip&&clip.audioProcessedMode===mode&&(beforeMode!==mode||clip.src!==beforeSrc||clip.audioProcessedAssetKey!==beforeAsset));if(applied&&typeof window.closePanel==='function')window.closePanel();};
+    wrapped.__evcaV69=true;window.ethvelleProcessSelectedAudio=wrapped;
+    window.ethvelleApplyAudioProcess=async function(mode){const clip=selectedAudio();if(!clip)return;const cfg=getCfg(clip);if(mode==='enhance'&&!cfg.enhanceEnabled){if(typeof window.showToast==='function')window.showToast('Enable enhancement before applying',{duration:1500});return;}if(mode==='noise'&&!cfg.noiseReduction){if(typeof window.showToast==='function')window.showToast('Enable noise reduction before applying',{duration:1500});return;}return window.ethvelleProcessSelectedAudio(mode);};
+  }
+  /* Give all audio panel openings the v69 renderer after the legacy panel shell is created. */
+  const openBase=window.openPanel;
+  if(typeof openBase==='function'&&!openBase.__evcaV69){
+    const wrapped=function(key){const result=openBase.apply(this,arguments);if(['audioEffects','audioVoice','audioAdjust','audioEnhance','audioNoise'].includes(key)){requestAnimationFrame(()=>window.renderEthvelleAudioPanel(key));}return result;};
+    wrapped.__evcaV69=true;window.openPanel=wrapped;
+  }
+  document.addEventListener('click',e=>{
+    if(e.target.closest('#evcaCustomMotionHud .evca-motion-top .evca-motion-btn')){
+      setTimeout(()=>{const btn=$('transportZoomBtn');if(btn){btn.setAttribute('aria-pressed','false');btn.title='Zoom canvas';}},0);
+    }
+  },true);
+})();
+</script>
+
+ 
+
+<!-- Ethvelle v70: embedded canvas zoom, per-layer mirror/masks, animation FX, audio apply UX and gesture lock. -->
+<style id="ethvelle-v70-final-css">
+  /* The zoom control is always present and slightly smaller than the other transport controls. */
+  #transportZoomBtn.transport-zoom-btn{display:inline-flex!important;flex:0 0 30px!important;width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;padding:0!important;border-radius:50%!important;background:#202027!important;border:1px solid #343541!important;color:#E8ECF8!important;box-shadow:none!important;}
+  #transportZoomBtn.transport-zoom-btn svg{width:15px!important;height:15px!important;}
+  #transportZoomBtn[aria-pressed="true"]{background:#2F5CE8!important;border-color:#2F5CE8!important;color:#fff!important;}
+  /* Stop the historical custom-animation studio from replacing the editor. */
+  #screen-editor.evca-inline-zoom-active>.timeline-area,
+  #screen-editor.evca-inline-zoom-active>.transport-row,
+  #screen-editor.evca-inline-zoom-active>.bottom-tools{display:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom{position:fixed!important;inset:0!important;z-index:99980!important;width:100vw!important;height:100vh!important;height:100dvh!important;min-height:0!important;padding:0!important;margin:0!important;box-sizing:border-box!important;background:#08090D!important;overflow:hidden!important;display:flex!important;align-items:center!important;justify-content:center!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom.evca-inline-zoom-tall{padding:0 0 calc(62px + env(safe-area-inset-bottom))!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #canvasStage{flex:0 0 auto!important;transform-origin:center center!important;transition:none!important;max-width:none!important;max-height:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #selBoxLayer{z-index:24!important;transform-origin:center center!important;pointer-events:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #selBoxLayer .sb-btn{pointer-events:auto!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom.evca-inline-zoom-landscape #canvasStage,
+  #screen-editor .canvas-wrap.evca-inline-zoom.evca-inline-zoom-landscape #selBoxLayer{transform:rotate(90deg)!important;}
+  #evcaInlineZoomHud{position:absolute;inset:0;z-index:35;pointer-events:none;font-family:Inter,Arial,sans-serif;color:#F5F5F7;}
+  #evcaInlineZoomHud .evca-zoom-control-bar{position:absolute;left:10px;right:10px;bottom:calc(9px + env(safe-area-inset-bottom));height:48px;display:flex;flex-flow:row nowrap;align-items:center;gap:8px;padding:0 9px;border:1px solid rgba(255,255,255,.24);border-radius:13px;background:rgba(8,10,17,.72);backdrop-filter:blur(9px);-webkit-backdrop-filter:blur(9px);pointer-events:auto;box-sizing:border-box;}
+  #evcaInlineZoomHud .evca-zoom-play,#evcaInlineZoomHud .evca-zoom-out{position:static!important;flex:0 0 30px!important;width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;display:grid!important;place-items:center!important;border:0!important;border-radius:50%!important;background:transparent!important;color:#fff!important;box-shadow:none!important;pointer-events:auto!important;backdrop-filter:none!important;padding:0!important;}
+  #evcaInlineZoomHud .evca-zoom-play svg,#evcaInlineZoomHud .evca-zoom-out svg{width:19px;height:19px;display:block;fill:currentColor;stroke:currentColor;}
+  #evcaInlineZoomHud .evca-zoom-time{flex:0 0 auto;min-width:36px;text-align:center;font-size:11px;font-weight:700;font-variant-numeric:tabular-nums;color:#fff;white-space:nowrap;}
+  #evcaInlineZoomHud .evca-zoom-scrub-wrap{position:relative!important;left:auto!important;right:auto!important;bottom:auto!important;flex:1 1 auto;min-width:40px;height:24px;display:flex;align-items:center;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;backdrop-filter:none!important;pointer-events:auto!important;}
+  #evcaInlineZoomHud .evca-zoom-scrub-track{height:24px;width:100%;position:relative;display:flex;align-items:center;}
+  #evcaInlineZoomHud input[type=range]{position:relative;z-index:3;width:100%;height:24px;margin:0;background:transparent;accent-color:#2F5CE8;touch-action:pan-x!important;}
+  #evcaInlineZoomHud input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(90deg,#2F5CE8 var(--ev-range-progress,0%),rgba(255,255,255,.32) var(--ev-range-progress,0%));}
+  #evcaInlineZoomHud input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:13px;height:13px;margin-top:-4.5px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;box-shadow:0 0 0 2px rgba(47,92,232,.25);}
+  #evcaInlineZoomHud input[type=range]::-moz-range-track{height:4px;border-radius:4px;background:rgba(255,255,255,.32);}
+  #evcaInlineZoomHud input[type=range]::-moz-range-progress{height:4px;background:#2F5CE8;border-radius:4px;}
+  #evcaInlineZoomHud input[type=range]::-moz-range-thumb{width:10px;height:10px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;}
+  #evcaInlineZoomHud .evca-zoom-frame-open{position:static!important;flex:0 0 28px!important;width:28px!important;height:28px!important;display:grid!important;place-items:center!important;border-radius:50%!important;pointer-events:auto!important;color:#fff!important;background:transparent!important;border:0!important;backdrop-filter:none!important;padding:0!important;}
+  #evcaInlineZoomHud .evca-zoom-frame-open svg{width:17px;height:17px;display:block;}
+  @media(max-width:380px){#evcaInlineZoomHud .evca-zoom-control-bar{left:6px;right:6px;gap:5px;padding:0 6px;}#evcaInlineZoomHud .evca-zoom-time{min-width:31px;font-size:10px;}#evcaInlineZoomHud .evca-zoom-play,#evcaInlineZoomHud .evca-zoom-out{flex-basis:27px!important;width:27px!important;height:27px!important;min-width:27px!important;min-height:27px!important;}}
+  #evcaCustomMotionHud{display:none!important;}
+  /* Square character clips are enforced at every nested block level and interaction state. */
+  #timelineInner .anim-clip,#timelineInner .anim-clip *,#timelineInner .anim-clip::before,#timelineInner .anim-clip::after,
+  #timelineInner .char-row .char-row-track,#timelineInner .char-row .char-row-track .anim-clip{border-radius:0!important;}
+  /* New visual controls inherit the editor toolbar language. */
+  #bottomToolsClip .evv-context-tool{display:none;}
+  #bottomToolsClip .evv-context-tool.tool-item{flex:0 0 64px;min-width:64px;max-width:64px;}
+  #bottomToolsClip .evv-context-tool svg{width:21px;height:21px;}
+  #bottomToolsClip .evv-context-tool span{font-size:10px;white-space:nowrap;}
+  .evv-panel{display:flex;flex-direction:column;gap:13px;width:100%;padding-bottom:8px;}
+  .evv-panel-title{font-size:13px;font-weight:800;color:#F5F5F7;margin:0 0 2px;}
+  .evv-choice-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  .evv-choice{min-width:0;min-height:56px;aspect-ratio:1/1;padding:8px 5px;border:1px solid #343541;border-radius:10px;background:#202027;color:#E9ECF5;font:700 11px/1.2 Inter,Arial,sans-serif;display:flex;align-items:center;justify-content:center;text-align:center;}
+  .evv-choice.active{border:2px solid #2F5CE8!important;background:#202027!important;color:#fff!important;box-shadow:none!important;}
+  .evv-choice:focus,.evv-choice:focus-visible{outline:none!important;}
+  .evv-switch-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:32px;color:#E5E8F2;font-size:12px;font-weight:700;}
+  .evv-switch-row input{width:19px;height:19px;accent-color:#2F5CE8;}
+  .evv-slider-card{padding:12px 13px;border:1px solid #30303A;border-radius:11px;background:#17171C;}
+  .evv-slider-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:10px;color:#F5F5F7;font-size:12px;font-weight:700;}
+  .evv-slider-head output{color:#AFC2FF;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums;}
+  .evv-slider-card input[type=range]{-webkit-appearance:none!important;appearance:none!important;width:100%!important;height:18px!important;margin:0!important;padding:0!important;background:transparent!important;touch-action:pan-x!important;accent-color:#2F5CE8;}
+  .evv-slider-card input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:4px;background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--evv-progress,0%),#45495D var(--evv-progress,0%),#45495D 100%);}
+  .evv-slider-card input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:10px;height:10px;margin-top:-3px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;}
+  .evv-slider-card input[type=range]::-moz-range-track{height:4px;border-radius:4px;background:#45495D;}
+  .evv-slider-card input[type=range]::-moz-range-progress{height:4px;border-radius:4px;background:#2F5CE8;}
+  .evv-slider-card input[type=range]::-moz-range-thumb{width:10px;height:10px;border:2px solid #fff;border-radius:50%;background:#2F5CE8;}
+  #evcaV68ProcessOverlay .evca-v68-progress-card{position:relative;}
+  #evcaV68ProcessOverlay .evca-v68-progress-card #evcaV68ProgressClose{display:none!important;}
+  #evcaV68ProcessOverlay.evca-applied .evca-v68-progress-title{color:#7DE2B9;}
+  #evcaV68ProcessOverlay.evca-applied .evca-v68-progress-sub{color:#7DE2B9;font-weight:800;}
+  #timelineInner .layer-row .anim-clip,#timelineInner .anim-clip:hover,#timelineInner .anim-clip.selected,#timelineInner .anim-clip.dragging,#timelineInner .anim-clip * ,#timelineInner .anim-clip::before,#timelineInner .anim-clip::after{border-radius:0!important;}
+  #evcaV70FxCanvas{position:absolute;inset:0;width:100%;height:100%;z-index:8;pointer-events:none;display:block;}
+  @media(max-width:360px){.evv-choice{font-size:10px;}}
+</style>
+
+<script id="ethvelle-v70-visual-toolkit-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+  const isCharClip=()=>selectedClip==='main'||(typeof selectedClip==='string'&&String(selectedClip).startsWith('seg'));
+  const isAudio=()=>Array.isArray(overlays)&&overlays.some(o=>o&&String(o.id)===String(selectedClip)&&o.type==='audio');
+  const bgSelected=()=>{try{return typeof backgroundClipForSelection==='function'?backgroundClipForSelection():(Array.isArray(backgrounds)?backgrounds.find(b=>b&&b.id===selectedClip):null);}catch(_e){return null;}};
+  function visualTarget(){
+    if(isAudio())return null;
+    const bg=bgSelected();if(bg)return {kind:'background',obj:bg,transform:bg.transform||(bg.transform={scale:1,offsetX:0,offsetY:0,rotation:0})};
+    if(isCharClip()||String(selectedClip||'').startsWith('char')){
+      let idx=activeCharIdx;if(String(selectedClip||'').startsWith('char')){const n=parseInt(String(selectedClip).slice(4),10);if(Number.isInteger(n))idx=n;}
+      const ch=Array.isArray(characters)?characters[idx]:null;return ch?{kind:'character',obj:ch,transform:ch.modelTransform||{}}:null;
+    }
+    const ov=Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(selectedClip)&&['image','video','text','shape','color'].includes(o.type)):null;
+    return ov?{kind:'layer',obj:ov,transform:ov.transform||(ov.transform={scale:1,offsetX:0,offsetY:0,rotation:0})}:null;
+  }
+  function ensureContextTools(){
+    const row=$('bottomToolsClip');if(!row)return;
+    const before=$('clipForwardTool')||$('clipDuplicateTool')||null;
+    const make=(id,label,icon,path)=>{
+      let b=$(id);if(b)return b;
+      b=document.createElement('div');b.className='tool-item evv-context-tool';b.id=id;b.setAttribute('role','button');b.tabIndex=0;
+      b.innerHTML=`<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round">${path}</svg><span>${label}</span>`;
+      b.addEventListener('click',()=>window.openPanel(id==='clipMirrorTool'?'visualMirror':id==='clipMaskTool'?'visualMask':'visualEffects'));
+      b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();b.click();}});
+      row.insertBefore(b,before);return b;
+    };
+    make('clipMirrorTool','Mirror','mirror','<path d="M12 3v18M4 6h5v12H4zM15 6h5v12h-5z"/>');
+    make('clipMaskTool','Mask','mask','<path d="M4 4h16v16H4z"/><circle cx="12" cy="12" r="5"/><path d="M4 12h3m10 0h3"/>');
+    make('clipEffectsTool','Effects','fx','<path d="M12 2l1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8z"/><path d="M19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L17 19z"/>');
+  }
+  function syncContextTools(){
+    ensureContextTools();const target=visualTarget();
+    ['clipMirrorTool','clipMaskTool','clipEffectsTool'].forEach(id=>{const el=$(id);if(el)el.style.display=target?'flex':'none';});
+    const fx=$('clipEffectsTool');if(fx)fx.querySelector('span').textContent=target&&target.kind==='character'?'Char FX':'Effects';
+    const zoom=$('transportZoomBtn');if(zoom){zoom.style.display='inline-flex';zoom.setAttribute('aria-pressed',String(inlineZoom));zoom.title=inlineZoom?'Exit canvas zoom':'Zoom canvas';}
+  }
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evv70){const wrapped=function(){const r=oldSync.apply(this,arguments);syncContextTools();return r;};wrapped.__evv70=true;window.syncBottomToolsMode=wrapped;}
+
+  /* ---------- Persistent mirror and mask state ---------- */
+  function getMask(obj){
+    if(!obj)return {shape:'none',x:0,y:0,width:70,height:70,rotation:0,feather:0,invert:false};
+    obj.visualMask=Object.assign({shape:'none',x:0,y:0,width:70,height:70,size:100,rotation:0,feather:0,invert:false},obj.visualMask||{});
+    return obj.visualMask;
+  }
+  function mirrorStore(t){return t&&t.kind==='background'?t.transform:(t&&t.obj)||{};}
+  function targetMirror(t){const obj=mirrorStore(t);return {x:!!obj.mirrorX,y:!!obj.mirrorY};}
+  window.setEthvelleMirror=function(axis){const t=visualTarget();if(!t)return;const key=axis==='y'?'mirrorY':'mirrorX',store=mirrorStore(t);store[key]=!store[key];if(t.kind==='background')t.obj[key]=store[key];refreshVisual();renderVisualPanel('visualMirror');};
+  window.resetEthvelleMirror=function(){const t=visualTarget();if(!t)return;const store=mirrorStore(t);store.mirrorX=false;store.mirrorY=false;if(t.kind==='background'){t.obj.mirrorX=false;t.obj.mirrorY=false;}refreshVisual();renderVisualPanel('visualMirror');};
+  function pathData(mask,w,h){
+    const cx=w*(.5+clamp(mask.x,-45,45)/100),cy=h*(.5+clamp(mask.y,-45,45)/100),scale=clamp(mask.size==null?100:mask.size,25,140)/100,mw=w*clamp(mask.width*scale,5,100)/100,mh=h*clamp(mask.height*scale,5,100)/100;
+    const l=cx-mw/2,r=cx+mw/2,t=cy-mh/2,b=cy+mh/2,shape=mask.shape||'none';
+    let d='';
+    if(shape==='circle')d=`M ${cx} ${t} A ${mw/2} ${mh/2} 0 1 1 ${cx-.001} ${t} Z`;
+    else if(shape==='rectangle')d=`M ${l} ${t} H ${r} V ${b} H ${l} Z`;
+    else if(shape==='linear')d=`M ${cx} ${cy-mh} L ${cx+mw} ${cy+mh} L ${cx+mw} ${cy+mh*1.2} L ${cx-mw} ${cy-mh*1.2} Z`;
+    else if(shape==='mirror')d=`M ${l} ${t} H ${r} V ${b} H ${l} Z`;
+    else if(shape==='heart'){
+      const top=cy-mh*.26;
+      d=`M ${cx} ${b} C ${l-mw*.08} ${cy+mh*.18}, ${l} ${top}, ${cx-mw*.25} ${top} C ${cx-mw*.08} ${cy-mh*.62}, ${cx} ${cy-mh*.28}, ${cx} ${cy-mh*.05} C ${cx} ${cy-mh*.28}, ${cx+mw*.08} ${cy-mh*.62}, ${cx+mw*.25} ${top} C ${r} ${top}, ${r+mw*.08} ${cy+mh*.18}, ${cx} ${b} Z`;
+    }else if(shape==='star'){
+      const pts=[];for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,rr=i%2?0.23:0.5;pts.push([cx+Math.cos(a)*mw*rr,cy+Math.sin(a)*mh*rr]);}d=pts.map((p,i)=>(i?'L':'M')+' '+p[0]+' '+p[1]).join(' ')+' Z';
+    }
+    if(!d)return '';
+    const rot=clamp(mask.rotation,-180,180);return `<path d="${d}" transform="rotate(${rot} ${cx} ${cy})"/>`;
+  }
+  function pathDataSvg(mask){
+    const scale=clamp(mask.size==null?100:mask.size,25,140)/100,x=500+clamp(mask.x,-45,45)*10,y=500+clamp(mask.y,-45,45)*10,w=clamp(mask.width*scale,5,100)*10,h=clamp(mask.height*scale,5,100)*10,l=x-w/2,r=x+w/2,t=y-h/2,b=y+h/2;
+    let d='';
+    if(mask.shape==='circle')d=`M ${x} ${t} A ${w/2} ${h/2} 0 1 1 ${x-.01} ${t} Z`;
+    else if(mask.shape==='rectangle'||mask.shape==='mirror')d=`M ${l} ${t} H ${r} V ${b} H ${l} Z`;
+    else if(mask.shape==='linear')d=`M ${x} 0 L 1000 1000 L 1000 1000 L 0 1000 Z`;
+    else if(mask.shape==='heart')d=`M ${x} ${b} C ${l-24} ${y+28}, ${l} ${y-15}, ${x-w*.25} ${y-h*.12} C ${x-w*.08} ${y-h*.6}, ${x} ${y-h*.25}, ${x} ${y-h*.06} C ${x} ${y-h*.25}, ${x+w*.08} ${y-h*.6}, ${x+w*.25} ${y-h*.12} C ${r} ${y-15}, ${r+24} ${y+28}, ${x} ${b} Z`;
+    else if(mask.shape==='star'){const pts=[];for(let i=0;i<10;i++){const a=-Math.PI/2+i*Math.PI/5,rr=i%2?.23:.5;pts.push([x+Math.cos(a)*w*rr,y+Math.sin(a)*h*rr]);}d=pts.map((p,i)=>(i?'L':'M')+' '+p[0]+' '+p[1]).join(' ')+' Z';}
+    return d?`<path d="${d}" transform="rotate(${clamp(mask.rotation,-180,180)} ${x} ${y})"/>`:'';
+  }
+  window.ethvelleApplyCanvasMaskClip=function(ctx,mask,w,h){
+    if(!ctx||!mask||!mask.shape||mask.shape==='none'||typeof Path2D==='undefined')return;
+    try{
+      const pData=pathData(mask,w,h);if(!pData)return;

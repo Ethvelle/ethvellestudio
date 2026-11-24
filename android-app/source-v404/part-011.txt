@@ -1,0 +1,1000 @@
+          hipRestY: rig.bones.hip.y,
+          clip: c.clip ? JSON.parse(JSON.stringify(c.clip)) : null,
+          segments: (c.segments||[]).map(s=>({...s, keyframes:(s.keyframes||[]).map(k=>({...k}))})),
+          // A custom (image-based) character's uploaded parts  -  see persistProjectState's
+          // matching save of these fields and PART_SLOTS for what `parts` contains. Older
+          // saves (or a plain stickman) simply have no `type`/`parts`/`rigOverride`/`autoRig`
+          // at all. `rigOverride` re-shapes the fresh rig above to this character's own
+          // detected proportions (see applyRigOverride); `autoRig` (source image + joints) is
+          // only needed if the user reopens "Rig my art" on this character later.
+          type: c.type,
+          parts: c.parts ? JSON.parse(JSON.stringify(c.parts)) : undefined,
+          rigOverride: c.rigOverride ? JSON.parse(JSON.stringify(c.rigOverride)) : undefined,
+          autoRig: c.autoRig ? JSON.parse(JSON.stringify(c.autoRig)) : undefined,
+          modelType: c.modelType || undefined,
+          thumb: c.thumb || undefined,
+          sheet: c.sheet ? JSON.parse(JSON.stringify(c.sheet)) : undefined,
+          expr: c.expr ? JSON.parse(JSON.stringify(c.expr)) : undefined,
+          handProps: c.handProps ? JSON.parse(JSON.stringify(c.handProps)) : undefined,
+          assetId: c.assetId || undefined,
+          // skinMesh itself is NOT persisted (see persistProjectState)  -  it's fully derivable
+          // from autoRig.sourceImage+joints, which already are, so it's cheaply rebuilt below
+          // (rebuildSkinMeshesForCharacters) once the source images finish decoding, instead
+          // of bloating every project save with a duplicate copy of the same geometry.
+          skinMesh: null
+        };
+      });
+    }
+    initStickman();
+    // Warm every restored custom character's image cache on the live canvas before the
+    // first real renderFrame() below draws them, same reasoning as
+    // finishCustomCharacterBuild's preload call.
+    if(characters.some(c=>c.type==='custom')){
+      preloadCustomCharacterImages(ctx, characters)
+        .then(()=>rebuildSkinMeshesForCharacters(characters))
+        .then(renderFrame);
+    }
+    if(migratedTransform && activeCharacter()){
+      modelTransform = activeCharacter().modelTransform = migratedTransform;
+      activeCharacter().restTransform = { ...migratedTransform };
+    }
+    // Old pre-multi-character saves kept their clip/segments at the top level instead of on
+    // the character  -  apply that migrated data onto the single character initStickman() just
+    // created, then re-point the shared refs at it so it behaves exactly like a native
+    // per-character clip from here on.
+    if(typeof migratedClip !== 'undefined' && activeCharacter()){
+      activeCharacter().clip = migratedClip;
+      activeCharacter().segments = migratedSegments || [];
+      syncActiveCharacterRefs();
+    }
+    if(currentAnimKey && activeCharacter()){ hipRestY = bones.hip.y; activeCharacter().hipRestY = hipRestY; }
+    initTimelineScrub();
+    renderOverlayLayers();
+    renderBackgroundTrack();
+    renderCharacterLayers(); // rebuilds every character row AND the active one's clip markup
+    // BUGFIX: explicit safety-net call so the 1s/2s/... ruler is guaranteed to be drawn the
+    // moment the editor opens, independent of whether any character row happened to exist
+    // yet by the time renderCharacterLayers() ran above (see renderTimelineClip's own fix).
+    renderRuler();
+    renderFrame();
+    resetHistory();
+    syncPlayheadHeight();
+    requestAnimationFrame(movePlayhead);
+    queueProjectFirstFrameCover(500);
+  });
+}
+function ratioLabel(r){ return r; }
+
+function exitEditor(){
+  pausePlayback();
+  persistProjectState({skipHistory:true});
+  const projForThumb=currentProject;
+  // Save a frame-zero snapshot synchronously for browsers that suspend async work while leaving.
+  captureProjectFirstFrameCoverSync(projForThumb);
+  // Also preserve the site's full preview renderer, which includes the current background and rig pose.
+  // If the browser permits the async work to finish, it replaces the quick fallback with the richer cover.
+  generateProjectThumbnail().then(thumb=>{
+    if(!thumb || !projForThumb || (currentProject && currentProject.id!==projForThumb.id)) return;
+    saveProjectThumbnailResult(projForThumb,thumb);
+  });
+  goTo('projects');
+  renderProjects();
+}
+
+function setupCanvasStage(ratio){
+  const wrap = document.querySelector('.canvas-wrap');
+  const stage = document.getElementById('canvasStage');
+  const [rw, rh] = ratio.split(':').map(Number);
+  // Portrait projects use a tighter canvas gutter, like CapCut, so they can use more of the
+  // preview area. Measure the actual content box after applying the ratio class: the old
+  // fixed width/height deductions could leave unused space or make WebView squeeze the stage.
+  wrap.classList.toggle('canvas-wrap-portrait', rh > rw);
+  const wrapRect = wrap.getBoundingClientRect();
+  const wrapCS = getComputedStyle(wrap);
+  const wrapInnerW = wrap.clientWidth - (parseFloat(wrapCS.paddingLeft)||0) - (parseFloat(wrapCS.paddingRight)||0);
+  const wrapInnerH = wrap.clientHeight - (parseFloat(wrapCS.paddingTop)||0) - (parseFloat(wrapCS.paddingBottom)||0);
+  const maxW = wrapInnerW > 0 ? wrapInnerW : Math.max(1, wrapRect.width - 32);
+  const maxH = wrapInnerH > 0 ? wrapInnerH : Math.max(1, wrapRect.height - 20);
+  let w = maxW, h = w * (rh/rw);
+  if(window.__ethvelleInlineZoomFullscreen && (rw/rh)>=1.70){
+    // Keep the project ratio fixed; fit the unrotated 16:9 frame inside the current
+    // viewport. Device rotation changes the available bounds, never the canvas axes.
+    const aspect=rw/rh;
+    w=Math.min(maxW,maxH*aspect);
+    h=w/aspect;
+    stage.style.transform='none';
+    stage.style.transformOrigin='50% 50%';
+  } else if(window.__ethvelleCustomAnimationMode && (rw/rh) >= 1.70 && window.innerHeight > window.innerWidth){
+    // The retired custom studio also uses the same stable, unrotated project frame.
+    w = Math.min(maxW, maxH * (rw/rh));
+    h = w * (rh/rw);
+    stage.style.transform = 'none';
+    stage.style.transformOrigin = '50% 50%';
+  } else {
+    if(h > maxH){ h = maxH; w = h * (rw/rh); }
+    stage.style.transform = 'none';
+    stage.style.transformOrigin = '50% 50%';
+  }
+  // Keep the preview frame locked to the selected project ratio. Explicitly disable
+  // flex shrinking: Android WebView can otherwise reduce the width while retaining the
+  // computed height during an orientation change, making a landscape frame look vertically stretched.
+  stage.style.flex = '0 0 auto';
+  stage.style.aspectRatio = rw+' / '+rh;
+  stage.style.width = w+'px';
+  stage.style.height = h+'px';
+  applyBackground();
+
+  const canvas = document.getElementById('stickCanvas');
+  // Use a crisp high-DPI backing surface while capping very large mobile DPRs to avoid
+  // memory spikes during transforms. Round backing dimensions to whole device pixels.
+  const deviceDpr = Math.max(1, Number(window.devicePixelRatio) || 1);
+  const zoomPreview = !!(wrap.classList.contains('evca-inline-zoom') || window.__ethvelleInlineZoomFullscreen);
+  const requestedDpr = zoomPreview ? Math.min(1.65, deviceDpr) : Math.min(4, Math.max(2.5, deviceDpr));
+  const pixelBudgetDpr = Math.sqrt((zoomPreview ? 7000000 : 18000000) / Math.max(1, w * h));
+  const stageDpr = Math.max(1, Math.min(requestedDpr, pixelBudgetDpr));
+  canvas.width = Math.max(1, Math.round(w * stageDpr));
+  canvas.height = Math.max(1, Math.round(h * stageDpr));
+  ctx = canvas.getContext('2d', { alpha:true });
+  const stageScaleX = canvas.width / Math.max(1, w);
+  const stageScaleY = canvas.height / Math.max(1, h);
+  ctx.setTransform(stageScaleX,0,0,stageScaleY,0,0);
+  ctx.imageSmoothingEnabled = true;
+  try { ctx.imageSmoothingQuality = 'high'; } catch(_e) {}
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
+  ctx.miterLimit = 2;
+  stageW = w; stageH = h;
+  updateSelBox(); // stage changed size/position  -  re-anchor the selection box to it
+}
+
+/* ---------------- Stick figure rig (test character) ---------------- */
+let ctx, stageW, stageH;
+// FEATURE ("I dident able to add multiple background"): the Background row used to hold
+// exactly one image/color for the ENTIRE project (`currentBg`, a single string)  -  there was
+// no way to place a second background anywhere on the timeline at all. `backgrounds` is now
+// an array of clips, same shape as an overlay clip  -  {id, src|color, trimStart, trimEnd,
+// transform}  -  placed sequentially along the Background row exactly like the Clips row, so a
+// project can switch from one background image to another at a chosen point in time instead
+// of being stuck with a single background forever. `currentBg` and `bgTransform` below are
+// now DERIVED, read-only views of "whichever background clip covers the current playhead
+// time" (see currentBackgroundClip()/refreshCurrentBgFromPlayhead())  -  kept as real variables
+// (rather than deleted outright) purely so the ~25 existing render/export/persist call sites
+// that already read `currentBg`/`bgTransform` keep working completely unchanged; every WRITE
+// to background data now goes through `backgrounds[]` instead of assigning these directly.
+let backgrounds = [];
+let currentBg = null;
+// Pan/zoom applied to the background IMAGE only (irrelevant for solid-color backgrounds).
+// Independent of modelTransform, which only moves the stick figure. `rotation` added so the
+// same Transform panel (size/position/rotation) that already edits the stickman can drive
+// the Background too  -  see updateTransform's selectedClip-aware BUGFIX note. Now the ACTIVE
+// background clip's own transform object (see currentBackgroundClip) rather than one single
+// shared object  -  each background clip keeps its own independent pan/zoom/rotation.
+let bgTransform = { scale:1, offsetX:0, offsetY:0, rotation:0 };
+// True for the exact duration of a background-row edge drag (see wireBackgroundTrackInteractions)
+//  -  lets syncTimelineInnerWidth() know to skip rebuilding the background track while that
+// drag's pointer capture is still live. See the BUGFIX notes at both call sites for why.
+let bgHandleDragActive = false;
+const MIN_CLIP_SEC = 0.1;
+// Default length for a newly-added background clip (matches DEFAULT_CLIP_LEN's role for
+// animation clips)  -  used when appending a new background after the last existing one.
+// UPDATED: every newly-added background clip is now 5 seconds long, exactly like a newly-added
+// animation clip (DEFAULT_CLIP_LEN, 5s)  -  previously 2s, so a background looked much shorter
+// than the character clip sitting right under it on the timeline. Kept as its own constant
+// (rather than aliasing DEFAULT_CLIP_LEN directly) because DEFAULT_CLIP_LEN is declared later
+// in the file than this line; a literal 5 avoids a temporal-dead-zone ReferenceError.
+const BG_DEFAULT_DURATION = 5.0;
+// Legacy mirror of "the active background clip's own length"  -  no code should treat this as
+// authoritative anymore (see backgrounds[] above); kept in sync by refreshCurrentBgFromPlayhead
+// purely so old-format save/export/history code paths that still read it see a sane value.
+let bgDuration = BG_DEFAULT_DURATION;
+// Returns the background clip that actually covers a given absolute timeline second (the
+// last one whose trimStart is at/before `t`, matching "sequential, switches as playback
+// reaches each one"  -  the same rule a video track uses to decide what's "playing" at time t).
+// Falls back to the first clip if `t` is before everything (e.g. the very start of the
+// project), and to null if there are no background clips at all yet.
+function currentBackgroundClip(t){
+  if(!backgrounds.length) return null;
+  if(!isPlaying && selectedClip!=null){
+    const selectedEnd=backgrounds.find(b=>String(b.id)===String(selectedClip)&&Math.abs(Number(t)-Number(b.trimEnd))<=0.001);
+    if(selectedEnd)return selectedEnd;
+  }
+  const sorted = backgrounds; // kept sorted by trimStart at all times (see resolveBgClipOverlaps)
+  let match = sorted[0];
+  for(const b of sorted){ if(b.trimStart <= t + 0.0001) match = b; else break; }
+  return match;
+}
+// Re-points the legacy currentBg/bgTransform variables at whichever background clip covers
+// the current playhead time, so every existing renderer/exporter that reads those two
+// globals directly (applyBackground, the export canvas passes, persistProjectState, etc.)
+// keeps behaving exactly as before with zero changes on their end. Call this any time the
+// playhead moves or the backgrounds array changes.
+function refreshCurrentBgFromPlayhead(){
+  const time=getCurrentAbsoluteTime();
+  const clip = currentBackgroundClip(time);
+  currentBg = clip ? clip.src : null;
+  bgTransform = clip ? (ethvelleGetObjectKeyframeValue(clip,'transform',time)||clip.transform) : { scale:1, offsetX:0, offsetY:0, rotation:0 };
+  // Legacy field, kept only so a project saved by this version and later opened by old code
+  // (or old saves' own migration fallback) still has a sane single-clip length to read.
+  bgDuration = clip ? (clip.trimEnd - clip.trimStart) : BG_DEFAULT_DURATION;
+}
+
+
+// Single place that actually paints `currentBg` onto the stage. Solid colors go on the
+// stage's own CSS background-color; image URLs go on the dedicated #bgImgLayer <img> so
+// bgTransform (pinch/pan) can move it independently via a CSS transform.
+function applyBackground(){
+  const stage = document.getElementById('canvasStage');
+  const img = document.getElementById('bgImgLayer');
+  if(!stage || !img) return;
+  if(currentBg && String(currentBg).startsWith('url(')){
+    const url = String(currentBg).slice(4,-1).replace(/^['"]|['"]$/g,'');
+    let changed = false;
+    if(img.dataset.src !== url){ img.src = url; img.dataset.src = url; changed = true; }
+    if(img.style.display !== 'block'){ img.style.display = 'block'; changed = true; }
+    if(stage.dataset.evAppliedBg !== '#ffffff'){
+      stage.style.background = '#ffffff';
+      stage.dataset.evAppliedBg = '#ffffff';
+      changed = true;
+    }
+    // A scrub typically keeps the same background clip for many frames. Avoid rewriting its
+    // transform and calling updateSelBox() on every one of those frames; both can force style
+    // and layout work in the mobile WebView. When the active background or its transform really
+    // changes, update them immediately.
+    const tr = bgTransform || {};
+    const transformKey = [Number(tr.offsetX)||0,Number(tr.offsetY)||0,Number(tr.rotation)||0,Number(tr.scale)||1].join('|');
+    if(img.dataset.evBgTransform !== transformKey){
+      img.style.transform = `translate(${Number(tr.offsetX)||0}px, ${Number(tr.offsetY)||0}px) rotate(${Number(tr.rotation)||0}deg) scale(${Number(tr.scale)||1})`;
+      img.dataset.evBgTransform = transformKey;
+      changed = true;
+    }
+    const boxKey = transformKey + '|' + url;
+    if(changed && img.dataset.evBgBoxKey !== boxKey){
+      // Only the active image/transform changed; don't recalculate the selection box on every
+      // scrub tick while the same background remains active.
+      updateSelBox();
+      img.dataset.evBgBoxKey = boxKey;
+    }
+  } else {
+    if(img.style.display !== 'none') img.style.display = 'none';
+    if(img.hasAttribute('src')) img.removeAttribute('src');
+    delete img.dataset.src;
+    delete img.dataset.evBgTransform;
+    delete img.dataset.evBgBoxKey;
+    const color = currentBg || '#ffffff';
+    if(stage.dataset.evAppliedBg !== color){ stage.style.background = color; stage.dataset.evAppliedBg = color; }
+  }
+}
+
+function applyBgTransform(){
+  const img = document.getElementById('bgImgLayer');
+  if(!img || img.style.display==='none') return;
+  img.style.transform = `translate(${bgTransform.offsetX}px, ${bgTransform.offsetY}px) rotate(${bgTransform.rotation||0}deg) scale(${bgTransform.scale})`;
+  updateSelBox();
+}
+function resetBgTransform(persist){
+  // bgTransform is a reference to the ACTIVE background clip's own transform object (see
+  // refreshCurrentBgFromPlayhead)  -  mutate its fields in place rather than reassigning the
+  // variable, so this reset actually lands on the right clip's stored data, not just a
+  // detached local copy that gets overwritten the next time the playhead moves.
+  const clip = currentBackgroundClip(getCurrentAbsoluteTime());
+  const target = clip ? clip.transform : bgTransform;
+  target.scale = 1; target.offsetX = 0; target.offsetY = 0; target.rotation = 0;
+  bgTransform = target;
+  applyBgTransform();
+  if(persist) persistProjectState();
+}
+
+// ---------------- Multi-character support ----------------
+// Every character owns its own independent rig (bones/baseAngles), model transform, and
+// hipRestY. `bones`, `baseAngles`, `modelTransform`, and `hipRestY` below are kept as the
+// SAME plain variable names every existing function already reads/writes (drawStick,
+// applyPoseToBones, updateTransform, export, save/load, undo/redo, etc.) so none of those
+// ~170 call sites need to change  -  but they now always refer to whichever character is
+// currently active. Switching the active character re-points these to that character's own
+// objects; posing/transforming one character never touches another's.
+let characters = []; // [{ id, name, bones, baseAngles, modelTransform, hipRestY }]
+let activeCharIdx = 0;
+function activeCharacter(){ return characters[activeCharIdx] || null; }
+function makeCharacterId(){ return 'char_'+Date.now().toString(36)+Math.random().toString(36).slice(2,7); }
+
+// Bone hierarchy: each has a length, base angle (radians), and current angle offset (posable)
+let bones; // always === activeCharacter().bones  -  see syncActiveCharacterRefs()
+let baseAngles = {}; // rest-pose angles, used as the anchor for animation offsets  -  always === activeCharacter().baseAngles
+let selectedJoint = null;
+let dragging = false;
+
+// Model transform (size / position / rotation) applied on top of the rig  -  always === activeCharacter().modelTransform
+let modelTransform = { scale:1, offsetX:0, offsetY:0, rotation:0 };
+
+// Builds a brand-new rig (fresh bones + baseAngles) at the default rest pose  -  used both for
+// the very first character and for every character added afterward, so each one starts
+// posable and independent rather than sharing bone objects with any other character.
+//
+// RIG SHAPE (v2  -  elbow/knee split): each arm and leg used to be a single straight bone
+// (armL/armR/legL/legR). To support image-based custom characters (see the 9-part upload
+// system  -  buildCustomRigFromParts()) that need a real elbow and knee to bend at, every limb
+// is now TWO bones: an upper segment (armL/armR/legL/legR, unchanged names/parenting so old
+// stickman code keeps working) plus a new lower segment that attaches at the upper segment's
+// END (attachAt:1)  -  armL_lo/armR_lo/legL_lo/legR_lo. The stickman's rendering, posing, and
+// joint-drag code below all walk `Object.keys(bones)` / an explicit bone-key list, so these
+// new keys need to be added to those lists too (see drawStick, getJointList, boneEnd/boneStart
+// walkers, and the custom-character image-stamping path).
+function buildFreshRig(){
+  const cx = stageW/2;
+  const topY = stageH*0.28;
+  const freshBones = {
+    hip:     { x: cx, y: topY + stageH*0.22, angle: 0, parent:null, length:0 },
+    spine:   { parent:'hip', length: stageH*0.16, angle: -Math.PI/2 },
+    head:    { parent:'spine', length: stageH*0.09, angle: -Math.PI/2, isHead:true },
+    armL:    { parent:'spine', length: stageH*0.065, angle: Math.PI*0.85, attachAt:0.85 },
+    armL_lo: { parent:'armL', length: stageH*0.065, angle: Math.PI*0.85, attachAt:1 },
+    armR:    { parent:'spine', length: stageH*0.065, angle: -Math.PI*0.15, attachAt:0.85 },
+    armR_lo: { parent:'armR', length: stageH*0.065, angle: -Math.PI*0.15, attachAt:1 },
+    legL:    { parent:'hip', length: stageH*0.09, angle: Math.PI/2 + 0.35 },
+    legL_lo: { parent:'legL', length: stageH*0.09, angle: Math.PI/2 + 0.35, attachAt:1 },
+    legR:    { parent:'hip', length: stageH*0.09, angle: Math.PI/2 - 0.35 },
+    legR_lo: { parent:'legR', length: stageH*0.09, angle: Math.PI/2 - 0.35, attachAt:1 },
+  };
+  // Add a small, branched hand rig. Gemini supplies the per-character rest-pose points when
+  // available; these defaults keep the bones valid for older/local-only projects too.
+  ['L','R'].forEach(side=>{
+    const left = side==='L';
+    const arm = left ? 'armL_lo' : 'armR_lo';
+    const dir = left ? Math.PI : 0;
+    freshBones['hand'+side] = { parent:arm, length:stageH*0.022, angle:dir, attachAt:1 };
+    const fingers = [
+      {name:'thumb', at:0.12, off:left?-0.010:0.010, spread:left?-0.70:0.70},
+      {name:'index', at:0.34, off:left?-0.006:0.006, spread:left?-0.18:0.18},
+      {name:'middle',at:0.50, off:0, spread:0},
+      {name:'ring',  at:0.67, off:left?0.005:-0.005, spread:left?0.12:-0.12},
+      {name:'pinky', at:0.84, off:left?0.010:-0.010, spread:left?0.32:-0.32},
+    ];
+    fingers.forEach(f=>{
+      const k=f.name+side;
+      freshBones[k+'_1']={ parent:'hand'+side, length:stageH*0.012, angle:dir+f.spread, attachAt:f.at, attachOffsetX:0, attachOffsetY:stageH*f.off };
+      freshBones[k+'_2']={ parent:k+'_1', length:stageH*0.010, angle:dir+f.spread*0.65, attachAt:1 };
+    });
+  });
+  const freshBaseAngles = {};
+  Object.keys(freshBones).forEach(k => freshBaseAngles[k] = freshBones[k].angle);
+  return { bones: freshBones, baseAngles: freshBaseAngles };
+}
+// Merges an auto-rig's computed length/angle/attachAt fractions onto a freshly-built rig (see
+// buildFreshRig). Lengths are fractions of the uploaded character's own detected height, scaled
+// here to a fixed target on-stage figure height so different uploads default to a similar size
+// (the user can always rescale afterward via the existing pinch/drag model transform). Used both
+// when creating a new auto-rigged character and when restoring one from a saved project, since
+// openEditor() always rebuilds bones fresh from buildFreshRig() and never persists live bone
+// angles/lengths (see the comment on that in persistProjectState).
+const AUTO_RIG_FIGURE_HEIGHT_FRAC = 0.5;
+function applyRigOverride(rig, override){
+  if(!override) return;
+  const scale = stageH*AUTO_RIG_FIGURE_HEIGHT_FRAC;
+  Object.keys(override.lengths||{}).forEach(k=>{
+    if(rig.bones[k]) rig.bones[k].length = override.lengths[k]*scale;
+  });
+  Object.keys(override.angles||{}).forEach(k=>{
+    if(rig.bones[k]) rig.bones[k].angle = override.angles[k];
+  });
+  if(override.attachAt){
+    Object.keys(override.attachAt).forEach(k=>{
+      if(rig.bones[k] && override.attachAt[k]!=null) rig.bones[k].attachAt = Math.max(0,Math.min(1,override.attachAt[k]));
+    });
+  }
+  if(override.attachOffsets){
+    Object.keys(override.attachOffsets).forEach(k=>{
+      if(!rig.bones[k]) return;
+      const off=override.attachOffsets[k]||{};
+      rig.bones[k].attachOffsetX=(Number(off.x)||0)*scale;
+      rig.bones[k].attachOffsetY=(Number(off.y)||0)*scale;
+    });
+  }
+  // baseAngles must equal the (possibly overridden) rest angle exactly, same as buildFreshRig
+  // does  -  animation/pose deltas are added on top of this (see applyPoseToBones).
+  Object.keys(rig.bones).forEach(k=> rig.baseAngles[k] = rig.bones[k].angle);
+}
+// Every posable limb-END key that owns an upper+lower bone pair, in a fixed order used
+// throughout the rig code (drawing, joints, custom-character part mapping). 'head' and
+// 'spine' are handled separately since they aren't paired limbs.
+const LIMB_KEYS = ['armL','armR','legL','legR'];
+function lowerKey(limbKey){ return limbKey+'_lo'; }
+// Creates one new character object (own rig + own transform), does NOT add it to the
+// `characters` array or select it  -  callers decide that (see addCharacter()/initStickman()).
+// `rigOverride` (optional) is an auto-rig's computed bone lengths/angles/attachAt  -  see
+// applyRigOverride/buildRigOverrideFromJoints  -  used for auto-rigged custom characters so their
+// skeleton actually matches the uploaded artwork's proportions instead of the generic default.
+function makeCharacter(name, rigOverride){
+  const rig = buildFreshRig();
+  if(rigOverride) applyRigOverride(rig, rigOverride);
+  const defaultTransform = { scale:1, offsetX:0, offsetY:0, rotation:0 };
+  return {
+    id: makeCharacterId(),
+    name: name || ('Character '+(characters.length+1)),
+    bones: rig.bones,
+    baseAngles: rig.baseAngles,
+    modelTransform: { ...defaultTransform },
+    restTransform: { ...defaultTransform },
+    hipRestY: rig.bones.hip.y,
+    // FEATURE (default placeholder clip on add): a brand new character now starts with a
+    // real clip already sitting on its timeline row  -  the 'default' preset (see animPresets),
+    // which holds a static rest pose and drives no actual animation  -  instead of clip:null.
+    // This gives every new character something visible on the timeline immediately, and
+    // means deleteSelectedClip()'s existing "deleting a character's last/only clip deletes
+    // the character" behavior (see its own FEATURE comment) is reachable right away instead
+    // of only after the user manually picks a real animation first.
+    clip: {
+      animKey: 'default',
+      trimStart: 0,
+      trimEnd: DEFAULT_CLIP_LEN,
+      keyframes: [],
+      speed: 1
+    },
+    segments: [],          // split-off / appended clips, same shape as clip
+    rigOverride: rigOverride || undefined
+  };
+}
+// Re-points the plain `bones`/`baseAngles`/`modelTransform`/`hipRestY`/`activeClip`/
+// `splitStickmanSegments` variables at the currently-active character's own objects. MUST be
+// called after activeCharIdx changes (addCharacter, selectCharacter, deleteCharacter, undo/
+// redo, project load)  -  every drawing/posing/transform/timeline function below keeps working
+// unmodified because it only ever reads these plain names, never `characters[activeCharIdx].X`
+// directly. Because activeClip/splitStickmanSegments are re-pointed (not copied), mutating them
+// in place  -  e.g. `activeClip.trimStart = x`  -  writes straight through to the character object,
+// so no separate "save back to character" step is ever needed.
+function syncActiveCharacterRefs(){
+  invalidateCharacterRestBoundsCache();
+  const c = activeCharacter();
+  if(!c) return;
+  bones = c.bones;
+  baseAngles = c.baseAngles;
+  modelTransform = c.modelTransform;
+  hipRestY = c.hipRestY;
+  activeClip = c.clip;
+  splitStickmanSegments = c.segments;
+}
+// Whenever activeClip or splitStickmanSegments is REASSIGNED outright (activeClip = {...},
+// activeClip = null, splitStickmanSegments = [], activeClip = splitStickmanSegments.shift())
+// rather than mutated in place, the active character's own `clip`/`segments` fields must be
+// pointed at the new value too, or the change is silently lost the next time
+// syncActiveCharacterRefs() runs (e.g. switching characters and back). In-place mutations
+// (activeClip.trimStart = x, splitStickmanSegments.push(...)) never need this, since the
+// character object already shares the same underlying array/object reference.
+function syncClipRefsToCharacter(){
+  const c = activeCharacter();
+  if(!c) return;
+  c.clip = activeClip;
+  c.segments = splitStickmanSegments;
+}
+// Adds a brand-new character (own rig, own transform, default rest pose), makes it the
+// active one, and refreshes the canvas/UI to show it. This is the "add a layer" action.
+function addCharacter(){
+  const c = makeCharacter();
+  characters.push(c);
+  activeCharIdx = characters.length - 1;
+  syncActiveCharacterRefs();
+  selectedJoint = null;
+  drawStick();
+  renderCharacterLayers();
+  syncTransformSliders();
+  persistProjectState();
+  if(navigator.vibrate) navigator.vibrate(12);
+  showToast('Character added', {duration:1200});
+  return c;
+}
+// Switches which character is being posed/transformed/drawn-selected. Does not change any
+// OTHER character's pose or transform  -  it only changes which one the shared bones/
+// baseAngles/modelTransform names currently point at.
+function selectCharacter(idx){
+  if(idx<0 || idx>=characters.length) return;
+  const previousIdx=activeCharIdx;
+  activeCharIdx = idx;
+  syncActiveCharacterRefs();
+  selectedJoint = null;
+  drawStick();
+  renderCharacterLayerSelection(previousIdx,idx);
+  syncTransformSliders();
+}
+// Removes a character entirely. Always keeps at least one character in the project  -  the
+// last remaining character can't be deleted, same as the timeline never being left with a
+// completely empty stickman track.
+function deleteCharacter(idx){
+  if(characters.length<=1) { showToast("Can't delete the only character", {duration:1400}); return; }
+  if(idx<0 || idx>=characters.length) return;
+  characters.splice(idx,1);
+  if(activeCharIdx >= characters.length) activeCharIdx = characters.length-1;
+  else if(activeCharIdx > idx) activeCharIdx--;
+  syncActiveCharacterRefs();
+  selectedJoint = null;
+  drawStick();
+  renderCharacterLayers();
+  syncTransformSliders();
+  persistProjectState();
+}
+// FEATURE ("move any layer or animation character or clip forward or backward... bring one
+// clip above another or send it back"): moves the SELECTED clip/character one step in its
+// own array's paint order  -  for overlays/backgrounds, later array position = paints on top
+// (see renderOverlayMedia/canvas compositing, which already paints in array order), so this
+// simply swaps the selected item with its array-neighbor in the given direction. For a
+// character LAYER, the same swap happens in `characters[]`, which is what drawOtherCharacters
+// iterates in order  -  the active character still visually draws on top of everyone while
+// it's selected (a deliberate, separate "keep what you're editing visible/grabbable"
+// convenience  -  see drawStick's own comment), but its underlying stacking position among the
+// OTHER characters, and what happens once a different character becomes active, does move.
+// `dir` is +1 (Forward  -  swap with the next-higher item, paints more on top) or -1
+// (Backward  -  swap with the next-lower item, paints further back).
+function reorderSelectedLayer(dir){
+  if(!selectedClip) return;
+  const isStickman = selectedClip==='main' || String(selectedClip).startsWith('seg');
+  if(isStickman) return; // see syncBottomToolsMode's canReorder  -  shouldn't be reachable
+  const isCharLayer = typeof selectedClip==='string' && selectedClip.startsWith('char') && !isStickman;
+  if(isCharLayer){
+    const idx = parseInt(selectedClip.slice(4), 10);
+    const swapWith = idx + dir;
+    if(isNaN(idx) || swapWith<0 || swapWith>=characters.length) {
+      showToast(dir>0 ? "Already at the front" : "Already at the back", {duration:1200});
+      return;
+    }
+    [characters[idx], characters[swapWith]] = [characters[swapWith], characters[idx]];
+    // The active character follows its own object, not its old index, so selecting/editing
+    // continuity is preserved across the swap.
+    if(activeCharIdx===idx) activeCharIdx = swapWith;
+    else if(activeCharIdx===swapWith) activeCharIdx = idx;
+    selectedClip = 'char'+swapWith;
+    syncActiveCharacterRefs();
+    drawStick();
+    renderCharacterLayers();
+    if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+    persistProjectState();
+    return;
+  }
+  const bg = backgroundClipForSelection();
+  if(bg){
+    // Background clips are laid out strictly by trimStart (see resolveBgClipOverlaps)  - 
+    // there's no independent "paint order" separate from their time position, so Forward/
+    // Backward here means swap TIME SLOTS with the adjacent clip (the one immediately after/
+    // before it), which is the only reordering that's meaningful for a sequential row.
+    const sorted = backgrounds; // kept sorted by trimStart
+    const idx = sorted.findIndex(b=>b.id===bg.id);
+    const swapWith = idx + dir;
+    if(swapWith<0 || swapWith>=sorted.length){
+      showToast(dir>0 ? "Already the last background" : "Already the first background", {duration:1200});
+      return;
+    }
+    const other = sorted[swapWith];
+    const bgOldStart=Number(bg.trimStart)||0,otherOldStart=Number(other.trimStart)||0;
+    const bgOldKeyTimes=Array.isArray(bg.ethvelleMediaKeyframes)?bg.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+    const otherOldKeyTimes=Array.isArray(other.ethvelleMediaKeyframes)?other.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+    const aLen = bg.trimEnd-bg.trimStart, bLen = other.trimEnd-other.trimStart;
+    if(dir>0){
+      bg.trimStart = other.trimStart; bg.trimEnd = bg.trimStart+aLen;
+      other.trimStart = bg.trimEnd; other.trimEnd = other.trimStart+bLen;
+    } else {
+      other.trimStart = bg.trimStart; other.trimEnd = other.trimStart+bLen;
+      bg.trimStart = other.trimEnd; bg.trimEnd = bg.trimStart+aLen;
+    }
+    shiftTimelineKeyframesOnce(bg.ethvelleMediaKeyframes,bgOldKeyTimes,(Number(bg.trimStart)||0)-bgOldStart);
+    shiftTimelineKeyframesOnce(other.ethvelleMediaKeyframes,otherOldKeyTimes,(Number(other.trimStart)||0)-otherOldStart);
+    backgrounds.sort((a,b)=>a.trimStart-b.trimStart);
+    renderBackgroundTrack();
+    refreshCurrentBgFromPlayhead();
+    applyBackground();
+    if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+    persistProjectState();
+    return;
+  }
+  const ovIdx = overlays.findIndex(o=>String(o.id)===String(selectedClip));
+  if(ovIdx===-1) return;
+  const selectedOverlay=overlays[ovIdx];
+  const visualStackTypes=new Set(['image','video','text','shape','color']);
+  // Audio has no canvas paint order. Preserve its previous simple array-order behavior
+  // instead of applying the visual Background-layer state to an audio-only clip.
+  if(!visualStackTypes.has(selectedOverlay.type)){
+    const swapWith=ovIdx+dir;
+    if(swapWith<0||swapWith>=overlays.length){
+      showToast(dir>0 ? 'Already at the front' : 'Already at the back', {duration:1200});
+      return;
+    }
+    [overlays[ovIdx],overlays[swapWith]]=[overlays[swapWith],overlays[ovIdx]];
+    renderOverlayLayers();renderFrame();if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();persistProjectState();
+    return;
+  }
+  const startOf=o=>Number.isFinite(Number(o&&o.trimStart))?Number(o.trimStart):0;
+  const endOf=o=>Number.isFinite(Number(o&&o.trimEnd))?Number(o.trimEnd):startOf(o);
+  const selectedStart=startOf(selectedOverlay), selectedEnd=endOf(selectedOverlay);
+  // Only clips that actually overlap this clip in time can affect its visible stacking.
+  // Non-overlapping clips are skipped, so one tap always changes the visible order instead
+  // of silently swapping with a clip that is not on the canvas at the same time.
+  const overlappingVisuals=overlays.map((item,index)=>({item,index})).filter(entry=>{
+    if(entry.index===ovIdx||!entry.item||!visualStackTypes.has(entry.item.type))return false;
+    const overlapStart=Math.max(selectedStart,startOf(entry.item));
+    const overlapEnd=Math.min(selectedEnd,endOf(entry.item));
+    return overlapEnd>overlapStart+0.0001;
+  });
+  if(dir<0){
+    const lower=overlappingVisuals.filter(entry=>entry.index<ovIdx).pop();
+    if(lower){
+      [overlays[ovIdx],overlays[lower.index]]=[overlays[lower.index],overlays[ovIdx]];
+      selectedOverlay.__ethvelleBehindBackground=false;
+    }else if(!selectedOverlay.__ethvelleBehindBackground){
+      // There is no lower visual overlay at any overlapping time. One Backward action
+      // therefore sends the selected clip directly behind the Background layer.
+      selectedOverlay.__ethvelleBehindBackground=true;
+    }else{
+      showToast('Already behind the background', {duration:1200});
+      return;
+    }
+  }else{
+    if(selectedOverlay.__ethvelleBehindBackground){
+      // Forward from behind the background returns it as the lowest normal overlay.
+      selectedOverlay.__ethvelleBehindBackground=false;
+      const [item]=overlays.splice(ovIdx,1);
+      overlays.unshift(item);
+    }else{
+      const higher=overlappingVisuals.find(entry=>entry.index>ovIdx);
+      if(higher){
+        [overlays[ovIdx],overlays[higher.index]]=[overlays[higher.index],overlays[ovIdx]];
+      }else if(ovIdx<overlays.length-1){
+        // No higher overlapping visual clip: send it to the top in a single action,
+        // skipping unrelated clips that are not visible at the same time.
+        const [item]=overlays.splice(ovIdx,1);
+        overlays.push(item);
+      }else{
+        showToast('Already at the front', {duration:1200});
+        return;
+      }
+    }
+  }
+  renderOverlayLayers();
+  renderFrame(); // repaint immediately so the updated stack is visible on the canvas
+  if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+  persistProjectState();
+}
+// FEATURE ("I want you made I can duplicate my layer, animation clip or background"): clones
+// the selected clip/character, placed immediately adjacent to (and selected in place of) the
+// original  -  same "spread the object with a fresh id" pattern splitSelectedClipAtPlayhead
+// already uses for its second half.
+function duplicateSelectedLayer(){
+  if(!selectedClip) return;
+  const isStickman = selectedClip==='main' || String(selectedClip).startsWith('seg');
+  if(isStickman){
+    showToast("Select the character layer to duplicate its animation", {icon: toastIcons.info, duration:1800});
+    return;
+  }
+  const isCharLayer = typeof selectedClip==='string' && selectedClip.startsWith('char') && !isStickman;
+  if(isCharLayer){
+    const idx = parseInt(selectedClip.slice(4), 10);
+    const src = characters[idx];
+    if(!src) return;
+    const clone = {
+      ...src,
+      id: makeCharacterId(),
+      name: (src.name||'Character')+' copy',
+      bones: JSON.parse(JSON.stringify(src.bones)),
+      baseAngles: {...src.baseAngles},
+      modelTransform: {...src.modelTransform},
+      clip: src.clip ? JSON.parse(JSON.stringify(src.clip)) : null,
+      segments: (src.segments||[]).map(s=>({...s, keyframes:(s.keyframes||[]).map(k=>({...k}))})),
+      parts: src.parts ? JSON.parse(JSON.stringify(src.parts)) : undefined
+    };
+    characters.splice(idx+1, 0, clone);
+    activeCharIdx = idx+1;
+    syncActiveCharacterRefs();
+    drawStick();
+    renderCharacterLayers();
+    syncTransformSliders();
+    onClipSelected('char'+activeCharIdx,'add');
+    showToast('Character duplicated', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+    return;
+  }
+  const bg = backgroundClipForSelection();
+  if(bg){
+    // Placed immediately AFTER the original in time, same "append after existing content"
+    // placement addBackgroundClip already uses, then everything from there shifts later via
+    // resolveBgClipOverlaps if needed  -  here it can't collide with anything since it's
+    // inserted into the exact gap right after the original ends (or pushes into the next
+    // clip's own space, which the clamp then resolves the same hard-wall way any drag would).
+    const len = bg.trimEnd - bg.trimStart;
+    const clone = { ...bg, id:'bg'+Date.now(), transform:{...bg.transform}, trimStart: bg.trimEnd, trimEnd: bg.trimEnd+len };
+    backgrounds.push(clone);
+    backgrounds.sort((a,b)=>a.trimStart-b.trimStart);
+    resolveBgClipOverlaps(clone.id);
+    renderBackgroundTrack();
+    onClipSelected(clone,'add');
+    showToast('Background duplicated', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+    return;
+  }
+  const ov = overlays.find(o=>o.id===selectedClip);
+  if(ov){
+    // Overlay clips already tolerate free time-overlap on their own row (see
+    // packOverlayGroup)  -  placed immediately after the original by default so it's visibly
+    // distinct rather than sitting exactly on top of its own source, but the person can drag
+    // it wherever they like right after, same as any other clip.
+    const len = ov.trimEnd - ov.trimStart;
+    const clone = { ...ov, id:'ov'+Date.now(), transform: ov.transform?{...ov.transform}:ov.transform, trimStart: ov.trimEnd, trimEnd: ov.trimEnd+len };
+    overlays.push(clone);
+    renderOverlayLayers();
+    renderFrame();
+    onClipSelected(clone,'add');
+    showToast((ov.type==='audio'?'Audio':ov.type==='video'?'Video':'Image')+' duplicated', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+    return;
+  }
+}
+// Draws every OTHER character (all except the active one) underneath the active character's
+// own interactive drawStick() pass, so every character is visible on stage at once but only
+// the active one shows joint handles / gets posed. Uses each character's own bones/
+// baseAngles/modelTransform without touching the shared plain variables (so it never
+// disturbs whatever the active character's live pose currently is).
+// BUGFIX ("adding multiple custom models  -  selecting one made another show as a plain stick
+// figure"): this used to have its OWN drawing branch that unconditionally stroked a bare
+// blue-line skeleton for every non-active character, regardless of whether that character was
+// a custom/auto-rigged model with real uploaded artwork (c.type==='custom' + c.parts). Only
+// the ACTIVE character's own drawStick() ever checked for custom parts and drew the real
+// image  -  so the moment a custom model stopped being the active one, it visibly reverted to
+// generic stickman until re-selected, exactly the reported bug. The export path
+// (drawCharacterToContext, used for video export/thumbnails) already draws every character
+// correctly  -  custom art when present, plain stick lines otherwise  -  so this now simply
+// reuses that exact same function instead of keeping a second, incomplete copy of the same
+// logic here. Same transform math, same bone walking, same result; one fewer place for the
+// two to drift out of sync.
+function drawOtherCharacters(){
+  if(!ctx) return;
+  characters.forEach((c, idx)=>{
+    if(idx === activeCharIdx) return;
+    drawCharacterToContext(ctx, c);
+  });
+}
+// Renders the character layer rows (one per character, each tappable to select it, with a
+// delete button and an Add-character button after the list). Each row's own track now shows
+// THAT character's own animation clip(s) directly  -  Character 1's clips render under
+// Character 1's row, Character 2's under Character 2's row, and so on, instead of every
+// character's clips being dumped onto one shared track. Only the currently-ACTIVE
+// character's track gets the live interactive markup (drag/trim handles, keyframe diamonds)
+// via renderTimelineClip/wireClipInteractions, matching how only the active character's rig
+// is posable; other characters show a simpler read-only preview of their own clip(s) so you
+// can still see at a glance what's on their track without it being editable until you select
+// that row first.
+function renderCharacterLayers(){
+  const container = document.getElementById('characterRows');
+  if(!container) return;
+  // The active/read-only clip markup is rebuilt when a character row is selected. Keep the
+  // timeline viewport anchored so the browser cannot jump to a newly inserted first clip or
+  // retarget the release/click to the Add-character row underneath the finger.
+  const timelineScroller = document.getElementById('timelineScroll');
+  const pageScroller = document.scrollingElement || document.documentElement;
+  const scrollSnapshot = {
+    timelineLeft: timelineScroller ? timelineScroller.scrollLeft : 0,
+    timelineTop: timelineScroller ? timelineScroller.scrollTop : 0,
+    pageLeft: pageScroller ? pageScroller.scrollLeft : 0,
+    pageTop: pageScroller ? pageScroller.scrollTop : 0
+  };
+  const restoreScroll = ()=>{
+    if(timelineScroller && timelineScroller.isConnected){
+      const maxLeft=Math.max(0,timelineScroller.scrollWidth-timelineScroller.clientWidth);
+      const maxTop=Math.max(0,timelineScroller.scrollHeight-timelineScroller.clientHeight);
+      timelineScroller.scrollLeft=Math.min(scrollSnapshot.timelineLeft,maxLeft);
+      timelineScroller.scrollTop=Math.min(scrollSnapshot.timelineTop,maxTop);
+    }
+    if(pageScroller){
+      pageScroller.scrollLeft=scrollSnapshot.pageLeft;
+      pageScroller.scrollTop=scrollSnapshot.pageTop;
+    }
+  };
+  container.innerHTML = characters.map((c, idx)=>{
+    const isActive = idx===activeCharIdx;
+    // BUGFIX (extra delete button sitting beside the row): a red trash icon used to be
+    // pinned to the right edge of every character row (whenever more than one character
+    // existed), as a second, separate delete affordance sitting right on the timeline
+    // itself. Removed  -  deleting a character layer now works exactly like deleting any
+    // clip/layer already does: select the row (arms the contextual bottom toolbar, see
+    // selectClipForChrome/syncBottomToolsMode), then tap Delete down there. One consistent
+    // place for every delete action instead of a scattered inline button per row-type.
+    const chromeSel = selectedClip===('char'+idx);
+    // FIX (rows only ever extended all together): a non-active character's row must size
+    // itself from ITS OWN clip overlap too (not just the active row)  -  otherwise switching
+    // which character is active would make a row that was already tall (because IT has
+    // overlapping clips) snap back to a single fixed lane height the moment it's no longer
+    // the active one. readOnlyCharClipMarkup below now returns both the markup and the lane
+    // count it used, so the row height here always matches that same packing.
+    const readOnly = c.clip ? readOnlyCharClipMarkup(c, idx) : { html:'', laneCount:1 };
+    const rowH = charRowHeightForLanes(readOnly.laneCount || 1);
+    return `
+    <div class="layer-row char-row ${isActive?'selected':''} ${chromeSel?'chrome-selected':''}" data-char-idx="${idx}" style="--ev-char-row-height:${rowH+4}px; height:${rowH+4}px;">
+      <div class="layer-badge" title="${c.name}" aria-hidden="true" data-model-type="${window.evCharModelType(c)}">
+        ${window.evCharBadgeIconSvg(window.evCharModelType(c))}
+      </div>
+      <div class="layer-track char-row-track" id="track-char-${idx}" data-char-idx="${idx}" onclick="onCharTrackClick(event, ${idx})" style="--ev-char-track-height:${rowH}px; height:${rowH}px;">
+        ${isActive ? '' : (c.clip ? readOnly.html : `<span class="char-row-name">${c.name}</span>`)}
+      </div>
+    </div>
+  `;
+  }).join('');  // The active character's row needs the full interactive clip markup (handles, keyframes,
+  // drag-to-move)  -  same rendering path as before, just targeting that character's own row
+  // element instead of the old always-present shared #track-stickman row.
+  renderTimelineClip();
+  restoreScroll();
+  requestAnimationFrame(restoreScroll);
+}
+// Fast path for switching the active character. The old path rebuilt the entire
+// #characterRows subtree (including every read-only clip) for a one-row selection change.
+// That caused visible layout/scroll anchoring and unnecessary work on slower Android phones.
+function renderCharacterLayerSelection(previousIdx,nextIdx){
+  const snapshot=captureEthvelleRowScroll();
+  const timeline=document.getElementById('timelineScroll');
+  const left=timeline?timeline.scrollLeft:0;
+  const paintRow=(idx,isActive)=>{
+    const c=characters[idx];
+    const row=document.querySelector(`.char-row[data-char-idx="${idx}"]`);
+    const track=document.getElementById('track-char-'+idx);
+    if(!c||!row||!track)return false;
+    row.classList.toggle('selected',!!isActive);
+    row.classList.toggle('chrome-selected',selectedClip===('char'+idx));
+    const readOnly=c.clip?readOnlyCharClipMarkup(c,idx):{html:'',laneCount:1};
+    setCharacterLaneGeometry(row,track,readOnly.laneCount||1);
+    if(isActive){
+      track.innerHTML='';
+    }else{
+      track.innerHTML=c.clip?readOnly.html:`<span class="char-row-name">${escapeHtml(c.name||'Character')}</span>`;
+    }
+    return true;
+  };
+  if(previousIdx!==nextIdx)paintRow(previousIdx,false);
+  const ok=paintRow(nextIdx,true);
+  if(!ok){renderCharacterLayers();return;}
+  renderTimelineClip({skipOverlayRender:true});
+  restoreEthvelleRowScroll(snapshot);
+  if(timeline&&timeline.isConnected)timeline.scrollLeft=left;
+}
+
+// Tapping a non-active character's row/track selects that character (so its clips become
+// editable and its rig becomes posable) rather than doing nothing. Tapping the ACTIVE
+// character's empty background area (not one of its clip elements) falls through to
+// selectCharacter too.
+// BUGFIX (selecting the animation clip immediately re-selected the character badge
+// instead): the clip body/handles only ever stopped propagation on their OWN
+// pointerdown/onpointerdown handlers (see wireClipInteractions / wireSplitSegmentInteractions).
+// stopPropagation() on a pointerdown does NOT stop the separate, later 'click' event the
+// browser still synthesizes and bubbles up from that same tap  -  so every tap on the clip
+// correctly called selectClipForChrome('main') first, then this handler's own onclick fired
+// right after (bubbled from the same tap) and immediately overwrote it with
+// selectClipForChrome('char'+idx), leaving the character row selected instead of the clip.
+// Fixed with the same deny-list technique the timeline scroller's own pointerdown handler
+// already uses (see initTimelineScrub): if the click actually originated on a clip, handle,
+// or keyframe marker inside this track, step aside entirely and let that element's own
+// selection stand  -  only a click on genuinely empty track space falls through to select the
+// character/row itself.
+// Also arms the contextual bottom toolbar for this character layer (selectClipForChrome),
+// which is what now surfaces Delete  -  see the .char-row-delete removal note above.
+function onCharTrackClick(e, idx){
+  // Any tap within the visible animation clip belongs to that clip, including its outer edge
+  // and selection bars. Never let it fall through and select the character row/badge instead.
+  if(e.target.closest('.anim-clip, .anim-clip-readonly, .anim-clip-body, .anim-clip-handle, .kf-marker')) return;
+  // Keep a character-row tap inside its own selection handler. This prevents any ancestor or
+  // delegated timeline click handler from treating it as a tap on the following Add row.
+  if(e.preventDefault)e.preventDefault();
+  if(e.stopPropagation)e.stopPropagation();
+  selectCharacter(idx);
+  selectClipForChrome('char'+idx);
+}
+// Non-active characters show a plain, non-interactive strip for each of their own clips
+// (main + segments) so their track is never blank/misleading  -  just not draggable/trimmable
+// until you tap that row to make it the active character. FIX (rows only extended all
+// together): packed into the same sub-lanes the active row would use, and returns the lane
+// count alongside the markup so the caller (renderCharacterLayers) can size THIS row to
+// match  -  a non-active character with two overlapping clips still shows both, each on its
+// own line, at that row's own height, independent of every other row.
+function evMythicAnimationClipIcon(preset){
+  const type=String(preset&&preset.modelType||'');
+  if(type==='mermaid') return '<span class="ev-mythic-clip-icon ev-mythic-clip-icon-mermaid" aria-label="Mermaid" title="Mermaid"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="3.6" r="2.1"/><path d="M9.5 6.2c-1.5.9-2.5 2.5-2.5 4.3v1.1c0 1.2.9 2.1 2.1 2.1h5.8c1.2 0 2.1-.9 2.1-2.1v-1.1c0-1.8-1-3.4-2.5-4.3"/><path d="M9.1 8.4 7.3 10.1M14.9 8.4l1.8 1.7"/><path d="M10 13.7c-.1 1.3-.9 2.1-1.9 3.1-1.2 1.2-.7 2.8.8 3.4 1.2.5 2.3.9 3.1 2 .8-1.1 1.9-1.5 3.1-2 1.5-.6 2-2.2.8-3.4-1-1-1.8-1.8-1.9-3.1"/><path d="M12 22.1c-.9-1.2-2.2-1.8-4.2-1.8.7-1.1 1.4-2 2.5-2.6M12 22.1c.9-1.2 2.2-1.8 4.2-1.8-.7-1.1-1.4-2-2.5-2.6"/></svg></span>';
+  if(type==='lamia') return '<span class="ev-mythic-clip-icon ev-mythic-clip-icon-lamia" aria-label="Naga / Lamia" title="Naga / Lamia"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4.5 20c0-4.1 2.6-7.2 6.1-7.2 2.3 0 3.3 1.8 5.5 1.8 2.4 0 3.9-1.5 3.9-3.7 0-1.9-1.3-3.3-3.1-3.3-1.7 0-3 1.2-3 2.8"/><path d="m16.4 7.7 1.5-2.1 2.8.5-.5 2.8-2.3.8"/><path d="m20.1 8.4 1.7-.9m-1.7.9 1.2 1.4"/><circle cx="18.7" cy="7.2" r=".45" fill="currentColor" stroke="none"/><path d="M6.2 17.4h.01M8.7 15.4h.01M11.2 15.4h.01"/></svg></span>';
+  return '';
+}
+function readOnlyCharClipMarkup(c, characterIndex){
+  if(!c.clip) return {html:'',laneCount:1};
+  const pps=pxPerSecond();
+  const all=getAllStickmanClips(c.clip,c.segments||[]);
+  const layout=characterClipLaneLayout(c.clip,c.segments||[]);
+  const html=all.map(({ref,clip})=>{
+    const preset=animPresets[clip.animKey];
+    const left=clip.trimStart*pps,width=Math.max(MIN_CLIP_SEC*pps,(clip.trimEnd-clip.trimStart)*pps);
+    const top=charClipLaneTop(layout.laneOf.get(ref)||0);
+    const keyframes=(Array.isArray(clip.keyframes)?clip.keyframes:[]).map(kf=>{
+      const clipWidth=Math.max(MIN_CLIP_SEC*pps,(Number(clip.trimEnd)-Number(clip.trimStart))*pps);
+      const raw=(Number(kf.t)-Number(clip.trimStart))*pps;
+      const x=Math.max(9,Math.min(Math.max(9,clipWidth-9),Number.isFinite(raw)?raw:9));
+      const under=Math.abs(Number(kf.t)-Number(currentAbsoluteTimeSec)) <= (typeof keyframeContactWindow==='function'?keyframeContactWindow():0.05);
+      return `<div class="kf-marker ev-readonly-kf-marker ${under?'under-playhead':''}" style="left:${x}px;" aria-hidden="true"></div>`;
+    }).join('');
+    return `<div class="anim-clip anim-clip-readonly" data-readonly-clip-ref="${escapeHtml(ref)}" data-readonly-char-idx="${characterIndex}" role="button" tabindex="0" aria-label="Select ${escapeHtml(c.name||'character')} animation clip" onclick="event.stopPropagation(); selectCharacter(${characterIndex}); selectClipForChrome('${ref}');" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();event.stopPropagation();selectCharacter(${characterIndex});selectClipForChrome('${ref}');}" style="left:${left}px; width:${width}px; --ev-char-lane-top:${top}px; top:${top}px; height:${CHAR_SUB_LANE_H}px;">
+      ${evMythicAnimationClipIcon(preset)}<span class="anim-clip-label">${preset?escapeHtml(preset.name):'Animation'}</span>
+      <div class="keyframe-track ev-readonly-kf-track" aria-hidden="true">${keyframes}</div>
+    </div>`;
+  }).join('');
+  return {html,laneCount:layout.laneCount};
+}
+
+function initStickman(){
+  // BUGFIX (new project always showed a default stickman): this used to force-seed the
+  // character list with one default character whenever it was empty, so every brand-new
+  // project opened with a stickman already standing on stage even before the user added
+  // one. A new project now genuinely starts with zero characters  -  the canvas stays empty
+  // and the timeline shows only the dashed "Add character" row  -  until addCharacter() is
+  // called explicitly. Restored/migrated projects still populate `characters` themselves
+  // before this runs (see openEditor), so they're unaffected.
+  syncActiveCharacterRefs();
+  drawStick();
+  setupDrag();
+  renderCharacterLayers();
+}
+
+
+function getBoneEndpointPair(key){
+  const b = bones[key];
+  if(!b.parent) return {s:{x:b.x,y:b.y},e:{x:b.x,y:b.y}};
+  const pp=getBoneEndpointPair(b.parent), p0=pp.s, p1=pp.e;
+  const t=b.attachAt===undefined?1:Math.max(0,Math.min(1,b.attachAt));
+  let x=p0.x+(p1.x-p0.x)*t, y=p0.y+(p1.y-p0.y)*t;
+  const dx=p1.x-p0.x, dy=p1.y-p0.y, a=Math.atan2(dy,dx);
+  const ox=Number(b.attachOffsetX)||0, oy=Number(b.attachOffsetY)||0;
+  x+=Math.cos(a)*ox-Math.sin(a)*oy; y+=Math.sin(a)*ox+Math.cos(a)*oy;
+  return {s:{x,y},e:{x:x+Math.cos(b.angle)*b.length,y:y+Math.sin(b.angle)*b.length}};
+}
+function getBoneStart(key){ return getBoneEndpointPair(key).s; }
+function getBoneEnd(key){ return getBoneEndpointPair(key).e; }
+
+/* ================= CUSTOM CHARACTER (9-part image upload + rig) =================
+   Lets a user build a posable character from their own artwork instead of only the built-in
+   green stickman. The user uploads 9 separate transparent PNGs (head, torso, 2x upper-arm,
+   2x forearm+hand, 2x thigh, 2x shin+foot)  -  one per PART_SLOTS entry below  -  then, for each
+   part, drags a pivot dot onto a preview of that part to mark where it hinges (see
+   openPivotEditorForSlot). The result is stored on the character as:
+     char.type = 'custom'
+     char.parts = { head:{src, pivotX, pivotY, w, h}, torso:{...}, armL_upper:{...}, ... }
+   pivotX/pivotY are 0..1 FRACTIONS of that image's own width/height (not pixels), so they
+   stay correct regardless of how large the source photo was. w/h are the image's natural
+   pixel dimensions, captured at upload time so the draw path doesn't need to re-decode the
+   image just to know its aspect ratio.
+   Each part is drawn stamped onto its matching bone segment (see PART_SLOTS' `bone` field
+   mapping into the rig built by buildFreshRig): the image's pivot point is placed at the
+   bone's START joint, then the image is rotated to the bone's current angle and drawn out
+   along the bone's length  -  so posing the rig (dragging joints, playing an animation) moves
+   the artwork exactly like the green stickman, just with real art instead of lines. */
+
+// Every uploadable body-part slot: id (used as the parts{} key + DOM id), a human label,
+// which rig bone it stamps onto, and whether the pivot should default to the top (shoulder/
+// hip end) or bottom (elbow/knee end) of the uploaded image  -  just a sane starting position
+// for the drag-to-place pivot editor, the user can always move it.
+const PART_SLOTS = [
+  { id:'head',       label:'Head',              bone:'head',    defaultPivot:'bottom' },
+  { id:'torso',      label:'Torso',             bone:'spine',   defaultPivot:'bottom' },
+  { id:'armL_upper', label:'Left upper arm',    bone:'armL',    defaultPivot:'top' },
+  { id:'armL_lower', label:'Left forearm+hand', bone:'armL_lo', defaultPivot:'top' },
+  { id:'armR_upper', label:'Right upper arm',   bone:'armR',    defaultPivot:'top' },
+  { id:'armR_lower', label:'Right forearm+hand',bone:'armR_lo', defaultPivot:'top' },
+  { id:'legL_upper', label:'Left thigh',        bone:'legL',    defaultPivot:'top' },
+  { id:'legL_lower', label:'Left shin+foot',    bone:'legL_lo', defaultPivot:'top' },
+  { id:'legR_upper', label:'Right thigh',       bone:'legR',    defaultPivot:'top' },
+  { id:'legR_lower', label:'Right shin+foot',   bone:'legR_lo', defaultPivot:'top' },
+];
+// NOTE: torso stamps onto 'spine' and head onto 'head'  -  everything else onto its matching
+// limb bone (see buildFreshRig's LIMB_KEYS + lowerKey()). 10 slots total (not 9) since each
+// arm/leg is now genuinely two separate images (upper+lower) rather than one image covering
+// both  -  this is what actually lets the elbow/knee bend convincingly.
+
+// In-progress upload state for the custom-character builder modal  -  holds each slot's part
+// data until the user taps "Create character"/"Save changes", at which point it's converted
+// into (or written back onto) a real character (see finishCustomCharacterBuild()). Kept
+// separate from any real character object so backing out of the builder
+// (closeCustomCharBuilder) never half-creates or half-edits a character.
+let customBuilderParts = {}; // { slotId: {src, pivotX, pivotY, w, h} }
+let customBuilderActiveSlot = null; // slot id currently open in the pivot editor
+// True while the builder is editing an ALREADY-CREATED custom character in place (opened via
+// openCustomCharBuilder(true) from the Bones panel's "Rig my art" tile) rather than building a
+// brand new one (opened via the plain openCustomCharBuilder() call from the Add Character
+// chooser). Read by finishCustomCharacterBuild to decide whether to update characters
+// [activeCharIdx] or push a new character.
+let customBuilderEditingExisting = false;
+// Set to a modelAssets[].id while the builder is editing a SAVED MODEL directly from the
+// Projects → Models grid (openModelAssetEditor)  -  i.e. with no project/character open at all.

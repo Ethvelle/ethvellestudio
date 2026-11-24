@@ -1,0 +1,1000 @@
+  };
+
+  const originalReset=window.resetTransform;
+  window.resetTransform=function(){
+    let target=null;try{target=typeof window.transformTarget==='function'?window.transformTarget():null;}catch(_e){}
+    if(!target||!['background','overlay'].includes(target.kind)){
+      if(typeof originalReset==='function')return originalReset.apply(this,arguments);
+      return;
+    }
+    const clip=target.kind==='background'?(target.bgClip||objectClip(selectedId())):(target.ov||objectClip(selectedId()));
+    if(!clip){if(typeof originalReset==='function')return originalReset.apply(this,arguments);return;}
+    applyTransformEdit(clip,nowTime(),{scale:1,offsetX:0,offsetY:0,rotation:0});
+    if(typeof window.syncTransformSliders==='function')window.syncTransformSliders();
+    applyObjectTransform(clip,target.kind);refreshObjectMarkers(clip);
+    if(typeof window.persistProjectState==='function')window.persistProjectState();
+    if(typeof window.showToast==='function')window.showToast('Transform reset',{icon:window.toastIcons&&window.toastIcons.check,duration:1200});
+  };
+
+  // On-canvas selection box used an interpolated clone for keyframed clips. Commit that edited
+  // value back into the actual keyframe (or a new playhead key) before repainting the stage.
+  const originalSelBoxApply=window.selBoxApply;
+  if(typeof originalSelBoxApply==='function')window.selBoxApply=function(tg){
+    if(tg&&(tg.kind==='background'||tg.kind==='overlay')){
+      const clip=objectClip(selectedId());
+      if(clip&&tg.obj){
+        const desired=cloneTransform(tg.obj);
+        const live=applyTransformEdit(clip,nowTime(),desired);
+        if(live)tg.obj=live;
+      }
+    }
+    return originalSelBoxApply.apply(this,arguments);
+  };
+  const originalFinishSelBox=window.finishSelBoxEdit;
+  if(typeof originalFinishSelBox==='function')window.finishSelBoxEdit=function(tg){
+    const result=originalFinishSelBox.apply(this,arguments);
+    if(tg&&(tg.kind==='background'||tg.kind==='overlay'))refreshObjectMarkers(objectClip(selectedId()));
+    return result;
+  };
+
+  // Zoom scrub must not leave the timeline's drag/pinch state armed after the HUD closes.
+  const originalZoomToggle=window.toggleCanvasZoomView;
+  if(typeof originalZoomToggle==='function'&&!originalZoomToggle.__evv84Recovery){
+    const wrapped=function(){
+      const wasZoom=!!document.querySelector('#screen-editor .canvas-wrap.evca-inline-zoom');
+      const result=originalZoomToggle.apply(this,arguments);
+      const isZoom=!!document.querySelector('#screen-editor .canvas-wrap.evca-inline-zoom');
+      if(wasZoom&&!isZoom){
+        try{if(typeof window.cancelScheduledTimelineScrub==='function')window.cancelScheduledTimelineScrub();}catch(_e){}
+        window.__ethvelleTimelineScrubbing=false;delete window.__ethvelleTimelineScrubMaxDuration;
+        try{if(typeof timelineScrollOwner!=='undefined')timelineScrollOwner='programmatic';}catch(_e){}
+        try{if(typeof _timelinePinchPointers!=='undefined'&&_timelinePinchPointers.clear)_timelinePinchPointers.clear();}catch(_e){}
+        try{if(typeof timelinePinchCandidate!=='undefined')timelinePinchCandidate=null;}catch(_e){}
+        try{if(typeof timelineZoomGesture!=='undefined')timelineZoomGesture=null;}catch(_e){}
+        try{if(typeof _timelinePinchEnding!=='undefined')_timelinePinchEnding=false;}catch(_e){}
+        try{if(typeof activeClipDragCount!=='undefined')activeClipDragCount=0;}catch(_e){}
+        try{if(typeof bgHandleDragActive!=='undefined')bgHandleDragActive=false;}catch(_e){}
+        $('timelineInner')?.classList.remove('clip-drag-active');
+        document.querySelectorAll('#timelineInner .dragging,#timelineInner .trim-gesture-active,#timelineInner [data-ev-timeline-drag-active="1"]').forEach(el=>{
+          el.classList.remove('dragging','trim-gesture-active');el.removeAttribute('data-ev-timeline-drag-active');
+        });
+        const scroller=$('timelineScroll');
+        if(scroller){scroller.style.pointerEvents='auto';scroller.style.touchAction='pan-x pan-y';scroller.style.webkitOverflowScrolling='touch';scroller.style.overflowX='auto';scroller.style.overflowY='auto';}
+        requestAnimationFrame(()=>requestAnimationFrame(()=>{
+          if(scroller){scroller.style.pointerEvents='auto';scroller.style.touchAction='pan-x pan-y';scroller.style.overflowX='auto';scroller.style.overflowY='auto';}
+          $('timelineInner')?.classList.remove('clip-drag-active');
+        }));
+      }
+      return result;
+    };
+    wrapped.__evv84Recovery=true;window.toggleCanvasZoomView=wrapped;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v85: restored single-row zoom controls, playhead-centred normal transport,
+     stable keyframe touch targets, true long-press clip movement, and low-layout-cost dragging. -->
+<style id="ethvelle-v85-final-ui-css">
+  /* Normal editor transport: the Play/Pause BUTTON itself (not the whole group) is aligned
+     directly over the fixed blue playhead. JS measures the real playhead/button centres and
+     provides the small dynamic offset needed on different phone widths/orientations. */
+  #screen-editor > .transport-row > .transport-cluster{
+    left:calc(50% + var(--ev-play-center-shift,0px))!important;
+    transition:none!important;
+  }
+  #screen-editor > .transport-row > .time-readout{
+    max-width:132px!important;width:auto!important;overflow:visible!important;
+    text-overflow:clip!important;font-size:11px!important;line-height:1.15!important;
+    font-weight:700!important;letter-spacing:0!important;
+  }
+  @media(max-width:380px){
+    #screen-editor > .transport-row > .time-readout{max-width:88px!important;font-size:9px!important;left:5px!important;}
+    #screen-editor > .transport-row > .transport-cluster{gap:5px!important;max-width:calc(100% - 96px)!important;}
+  }
+
+  /* Restore the original one-row zoom transport layout. The v84 blue range slider track,
+     thumb and progress styling are deliberately retained below; only the surrounding
+     two-row/grid control arrangement is reverted. */
+  #evcaInlineZoomHud .evca-zoom-control-bar{
+    display:flex!important;flex-flow:row nowrap!important;align-items:center!important;
+    justify-content:flex-start!important;gap:8px!important;
+    height:48px!important;min-height:48px!important;max-height:48px!important;
+    padding:0 9px!important;box-sizing:border-box!important;
+    grid-template-columns:none!important;grid-template-rows:none!important;row-gap:0!important;
+  }
+  #evcaInlineZoomHud #evcaZoomCurrent,
+  #evcaInlineZoomHud #evcaZoomTotal{
+    position:static!important;display:block!important;grid-column:auto!important;grid-row:auto!important;
+    align-self:center!important;justify-self:auto!important;flex:0 0 auto!important;
+    min-width:36px!important;width:auto!important;height:auto!important;
+    margin:0!important;padding:0!important;font-size:11px!important;line-height:1!important;
+    font-weight:700!important;text-align:center!important;white-space:nowrap!important;
+  }
+  #evcaInlineZoomHud #evcaZoomTotal::before{content:none!important;display:none!important;}
+  #evcaInlineZoomHud .evca-zoom-play,
+  #evcaInlineZoomHud .evca-zoom-out{
+    position:static!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    grid-column:auto!important;grid-row:auto!important;flex:0 0 30px!important;
+    width:30px!important;height:30px!important;min-width:30px!important;min-height:30px!important;
+    max-width:30px!important;max-height:30px!important;border-radius:50%!important;
+    display:grid!important;place-items:center!important;margin:0!important;padding:0!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #evcaInlineZoomHud .evca-zoom-scrub-wrap{
+    position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;
+    grid-column:auto!important;grid-row:auto!important;flex:1 1 auto!important;
+    width:auto!important;min-width:42px!important;max-width:none!important;
+    height:20px!important;min-height:20px!important;max-height:20px!important;
+    display:flex!important;align-items:center!important;margin:0!important;padding:0!important;
+  }
+  #evcaInlineZoomHud .evca-zoom-scrub-track{height:20px!important;min-height:20px!important;max-height:20px!important;}
+  #evcaInlineZoomHud input[type=range]{height:20px!important;min-height:20px!important;}
+  @media(max-width:380px){
+    #evcaInlineZoomHud .evca-zoom-control-bar{gap:5px!important;padding:0 6px!important;}
+    #evcaInlineZoomHud #evcaZoomCurrent,#evcaInlineZoomHud #evcaZoomTotal{min-width:30px!important;font-size:10px!important;}
+    #evcaInlineZoomHud .evca-zoom-play,#evcaInlineZoomHud .evca-zoom-out{flex-basis:27px!important;width:27px!important;height:27px!important;min-width:27px!important;min-height:27px!important;}
+  }
+
+  /* The on-canvas text Edit/Pencil shortcut is removed; the bottom Text Edit tool remains. */
+  /* v307: on-canvas text pencil is visible again (bottom-left of the text box). */
+  /* v308: the separate 4-arrow move handle is removed from the text selection box. */
+  #selBoxLayer #sbTextMove.sb-text-move.sb-btn{display:none!important;visibility:hidden!important;pointer-events:none!important;}
+
+  /* Keep the visible white trim tabs exactly as designed, but let the underlying invisible
+     pointer target cover the whole tab and a small inner overlap. This makes edge-trimming
+     possible by touching anywhere on the wide white side piece on every clip type. */
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle{
+width:min(40px,33.333333%)!important;min-width:0!important;max-width:40px!important;box-sizing:border-box!important;
+    top:0!important;bottom:0!important;height:auto!important;z-index:80!important;
+    background:none!important;opacity:0!important;pointer-events:auto!important;
+  }
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle.left,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle.left,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle.left{left:0!important;right:auto!important;}
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle.right,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle.right,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle.right{right:0!important;left:auto!important;}
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle::before,
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle::after,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle::before,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle::after,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle::before,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle::after{content:none!important;display:none!important;}
+
+  /* A transparent hit-area around each diamond makes the playhead/diamond overlap easy to
+     register by touch, without changing the visible diamond's 15px artwork. */
+  #screen-editor #timelineInner .kf-marker{touch-action:manipulation!important;}
+  #screen-editor #timelineInner .kf-marker::before{
+    content:""!important;display:block!important;position:absolute!important;
+    left:-10px!important;right:-10px!important;top:-10px!important;bottom:-10px!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+    pointer-events:auto!important;z-index:2!important;
+  }
+  #screen-editor #timelineInner .anim-clip.dragging,
+  #screen-editor #timelineInner .overlay-clip.dragging,
+  #screen-editor #timelineInner .track-clip.dragging{will-change:transform!important;transition:none!important;}
+</style>
+<script id="ethvelle-v85-final-interactions-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  // Reposition the whole transport group by the difference between the actual blue playhead
+  // centre and the Play/Pause button centre, so the Play/Pause control is always exact-centre.
+  function alignNormalTransport(){
+    const row=document.querySelector('#screen-editor > .transport-row');
+    const cluster=row&&row.querySelector('.transport-cluster');
+    const play=row&&row.querySelector('#playBtn');
+    if(!row||!cluster||!play||!row.getClientRects().length)return;
+    const line=$('playhead'),lr=line&&line.getBoundingClientRect();
+    const rr=row.getBoundingClientRect(),pr=play.getBoundingClientRect();
+    if(!rr.width||!pr.width)return;
+    const target=lr&&lr.width>0?lr.left+lr.width/2:rr.left+rr.width/2;
+    const actual=pr.left+pr.width/2;
+    const shift=parseFloat(cluster.style.getPropertyValue('--ev-play-center-shift'))||0;
+    const next=shift+(target-actual);
+    if(Math.abs(next-shift)>0.35)cluster.style.setProperty('--ev-play-center-shift',next.toFixed(2)+'px');
+  }
+  let alignRaf=0;
+  function scheduleTransportAlign(){if(alignRaf)return;alignRaf=requestAnimationFrame(()=>{alignRaf=0;alignNormalTransport();});}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',scheduleTransportAlign,{once:true});
+  else scheduleTransportAlign();
+  window.addEventListener('resize',scheduleTransportAlign,{passive:true});
+  window.addEventListener('orientationchange',scheduleTransportAlign,{passive:true});
+  if(typeof ResizeObserver==='function'){
+    const ro=new ResizeObserver(scheduleTransportAlign);
+    const row=document.querySelector('#screen-editor > .transport-row');if(row)ro.observe(row);
+    // Do not observe the entire timeline scroller: lane-height changes during clip drag
+    // would otherwise schedule layout measurements for the transport on every move frame.
+  }
+  if(typeof MutationObserver==='function'){
+    const screen=$('screen-editor');if(screen){const mo=new MutationObserver(scheduleTransportAlign);mo.observe(screen,{attributes:true,attributeFilter:['class','style']});}
+  }
+
+  // Ensure object keyframe detection follows the visible diamond width (including Background
+  // and Text) and keep the bottom Key action available for every object-keyframe layer.
+  let objectToolSyncRaf=0;
+  function scheduleObjectKeyToolSync(){
+    if(objectToolSyncRaf)return;
+    objectToolSyncRaf=requestAnimationFrame(()=>{objectToolSyncRaf=0;stabilizeObjectKeyTool();});
+  }
+  function stabilizeObjectKeyTool(){
+    const id=(typeof selectedClip==='undefined'||selectedClip==null)?'':String(selectedClip);
+    const edit=$('clipTextEditTool');
+    if(!id){if(edit)edit.style.display='none';return;}
+    let target=null;
+    if(typeof window.ethvelleObjectClipById==='function')target=window.ethvelleObjectClipById(id);
+    if(!target){
+      const bgList=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds:(Array.isArray(window.backgrounds)?window.backgrounds:[]);
+      const ovList=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:(Array.isArray(window.overlays)?window.overlays:[]);
+      target=bgList.find(item=>item&&String(item.id)===id)||ovList.find(item=>item&&String(item.id)===id)||null;
+    }
+    if(!target){if(edit)edit.style.display='none';return;}
+    const row=$('bottomToolsClip'),key=$('clipKeyTool');
+    // Use normal inline styles, not !important. syncBottomToolsMode runs first on every
+    // selection and must remain able to hide/reset these controls when switching layers.
+    if(row&&(row.style.getPropertyValue('display')!=='flex'||row.style.getPropertyPriority('display')!=='important'))row.style.setProperty('display','flex','important');
+    if(key)key.style.display='flex';
+    if(edit)edit.style.display=target.type==='text'?'flex':'none';
+    ['clipTextFontTool','clipTextStrokeTool','clipTextShadowTool','clipTextColorTool','clipTextBackgroundTool'].forEach(id=>{const el=$(id);if(el)el.style.display='none';});
+  }
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evv85){
+    const wrapped=function(){const r=oldSync.apply(this,arguments);scheduleObjectKeyToolSync();return r;};
+    wrapped.__evv85=true;window.syncBottomToolsMode=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evv85){
+    const wrapped=function(){const r=oldSelect.apply(this,arguments);scheduleObjectKeyToolSync();return r;};
+    wrapped.__evv85=true;window.selectClipForChrome=wrapped;
+  }
+  document.addEventListener('visibilitychange',()=>{if(!document.hidden)scheduleTransportAlign();});
+  window.addEventListener('load',()=>{scheduleTransportAlign();stabilizeObjectKeyTool();},{once:true});
+})();
+</script>
+
+
+<style id="ethvelle-v86-performance-and-keyframe-css">
+  /* Object keyframe diamonds are shown only on the currently selected clip. Hidden tracks
+     remain in the data model but do not paint, hit-test, or participate in touch handling. */
+  #screen-editor #timelineInner .object-keyframe-track{
+    visibility:hidden!important;opacity:0!important;pointer-events:none!important;
+  }
+  #screen-editor #timelineInner .overlay-clip.selected > .object-keyframe-track,
+  #screen-editor #timelineInner .track-clip.selected > .object-keyframe-track{
+    visibility:visible!important;opacity:1!important;pointer-events:none!important;
+  }
+  #screen-editor #timelineInner .object-keyframe-track .kf-marker{pointer-events:auto!important;}
+
+  /* Smooth lane change for neighbouring clips; the actively dragged clip remains locked
+     to the finger without transition lag. */
+  #screen-editor #timelineInner .overlay-clip{transition:top .12s ease-out;}
+  #screen-editor #timelineInner .overlay-clip.dragging{transition:top .12s ease-out!important;}
+
+  /* The contextual tool strip uses native horizontal compositing/scrolling on Android. */
+  
+  #screen-editor #bottomToolsClip .tool-item{touch-action:pan-x!important;}
+</style>
+<script id="ethvelle-v86-live-lane-layout-js">
+(function(){
+  'use strict';
+  if(typeof window.packIntoLanes!=='function'||typeof window.overlayRowHeightForLanes!=='function')return;
+  window.applyOverlayLanes=function(groupKey){
+    const row=document.querySelector(`.overlay-track-row[data-group="${groupKey}"]`);
+    if(!row)return;
+    const track=row.querySelector('.layer-track');
+    if(!track)return;
+    const source=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:[];
+    const clips=source.filter(o=>groupKey==='audio'?o.type==='audio':(groupKey==='text'?o.type==='text':o.type!=='audio'&&o.type!=='text'));
+    const lanes=window.packIntoLanes(clips);
+    const laneCount=Math.max(1,lanes.length);
+    const signature=lanes.map(lane=>lane.map(o=>String(o.id)).sort().join(',')).join('|');
+    if(row.dataset.evV86LaneSignature===signature)return;
+
+    row.dataset.evV86LaneSignature=signature;
+    const rowH=window.overlayRowHeightForLanes(laneCount);
+    const trackH=rowH;
+    if(row.style.height!==(rowH+4)+'px')row.style.height=(rowH+4)+'px';
+    if(row.style.minHeight!==(rowH+4)+'px')row.style.minHeight=(rowH+4)+'px';
+    if(row.style.maxHeight!=='none')row.style.maxHeight='none';
+    if(track.style.height!==trackH+'px')track.style.height=trackH+'px';
+    if(track.style.minHeight!==trackH+'px')track.style.minHeight=trackH+'px';
+    if(track.style.maxHeight!==trackH+'px')track.style.maxHeight=trackH+'px';
+
+    const elements=track.querySelectorAll('.overlay-clip[data-overlay-id]');
+    const byId=new Map();
+    for(let i=0;i<elements.length;i++)byId.set(String(elements[i].dataset.overlayId),elements[i]);
+    lanes.forEach((lane,laneIndex)=>{
+      const top=window.overlayLaneTop(laneIndex)+'px';
+      lane.forEach(clip=>{
+        const el=byId.get(String(clip.id));
+        if(el&&el.style.top!==top)el.style.top=top;
+      });
+    });
+  };
+})();
+</script>
+<script id="ethvelle-v86-keyframe-touch-guard-js">
+(function(){
+  'use strict';
+  // A keyframe diamond is a separate tap target, never a clip-body drag/scrub target.
+  // Stop its pointerdown in capture phase so parent clip handlers cannot arm a long-press.
+  document.addEventListener('pointerdown',function(e){
+    const marker=e.target&&e.target.closest?e.target.closest('#timelineInner .kf-marker'):null;
+    if(marker)e.stopPropagation();
+  },true);
+  // Refit only; rotating the device must not call toggleCanvasZoomView. The existing v82
+  // ResizeObserver recomputes canvas size while preserving the user's current zoom state.
+  window.__ethvelleRefitZoomViewport=window.__ethvelleRefitZoomViewport||function(){
+    const screen=document.getElementById('screen-editor');
+    const wrap=screen&&screen.querySelector('.canvas-wrap');
+    const stage=document.getElementById('canvasStage');
+    if(!screen||!wrap||!stage||!screen.classList.contains('active'))return;
+    const project=window.currentProject;
+    const ratio=(project&&project.ratio)||'16:9';
+    if(typeof window.setupCanvasStage==='function')window.setupCanvasStage(ratio);
+    if(typeof window.renderFrame==='function')requestAnimationFrame(()=>window.renderFrame());
+  };
+})();
+</script>
+
+
+
+<!-- Ethvelle v88: reliable drag commit, stable clip selection, existing-keyframe editing,
+     crop-safe rendering, ruler transform controls, reverse playback and crop tools. -->
+<style id="ethvelle-v88-styles">
+  /* Dragged clips must follow the finger with no CSS easing or delayed transform. */
+  #screen-editor #timelineInner .anim-clip,
+  #screen-editor #timelineInner .anim-clip-body,
+  #screen-editor #timelineInner .overlay-clip,
+  #screen-editor #timelineInner .track-clip{
+    -webkit-user-select:none!important;user-select:none!important;-webkit-touch-callout:none!important;
+  }
+  #screen-editor #timelineInner .anim-clip.dragging,
+  #screen-editor #timelineInner .overlay-clip.dragging,
+  #screen-editor #timelineInner .track-clip.dragging{
+    transition:none!important;will-change:left,top!important;backface-visibility:hidden!important;
+  }
+  /* CapCut-style ruler controls, scoped only to the Transform panel. */
+  #toolPanel .evtr-root{display:flex;flex-direction:column;gap:17px;padding:4px 0 8px;}
+  #toolPanel .evtr-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:6px;padding:4px;background:#202027;border-radius:12px;}
+  #toolPanel .evtr-tab{min-width:0;padding:10px 5px;border-radius:9px;color:#A7A7B1;font-size:13px;font-weight:700;}
+  #toolPanel .evtr-tab.active{background:#34343D;color:#F5F5F7;box-shadow:inset 0 0 0 1px rgba(255,255,255,.06);}
+  #toolPanel .evtr-pane{display:none;gap:21px;}
+  #toolPanel .evtr-pane.active{display:flex;flex-direction:column;}
+  #toolPanel .evtr-slider-row{display:flex;flex-direction:column;gap:8px;}
+  #toolPanel .evtr-slider-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  #toolPanel .evtr-slider-head span:first-child{font-size:13px;font-weight:700;color:#E8E8ED;}
+  #toolPanel .evtr-slider-value{min-width:48px;text-align:right;color:#D8D8E0;font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
+  #toolPanel .evtr-ruler{height:78px;position:relative;overflow:hidden;border-radius:8px;background:linear-gradient(180deg,#24242A,#1D1D22);touch-action:pan-x;}
+  #toolPanel .evtr-ruler::before{content:"";position:absolute;left:50%;top:9px;bottom:9px;width:calc(100% + 240px);transform:translateX(calc(-50% + var(--evtr-shift,0px)));pointer-events:none;background:repeating-linear-gradient(to right,transparent 0 11px,rgba(190,194,207,.62) 11px 13px,transparent 13px 15px);will-change:transform;}
+  #toolPanel .evtr-ruler::after{content:"";position:absolute;top:14px;bottom:14px;left:50%;width:4px;transform:translateX(-50%);border-radius:3px;background:#2F5CE8;box-shadow:none;pointer-events:none;}
+  #toolPanel .evtr-ruler input[type=range]{position:absolute;inset:0;width:100%;height:100%;margin:0;padding:0;opacity:0;z-index:2;touch-action:pan-x!important;cursor:ew-resize;}
+  #toolPanel .evtr-footer{display:flex;align-items:center;justify-content:space-between;gap:12px;padding-top:12px;border-top:1px solid #313139;}
+  #toolPanel .evtr-reset{display:flex;align-items:center;gap:7px;color:#E5E5EB;font-size:13px;font-weight:700;padding:10px 4px;}
+  #toolPanel .evtr-done{width:42px;height:42px;border-radius:50%;background:#2F5CE8;color:#fff;display:grid;place-items:center;font-size:20px;font-weight:800;}
+  /* Crop panel controls reuse the same compact ruler style without changing other panels. */
+  #toolPanel .evcr-root{display:flex;flex-direction:column;gap:17px;padding:4px 0 10px;}
+  #toolPanel .evcr-note{font-size:12px;line-height:1.5;color:#A5A5B0;}
+  #toolPanel .evcr-row{display:flex;flex-direction:column;gap:8px;}
+  #toolPanel .evcr-head{display:flex;justify-content:space-between;align-items:center;font-size:13px;font-weight:700;color:#E7E7ED;}
+  #toolPanel .evcr-row input{width:100%;accent-color:#2F5CE8;touch-action:pan-x!important;}
+  #toolPanel .evcr-footer{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #313139;padding-top:12px;}
+  #bottomToolsClip #clipReverseTool,#bottomToolsClip #clipCropTool{flex:0 0 66px;min-width:66px;max-width:66px;}
+</style>
+<script id="ethvelle-v88-interaction-and-tools-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const getSelectedId=()=>typeof selectedClip==='undefined'||selectedClip==null?'':String(selectedClip);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const ovFor=id=>{try{return (typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[]).find(x=>String(x.id)===String(id))||null;}catch(_e){return null;}};
+  const bgFor=id=>{try{return (typeof backgrounds!=='undefined'&&Array.isArray(backgrounds)?backgrounds:[]).find(x=>String(x.id)===String(id))||null;}catch(_e){return null;}};
+  const isImageSource=src=>typeof src==='string'&&(/^(?:url\(|data:image\/|blob:|https?:\/\/)/i.test(src.trim()));
+  const cropFractions=c=>{
+    const v=c||{};let left=clamp(v.left,0,.45),right=clamp(v.right,0,.45),top=clamp(v.top,0,.45),bottom=clamp(v.bottom,0,.45);
+    if(left+right>.8){const f=.8/(left+right);left*=f;right*=f;}
+    if(top+bottom>.8){const f=.8/(top+bottom);top*=f;bottom*=f;}
+    return {left,top,right,bottom};
+  };
+  window.ethvelleCropFractions=cropFractions;
+
+  // Keep another clip from becoming selected while a held clip is being moved.
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evv87Lock){
+    const wrapped=function(which){
+      const active=document.querySelector('#timelineInner .anim-clip.dragging,#timelineInner .overlay-clip.dragging,#timelineInner .track-clip.dragging,#timelineInner [data-ev-timeline-drag-active="1"]');
+      let lock=String(window.__ethvelleTimelineSelectionLockId||'');
+      if(!lock&&active){
+        if(active.dataset.overlayId)lock=String(active.dataset.overlayId);
+        else if(active.dataset.bgId)lock=String(active.dataset.bgId);
+        else if(active.dataset.segIdx!=null)lock='seg'+active.dataset.segIdx;
+        else if(active.id==='animClipEl')lock='main';
+      }
+      const playheadDrivenScrub=!!window.__ethvelleTimelineScrubbing&&!active;
+      if(lock&&String(which)!==lock&&!playheadDrivenScrub)return;
+      return oldSelect.apply(this,arguments);
+    };
+    wrapped.__evv87Lock=true;window.selectClipForChrome=wrapped;
+  }
+  // Capture the clip identity at the start of the gesture. Pointer capture can then move
+  // across neighbouring clips without allowing a hover/click side-effect to change selection.
+  let selectionLockPointer=null;
+  function clipRefFromTarget(target){
+    const ov=target&&target.closest&&target.closest('.overlay-clip[data-overlay-id]');if(ov)return String(ov.dataset.overlayId);
+    const bg=target&&target.closest&&target.closest('.track-clip[data-bg-id]');if(bg)return String(bg.dataset.bgId);
+    const anim=target&&target.closest&&target.closest('.anim-clip');
+    if(anim){if(anim.id==='animClipEl')return 'main';if(/^seg\d+El$/.test(anim.id))return anim.id.replace(/El$/,'');if(anim.dataset.readonlyClipRef)return String(anim.dataset.readonlyClipRef);}
+    return '';
+  }
+  document.addEventListener('pointerdown',e=>{
+    const ref=clipRefFromTarget(e.target);if(!ref)return;
+    window.__ethvelleTimelineSelectionLockId=ref;selectionLockPointer=e.pointerId;
+  },true);
+  function releaseSelectionLock(e){
+    if(selectionLockPointer==null||(e&&e.pointerId!==undefined&&e.pointerId!==selectionLockPointer))return;
+    selectionLockPointer=null;
+    window.__ethvelleTimelineSelectionLockId='';
+  }
+  document.addEventListener('pointerup',releaseSelectionLock,true);
+  document.addEventListener('pointercancel',releaseSelectionLock,true);
+  document.addEventListener('contextmenu',e=>{if(clipRefFromTarget(e.target)){e.preventDefault();e.stopPropagation();}},true);
+
+  // Reverse playback timestamp is shared by preview, metadata-ready and export paths.
+  window.ethvelleVideoSourceTime=function(ov,t,duration){
+    const speed=Math.max(.05,Number(ov&&ov.speed)||1);
+    const max=Math.max(.05,(Number(duration)||Number(ov&&ov.sourceDuration)||Number(ov&&ov.trimEnd)-Number(ov&&ov.trimStart))-.02);
+    const elapsed=Math.max(0,(Number(t)-Number(ov&&ov.trimStart))*speed);
+    const span=Math.max(0,(Number(ov&&ov.trimEnd)-Number(ov&&ov.trimStart))*speed);
+    const raw=ov&&ov.reversePlayback?(Number(ov.sourceOffset)||0)+span-elapsed:(Number(ov&&ov.sourceOffset)||0)+elapsed;
+    return clamp(raw,0,max);
+  };
+  window.toggleSelectedVideoReverse=function(){
+    const id=getSelectedId(),ov=ovFor(id);
+    if(!ov||ov.type!=='video'){if(typeof showToast==='function')showToast('Select a video clip to reverse.',{icon:window.toastIcons&&window.toastIcons.info});return;}
+    ov.reversePlayback=!ov.reversePlayback;
+    const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[id]:null;
+    if(el){try{el.pause();el.muted=!!ov.reversePlayback;el.currentTime=window.ethvelleVideoSourceTime(ov,typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?Number(currentAbsoluteTimeSec):0),el.duration);}catch(_e){}}
+    if(typeof renderFrame==='function')renderFrame();
+    if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+    if(typeof showToast==='function')showToast(ov.reversePlayback?'Reverse enabled':'Reverse disabled',{icon:window.toastIcons&&window.toastIcons.check,duration:1200});
+    syncMediaTools();
+  };
+
+  // Add Reverse/Crop actions to the existing contextual layer toolbar, not as duplicate rows.
+  function ensureMediaTools(){
+    const row=$('bottomToolsClip');if(!row)return;
+    if(!$('clipReverseTool')){
+      const ref=$('clipTrimTool')||$('clipSpeedTool');
+      const html=`<div class="tool-item" id="clipReverseTool" onclick="toggleSelectedVideoReverse()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 7v5h5M20 17v-5h-5"/><path d="M6.5 16A7 7 0 0 0 19 12M17.5 8A7 7 0 0 0 5 12"/></svg><span>Reverse</span></div>`;
+      if(ref)ref.insertAdjacentHTML('afterend',html);else row.insertAdjacentHTML('beforeend',html);
+    }
+    if(!$('clipCropTool')){
+      const ref=$('clipReverseTool')||$('clipTrimTool');
+      const html=`<div class="tool-item" id="clipCropTool" onclick="openPanel('crop')"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M7 3v13a1 1 0 0 0 1 1h13"/><path d="M3 7h13a1 1 0 0 1 1 1v13"/><path d="M7 7h10v10"/></svg><span>Crop</span></div>`;
+      if(ref)ref.insertAdjacentHTML('afterend',html);else row.insertAdjacentHTML('beforeend',html);
+    }
+  }
+  function syncMediaTools(){
+    ensureMediaTools();
+    const id=getSelectedId(),ov=ovFor(id),bg=bgFor(id);
+    const reverse=$('clipReverseTool'),crop=$('clipCropTool');
+    if(reverse)reverse.style.display=ov&&ov.type==='video'?'flex':'none';
+    if(crop)crop.style.display=(ov&&(ov.type==='video'||ov.type==='image'))||(bg&&isImageSource(bg.src))?'flex':'none';
+  }
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evv87Media){window.syncBottomToolsMode=function(){const r=oldSync.apply(this,arguments);requestAnimationFrame(syncMediaTools);return r;};window.syncBottomToolsMode.__evv87Media=true;}
+  const oldSelect2=window.selectClipForChrome;
+  if(typeof oldSelect2==='function'&&!oldSelect2.__evv87Media){window.selectClipForChrome=function(){const r=oldSelect2.apply(this,arguments);requestAnimationFrame(syncMediaTools);return r;};window.selectClipForChrome.__evv87Media=true;}
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evv87Media){window.deselectAllClips=function(){const r=oldDeselect.apply(this,arguments);requestAnimationFrame(syncMediaTools);return r;};window.deselectAllClips.__evv87Media=true;}
+
+  // Tick-ruler Transform panel. Existing slider IDs and updateTransform() API are preserved.
+  function rulerRow(label,id,valueId,min,max,step,suffix){
+    return `<div class="evtr-slider-row"><div class="evtr-slider-head"><span>${label}</span><span class="evtr-slider-value" id="${valueId}">0${suffix||''}</span></div><div class="evtr-ruler" data-evtr-ruler="${id}"><input type="range" id="${id}" min="${min}" max="${max}" step="${step||1}" value="0" oninput="updateTransform();ethvelleSyncTransformRulers()" aria-label="${label}"></div></div>`;
+  }
+  function transformBody(){return `<div class="evv-transform-slider-panel">
+    <div class="transform-group">
+      <div class="transform-label-row"><span>Size</span><span class="transform-value" id="sizeVal">100%</span></div>
+      <input type="range" class="transform-slider" id="sizeSlider" min="10" max="400" step="1" value="100" oninput="updateTransform()" aria-label="Size">
+    </div>
+    <div class="transform-group">
+      <div class="transform-label-row"><span>Horizontal position</span><span class="transform-value" id="posXVal">0</span></div>
+      <input type="range" class="transform-slider" id="posXSlider" min="-200" max="200" step="1" value="0" oninput="updateTransform()" aria-label="Horizontal position">
+    </div>
+    <div class="transform-group">
+      <div class="transform-label-row"><span>Vertical position</span><span class="transform-value" id="posYVal">0</span></div>
+      <input type="range" class="transform-slider" id="posYSlider" min="-200" max="200" step="1" value="0" oninput="updateTransform()" aria-label="Vertical position">
+    </div>
+    <div class="transform-group">
+      <div class="transform-label-row"><span>Rotation</span><span class="transform-value" id="rotVal">0°</span></div>
+      <input type="range" class="transform-slider" id="rotSlider" min="-180" max="180" step="1" value="0" oninput="updateTransform()" aria-label="Rotation">
+    </div>
+    <button type="button" class="transform-reset-btn" onclick="resetTransform()">Reset transform</button>
+  </div>`;}
+  function syncTransformRulers(){
+    ['posXSlider','posYSlider','sizeSlider','rotSlider'].forEach(id=>{
+      const input=$(id),wrap=document.querySelector(`[data-evtr-ruler="${id}"]`);if(!input||!wrap)return;
+      const min=Number(input.min)||0,max=Number(input.max)||100,value=Number(input.value)||0;
+      const pct=max>min?Math.max(0,Math.min(1,(value-min)/(max-min))):.5;
+      const usable=Math.max(1,(wrap.clientWidth||1)-20);
+      wrap.style.setProperty('--evtr-progress',pct.toFixed(4));
+      wrap.style.setProperty('--evtr-shift',((.5-pct)*usable).toFixed(2)+'px');
+    });
+    const sv=$('sizeVal'),xv=$('posXVal'),yv=$('posYVal'),rv=$('rotVal');
+    if(sv&&$('sizeSlider'))sv.textContent=$('sizeSlider').value+'%';
+    if(xv&&$('posXSlider'))xv.textContent=$('posXSlider').value;
+    if(yv&&$('posYSlider'))yv.textContent=$('posYSlider').value;
+    if(rv&&$('rotSlider'))rv.textContent=$('rotSlider').value+'°';
+  }
+  window.ethvelleSyncTransformRulers=syncTransformRulers;
+  window.ethvelleTransformTab=function(name){
+    document.querySelectorAll('#toolPanel .evtr-tab').forEach(el=>el.classList.toggle('active',el.dataset.evtrTab===name));
+    document.querySelectorAll('#toolPanel .evtr-pane').forEach(el=>el.classList.toggle('active',el.dataset.evtrPane===name));
+  };
+  if(typeof panelContent!=='undefined'&&panelContent.transform)panelContent.transform.body=transformBody();
+  const oldOpen=window.openPanel;
+  if(typeof oldOpen==='function'&&!oldOpen.__evv87Transform){
+    window.openPanel=function(key){
+      const r=oldOpen.apply(this,arguments);
+      if(key==='transform'){window.ethvelleTransformTab('position');requestAnimationFrame(()=>{if(typeof window.syncTransformSliders==='function')window.syncTransformSliders();syncTransformRulers();});}
+      if(key==='crop')requestAnimationFrame(syncCropPanel);
+      return r;
+    };
+    window.openPanel.__evv87Transform=true;
+  }
+  const oldSyncTransform=window.syncTransformSliders;
+  if(typeof oldSyncTransform==='function'&&!oldSyncTransform.__evv87Ruler){
+    window.syncTransformSliders=function(){const r=oldSyncTransform.apply(this,arguments);syncTransformRulers();return r;};
+    window.syncTransformSliders.__evv87Ruler=true;
+  }
+  const oldUpdateTransform=window.updateTransform;
+  if(typeof oldUpdateTransform==='function'&&!oldUpdateTransform.__evv87Ruler){
+    window.updateTransform=function(){const r=oldUpdateTransform.apply(this,arguments);syncTransformRulers();return r;};
+    window.updateTransform.__evv87Ruler=true;
+  }
+
+  // Crop editor data model: normalized fractions are applied in live preview and in export.
+  function currentCropTarget(){const id=getSelectedId();const ov=ovFor(id),bg=bgFor(id);if(ov&&(ov.type==='video'||ov.type==='image'))return {kind:'overlay',clip:ov};if(bg&&isImageSource(bg.src))return {kind:'background',clip:bg};return null;}
+  function cropBody(){return `<div class="evcr-root">
+    ${[['Left','left'],['Top','top'],['Right','right'],['Bottom','bottom']].map(([label,key])=>`<div class="evcr-row"><div class="evcr-head"><span>${label}</span><span id="evcr-${key}-value">0%</span></div><input type="range" id="evcr-${key}" min="0" max="45" step="1" value="0" oninput="ethvelleApplyCropFromControls()"></div>`).join('')}
+    <div class="evcr-footer"><button type="button" class="evtr-reset" onclick="ethvelleResetCrop()">↶ Reset crop</button><button type="button" class="evtr-done" onclick="closePanel()" aria-label="Done">Apply</button></div></div>`;}
+  if(typeof panelContent!=='undefined')panelContent.crop={title:'Crop',body:cropBody()};
+  function getCropTarget(){return currentCropTarget();}
+  function syncCropPanel(){
+    const target=getCropTarget();if(!target)return;
+    const c=cropFractions(target.clip.crop);
+    ['left','top','right','bottom'].forEach(k=>{const input=$('evcr-'+k),value=$('evcr-'+k+'-value');if(input)input.value=Math.round(c[k]*100);if(value)value.textContent=Math.round(c[k]*100)+'%';});
+  }
+  window.ethvelleApplyCropFromControls=function(){
+    const target=getCropTarget();if(!target)return;
+    const c=cropFractions({left:Number($('evcr-left')&&$('evcr-left').value)/100,top:Number($('evcr-top')&&$('evcr-top').value)/100,right:Number($('evcr-right')&&$('evcr-right').value)/100,bottom:Number($('evcr-bottom')&&$('evcr-bottom').value)/100});
+    target.clip.crop=c;
+    syncCropPanel();
+    if(typeof renderFrame==='function')renderFrame();
+    else if(target.kind==='background'&&typeof applyBackground==='function')applyBackground();
+    if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+  };
+  window.ethvelleResetCrop=function(){const target=getCropTarget();if(!target)return;target.clip.crop={left:0,top:0,right:0,bottom:0};syncCropPanel();if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});};
+  function cssCropTransform(clip,transform,sourceEl,motion){
+    const stage=$('canvasStage'),sw=Math.max(1,stage?stage.clientWidth:1),sh=Math.max(1,stage?stage.clientHeight:1);
+    const iw=Math.max(1,sourceEl&&(sourceEl.videoWidth||sourceEl.naturalWidth)||sw),ih=Math.max(1,sourceEl&&(sourceEl.videoHeight||sourceEl.naturalHeight)||sh);
+    const c=cropFractions(clip.crop),cropW=iw*(1-c.left-c.right),cropH=ih*(1-c.top-c.bottom);
+    const baseContain=Math.min(sw/iw,sh/ih),hasCrop=(c.left+c.right+c.top+c.bottom)>0.0001;
+    const desiredScale=hasCrop?Math.max(sw/cropW,sh/cropH):baseContain;
+    const scaleFactor=desiredScale/Math.max(.0001,baseContain);
+    const cropDx=(c.right-c.left)*iw*desiredScale/2,cropDy=(c.bottom-c.top)*ih*desiredScale/2;
+    const tr=transform||clip.transform||{},m=motion||{};
+    const ox=(Number(tr.offsetX)||0)+(Number(m.x)||0)+cropDx,oy=(Number(tr.offsetY)||0)+(Number(m.y)||0)+cropDy;
+    const rotation=(Number(tr.rotation)||0)+(Number(m.rotation)||0),scale=(Number(tr.scale)||1)*(Number(m.scale)||1)*scaleFactor;
+    return `translate(${ox}px,${oy}px) rotate(${rotation}deg) scale(${scale}) scaleX(${clip.mirrorX?-1:1}) scaleY(${clip.mirrorY?-1:1})`;
+  }
+  window.ethvelleApplyCropPreview=function(){
+    const now=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?Number(currentAbsoluteTimeSec):0);
+    const id=getSelectedId();
+    (typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+      if(ov.type!=='video'&&ov.type!=='image')return;
+      const start=Number(ov.trimStart)||0,end=Number(ov.trimEnd)||start;
+      if(now<start-.001||now>=end+.001)return;
+      const c=cropFractions(ov.crop);
+      if(c.left+c.right+c.top+c.bottom<=.0001)return;
+      const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[ov.id]:null;if(!el)return;
+      const tracked=typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(ov,now):ov.transform;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',now):null;
+      const tr=ov.clipTracking&&ov.clipTracking.enabled&&ov.clipTracking.targetId?(tracked||ov.transform):(keyed||tracked||ov.transform);
+      const motion=typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(ov,now):{x:0,y:0,rotation:0,scale:1};
+      const value=cssCropTransform(ov,tr,el,motion)+(window.ethvellePerspectiveSuffix?window.ethvellePerspectiveSuffix(ov):'')
+      if(el.style.transform!==value)el.style.transform=value;
+      const chroma=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases)?overlayChromaCanvases[ov.id]:null;
+      if(chroma&&chroma.style.transform!==value)chroma.style.transform=value;
+    });
+    const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(now):bgFor(id);
+    const img=$('bgImgLayer');
+    if(bg&&img&&img.style.display!=='none'){
+      const c=cropFractions(bg.crop);
+      if(c.left+c.right+c.top+c.bottom>.0001){
+        const tr=typeof window.ethvelleGetObjectKeyframeValue==='function'?(window.ethvelleGetObjectKeyframeValue(bg,'transform',now)||bg.transform):bg.transform;
+        const value=cssCropTransform(bg,tr,img,null);if(img.style.transform!==value)img.style.transform=value;
+      }
+    }
+  };
+  const oldRenderOverlay=window.renderOverlayMedia;
+  if(typeof oldRenderOverlay==='function'&&!oldRenderOverlay.__evv87Crop){
+    window.renderOverlayMedia=function(){const r=oldRenderOverlay.apply(this,arguments);window.ethvelleApplyCropPreview();return r;};
+    window.renderOverlayMedia.__evv87Crop=true;
+  }
+  const oldApplyBg=window.applyBackground;
+  if(typeof oldApplyBg==='function'&&!oldApplyBg.__evv87Crop){
+    window.applyBackground=function(){const r=oldApplyBg.apply(this,arguments);window.ethvelleApplyCropPreview();return r;};
+    window.applyBackground.__evv87Crop=true;
+  }
+  const oldApplyBgT=window.applyBgTransform;
+  if(typeof oldApplyBgT==='function'&&!oldApplyBgT.__evv87Crop){
+    window.applyBgTransform=function(){const r=oldApplyBgT.apply(this,arguments);window.ethvelleApplyCropPreview();return r;};
+    window.applyBgTransform.__evv87Crop=true;
+  }
+
+  // Reconcile crop tool visibility and the active selection without scanning all timeline rows.
+  const oldSelect3=window.selectClipForChrome;
+  if(typeof oldSelect3==='function'&&!oldSelect3.__evv87Crop){window.selectClipForChrome=function(){const r=oldSelect3.apply(this,arguments);requestAnimationFrame(syncMediaTools);return r;};window.selectClipForChrome.__evv87Crop=true;}
+  ensureMediaTools();syncMediaTools();
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ensureMediaTools();syncMediaTools();},{once:true});
+  else requestAnimationFrame(()=>{ensureMediaTools();syncMediaTools();});
+})();
+</script>
+
+<!-- Ethvelle v89: deep rendering optimization, stable Text Editor layout, full object keyframes,
+     responsive transform sheet and visual on-canvas crop tool. -->
+<style id="ethvelle-v89-performance-and-crop-css">
+  /* Transform is a compact, internally scrollable sheet. Its runtime height is measured
+     against the transport row so it cannot cover the canvas preview or Play/Pause controls. */
+  #screen-editor #toolPanel.tool-panel.ev-v89-fit-panel{
+    max-height:none!important;
+    box-sizing:border-box!important;
+    contain:layout paint!important;
+  }
+  #screen-editor #toolPanel.ev-v89-fit-panel .tool-panel-body{
+    min-height:0!important;max-height:var(--ev-v89-panel-body-max,260px)!important;
+    overflow-y:auto!important;overscroll-behavior:contain!important;
+    padding:12px 14px calc(12px + env(safe-area-inset-bottom))!important;
+  }
+  #toolPanel .evtr-root{gap:12px!important;padding:2px 0 4px!important;}
+  #toolPanel .evtr-tabs{padding:3px!important;}
+  #toolPanel .evtr-tab{padding:8px 5px!important;}
+  #toolPanel .evtr-pane{gap:12px!important;}
+  #toolPanel .evtr-ruler{height:68px!important;}
+  #toolPanel .evtr-ruler::after{
+    background:#2F5CE8!important;box-shadow:none!important;
+  }
+  /* Only the normal editor's Key and Zoom controls move; the other transport controls
+     and the zoom-canvas HUD remain untouched. */
+  #screen-editor > .transport-row > .transport-cluster > #transportKeyBtn,
+  #screen-editor > .transport-row > .transport-cluster > #transportZoomBtn{
+    transform:translateX(7px)!important;
+  }
+  /* Keep the hidden text toolbar's original flex footprint so the stage never jumps. */
+  #screen-editor #bottomToolsClip.ev-v89-text-dock-hidden{
+    visibility:hidden!important;pointer-events:none!important;
+  }
+  /* The crop editor is a transparent overlay over the actual media content. A strong blue
+     frame and eight visible handles make it easy to crop accurately on a phone. */
+  #canvasStage .ev-v89-crop-root{
+    position:absolute;inset:0;z-index:999;pointer-events:none;transform-origin:50% 50%;
+    overflow:visible;touch-action:none;
+  }
+  #canvasStage .ev-v89-crop-frame{
+    position:absolute;box-sizing:border-box;border:2px solid #2F5CE8;
+    background:transparent;box-shadow:0 0 0 9999px rgba(0,0,0,.48),0 0 0 1px rgba(255,255,255,.35);
+    pointer-events:auto;touch-action:none;cursor:move;min-width:18px;min-height:18px;
+  }
+  #canvasStage .ev-v89-crop-frame::before,
+  #canvasStage .ev-v89-crop-frame::after{content:"";position:absolute;pointer-events:none;background:rgba(255,255,255,.9);}
+  #canvasStage .ev-v89-crop-frame::before{left:33.333%;right:33.333%;top:0;bottom:0;width:1px;margin:auto;}
+  #canvasStage .ev-v89-crop-frame::after{top:33.333%;bottom:33.333%;left:0;right:0;height:1px;margin:auto;}
+  #canvasStage .ev-v89-crop-handle{
+    position:absolute;width:13px;height:13px;border:2px solid #fff;background:#2F5CE8;
+    border-radius:3px;box-shadow:0 1px 4px rgba(0,0,0,.65);z-index:2;pointer-events:auto;touch-action:none;
+  }
+  #canvasStage .ev-v89-crop-handle[data-handle="nw"]{left:-7px;top:-7px;cursor:nwse-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="n"]{left:50%;top:-7px;transform:translateX(-50%);cursor:ns-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="ne"]{right:-7px;top:-7px;cursor:nesw-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="e"]{right:-7px;top:50%;transform:translateY(-50%);cursor:ew-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="se"]{right:-7px;bottom:-7px;cursor:nwse-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="s"]{left:50%;bottom:-7px;transform:translateX(-50%);cursor:ns-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="sw"]{left:-7px;bottom:-7px;cursor:nesw-resize;}
+  #canvasStage .ev-v89-crop-handle[data-handle="w"]{left:-7px;top:50%;transform:translateY(-50%);cursor:ew-resize;}
+  #screen-editor.ev-v89-crop-active #selBoxLayer{display:none!important;}
+  .ev-v89-crop-panel{display:flex;flex-direction:column;gap:12px;padding:2px 0 4px;}
+  .ev-v89-crop-panel .ev-v89-ratio-label{font-size:12px;color:#A7A7B1;font-weight:700;}
+  .ev-v89-ratios{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+  .ev-v89-ratio{min-height:37px;border:1px solid #383844;border-radius:9px;background:#202027;color:#D9D9E1;font-size:11px;font-weight:700;}
+  .ev-v89-ratio.active{border-color:#2F5CE8;background:rgba(47,92,232,.22);color:#fff;box-shadow:inset 0 0 0 1px rgba(47,92,232,.35);}
+  .ev-v89-crop-hint{font-size:11px;line-height:1.45;color:#9494A0;}
+  .ev-v89-crop-actions{display:flex;justify-content:space-between;align-items:center;padding-top:10px;border-top:1px solid #313139;}
+  .ev-v89-crop-actions button{min-height:38px;padding:0 13px;border-radius:9px;font-size:12px;font-weight:800;}
+  .ev-v89-crop-reset{background:#292932;color:#E5E5EB;border:1px solid #41414B;}
+  .ev-v89-crop-done{background:#2F5CE8;color:#fff;}
+</style>
+<script id="ethvelle-v89-deep-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  // Prevent a duplicate crop-preview pass when applyBackground and renderOverlayMedia are
+  // called back-to-back in the same frame. The actual video/image decoder work remains
+  // independently throttled by the existing compositor.
+  let cropPreviewLastAt=0,cropPreviewLastTime=NaN;
+  const oldCropPreview=window.ethvelleApplyCropPreview;
+  window.ethvelleApplyCropPreview=function(){
+    const now=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+    const stamp=performance.now();
+    if(Number.isFinite(cropPreviewLastTime)&&Math.abs(now-cropPreviewLastTime)<0.00001&&stamp-cropPreviewLastAt<5)return;
+    cropPreviewLastAt=stamp;cropPreviewLastTime=now;
+    const editingId=window.__ethvelleCropEditingId==null?'':String(window.__ethvelleCropEditingId);
+    const map=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls:{};
+    const list=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[];
+    for(let i=0;i<list.length;i++){
+      const ov=list[i];
+      if(!ov||(ov.type!=='video'&&ov.type!=='image'))continue;
+      const id=String(ov.id),el=map[id];if(!el||id===editingId)continue;
+      const c=window.ethvelleCropFractions?window.ethvelleCropFractions(ov.crop):{left:0,right:0,top:0,bottom:0};
+      if(c.left+c.right+c.top+c.bottom<=0.0001)continue;
+      const tracked=typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(ov,now):ov.transform;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',now):null;
+      const tr=ov.clipTracking&&ov.clipTracking.enabled&&ov.clipTracking.targetId?(tracked||ov.transform):(keyed||tracked||ov.transform);
+      const iw=Math.max(1,el.videoWidth||el.naturalWidth||1),ih=Math.max(1,el.videoHeight||el.naturalHeight||1);
+      const sw=Math.max(1,$('canvasStage')?.clientWidth||1),sh=Math.max(1,$('canvasStage')?.clientHeight||1);
+      const cropW=iw*(1-c.left-c.right),cropH=ih*(1-c.top-c.bottom),base=Math.min(sw/iw,sh/ih);
+      const desired=Math.max(sw/cropW,sh/cropH),factor=desired/Math.max(.0001,base);
+      const dx=(c.right-c.left)*iw*desired/2,dy=(c.bottom-c.top)*ih*desired/2;
+      const motion=typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(ov,now):{x:0,y:0,rotation:0,scale:1};
+      const value=`translate(${(Number(tr?.offsetX)||0)+(Number(motion?.x)||0)+dx}px,${(Number(tr?.offsetY)||0)+(Number(motion?.y)||0)+dy}px) rotate(${(Number(tr?.rotation)||0)+(Number(motion?.rotation)||0)}deg) scale(${(Number(tr?.scale)||1)*(Number(motion?.scale)||1)*factor}) scaleX(${ov.mirrorX?-1:1}) scaleY(${ov.mirrorY?-1:1})`+(window.ethvellePerspectiveSuffix?window.ethvellePerspectiveSuffix(ov):'');
+      if(el.style.transform!==value)el.style.transform=value;
+      const chroma=typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases?overlayChromaCanvases[id]:null;
+      if(chroma&&chroma.style.transform!==value)chroma.style.transform=value;
+    }
+    const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(now):null;
+    const img=$('bgImgLayer');
+    if(bg&&img&&img.style.display!=='none'&&String(bg.id)!==editingId){
+      const c=window.ethvelleCropFractions?window.ethvelleCropFractions(bg.crop):{left:0,right:0,top:0,bottom:0};
+      if(c.left+c.right+c.top+c.bottom>0.0001){
+        const tr=typeof window.ethvelleGetObjectKeyframeValue==='function'?(window.ethvelleGetObjectKeyframeValue(bg,'transform',now)||bg.transform):bg.transform;
+        const iw=Math.max(1,img.naturalWidth||1),ih=Math.max(1,img.naturalHeight||1),sw=Math.max(1,$('canvasStage')?.clientWidth||1),sh=Math.max(1,$('canvasStage')?.clientHeight||1);
+        const desired=Math.max(sw/(iw*(1-c.left-c.right)),sh/(ih*(1-c.top-c.bottom))),base=Math.min(sw/iw,sh/ih),factor=desired/Math.max(.0001,base);
+        const value=`translate(${(Number(tr?.offsetX)||0)+(c.right-c.left)*iw*desired/2}px,${(Number(tr?.offsetY)||0)+(c.bottom-c.top)*ih*desired/2}px) rotate(${Number(tr?.rotation)||0}deg) scale(${(Number(tr?.scale)||1)*factor})`;
+        if(img.style.transform!==value)img.style.transform=value;
+      }
+    }
+  };
+
+  // Transform panel: fit its visible top edge immediately below the transport row.
+  // The sheet keeps its natural content height until the available space is exhausted.
+  function fitTransformPanel(){
+    const editor=$('screen-editor'),panel=$('toolPanel'),row=editor?.querySelector('.transport-row');
+    if(!editor||!panel||!row||!panel.classList.contains('open'))return;
+    const er=editor.getBoundingClientRect(),rr=row.getBoundingClientRect();
+    const available=Math.max(150,Math.floor(er.bottom-rr.bottom-8));
+    const header=panel.querySelector('.tool-panel-header');
+    const headerH=header?header.getBoundingClientRect().height:48;
+    panel.classList.add('ev-v89-fit-panel');
+    panel.style.maxHeight=available+'px';
+    const body=$('panelBody');if(body)body.style.maxHeight=Math.max(80,available-headerH-4)+'px';
+  }
+  const prevOpen=window.openPanel;
+  if(typeof prevOpen==='function'&&!prevOpen.__evv89Panel){
+    const wrapped=function(key){
+      const result=prevOpen.apply(this,arguments);
+      if(key==='transform')requestAnimationFrame(()=>requestAnimationFrame(fitTransformPanel));
+      else{const p=$('toolPanel');if(p){p.classList.remove('ev-v89-fit-panel');p.style.maxHeight='';const b=$('panelBody');if(b)b.style.maxHeight='';}}
+      if(key!=='crop'&&window.__ethvelleCropEditingId)hideCropEditor(false);
+      return result;
+    };
+    wrapped.__evv89Panel=true;window.openPanel=wrapped;
+  }
+  window.addEventListener('resize',()=>{if($('toolPanel')?.classList.contains('ev-v89-fit-panel'))requestAnimationFrame(fitTransformPanel);},{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',()=>{if($('toolPanel')?.classList.contains('ev-v89-fit-panel'))requestAnimationFrame(fitTransformPanel);},{passive:true});
+
+  // The Crop tool is a real on-canvas frame. Crop fractions are stored on the selected
+  // clip, using the same normalized model already consumed by preview and export.
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const cropTarget=()=>{
+    const id=typeof selectedClip==='undefined'||selectedClip==null?'':String(selectedClip);
+    const clip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;
+    if(!clip)return null;
+    if((clip.type==='image'||clip.type==='video')&&typeof overlays!=='undefined'&&overlays.includes(clip))return {id,clip,kind:'overlay',el:typeof overlayMediaEls!=='undefined'?overlayMediaEls[id]:null};
+    if(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds)&&backgrounds.includes(clip))return {id,clip,kind:'background',el:$('bgImgLayer')};
+    return null;
+  };
+  const getCrop=clip=>{
+    const c=window.ethvelleCropFractions?window.ethvelleCropFractions(clip?.crop):{left:0,right:0,top:0,bottom:0};
+    return {left:c.left||0,right:c.right||0,top:c.top||0,bottom:c.bottom||0};
+  };
+  let cropRoot=null,cropFrame=null,cropRatio='free',cropDrag=null,cropResizeObserver=null,cropOpen=false;
+  function metrics(target){
+    const stage=$('canvasStage');if(!stage)return null;
+    const sw=Math.max(1,stage.clientWidth),sh=Math.max(1,stage.clientHeight),el=target.el;
+    const iw=Math.max(1,el&&(el.videoWidth||el.naturalWidth)||Number(target.clip.sourceWidth)||sw);
+    const ih=Math.max(1,el&&(el.videoHeight||el.naturalHeight)||Number(target.clip.sourceHeight)||sh);
+    const scale=Math.min(sw/iw,sh/ih),w=iw*scale,h=ih*scale;
+    return {sw,sh,iw,ih,x:(sw-w)/2,y:(sh-h)/2,w,h,aspect:iw/ih};
+  }
+  function liveTransform(clip){
+    const now=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+    const base=typeof window.ethvelleGetTrackedOverlayTransform==='function'?window.ethvelleGetTrackedOverlayTransform(clip):(window.ethvelleGetObjectKeyframeValue?.(clip,'transform',now)||clip.transform||{});
+    const key=window.ethvelleGetObjectKeyframeValue?.(clip,'transform',now)||base||clip.transform||{};
+    const isBackground=typeof backgrounds!=='undefined'&&Array.isArray(backgrounds)&&backgrounds.includes(clip);
+    const motion=!isBackground&&typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(clip,now):{x:0,y:0,rotation:0,scale:1};
+    return `translate(${(Number(key.offsetX)||0)+(Number(motion?.x)||0)}px,${(Number(key.offsetY)||0)+(Number(motion?.y)||0)}px) rotate(${(Number(key.rotation)||0)+(Number(motion?.rotation)||0)}deg) scale(${(Number(key.scale)||1)*(Number(motion?.scale)||1)})`;
+  }
+  function ensureCropRoot(){
+    const stage=$('canvasStage');if(!stage)return;
+    if(cropRoot&&cropRoot.isConnected)return;
+    cropRoot=document.createElement('div');cropRoot.className='ev-v89-crop-root';cropRoot.id='evV89CropRoot';cropRoot.style.display='none';
+    cropFrame=document.createElement('div');cropFrame.className='ev-v89-crop-frame';cropFrame.id='evV89CropFrame';
+    ['nw','n','ne','e','se','s','sw','w'].forEach(dir=>{const h=document.createElement('span');h.className='ev-v89-crop-handle';h.dataset.handle=dir;cropFrame.appendChild(h);});
+    cropRoot.appendChild(cropFrame);stage.appendChild(cropRoot);
+  }
+  function paintCropFrame(){
+    if(!cropOpen)return;
+    const target=cropTarget(),stage=$('canvasStage');if(!target||!stage)return;
+    ensureCropRoot();const m=metrics(target);if(!m)return;
+    const c=getCrop(target.clip),w=m.w*(1-c.left-c.right),h=m.h*(1-c.top-c.bottom);
+    cropRoot.style.display='block';cropRoot.style.transform=liveTransform(target.clip);
+    cropFrame.style.left=(m.x+c.left*m.w)+'px';cropFrame.style.top=(m.y+c.top*m.h)+'px';
+    cropFrame.style.width=Math.max(18,w)+'px';cropFrame.style.height=Math.max(18,h)+'px';
+    // Show the un-cropped source while editing. The final crop transform is restored on exit.
+    if(target.el)target.el.style.transform=liveTransform(target.clip);
+  }
+  function updateRatioButtons(){
+    document.querySelectorAll('.ev-v89-ratio').forEach(b=>b.classList.toggle('active',b.dataset.ratio===cropRatio));
+  }
+  function cropPanelBody(){
+    return `<div class="ev-v89-crop-panel">
+      <div class="ev-v89-ratio-label">Aspect ratio</div>
+      <div class="ev-v89-ratios">
+        <button type="button" class="ev-v89-ratio active" data-ratio="free" onclick="ethvelleV89SetCropRatio('free')">Free</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="1:1" onclick="ethvelleV89SetCropRatio('1:1')">1:1</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="16:9" onclick="ethvelleV89SetCropRatio('16:9')">16:9</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="9:16" onclick="ethvelleV89SetCropRatio('9:16')">9:16</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="4:3" onclick="ethvelleV89SetCropRatio('4:3')">4:3</button>
+        <button type="button" class="ev-v89-ratio" data-ratio="3:4" onclick="ethvelleV89SetCropRatio('3:4')">3:4</button>
+      </div>
+      <div class="ev-v89-crop-actions"><button type="button" class="ev-v89-crop-reset" onclick="ethvelleV89ResetCrop()">Reset crop</button><button type="button" class="ev-v89-crop-done" onclick="closePanel()">Apply crop</button></div>
+    </div>`;
+  }
+  if(typeof panelContent!=='undefined')panelContent.crop={title:'Crop',body:cropPanelBody()};
+  function showCropEditor(){
+    const target=cropTarget();if(!target){if(typeof showToast==='function')showToast('Select an image or video layer to crop.',{icon:window.toastIcons?.info});return;}
+    if(typeof isPlaying!=='undefined'&&isPlaying&&typeof pausePlayback==='function')pausePlayback();
+    // Reset any stale crop state from a previous crop session on this clip.
+    cropOpen=false;cropDrag=null;cropRatio='free';
+    if(cropRoot){cropRoot.style.display='none';try{cropRoot.remove();}catch(_e){}cropRoot=null;cropFrame=null;}
+    cropOpen=true;window.__ethvelleCropEditingId=target.id;
+    // Invalidate the clip-path cache for this element so a fresh clip-path is computed on Apply.
+    if(typeof window.ethvelleApplyCropPreview==='function'&&target.el){
+      try{const stage=$('canvasStage');if(stage&&target.el.style.clipPath&&target.el.style.clipPath!=='none'){target.el.style.clipPath='none';target.el.style.webkitClipPath='none';}}catch(_e){}
+    }
+    if(target.el){target.el.addEventListener('loadedmetadata',()=>requestAnimationFrame(paintCropFrame),{once:true});target.el.addEventListener('load',()=>requestAnimationFrame(paintCropFrame),{once:true});}
+    const screen=$('screen-editor');if(screen)screen.classList.add('ev-v89-crop-active');
+    paintCropFrame();updateRatioButtons();
+    if(cropResizeObserver)cropResizeObserver.disconnect();
+    const stage=$('canvasStage');if(stage&&typeof ResizeObserver!=='undefined'){cropResizeObserver=new ResizeObserver(()=>requestAnimationFrame(paintCropFrame));cropResizeObserver.observe(stage);}
+  }
+  function hideCropEditor(apply){
+    if(!cropOpen&&!cropRoot)return;
+    const target=cropTarget();cropOpen=false;cropDrag=null;
+    if(cropResizeObserver){cropResizeObserver.disconnect();cropResizeObserver=null;}
+    $('screen-editor')?.classList.remove('ev-v89-crop-active');
+    if(cropRoot){cropRoot.style.display='none';cropRoot.remove();cropRoot=null;cropFrame=null;}
+    delete window.__ethvelleCropEditingId;
+    if(apply&&target){if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}
+  }
+  window.ethvelleV89SetCropRatio=function(value){
+    const target=cropTarget();if(!target)return;
+    cropRatio=String(value||'free');
+    if(cropRatio!=='free'){
+      const m=metrics(target);if(!m)return;
+      const parts=cropRatio.split(':').map(Number),wanted=parts[0]/parts[1],source=m.aspect;
+      let wf=1,hf=1;
+      if(source>wanted)wf=wanted/source;else hf=source/wanted;
+      const x=(1-wf)/2,y=(1-hf)/2;
+      target.clip.crop={left:x,right:x,top:y,bottom:y};
+    }
+    updateRatioButtons();paintCropFrame();
+    if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+  };
+  window.ethvelleV89ResetCrop=function(){
+    const target=cropTarget();if(!target)return;
+    target.clip.crop={left:0,right:0,top:0,bottom:0};cropRatio='free';updateRatioButtons();paintCropFrame();
+    if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+  };
+  function setCropFractions(target,c){
+    const clampPair=(a,b)=>{a=clamp(a,0,.92);b=clamp(b,0,.92);const sum=a+b;if(sum>.92){const f=.92/sum;a*=f;b*=f;}return [a,b];};
+    [c.left,c.right]=clampPair(c.left,c.right);[c.top,c.bottom]=clampPair(c.top,c.bottom);
+    target.clip.crop={left:c.left,right:c.right,top:c.top,bottom:c.bottom};
+  }
+  function beginCropDrag(e){
+    const target=cropTarget(),m=target&&metrics(target);if(!target||!m)return;
+    const handle=e.target.closest('.ev-v89-crop-handle')?.dataset.handle||'move';
+    const now=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+    const tr=window.ethvelleGetObjectKeyframeValue?.(target.clip,'transform',now)||target.clip.transform||{};
+    const isBg=target.kind==='background';
+    const motion=!isBg&&typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(target.clip,now):{scale:1,rotation:0};
+    const layerScale=Math.max(.0001,(Number(tr.scale)||1)*(Number(motion?.scale)||1));
+    const layerRotation=((Number(tr.rotation)||0)+(Number(motion?.rotation)||0))*Math.PI/180;
+    const stage=$('canvasStage'),stageRect=stage&&stage.getBoundingClientRect();
+    const sx=stageRect&&stageRect.width?stage.clientWidth/stageRect.width:1;
+    const sy=stageRect&&stageRect.height?stage.clientHeight/stageRect.height:1;
+    // Capture on the stable frame, not on a handle whose position changes during resizing.
+    // Invert the actual computed crop-root matrix so zoom, layer scale and layer rotation all
+    // convert the finger delta into the same local coordinate space as the crop fractions.
+    let inverseMatrix=null;
+    try{
+      const Matrix=window.DOMMatrixReadOnly||window.DOMMatrix;
+      const cssTransform=cropRoot&&getComputedStyle(cropRoot).transform;
+      if(Matrix&&cssTransform&&cssTransform!=='none'){
+        const inv=new Matrix(cssTransform).inverse();
+        inverseMatrix={a:inv.a,b:inv.b,c:inv.c,d:inv.d};
+      }
+    }catch(_e){}
+    const capture=cropFrame;
+    cropDrag={pointerId:e.pointerId,handle,startX:e.clientX,startY:e.clientY,m,c:getCrop(target.clip),
+      invScale:1/layerScale,cos:Math.cos(layerRotation),sin:Math.sin(layerRotation),inverseMatrix,stageScaleX:sx,stageScaleY:sy,capture};
+    try{cropDrag.capture.setPointerCapture(e.pointerId);}catch(_e){}
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+  }
+  function moveCropDrag(e){
+    if(!cropDrag||e.pointerId!==cropDrag.pointerId)return;
+    const target=cropTarget();if(!target)return;
+    const d=cropDrag;
+    // getBoundingClientRect() includes the canvas zoom scale; convert finger movement back
+    // into stage CSS pixels before applying the selected layer's inverse scale/rotation.
+    const screenX=(e.clientX-d.startX)*d.stageScaleX;
+    const screenY=(e.clientY-d.startY)*d.stageScaleY;
+    const localX=d.inverseMatrix?(d.inverseMatrix.a*screenX+d.inverseMatrix.c*screenY):((screenX*d.cos+screenY*d.sin)*d.invScale);
+    const localY=d.inverseMatrix?(d.inverseMatrix.b*screenX+d.inverseMatrix.d*screenY):((-screenX*d.sin+screenY*d.cos)*d.invScale);
+    const dx=localX/Math.max(1,d.m.w),dy=localY/Math.max(1,d.m.h),c={...d.c},h=d.handle;
+    const w0=1-d.c.left-d.c.right,h0=1-d.c.top-d.c.bottom;
+    if(h==='move'){
+      const maxL=1-d.c.right-w0; // remains the original left unless clamped at the image edge
+      c.left=clamp(d.c.left+dx,0,1-w0);c.right=1-w0-c.left;
+      c.top=clamp(d.c.top+dy,0,1-h0);c.bottom=1-h0-c.top;
+    }else if(cropRatio==='free'){
+      if(h.includes('w'))c.left=clamp(d.c.left+dx,0,1-d.c.right-.08);
+      if(h.includes('e'))c.right=clamp(d.c.right-dx,0,1-d.c.left-.08);
+      if(h.includes('n'))c.top=clamp(d.c.top+dy,0,1-d.c.bottom-.08);
+      if(h.includes('s'))c.bottom=clamp(d.c.bottom-dy,0,1-d.c.top-.08);
+    }else{
+      const p=cropRatio.split(':').map(Number),ratio=(p[0]/p[1])/d.m.aspect;
+      if(h==='e'||h==='w'){
+        let w=clamp(w0+(h==='e'?dx:-dx),.08,1);
+        let hh=clamp(w/ratio,.08,1);w=hh*ratio;
+        if(h==='e')c.right=1-d.c.left-w;else c.left=1-d.c.right-w;
+        c.top=(1-hh)/2;c.bottom=1-hh-c.top;
+      }else if(h==='n'||h==='s'){
+        let hh=clamp(h0+(h==='s'?dy:-dy),.08,1),w=clamp(hh*ratio,.08,1);hh=w/ratio;
+        if(h==='s')c.bottom=1-d.c.top-hh;else c.top=1-d.c.bottom-hh;
+        c.left=(1-w)/2;c.right=1-w-c.left;
+      }else{
+        const dirX=h.includes('w')?-1:1,dirY=h.includes('n')?-1:1;
+        const candidateW=clamp(w0+dirX*dx,.08,1),candidateH=clamp(h0+dirY*dy,.08,1);
+        let w=Math.abs(candidateW-w0)/Math.max(.08,w0)>=Math.abs(candidateH-h0)/Math.max(.08,h0)?candidateW:candidateH*ratio;
+        let hh=w/ratio;if(hh>.92){hh=.92;w=hh*ratio;}if(w>.92){w=.92;hh=w/ratio;}
+        if(dirX<0)c.left=1-d.c.right-w;else c.right=1-d.c.left-w;
+        if(dirY<0)c.top=1-d.c.bottom-hh;else c.bottom=1-d.c.top-hh;
+      }
+    }
+    setCropFractions(target,c);paintCropFrame();e.preventDefault();e.stopPropagation();
+  }
+  function endCropDrag(e){
+    if(!cropDrag||e.pointerId!==undefined&&e.pointerId!==cropDrag.pointerId)return;
+    const capture=cropDrag.capture;cropDrag=null;
+    try{if(e.pointerId!==undefined&&capture&&capture.hasPointerCapture?.(e.pointerId))capture.releasePointerCapture(e.pointerId);}catch(_e){}
+    if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+  }
+  /* Capture the crop gesture before timeline/canvas handlers. This is especially important
+     on Android WebView, where transformed canvas layers can otherwise take pointer capture. */

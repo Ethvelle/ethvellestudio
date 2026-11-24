@@ -1,0 +1,1000 @@
+  if(badge) badge.innerHTML = BG_FILLED_ICON;
+  // The row's own height is fixed by CSS (.layer-row[data-layer="background"], 72px)  - 
+  // BG_ROW_LANE_H (60px) is sized to fit exactly inside that, matching every other track
+  // row's fixed 60px-track/72px-row convention, so no JS height is set here at all.
+  if(!backgrounds.length){
+    track.style.height = BG_ROW_LANE_H+'px';
+    // FEATURE (only the + badge should add a background): this placeholder used to open the
+    // file picker itself on tap (same as the badge), so tapping ANYWHERE on the empty
+    // Background row  -  not just its + button  -  jumped straight to the device file picker.
+    // Per request, the row itself is now inert; only bgLayerBadge (the dedicated + button
+    // beside the row, which already calls triggerUpload('background') on its own) can open
+    // the uploader. No onclick here at all, so a tap on the row does nothing.
+    track.innerHTML = `<div class="track-clip-empty char-add-track" style="height:${BG_ROW_LANE_H}px;"><span class="track-clip-empty-label">Background</span></div>`;
+    restoreEthvelleRowScroll(rowScrollSnapshot);
+    return;
+  }
+  track.style.height = BG_ROW_LANE_H+'px';
+  track.innerHTML = backgrounds.map(b=>{
+    const left = b.trimStart*pps;
+    const width = Math.max(MIN_CLIP_SEC*pps, (b.trimEnd-b.trimStart)*pps);
+    const selected = String(selectedClip)===String(b.id);
+    const isUrl = b.src && String(b.src).startsWith('url(');
+    let fillHtml, styleBg;
+    if(isUrl){
+      const url = String(b.src).slice(4,-1).replace(/^["']|["']$/g,'');
+      styleBg = '';
+      fillHtml = `<div class="clip-thumb-strip" style="background-image:url(${url}); background-size:auto 100%; background-repeat:repeat-x;"></div><div class="clip-media-label clip-media-label-bg" unselectable="on" onselectstart="return false;">Background</div>`;
+    } else {
+      styleBg = b.src || '#ffffff';
+      fillHtml = `<div class="clip-media-label clip-media-label-bg" unselectable="on" onselectstart="return false;">Background</div>`;
+    }
+    return `
+      <div class="track-clip ${selected?'selected':''}" data-bg-id="${b.id}" style="left:${left}px; width:${width}px; height:${BG_CLIP_H}px; background:${styleBg};">
+        <div class="anim-clip-handle left" data-bg-handle="left" data-bg-id="${b.id}"></div>
+        ${fillHtml}
+        <div class="anim-clip-handle right" data-bg-handle="right" data-bg-id="${b.id}"></div>
+        <div class="keyframe-track object-keyframe-track" data-object-kf-track="${b.id}">${ethvelleObjectKeyframeMarkersHtml(b.id,b)}</div>
+        ${SEL_EDGE_HTML}
+      </div>
+    `;
+  }).join('');
+  wireBackgroundTrackInteractions();
+  restoreEthvelleRowScroll(rowScrollSnapshot);
+}
+// Drag-to-move / edge-handle-to-trim for EACH background clip  -  mirrors
+// wireOverlayInteractions almost exactly, except every move/resize is clamped via
+// resolveBgClipOverlaps (background clips must never overlap) instead of being free to
+// overlap into their own sub-lane the way Clips/Audio can.
+function wireBackgroundTrackInteractions(){
+  backgrounds.forEach(b=>{
+    const clipEl = document.querySelector(`.track-clip[data-bg-id="${b.id}"]`);
+    if(!clipEl) return;
+    wireClipZoomGesture(clipEl); // FEATURE: two-finger pinch on this clip zooms the timeline
+    function reposition(){
+      const pps = pxPerSecond();
+      setTimelineInlineStyle(clipEl,'left',(b.trimStart*pps)+'px');
+      setTimelineInlineStyle(clipEl,'width',Math.max(MIN_CLIP_SEC*pps,(b.trimEnd-b.trimStart)*pps)+'px');
+    }
+    const BG_DRAG_TOLERANCE = 7;
+    const BG_SCRUB_TOLERANCE = 18;
+    const LONG_PRESS_MS = 240;
+    let dragState = null; // null | {type:'pending'|'move'|'scroll', ...}
+    let longPressTimer = null;
+    function clearLongPressTimer(){ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; } }
+    // Background clips use direct, RAF-batched `left` writes while moving. Some Android
+    // WebViews defer repainting the CSS-variable transform until pointerup, even though the
+    // model and custom property are updated during the gesture. Writing the absolute layout
+    // position keeps the background clip visibly under the finger on every frame. This is
+    // intentionally local to the Background row; overlay/character drag paths stay unchanged.
+    function paintBackgroundClipLeft(el,startTime,pps){
+      if(!el)return;
+      const left=Math.max(0,Number(startTime)||0)*pps;
+      const value=left.toFixed(3)+'px';
+      if(el.style.left!==value)el.style.left=value;
+    }
+    function applyBackgroundMoveAt(clientX){
+      if(!dragState||dragState.type!=='move')return;
+      const pps=pxPerSecond();
+      let desiredStart=Math.max(0,dragState.origStart+timelineDragDeltaPixels(dragState,clientX)/pps);
+      const duration=Math.max(MIN_CLIP_SEC,dragState.origEnd-dragState.origStart);
+      const others=dragState.layoutSnapshot||[]; // sorted once on pointerdown
+      const gap=0.015;
+      // Binary-search the dragged clip's current slot among the pre-sorted neighbours.
+      // If there is not enough timeline space to push every earlier neighbour left, clamp
+      // to the first collision-free position instead of allowing a temporary overlap at t=0.
+      const minStartByCount=dragState.minStartByCount||[0];
+      let low=0,high=others.length,rounds=0;
+      while(rounds++<=others.length){
+        low=0;high=others.length;
+        while(low<high){
+          const mid=(low+high)>>>1;
+          if(others[mid].start<desiredStart-0.000001)low=mid+1;else high=mid;
+        }
+        const minAllowed=minStartByCount[low]||0;
+        if(desiredStart>=minAllowed-0.000001)break;
+        desiredStart=minAllowed;
+      }
+      let nextStart=desiredStart;
+      for(let i=low-1;i>=0;i--){
+        const item=others[i];
+        let start=item.start;
+        if(start+item.duration>nextStart-gap)start=Math.max(0,nextStart-gap-item.duration);
+        item.clip.trimStart=start;item.clip.trimEnd=start+item.duration;
+        if(item.el)paintBackgroundClipLeft(item.el,start,pps);
+        nextStart=start;
+      }
+      let previousEnd=desiredStart+duration;
+      for(let i=low;i<others.length;i++){
+        const item=others[i];
+        let start=item.start;
+        if(start<previousEnd+gap)start=previousEnd+gap;
+        item.clip.trimStart=start;item.clip.trimEnd=start+item.duration;
+        if(item.el)paintBackgroundClipLeft(item.el,start,pps);
+        previousEnd=start+item.duration;
+      }
+      b.trimStart=desiredStart;b.trimEnd=desiredStart+duration;
+      const furthestBackgroundEnd=backgrounds.reduce((max,clip)=>Math.max(max,Number(clip&&clip.trimEnd)||0),0);
+      ensureTimelineRoomForDraggedClip({trimEnd:furthestBackgroundEnd});
+      paintBackgroundClipLeft(clipEl,desiredStart,pps);
+    }
+    function commitBackgroundDragLayout(snapshot){
+      (snapshot||[]).forEach(item=>{
+        const delta=(Number(item.clip.trimStart)||0)-item.start;
+        if(Math.abs(delta)>0.000001)shiftTimelineKeyframesOnce(item.clip.ethvelleMediaKeyframes,item.keyframeTimes,delta);
+        if(item.el)clearTimelineDragX(item.el);
+      });
+    }
+    clipEl.addEventListener('pointerdown', (e)=>{
+      // Keyframe diamonds own their tap; do not let the clip-body drag/scrub handler
+      // capture that pointer or reset the selected key before its click is delivered.
+      if((e.target.closest&&e.target.closest('.kf-marker'))||e.target.hasAttribute('data-bg-handle')) return;
+      e.stopPropagation();
+      // Protect the captured clip node immediately: selectClipForChrome can synchronize
+      // the timeline and otherwise rebuild this row before the long-press timer is armed.
+      bgHandleDragActive=true;
+      if(isPlaying) pausePlayback();
+      selectClipForChrome(b.id);
+      const bgTrack=document.getElementById('track-background');
+      const timelineScroller=document.getElementById('timelineScroll');
+      const bgElements=new Map();
+      if(bgTrack)bgTrack.querySelectorAll('.track-clip[data-bg-id]').forEach(el=>bgElements.set(String(el.dataset.bgId),el));
+      const layoutSnapshot=backgrounds.filter(clip=>clip!==b).map(clip=>{
+        const start=Number(clip.trimStart)||0;
+        const end=Math.max(start+MIN_CLIP_SEC,Number(clip.trimEnd)||start+MIN_CLIP_SEC);
+        return {clip,start,duration:end-start,keyframeTimes:(Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[]).map(k=>Number(k.t)||0),el:bgElements.get(String(clip.id))||null};
+      }).sort((a,bEntry)=>a.start-bEntry.start);
+      const minStartByCount=[0];let requiredStart=0;
+      layoutSnapshot.forEach(item=>{requiredStart+=item.duration+0.015;minStartByCount.push(requiredStart);});
+      dragState = { type:'pending', pointerId:e.pointerId, startScrollLeft:timelineScroller?timelineScroller.scrollLeft:0, startX:e.clientX, startY:e.clientY, lastX:e.clientX, startTime:getCurrentAbsoluteTime(), origStart:b.trimStart, origEnd:b.trimEnd, origKfTimes:(Array.isArray(b.ethvelleMediaKeyframes)?b.ethvelleMediaKeyframes:[]).map(k=>Number(k.t)||0), layoutSnapshot, minStartByCount };
+      clipEl.setPointerCapture(e.pointerId);
+      clearLongPressTimer();
+      longPressTimer=setTimeout(()=>{
+        longPressTimer=null;
+        if(!dragState||dragState.type!=='pending')return;
+        dragState.type='move';clipEl.classList.add('dragging');if(window.ethvelleNotifyClipMoveReady)window.ethvelleNotifyClipMoveReady();armClipDrag();
+        startTimelineEdgeAutoScroll(dragState.pointerId,dragState.lastX,()=>{if(dragState&&dragState.type==='move')applyBackgroundMoveAt(dragState.lastX);});
+        if(Number.isFinite(dragState.lastX))applyBackgroundMoveAt(dragState.lastX);
+      },LONG_PRESS_MS);
+    });
+    clipEl.addEventListener('pointermove', (e)=>{
+      if(!dragState) return;
+      dragState.lastX=e.clientX;
+      if(dragState.type==='scroll'){ applyClipVerticalScrollHandoff(dragState, e.clientY); return; }
+      const movedPx = Math.abs(e.clientX - dragState.startX);
+      if(dragState.type==='pending'){
+        // A dominantly-vertical slide before the long-press fires means "scroll the row
+        // list", not "interact with this background clip"  -  hand off to the shared scroller,
+        // same as sliding on empty timeline space (see applyClipVerticalScrollHandoff above).
+        const movedPy = Math.abs(e.clientY - dragState.startY);
+        if(movedPy >= BG_DRAG_TOLERANCE && movedPy >= movedPx*0.82){
+          clearLongPressTimer();
+          dragState.type = 'scroll';
+          const scroller = document.getElementById('timelineScroll');
+          dragState.scrollTopStart = scroller ? scroller.scrollTop : 0;
+          applyClipVerticalScrollHandoff(dragState, e.clientY);
+          return;
+        }
+        if(movedPx > BG_SCRUB_TOLERANCE && movedPx >= Math.max(1, movedPy*0.72)){
+          clearLongPressTimer();dragState.type='scrub';
+          scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        }
+        return;
+      }
+      if(dragState.type==='scrub'){
+        scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        return;
+      }
+      updateTimelineEdgeAutoScroll(e.pointerId,e.clientX,()=>{if(dragState&&dragState.type==='move')applyBackgroundMoveAt(dragState.lastX);});
+      scheduleTimelineDragFrame(clipEl,e,point=>applyBackgroundMoveAt(point.clientX));
+      return;
+    });
+    clipEl.addEventListener('pointerup', (e)=>{
+      if(!dragState) return;
+      stopTimelineEdgeAutoScroll(e.pointerId);
+      clearLongPressTimer();
+      const wasMove = dragState.type==='move';
+      const wasScroll = dragState.type==='scroll';
+      const wasScrub = dragState.type==='scrub';
+      const anchorX=dragState.startX,anchorTime=dragState.startTime;
+      if(wasMove)flushTimelineDragFrame(clipEl,e,point=>applyBackgroundMoveAt(point.clientX));else cancelTimelineDragFrame(clipEl);
+      if(wasMove){
+        const movedBy=b.trimStart-dragState.origStart;
+        shiftTimelineKeyframesOnce(b.ethvelleMediaKeyframes,dragState.origKfTimes,movedBy);
+        if(window.ethvelleNotifyClipMoved)window.ethvelleNotifyClipMoved(movedBy);
+        commitBackgroundDragLayout(dragState.layoutSnapshot||[]);
+        clearTimelineDragX(clipEl);
+      }
+      dragState=null;clipEl.releasePointerCapture(e.pointerId);
+      clipEl.classList.remove('dragging');
+      bgHandleDragActive = false;
+      if(wasMove) disarmClipDrag();
+      if(wasMove){
+        resolveBgClipOverlaps(b.id);
+        renderBackgroundTrack();
+        selectClipForChrome(b.id);
+        refreshCurrentBgFromPlayhead();applyBackground();
+      } else if(wasScrub&&!wasScroll){
+        const t = timeFromDragAnchor(anchorX, anchorTime, e.clientX);
+        flushTimelineScrub(t);
+      }
+      persistProjectState({skipHistory:true});
+    });
+    clipEl.addEventListener('pointercancel', ()=>{
+      const wasMove=dragState&&dragState.type==='move';
+      if(dragState)stopTimelineEdgeAutoScroll(dragState.pointerId);
+      clearLongPressTimer();cancelTimelineDragFrame(clipEl);
+      if(wasMove){
+        const movedBy=b.trimStart-dragState.origStart;
+        shiftTimelineKeyframesOnce(b.ethvelleMediaKeyframes,dragState.origKfTimes,movedBy);
+        commitBackgroundDragLayout(dragState.layoutSnapshot||[]);
+        clearTimelineDragX(clipEl);
+      }
+      dragState=null;
+      clipEl.classList.remove('dragging');
+      bgHandleDragActive = false;
+      if(wasMove){
+        disarmClipDrag();
+        resolveBgClipOverlaps(b.id);
+        renderBackgroundTrack();
+        selectClipForChrome(b.id);
+        refreshCurrentBgFromPlayhead();applyBackground();
+      }
+    });
+    [['left'],['right']].forEach(([side])=>{
+      const handle = clipEl.querySelector(`[data-bg-handle="${side}"]`);
+      if(!handle) return;
+      let hs=null;
+      function applyBackgroundTrimAt(clientX){
+        if(!hs)return;
+        const pps=pxPerSecond();
+        const deltaSec=(clientX-hs.startX)/pps;
+        if(side==='left'){
+          b.trimStart=Math.min(hs.origEnd-MIN_CLIP_SEC,Math.max(0,hs.origStart+deltaSec));
+        }else{
+          b.trimEnd=Math.max(hs.origStart+MIN_CLIP_SEC,hs.origEnd+deltaSec);
+          if(b.trimEnd>timelineDuration-0.3){timelineDuration=b.trimEnd+1;syncTimelineInnerWidth();renderRuler();}
+        }
+        // Defer neighbour resolution until pointerup; keep the live trim to two style writes.
+        reposition();
+      }
+      // v279: trimming starts only after a long press on the handle (see ethvelleMakeHandleHoldGate).
+      const gate = ethvelleMakeHandleHoldGate((x)=>{
+        if(!handle.isConnected) return;
+        hs = { startX:x, origStart:b.trimStart, origEnd:b.trimEnd };
+        clipEl.classList.add('dragging');
+        armClipDrag();
+      });
+      handle.addEventListener('pointerdown', (e)=>{
+        e.stopPropagation();
+        // The trim handle is also pointer-captured; guard before selection sync so neither
+        // the clip nor the handle can be detached by a background-row render.
+        bgHandleDragActive = true;
+        if(isPlaying) pausePlayback();
+        selectClipForChrome(b.id);
+        gate.down(e);
+        try{handle.setPointerCapture(e.pointerId);}catch(_e){}
+      });
+      handle.addEventListener('pointermove',(e)=>{if(gate.move(e)==='trim'&&hs)scheduleTimelineDragFrame(handle,e,point=>applyBackgroundTrimAt(point.clientX));});
+      handle.addEventListener('pointerup',(e)=>{
+        gate.up(e);
+        if(hs===null){
+          // Plain tap, quick slide (scrub) or row scroll: nothing was trimmed.
+          cancelTimelineDragFrame(handle);
+          try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+          bgHandleDragActive = false;
+          return;
+        }
+        const wasDragging=true;
+        flushTimelineDragFrame(handle,e,point=>applyBackgroundTrimAt(point.clientX));
+        hs=null;try{handle.releasePointerCapture(e.pointerId);}catch(_e){}
+        clipEl.classList.remove('dragging');
+        bgHandleDragActive = false;
+        if(wasDragging) disarmClipDrag();
+        if(wasDragging)resolveBgClipOverlaps(b.id);
+        renderBackgroundTrack();
+        refreshCurrentBgFromPlayhead();applyBackground();
+        persistProjectState();
+      });
+      handle.addEventListener('pointercancel',()=>{
+        gate.cancel();
+        const wasDragging=hs!==null;cancelTimelineDragFrame(handle);hs=null;
+        clipEl.classList.remove('dragging');
+        bgHandleDragActive = false;
+        if(wasDragging) disarmClipDrag();
+      });
+    });
+  });
+}
+
+// Ruler ticks: one label every second, matched to the fixed px-per-second zoom.
+// v279: optional `range` ({from,to} in seconds) rebuilds only the visible part of the ruler (used every
+// frame while pinch-zooming); with no argument the whole ruler is rebuilt. When the timeline is zoomed OUT
+// only every Nth second gets a tick + label so the text never overlaps.
+function renderRuler(range){
+  const ruler=document.getElementById('timelineRuler');
+  if(!ruler) return;
+  // A full ruler rebuild is the gesture-end commit; clear any leftover CSS transform from older builds.
+  ruler.style.transform='';
+  ruler.style.transformOrigin='';
+  const pps=pxPerSecond();
+  const totalSec=Math.max(2,Math.ceil(timelineDuration)+1);
+  // Seconds stay visible at all zoom levels. Frame marks are added progressively as the
+  // user zooms in, rather than swapping 20f directly for 10f (which skipped 15f).
+  // Visible countdown labels are cumulative:
+  //   slight zoom -> 20f
+  //   medium zoom -> 20f, 15f
+  //   high zoom   -> 20f, 15f, 10f
+  //   very high   -> 20f, 15f, 10f, 5f
+  // Each label is anchored to its actual frame position relative to the NEXT second.
+  const zoomNow = Number.isFinite(timelineZoom) ? timelineZoom : 1;
+  const showFrameLabels = zoomNow > 1.04;
+  const fps=Math.max(1,Number(FPS)||24);
+  let visibleRemainingFrames=[];
+  if(showFrameLabels){
+    visibleRemainingFrames=[20];
+    if(zoomNow>=1.55) visibleRemainingFrames.push(15);
+    if(zoomNow>=2.05) visibleRemainingFrames.push(10);
+    if(zoomNow>=2.75) visibleRemainingFrames.push(5);
+    visibleRemainingFrames=visibleRemainingFrames.filter(f=>f<fps);
+  }
+  // Seconds between labelled ticks (1 at normal/zoomed-in levels; larger when zoomed out).
+  let secStep=1;
+  if(!showFrameLabels){
+    const steps=[1,2,5,10,15,30,60,120,300,600];
+    secStep=steps[steps.length-1];
+    for(const st of steps){ if(st*pps>=44){ secStep=st; break; } }
+  }
+  let firstSec=0,lastSec=totalSec;
+  if(range && Number.isFinite(range.from) && Number.isFinite(range.to)){
+    firstSec=Math.max(0,Math.floor(range.from/secStep)*secStep);
+    lastSec=Math.min(totalSec,Math.ceil(range.to));
+  }
+  let html='';
+  // At normal zoom, keep the familiar half-second dots between second labels.
+  // Once frame labels take over, hide the normal time-scale dots so the frame separators
+  // remain a single clean, CapCut-style dotted sequence.
+  if(!showFrameLabels && secStep===1){
+    const hEnd=Math.min(totalSec*2,lastSec*2+2);
+    for(let h=firstSec*2+1;h<hEnd;h+=2){
+      const x=(h/2)*pps;
+      html+=`<div class="ruler-tick-half" style="left:${x}px;"></div>`;
+    }
+  }
+  for(let sec=firstSec;sec<=lastSec;sec+=secStep){
+    const x=sec*pps;
+    html+=`<div class="ruler-tick" style="left:${x}px;"></div>`;
+  }
+  const marks=[];
+  for(let sec=firstSec;sec<=lastSec;sec+=secStep) marks.push({x:sec*pps,label:(sec>=60?evFormatClock(sec,false):`${sec}s`),type:'second'});
+  if(showFrameLabels){
+    const frameEnd=Math.min(lastSec,totalSec);
+    for(let sec=firstSec;sec<frameEnd;sec++){
+      // CapCut-style adaptive ruler: frame labels form a centered group inside each
+      // one-second interval rather than being anchored to the start/end corners. With one
+      // visible label (20f), it sits at the midpoint; with two labels they sit at 1/3 and
+      // 2/3; as pinch zoom reveals more labels, the whole group redistributes evenly while
+      // staying centered. Keep the semantic countdown order left-to-right: 20f, 15f, 10f, 5f.
+      const frameCount = visibleRemainingFrames.length;
+      visibleRemainingFrames.forEach((remaining, index)=>{
+        const centeredFraction = (index + 1) / (frameCount + 1);
+        marks.push({x:(sec+centeredFraction)*pps,label:`${remaining}f`,type:'frame'});
+      });
+    }
+  }
+  marks.sort((a,b)=>a.x-b.x);
+  // Dot separators join the seconds and frame marks in one compact ruler row.
+  if(showFrameLabels){
+    for(let i=0;i<marks.length-1;i++){
+      const mid=(marks[i].x+marks[i+1].x)/2;
+      html+=`<span class="ruler-separator-dot" style="left:${mid.toFixed(2)}px;"></span>`;
+    }
+  }
+  for(const mark of marks){
+    const cls=mark.type==='second'?'ruler-label':'ruler-frame-label';
+    html+=`<span class="${cls}" style="left:${mark.x.toFixed(2)}px;">${mark.label}</span>`;
+  }
+  ruler.innerHTML=html;
+  ruler.style.width=(totalSec*pps)+'px';
+  const oldReadout=document.getElementById('timelineFrameReadout');
+  if(oldReadout){oldReadout.innerHTML='';oldReadout.style.display='none';oldReadout.style.visibility='hidden';}
+}
+function renderFrameRuler(){
+  // Frame marks are now rendered directly into #timelineRuler by renderRuler().
+  const host=document.getElementById('timelineFrameReadout');
+  if(host){host.innerHTML='';host.style.display='none';host.style.visibility='hidden';}
+}
+
+/* ---------------- Selection state machine (CapCut-style contextual bottom bar) ----------------
+   Exactly one of these is ever "active" at a time:
+     - no selection            -> default bottom-tools row (Media/Bones/Transform/...)
+     - a clip is selected      -> bottomToolsClip row (Split / Key / Animations / Done / Delete)
+     - a keyframe is selected  -> bottomToolsKeyframe row (Done / Delete key), nested under 'main' clip
+   Selecting a clip does NOT auto-open a panel anymore (that used to jump straight into a
+   sheet); it just arms the contextual toolbar underneath, exactly like tapping a clip in
+   CapCut arms Split/Delete without opening anything else first. */
+function selectClipForChrome(which){
+  // A first media/background clip selection can switch the contextual bottom row and
+  // populate keyframe markers. Preserve the editor's vertical viewport through that one
+  // synchronous DOM update so Android's scroll anchoring cannot jump the whole editor.
+  const rowScrollSnapshot=captureEthvelleRowScroll();
+  // Selection is a single immediate tap. Keep the current playhead position and pause
+  // playback once; clear stale clip borders and paint only the newly selected clip.
+  const previousSelection=selectedClip;
+  pausePlayback();
+  const findClipElement=(ref)=>{
+    if(ref==null)return null;
+    const key=String(ref);
+    if(key==='main')return document.getElementById('animClipEl');
+    if(/^seg\d+$/.test(key))return document.getElementById(key+'El');
+    const safe=key.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    const ov=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(x=>String(x.id)===key):null;
+    if(ov)return document.querySelector(`.overlay-clip[data-overlay-id="${safe}"]`);
+    const bg=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds.find(x=>String(x.id)===key):null;
+    if(bg)return document.querySelector(`.track-clip[data-bg-id="${safe}"]`);
+    return null;
+  };
+  const nextElement=findClipElement(which);
+  // A previous render can replace the old clip node before we resolve it here. Clearing
+  // every timeline clip's selection class prevents an orphaned white border from surviving
+  // on the old DOM element/state when IDs arrive as mixed strings and numbers.
+  document.querySelectorAll('#timelineInner .anim-clip.selected, #timelineInner .overlay-clip.selected, #timelineInner .track-clip.selected')
+    .forEach(el=>el.classList.remove('selected'));
+  if(nextElement)nextElement.classList.add('selected');
+
+  const updateCharacterRow=(ref,active)=>{
+    if(typeof ref!=='string'||!ref.startsWith('char'))return;
+    const index=ref.slice(4);
+    const row=document.querySelector(`.char-row[data-char-idx="${index}"]`);
+    if(row)row.classList.toggle('chrome-selected',!!active);
+  };
+  updateCharacterRow(previousSelection,false);
+  updateCharacterRow(which,true);
+
+  selectedClip=which;
+  selectedKfIdx=null;
+  window.__ethvelleSelectedObjectKeyframe=null;
+
+  // Clear only the previously active character marker rail and populate only the new one.
+  const charTrackForRef=(ref)=>{
+    if(ref==='main')return document.getElementById('kfTrack');
+    if(typeof ref==='string'&&/^seg\d+$/.test(ref))return document.getElementById('kfTrack-'+ref);
+    return null;
+  };
+  const oldCharTrack=charTrackForRef(previousSelection);
+  const newCharTrack=charTrackForRef(which);
+  if(oldCharTrack&&oldCharTrack!==newCharTrack){
+    const previousCharClip=getClipByRef(previousSelection);
+    oldCharTrack.innerHTML=previousCharClip?kfMarkersHtml(previousSelection,previousCharClip):'';
+  }
+  if(previousSelection&&String(previousSelection)!==String(which)&&ethvelleObjectClipById(previousSelection)){
+    ethvelleRefreshObjectKeyframeTracks(previousSelection);
+  }
+  if(newCharTrack){
+    if(which==='main')newCharTrack.innerHTML=kfMarkersHtml('main',activeClip);
+    else{const seg=getClipByRef(which);newCharTrack.innerHTML=seg?kfMarkersHtml(which,seg):'';}
+  }
+  ethvelleRefreshObjectKeyframeTracks(which);
+  updateKeyButtonState();
+  // Route through the current toolbar wrapper once so later contextual controls stay in sync.
+  // The old v66 select wrapper called this a second time after this base function had already
+  // synchronized it, duplicating toolbar DOM/style work on every layer selection.
+  if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+  else syncBottomToolsMode();
+
+  // Avoid re-decoding every media element on selection. Only create a missing preview for
+  // the selected visual clip when it is actually under the playhead.
+  // Only overlay media belongs in overlayMediaEls. ethvelleObjectClipById() also returns
+  // background-row clips; treating those as overlay media forced a full renderOverlayMedia()
+  // pass whenever a background clip was selected, even though its preview is rendered by
+  // the background pipeline. On projects with media layers this could block the UI while
+  // the user was switching rows.
+  const selectedVisual=overlays.find(ov=>String(ov.id)===String(which))||null;
+  const now=getCurrentAbsoluteTime();
+  if(selectedVisual&&selectedVisual.type!=='audio'&&now>=selectedVisual.trimStart&&now<selectedVisual.trimEnd){
+    const existingPreview=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[selectedVisual.id]:null;
+    if(!existingPreview&&typeof renderOverlayMedia==='function')renderOverlayMedia(now);
+  }
+  updateSelBox();
+  restoreEthvelleRowScroll(rowScrollSnapshot);
+  onClipSelected(which,'select');
+}
+// One policy point for clip selection, insertion, playhead-dependent tools, and deletion.
+// `select` is deliberately side-effect-free: the existing clip renderer above has already
+// selected the clip, and a tap must never seek or scroll. `add` selects the new clip and only
+// seeks/centres the timeline when the current playhead is outside it.
+function onClipSelected(clip, source){
+  const action=String(source||'select');
+  const toRef=value=>{
+    if(value==null)return null;
+    if(typeof value==='string'||typeof value==='number')return String(value);
+    if(value===activeClip)return 'main';
+    const segmentIndex=Array.isArray(splitStickmanSegments)?splitStickmanSegments.indexOf(value):-1;
+    if(segmentIndex>=0)return 'seg'+segmentIndex;
+    if(value.id!=null)return String(value.id);
+    return null;
+  };
+  const ref=toRef(clip);
+  const resolveModel=value=>{
+    if(value&&typeof value==='object'&&Number.isFinite(Number(value.trimStart))&&Number.isFinite(Number(value.trimEnd)))return value;
+    const key=toRef(value);
+    if(!key)return null;
+    if(key==='main')return activeClip||null;
+    if(/^seg\d+$/.test(key)){
+      const index=Number(key.slice(3));
+      return Array.isArray(splitStickmanSegments)?splitStickmanSegments[index]||null:null;
+    }
+    const charMatch=key.match(/^char(\d+)$/);
+    if(charMatch){
+      const character=Array.isArray(characters)?characters[Number(charMatch[1])]:null;
+      return character&&(character.clip||(Array.isArray(character.segments)?character.segments[0]:null))||null;
+    }
+    return (Array.isArray(backgrounds)?backgrounds.find(item=>String(item.id)===key):null)||
+      (Array.isArray(overlays)?overlays.find(item=>String(item.id)===key):null);
+  };
+
+  if(action==='select')return true;
+
+  if(action==='add'){
+    const model=resolveModel(clip);
+    if(ref!=null)selectClipForChrome(ref);
+    if(!model)return true;
+    const start=Math.max(0,Number(model.trimStart)||0);
+    const end=Math.max(start,Number(model.trimEnd)||start);
+    const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+    if(now<start-0.000001||now>=end-0.000001){
+      pausePlayback();
+      seekAbsoluteTimelineSeconds(start);
+      if(typeof movePlayhead==='function')movePlayhead();
+    }
+    return true;
+  }
+
+  if(action==='split'||action==='keyframe'||action==='freeze'||action==='require-inside'){
+    const model=resolveModel(clip!=null?clip:selectedClip);
+    const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec);
+    const start=model?Number(model.trimStart):NaN;
+    const end=model?Number(model.trimEnd):NaN;
+    if(!model||!Number.isFinite(now)||!Number.isFinite(start)||!Number.isFinite(end)||now<start-0.000001||now>=end-0.000001){
+      showToast('Move playhead inside the clip',{icon:toastIcons.info,duration:1600});
+      return false;
+    }
+    return true;
+  }
+
+  if(action==='delete'){
+    const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+    const duration=Math.max(0,Number(typeof totalProjectDuration==='function'?totalProjectDuration():timelineDuration)||0);
+    const clamped=Math.max(0,Math.min(duration,now));
+    if(Math.abs(clamped-now)>0.000001){
+      pausePlayback();
+      seekAbsoluteTimelineSeconds(clamped);
+      if(typeof movePlayhead==='function')movePlayhead();
+    }else if(typeof setCurrentAbsoluteTime==='function'){
+      setCurrentAbsoluteTime(clamped);
+    }
+    return true;
+  }
+
+  return true;
+}
+// Moves the playhead (and, for the main stickman clip/segments, the scrub position) to the
+// very start of whichever clip was just selected. Background/overlay clips don't have their
+// own local `frame` counter, so for those we just move the shared timeline playhead itself.
+function seekPlayheadToClipStart(which){
+  pausePlayback();
+  if(which === 'main' && activeClip){
+    seekAbsoluteTimelineSeconds(activeClip.trimStart);
+  } else if(String(which).startsWith('seg')){
+    const segIdx = parseInt(String(which).slice(3), 10);
+    const seg = splitStickmanSegments[segIdx];
+    if(seg) seekAbsoluteTimelineSeconds(seg.trimStart);
+  } else if(String(which).startsWith('bg')){
+    const bg = backgrounds.find(b=>b.id===which);
+    if(bg) seekAbsoluteTimelineSeconds(bg.trimStart);
+  } else if(which){
+    const ov = overlays.find(o=>o.id===which);
+    if(ov) seekAbsoluteTimelineSeconds(ov.trimStart);
+  }
+}
+// Seeks the shared timeline playhead to an absolute timeline second via the canonical
+// clock (also keeps the legacy `frame` counter in sync  -  see setCurrentAbsoluteTime).
+function seekAbsoluteTimelineSeconds(absSec){
+  setCurrentAbsoluteTime(absSec);
+  renderFrame();
+}
+function deselectAllClips(){
+  const previousSelection=selectedClip;
+  const key=previousSelection==null?'':String(previousSelection);
+  let previousElement=null;
+  if(key==='main')previousElement=document.getElementById('animClipEl');
+  else if(/^seg\d+$/.test(key))previousElement=document.getElementById(key+'El');
+  else if(key){
+    const safe=key.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+    const ov=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(x=>String(x.id)===key):null;
+    const bg=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds.find(x=>String(x.id)===key):null;
+    if(ov)previousElement=document.querySelector(`.overlay-clip[data-overlay-id="${safe}"]`);
+    else if(bg)previousElement=document.querySelector(`.track-clip[data-bg-id="${safe}"]`);
+  }
+  if(previousElement)previousElement.classList.remove('selected');
+  if(key.startsWith('char')){
+    const row=document.querySelector(`.char-row[data-char-idx="${key.slice(4)}"]`);
+    if(row)row.classList.remove('chrome-selected');
+  }
+  const oldCharTrack=key==='main'?document.getElementById('kfTrack'):(/^seg\d+$/.test(key)?document.getElementById('kfTrack-'+key):null);
+  const previousOverlay=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(x=>String(x.id)===key):null;
+  const previousBackground=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds.find(x=>String(x.id)===key):null;
+  if(previousBackground){const row=document.getElementById('backgroundRow');if(row)row.classList.remove('selected');}
+  if(previousOverlay){
+    const group=previousOverlay.type==='audio'?'audio':(previousOverlay.type==='text'?'text':'clips');
+    const row=document.querySelector(`.overlay-track-row[data-group=\"${group}\"]`);
+    if(row)row.classList.remove('selected');
+  }
+  selectedClip=null;
+  selectedKfIdx=null;
+  window.__ethvelleSelectedObjectKeyframe=null;
+  if(oldCharTrack){
+    const previousCharClip=getClipByRef(key);
+    oldCharTrack.innerHTML=previousCharClip?kfMarkersHtml(key,previousCharClip):'';
+  }
+  if(key&&ethvelleObjectClipById(key))ethvelleRefreshObjectKeyframeTracks(key);
+  ethvelleRefreshObjectKeyframeTracks(null);
+  updateKeyButtonState();
+  syncBottomToolsMode();
+  drawStick();
+}
+// Swap which bottom-tools row is visible based on current selection. Only one is ever shown.
+function syncBottomToolsMode(){
+  const rowDefault = document.getElementById('bottomToolsDefault');
+  const rowClip = document.getElementById('bottomToolsClip');
+  const rowKf = document.getElementById('bottomToolsKeyframe');
+  if(!rowDefault) return;
+  if(selectedKfIdx !== null){
+    rowDefault.style.display = 'none';
+    rowClip.style.display = 'none';
+    rowKf.style.display = 'flex';
+  } else if(selectedClip){
+    rowDefault.style.display = 'none';
+    rowKf.style.display = 'none';
+    rowClip.style.display = 'flex';
+    // Which tools actually apply depends on clip type  -  Bones/keyframe-posing and preset
+    // Animations only mean anything for the stickman rig ('main' or a split segment 'segN').
+    // Background/overlay/media clips instead get Trim (numeric start/end adjustment) and,
+    // for overlay rows specifically, an Add button to drop more media into that same layer.
+    const isStickman = selectedClip==='main' || String(selectedClip).startsWith('seg');
+    const isOverlay = !isStickman && !!overlays.find(o=>o.id===selectedClip);
+    // A whole character LAYER (not one of its clips) selected via its row badge/track  -  see
+    // onCharTrackClick. Only Delete (and Done) apply to "remove this entire layer"; every
+    // other tool here targets a specific clip's content/timing, which a character-layer
+    // selection isn't.
+    const isCharLayer = typeof selectedClip==='string' && selectedClip.startsWith('char') && !isStickman;
+    const keyTool = document.getElementById('clipKeyTool');
+    const animTool = document.getElementById('clipAnimTool');
+    const faceGestureTool = document.getElementById('clipCharacterActionsTool');
+    const trimTool = document.getElementById('clipTrimTool');
+    const speedTool = document.getElementById('clipSpeedTool');
+    const volumeTool = document.getElementById('clipVolumeTool');
+    const chromaTool = document.getElementById('clipChromaTool');
+    const extractAudioTool = document.getElementById('clipExtractAudioTool');
+    const selectedOverlayForTools = overlays.find(o=>o.id===selectedClip);
+    if(selectedOverlayForTools&&(selectedOverlayForTools.type==='image'||selectedOverlayForTools.type==='video')&&!selectedOverlayForTools.transform){
+      selectedOverlayForTools.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+    }
+    const isVideoClip = !!selectedOverlayForTools && selectedOverlayForTools.type==='video';
+    if(chromaTool) chromaTool.style.display = isVideoClip ? 'flex' : 'none';
+    if(extractAudioTool) extractAudioTool.style.display = isVideoClip ? 'flex' : 'none';
+    const addTool = document.getElementById('clipAddMediaTool');
+    const transformTool = document.getElementById('clipTransformTool');
+    const splitTool = document.getElementById('clipSplitTool');
+    if(splitTool) splitTool.style.display = isCharLayer ? 'none' : 'flex';
+    if(keyTool) keyTool.style.display = isStickman ? 'flex' : 'none';
+    if(animTool) animTool.style.display = isStickman ? 'flex' : 'none';
+    if(faceGestureTool) faceGestureTool.style.display = isStickman && !!getClipByRef(selectedClip) ? 'flex' : 'none';
+    // BUGFIX (Trim removed, Replace added per request): Replace now covers every real clip
+    // type  -  Background (reopens the image picker), a media/overlay clip (swaps its content
+    // in place), and a stickman animation clip (swaps its preset via the Animate panel)  -  see
+    // replaceSelectedClip(). Only a whole character-LAYER selection (the row itself, not one
+    // of its clips) has nothing to replace, same as every other clip-specific tool here.
+    if(trimTool) trimTool.style.display = isCharLayer ? 'none' : 'flex';
+    // Speed applies to the stickman animation clip and to real playing media (video/image/
+    // audio overlays)  -  not to the Background row (a static image spanning the whole
+    // project, not a clip with its own playback rate) or plain shape overlays (solid color,
+    // nothing to play back). See speedTargetClip() for the single source of truth this
+    // mirrors.
+    const speedClip = isCharLayer ? null : speedTargetClip();
+    if(speedTool) speedTool.style.display = speedClip ? 'flex' : 'none';
+    const speedLabelEl = document.getElementById('clipSpeedLabel');
+    if(speedLabelEl && speedClip){
+      const sp = speedClip.speed || 1;
+      speedLabelEl.textContent = (Math.abs(sp-1)<0.01) ? 'Speed' : (sp.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')+'x');
+    }
+    // FEATURE (control any clip's own audio volume): Volume applies only to clips that can
+    // actually carry sound  -  video and audio overlays  -  see volumeTargetClip() for the
+    // single source of truth this mirrors (same isCharLayer guard as every other
+    // clip-specific tool here, since a character-LAYER selection has no one clip's volume
+    // to speak of).
+    const volumeClip = isCharLayer ? null : volumeTargetClip();
+    if(volumeTool) volumeTool.style.display = volumeClip ? 'flex' : 'none';
+    const volumeLabelEl = document.getElementById('clipVolumeLabel');
+    if(volumeLabelEl && volumeClip){
+      const vp = Math.round((volumeClip.volume==null?1:volumeClip.volume)*100);
+      volumeLabelEl.textContent = (vp===100) ? 'Volume' : (vp===0 ? 'Muted' : vp+'%');
+    }
+    if(addTool) addTool.style.display = isOverlay ? 'flex' : 'none';
+    // BUGFIX: Transform now genuinely edits Background/Clip position+size+rotation (see
+    // transformTarget()), but only image/video clips actually have a picture on the canvas
+    // to move  -  audio waveforms and plain-color shape layers have nothing visual of their
+    // own to transform, so the button (which would otherwise silently edit the STICKMAN's
+    // transform instead, confusingly) is hidden for those two clip types specifically.
+    const ovForTransform = overlays.find(o=>o.id===selectedClip);
+    const hasVisualTransform = !!backgroundClipForSelection() || isStickman || (ovForTransform && !!ovForTransform.transform);
+    if(transformTool) transformTool.style.display = (isCharLayer || !hasVisualTransform) ? 'none' : 'flex';
+    // FEATURE ("move any layer or animation character or clip forward or backward... bring
+    // one clip above another"): Forward/Backward apply to anything with a real paint-order
+    // concept  -  an overlay clip, a background clip, or a whole character layer  -  using
+    // reorderSelectedLayer()'s per-type logic. They do NOT apply to a specific stickman
+    // ANIMATION clip ('main'/'segN'): a character's z-order is a property of the character
+    // itself (see characters[] array order / activeCharIdx), not of any one clip on its
+    // timeline, so reordering only makes sense from the character-layer selection, same
+    // scope Delete already uses for "remove this whole layer" versus "trim this one clip".
+    const bgForReorder = backgroundClipForSelection();
+    const canReorder = isCharLayer || isOverlay || !!bgForReorder;
+    const forwardTool = document.getElementById('clipForwardTool');
+    const backwardTool = document.getElementById('clipBackwardTool');
+    if(forwardTool) forwardTool.style.display = canReorder ? 'flex' : 'none';
+    if(backwardTool) backwardTool.style.display = canReorder ? 'flex' : 'none';
+    // Duplicate applies to anything Split already applies to (a real clip or a whole
+    // character layer)  -  same scope, see splitSelectedClipAtPlayhead's own isCharLayer gate,
+    // except Duplicate additionally makes sense for a character LAYER too (split doesn't,
+    // since "splitting a character" isn't a meaningful operation the way splitting one of
+    // its clips is)  -  duplicating a whole character is exactly "add another one like this".
+    const dupTool = document.getElementById('clipDuplicateTool');
+    if(dupTool) dupTool.style.display = 'flex';
+    const deleteCharacterTool = document.getElementById('clipDeleteCharacterTool');
+    if(deleteCharacterTool) deleteCharacterTool.style.display = isStickman ? 'flex' : 'none';
+  } else {
+    rowClip.style.display = 'none';
+    rowKf.style.display = 'none';
+    rowDefault.style.display = 'flex';
+  }
+}
+// Deletes whichever clip is currently selected  -  background clears its image/color,
+// an overlay is removed entirely, and the main stickman clip clears its animation.
+function deleteSelectedClip(){
+  if(!selectedClip) return;
+  if(selectedClip === 'main'){
+    // The main clip is just "whichever clip happens to be in the activeClip slot" now that
+    // several animation clips can coexist  -  deleting it should NOT wipe out other clips
+    // still sitting in splitStickmanSegments. If any remain, promote the earliest one into
+    // the activeClip slot instead of resetting the whole track; only reset fully when this
+    // really was the last clip left.
+    if(splitStickmanSegments.length){
+      splitStickmanSegments.sort((a,b)=>a.trimStart-b.trimStart);
+      activeClip = splitStickmanSegments.shift();
+      syncClipRefsToCharacter();
+      currentAnimKey = activeClip.animKey;
+      renderTimelineClip();
+      renderAnimList();
+      updateTimeReadout();
+      showToast('Clip deleted', {icon: toastIcons.check, duration:1200});
+      persistProjectState();
+      deselectAllClips();
+    } else {
+      // BUGFIX (deleting a lone character's last clip left a blank row instead of "Add
+      // character"): this used to only remove the character when at least one OTHER
+      // character still existed, and fell back to resetPose() otherwise  -  because
+      // deleteCharacter() itself refuses to ever drop the roster to zero (that guard exists
+      // for its OTHER call site, the character row's own explicit delete button). But that
+      // meant deleting the only remaining character's last clip left it in `characters[]`
+      // with no clip and no segments: the row still rendered (its badge, an empty-looking
+      // track) instead of disappearing back into the dashed "Add character" placeholder a
+      // brand-new project starts with. Zero characters is already a fully-supported state
+      // (see initStickman's own comment), so this now reaches it deliberately instead of
+      // stopping one short of it  -  same steps deleteCharacter() itself takes, just without
+      // its "keep at least one" guard, since removing the LAST clip is a clearer signal of
+      // intent to remove the character than tapping its row's delete button is.
+      const charIdx = activeCharIdx;
+      if(activeCharacter()){
+        characters.splice(charIdx, 1);
+        if(activeCharIdx >= characters.length) activeCharIdx = characters.length-1;
+        syncActiveCharacterRefs();
+        selectedJoint = null;
+        drawStick();
+        renderCharacterLayers();
+        syncTransformSliders();
+        persistProjectState();
+        showToast('Character deleted', {icon: toastIcons.check, duration:1200});
+        deselectAllClips();
+        onClipSelected(null,'delete');
+      } else {
+        resetPose();
+      }
+      onClipSelected(null,'delete');
+      return; // both branches above already call deselectAllClips() themselves
+    }
+  } else if(backgroundClipForSelection()){
+    // FEATURE (multiple sequential backgrounds): deletes ONLY the specific selected
+    // background clip, not the whole row  -  other background clips before/after it are
+    // untouched, matching how deleting one overlay clip never affects its neighbors.
+    const bgClip = backgroundClipForSelection();
+    backgrounds = backgrounds.filter(b=>b.id!==bgClip.id);
+    deselectAllClips();
+    refreshCurrentBgFromPlayhead();
+    applyBackground();
+    renderBackgroundTrack();
+    showToast('Background deleted', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+  } else if(String(selectedClip).startsWith('seg')){
+    const segIdx = parseInt(String(selectedClip).slice(3), 10);
+    splitStickmanSegments.splice(segIdx, 1);
+    renderTimelineClip();
+    showToast('Clip deleted', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+  } else if(String(selectedClip).startsWith('char')){
+    // Deletes the whole character layer  -  same operation the old inline .char-row-delete
+    // button used to perform, now reached from the bottom toolbar like every other delete
+    // (see the .char-row-delete removal note in renderCharacterLayers). deleteCharacter()
+    // already refuses to remove the last remaining character and shows its own toast for
+    // that case, so nothing extra is needed here for that guard.
+    const idx = parseInt(String(selectedClip).slice(4), 10);
+    deleteCharacter(idx);
+    showToast('Character deleted', {icon: toastIcons.check, duration:1200});
+  } else {
+    overlays = overlays.filter(o=>o.id!==selectedClip);
+    renderOverlayLayers();
+    showToast('Layer deleted', {icon: toastIcons.check, duration:1200});
+    persistProjectState();
+  }
+  deselectAllClips();
+  onClipSelected(null,'delete');
+}
+// Removes the entire active character row while an animation clip (main or split segment) is selected.
+// This is deliberately separate from the normal Delete action, which deletes only the selected clip.
+function deleteSelectedCharacterFromAnimation(){
+  const isAnimationClip = selectedClip === 'main' || (typeof selectedClip === 'string' && selectedClip.startsWith('seg'));
+  if(!isAnimationClip){ showToast('Select an animation clip first', {icon:toastIcons.info, duration:1400}); return; }
+  const idx = activeCharIdx;
+  if(idx < 0 || idx >= characters.length || !characters[idx]) return;
+  pausePlayback();
+  characters.splice(idx, 1);
+  activeCharIdx = characters.length ? Math.min(idx, characters.length - 1) : 0;
+  selectedClip = null;
+  selectedKfIdx = null;
+  selectedJoint = null;
+  if(characters.length){
+    syncActiveCharacterRefs();
+  } else {
+    // Empty projects are supported; clear stale clip references so the transport cannot keep
+    // targeting the deleted character after its row has disappeared.
+    activeClip = null;
+    splitStickmanSegments = [];
+  }
+  drawStick();
+  renderCharacterLayers();
+  syncTransformSliders();
+  syncBottomToolsMode();
+  updateKeyButtonState();
+  persistProjectState();
+  showToast('Character row deleted', {icon:toastIcons.check, duration:1400});
+  onClipSelected(null,'delete');
+}
+
+// Split (CapCut-style): cuts whichever clip is selected at the current playhead position,
+// producing two independent clips that can each be trimmed/dragged/deleted separately.
+function splitSelectedClipAtPlayhead(){
+  if(!selectedClip){
+    showToast('Select a clip first', {icon: toastIcons.info, duration:1400});
+    return;
+  }
+  // Reject a cut outside the selected clip before pausing or changing timeline state.
+  if(!onClipSelected(selectedClip,'split'))return;
+  // Pause exactly at the current time first (PART 22), then read the canonical clock
+  // directly rather than back-deriving it from scroller.scrollLeft  -  scrollLeft can be
+  // mid-animation/mid-snap on some browsers, whereas currentAbsoluteTimeSec is always the
+  // exact committed time.
+  const splitTimeBeforePause=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec;
+  pausePlayback();
+  const absPlayheadSec = Number.isFinite(Number(splitTimeBeforePause))?Number(splitTimeBeforePause):currentAbsoluteTimeSec;
+
+  if(selectedClip === 'main'){
+    if(!activeClip) return;
+    if(absPlayheadSec-activeClip.trimStart < MIN_CLIP_SEC-1e-6 ||
+       activeClip.trimEnd-absPlayheadSec < MIN_CLIP_SEC-1e-6){
+      showToast('Move playhead inside the clip to split', {icon: toastIcons.info, duration:1600});
+      return;
+    }
+    // Second half becomes its own independent segment (see splitStickmanSegments) sharing the
+    // same animation, so both halves are independently trimmable/deletable  -  exactly like
+    // CapCut splitting one clip into two adjacent clips on the same track.
+    const secondHalf = {
+      animKey: activeClip.animKey,
+      trimStart: absPlayheadSec,
+      trimEnd: activeClip.trimEnd,
+      keyframes: activeClip.keyframes.filter(kf=>kf.t >= absPlayheadSec).map(k=>({...k})),
+      speed: activeClip.speed || 1
+    };
+    if(window.__evSplitCarryFx)window.__evSplitCarryFx(activeClip,secondHalf);
+    activeClip.trimEnd = absPlayheadSec;
+    activeClip.keyframes = activeClip.keyframes.filter(kf=>kf.t < absPlayheadSec);
+    splitStickmanSegments.push(secondHalf);
+    // BUGFIX ("cutting the same clip twice kept producing extra orphaned pieces"):
+    // selectedClip used to stay pointed at 'main' (the FIRST half) after a split. If the
+    // person then slid the playhead and hit Split again without re-tapping a clip, this
+    // function split the already-finished first half YET AGAIN instead of acting on the
+    // piece they'd actually moved past  -  so every repeated cut kept adding one more
+    // leftover fragment to the timeline rather than cleanly stopping at two. CapCut always
+    // leaves the clip AFTER the cut point selected once a split finishes, so the very next
+    // Split naturally acts on new, not-yet-cut footage. The new second half is always the
+    // last entry just pushed onto splitStickmanSegments.
+    selectedClip = 'seg' + (splitStickmanSegments.length - 1);
+    renderTimelineClip();
+    selectClipForChrome(selectedClip);
+  } else if(backgroundClipForSelection()){
+    // FEATURE (multiple sequential backgrounds  -  split now works, since a background clip
+    // is a real timeline clip like an overlay now, not the single project-wide value it used
+    // to be): same "cut in half at the playhead" pattern as the overlay branch below  - 
+    // trimEnd of the original clip becomes the cut point, a new clip with a fresh id picks
+    // up from there to the original trimEnd. resolveBgClipOverlaps isn't needed here since
+    // the two halves exactly share the cut edge by construction (never overlapping).
+    const bg = backgroundClipForSelection();
+    if(absPlayheadSec-bg.trimStart < MIN_CLIP_SEC-1e-6 ||
+       bg.trimEnd-absPlayheadSec < MIN_CLIP_SEC-1e-6){
+      showToast('Move playhead inside the clip to split', {icon: toastIcons.info, duration:1600});
+      return;
+    }
+    const bgId2 = 'bg'+Date.now();
+    const bgCutTransform=ethvelleGetObjectKeyframeValue(bg,'transform',absPlayheadSec)||ethvelleCloneObjectKeyframeValue(bg.transform,'transform');
+    const bgKeys=Array.isArray(bg.ethvelleMediaKeyframes)?bg.ethvelleMediaKeyframes:[];
+    const secondHalf = { ...bg, id:bgId2, transform: {...bg.transform}, trimStart: absPlayheadSec,
+      ethvelleMediaKeyframeBase:{...(bg.ethvelleMediaKeyframeBase||{}),transform:bgCutTransform},
+      ethvelleMediaKeyframes:bgKeys.filter(k=>Number(k.t)>=absPlayheadSec).map(k=>({...k,value:ethvelleCloneObjectKeyframeValue(k.value,k.property)})) };
+    bg.trimEnd = absPlayheadSec;
+    bg.ethvelleMediaKeyframes=bgKeys.filter(k=>Number(k.t)<absPlayheadSec);
+    backgrounds.push(secondHalf);
+    backgrounds.sort((a,b)=>a.trimStart-b.trimStart);
+    // BUGFIX: same fix as the main-clip branch above  -  move selection onto the new second
+    // half so a repeated Split acts on fresh footage instead of re-cutting the same first
+    // half over and over and piling up orphaned background fragments.
+    selectedClip = bgId2;
+    renderBackgroundTrack();
+    selectClipForChrome(selectedClip);
+  } else if(String(selectedClip).startsWith('seg')){
+    const segIdx = parseInt(String(selectedClip).slice(3), 10);
+    const seg = splitStickmanSegments[segIdx];
+    if(!seg) return;
+    if(absPlayheadSec-seg.trimStart < MIN_CLIP_SEC-1e-6 ||
+       seg.trimEnd-absPlayheadSec < MIN_CLIP_SEC-1e-6){
+      showToast('Move playhead inside the clip to split', {icon: toastIcons.info, duration:1600});
+      return;
+    }
+    const secondHalf = {
+      animKey: seg.animKey,
+      trimStart: absPlayheadSec,
+      trimEnd: seg.trimEnd,
+      keyframes: (seg.keyframes||[]).filter(kf=>kf.t >= absPlayheadSec).map(k=>({...k})),
+      speed: seg.speed || 1
+    };
+    if(window.__evSplitCarryFx)window.__evSplitCarryFx(seg,secondHalf);
+    seg.trimEnd = absPlayheadSec;
+    seg.keyframes = (seg.keyframes||[]).filter(kf=>kf.t < absPlayheadSec);
+    splitStickmanSegments.push(secondHalf);
+    // BUGFIX: same fix as the main-clip branch above.
+    selectedClip = 'seg' + (splitStickmanSegments.length - 1);
+    renderTimelineClip();
+    selectClipForChrome(selectedClip);
+  } else {
+    const ov = overlays.find(o=>o.id===selectedClip);
+    if(!ov) return;
+    if(absPlayheadSec-ov.trimStart < MIN_CLIP_SEC-1e-6 ||
+       ov.trimEnd-absPlayheadSec < MIN_CLIP_SEC-1e-6){
+      showToast('Move playhead inside the clip to split', {icon: toastIcons.info, duration:1600});
+      return;
+    }
+    let id2 = 'ov'+Date.now()+Math.random().toString(36).slice(2,7);
+    while(overlays.some(o=>String(o.id)===String(id2))) id2='ov'+Math.random().toString(36).slice(2,10);
+    // BUGFIX ("editing one half of a split clip also changed the other half"): this used to
+    // be a shallow `{...ov}` spread, which copies `transform` (and any other nested object
+    // field) by REFERENCE, not by value  -  so the new second-half clip and the original first
+    // half ended up pointing at the exact same transform object. updateTransform() edits
+    // scale/offsetX/offsetY/rotation IN PLACE on that object (t.scale = ...), so adjusting
+    // size/position/rotation on either half silently moved both at once, since there was

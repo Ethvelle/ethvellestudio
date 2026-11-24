@@ -1,0 +1,1000 @@
+      const d=pData.match(/d="([^"]+)"/);if(!d)return;
+      const path=new Path2D(d[1]);
+      if(mask.invert){const outer=new Path2D();outer.rect(0,0,w,h);outer.addPath(path);ctx.clip(outer,'evenodd');}
+      else ctx.clip(path);
+    }catch(e){console.warn('Ethvelle canvas mask skipped:',e);}
+  };
+  function svgMaskUrl(mask){
+    if(!mask||!mask.shape||mask.shape==='none')return '';
+    const path=pathDataSvg(mask);if(!path)return '';
+    const invert=!!mask.invert,feather=clamp(mask.feather,0,50)*.55;
+    const filter=feather>0?`<filter id="f" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="${feather.toFixed(1)}"/></filter>`:'';
+    const fg=invert?'black':'white',bg=invert?'white':'black';
+    const svg=`<svg xmlns="http://www.w3.org/2000/svg" width="1000" height="1000" viewBox="0 0 1000 1000"><defs>${filter}<mask id="m" maskUnits="userSpaceOnUse" x="0" y="0" width="1000" height="1000"><rect width="1000" height="1000" fill="${bg}"/><g ${feather>0?'filter="url(#f)"':''}>${path.replace(/<path/,'<path fill="'+fg+'"')}</g></mask></defs><rect width="1000" height="1000" fill="white" mask="url(#m)"/></svg>`;
+    return 'url("data:image/svg+xml;charset=utf-8,'+encodeURIComponent(svg)+'")';
+  }
+  function applyDomMask(el,mask){
+    if(!el||!el.style)return;
+    const signature=mask?JSON.stringify(mask):'none';
+    if(el.dataset&&el.dataset.evDomMaskSignature===signature)return;
+    const url=svgMaskUrl(mask);
+    el.style.webkitMaskImage=url||'none';el.style.maskImage=url||'none';el.style.webkitMaskSize='100% 100%';el.style.maskSize='100% 100%';el.style.webkitMaskRepeat='no-repeat';el.style.maskRepeat='no-repeat';el.style.webkitMaskMode='luminance';el.style.maskMode='luminance';
+    if(el.dataset)el.dataset.evDomMaskSignature=signature;
+  }
+  function applyOverlayVisualStyle(el,clip,tSec,referenceEl,isBackground){
+    if(!el||!el.style||!clip)return el;
+    const frameTime=Number.isFinite(Number(tSec))?Number(tSec):0;
+    const reference=referenceEl&&referenceEl.style?referenceEl:el;
+    const keyed=typeof ethvelleGetObjectKeyframeValue==='function'?ethvelleGetObjectKeyframeValue(clip,'transform',frameTime):null;
+    const isClipTracked=!!(!isBackground&&clip.clipTracking&&clip.clipTracking.enabled&&clip.clipTracking.targetId);
+    const hasLegacyTracking=!!(!isBackground&&clip.characterTracking&&clip.characterTracking.enabled);
+    // Tracking interpolation is among the costliest per-frame visual operations. Do not call
+    // it for every ordinary overlay; only tracked clips (including legacy character tracking)
+    // need a source transform lookup.
+    const tracked=(isClipTracked||hasLegacyTracking)&&!isBackground&&window.ethvelleGetTrackedOverlayTransform
+      ?window.ethvelleGetTrackedOverlayTransform(clip,frameTime,keyed):null;
+    const tr=(isClipTracked?(tracked||keyed):(keyed||tracked))||clip.transform||(isBackground?bgTransform:null)||{};
+    let transform='';
+    if(isBackground){
+      transform=`translate(${Number(tr.offsetX)||0}px, ${Number(tr.offsetY)||0}px) rotate(${Number(tr.rotation)||0}deg) scale(${Number(tr.scale)||1}) scaleX(${tr.mirrorX?-1:1}) scaleY(${tr.mirrorY?-1:1})`;
+    }else{
+      const motion=window.getEthvelleClipAnimationState?window.getEthvelleClipAnimationState(clip,frameTime):{x:0,y:0,rotation:0,scale:1,opacity:1};
+      transform=`translate(${(Number(tr.offsetX)||0)+(Number(motion.x)||0)}px, ${(Number(tr.offsetY)||0)+(Number(motion.y)||0)}px) rotate(${(Number(tr.rotation)||0)+(Number(motion.rotation)||0)}deg) scale(${(Number(tr.scale)||1)*(Number(motion.scale)||1)}) scaleX(${clip.mirrorX?-1:1}) scaleY(${clip.mirrorY?-1:1})`;
+    }
+    transform+=(window.ethvellePerspectiveSuffix?window.ethvellePerspectiveSuffix(clip):'');
+    if(el.style.transform!==transform)el.style.transform=transform;
+    if(el.style.transformOrigin!=='center center'&&!reference.style.transformOrigin)el.style.transformOrigin='center center';
+    if(el.dataset&&clip.id!=null)el.dataset.evMaskOwnerId=String(clip.id);
+    if(reference!==el){
+      // Stand-ins are styled from a cached source-style snapshot. Reading computed style on
+      // every playback frame forced repeated style/layout work on Android for each canvas.
+      const styleProps=['filter','clipPath','webkitClipPath','objectFit','objectPosition','borderRadius','transformOrigin'];
+      const sourceSig=styleProps.map(prop=>reference.style[prop]||'').join('|');
+      let cached=reference.__evVisualStandInStyleCache;
+      if(!cached||cached.signature!==sourceSig){
+        let computed=null;try{computed=getComputedStyle(reference);}catch(_e){}
+        const value=(prop,fallback)=>reference.style[prop]||(computed&&computed[prop])||fallback;
+        cached={signature:sourceSig,filter:value('filter','none'),clipPath:value('clipPath','none'),webkitClipPath:value('webkitClipPath',value('clipPath','none')),objectFit:value('objectFit','contain'),objectPosition:value('objectPosition','50% 50%'),borderRadius:value('borderRadius','0px'),transformOrigin:value('transformOrigin','center center')};
+        reference.__evVisualStandInStyleCache=cached;
+      }
+      styleProps.forEach(prop=>{const value=cached[prop];if(value!=null&&el.style[prop]!==String(value))el.style[prop]=String(value);});
+    }
+    applyDomMask(el,clip.visualMask);
+    // Blur is a true per-layer media filter, not a full-stage canvas wash. Keep each
+    // element's pre-existing enhancement/filter string and only append/remove our own blur.
+    try{
+      const fx=window.ethvelleGetActiveClipBlurEffect?window.ethvelleGetActiveClipBlurEffect(clip,frameTime):(clip.visualEffects&&clip.visualEffects.type==='blur'?clip.visualEffects:null);
+      const current=String(el.style.filter||'');
+      const previous=el.__evEthvelleFxFilter;
+      if(previous==null||current!==previous)el.__evEthvelleFxBaseFilter=current||'none';
+      if(fx){
+        const radius=Math.max(0,Math.min(14,(Number(fx.intensity)||135)/30));
+        const base=String(el.__evEthvelleFxBaseFilter||'none');
+        const next=(base!=='none'?base+' ':'')+'blur('+radius.toFixed(2)+'px)';
+        if(el.style.filter!==next)el.style.filter=next;
+        el.__evEthvelleFxFilter=next;
+      }else if(previous!=null){
+        if(current===previous)el.style.filter=el.__evEthvelleFxBaseFilter||'none';
+        delete el.__evEthvelleFxFilter;delete el.__evEthvelleFxBaseFilter;
+      }
+    }catch(_e){}
+    return el;
+  }
+  window.ethvelleApplyOverlayVisualStyle=applyOverlayVisualStyle;
+  function syncBgVisual(){
+    const img=$('bgImgLayer');if(!img)return;
+    const frameTime=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+    // Draw the background that covers the playhead. The selected background remains the
+    // editing target, but must not replace another sequential background outside its range.
+    let bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(frameTime):null;
+    if(!bg)bg=bgSelected();
+    if(!bg)return;
+    // Keep the final visual-sync wrapper on the same interpolated value as applyBackground;
+    // otherwise this later pass would overwrite the keyframe-aware transform with the base.
+    applyOverlayVisualStyle(img,bg,frameTime,img,true);
+  }
+  function syncOverlayVisuals(tSec){
+    if(!Array.isArray(overlays))return;
+    const frameTime=Number(tSec)||0;
+    const active=overlays.filter(o=>o&&['image','video','text','shape','color'].includes(o.type)&&frameTime>=Number(o.trimStart||0)&&frameTime<Number(o.trimEnd||0));
+    active.forEach(ov=>{
+      const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls[ov.id])||null;
+      if(el)applyOverlayVisualStyle(el,ov,frameTime,el,false);
+      const chroma=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases[ov.id])||null;
+      if(chroma)applyOverlayVisualStyle(chroma,ov,frameTime,el||chroma,false);
+    });
+  }
+  const oldBgApply=window.applyBgTransform;
+  if(typeof oldBgApply==='function'&&!oldBgApply.__evv70){const wrapped=function(){const r=oldBgApply.apply(this,arguments);syncBgVisual();return r;};wrapped.__evv70=true;window.applyBgTransform=wrapped;}
+  const oldOverlayRender=window.renderOverlayMedia;
+  if(typeof oldOverlayRender==='function'&&!oldOverlayRender.__evv70){
+    // The core compositor already styles every active overlay. A second full scan here used
+    // to repeat keyframe/track lookups and mask work on every playback tick, hurting Android FPS.
+    const wrapped=function(){const r=oldOverlayRender.apply(this,arguments);syncBgVisual();return r;};
+    wrapped.__evv70=true;window.renderOverlayMedia=wrapped;
+  }
+
+  /* ---------- Visual tool panels ---------- */
+  try{
+    panelContent.visualMirror={title:'Mirror',body:'<div id="evvVisualPanel"></div>'};
+    panelContent.visualMask={title:'Mask',body:'<div id="evvVisualPanel"></div>'};
+    panelContent.visualEffects={title:'Effects',body:'<div id="evvVisualPanel"></div>'};
+  }catch(_e){}
+  function sliderHtml(prop,label,value,min,max,step,unit){const id='evv_'+prop;return `<div class="evv-slider-card"><div class="evv-slider-head"><label for="${id}">${label}</label><output id="${id}_out">${Math.round(Number(value)||0)}${unit||''}</output></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${value}" oninput="setEthvelleMaskValue('${prop}',this.value,false);document.getElementById('${id}_out').textContent=(Math.round(Number(this.value)*10)/10)+'${unit||''}'" onchange="setEthvelleMaskValue('${prop}',this.value,true)"></div>`;}
+  function fxSliderHtml(prop,label,value,min,max,step,unit){const id='evv_fx_'+prop;const v=Number(value)||0;return `<div class="evv-slider-card evv-fx-slider-card"><div class="evv-slider-head"><label for="${id}">${label}</label><output id="${id}_out">${Math.round(v)}${unit||''}</output></div><input id="${id}" type="range" min="${min}" max="${max}" step="${step}" value="${v}" oninput="setEthvelleEffectSetting('${prop}',this.value,false);document.getElementById('${id}_out').textContent=(Math.round(Number(this.value)*10)/10)+'${unit||''}'" onchange="setEthvelleEffectSetting('${prop}',this.value,true)"></div>`;}
+  function visualChoice(value,label,active,fn){return `<button type="button" class="evv-choice ${active?'active':''}" onclick="${fn}">${label}</button>`;}
+  const maskShapes=[['none','None'],['linear','Linear'],['mirror','Mirror Band'],['circle','Circle'],['rectangle','Rectangle'],['heart','Heart'],['star','Star']];
+  const charFx=[['none','None'],['anger','Anger'],['fire','Fire'],['tears','Tears'],['chi','Chi Ball'],['blood','Blood'],['bandage','Bandage'],['bruise','Black Eye'],['nosebleed','Nosebleed'],['sweat','Sweat'],['dizzy','Dizzy Stars'],['hearts','Hearts'],['sleep','Sleeping'],['electric','Electric Shock'],['sparkle','Sparkles']];
+  const sceneFx=[['none','None'],['rain','Rain'],['storm','Storm'],['clouds','Cloudy'],['snow','Snow'],['lightning','Lightning'],['flash','Flash Lighting'],['fog','Fog'],['sunrise','Cloud Sunrise'],['blur','Blur']];
+  window.renderVisualPanel=function(key){renderVisualPanel(key);};
+  function renderVisualPanel(key){
+    const host=$('evvVisualPanel'),t=visualTarget();if(!host||!t){if(host)host.innerHTML='';return;}
+    if(key==='visualMirror'){
+      const m=targetMirror(t);
+      host.innerHTML=`<div class="evv-panel"><div class="evv-panel-title">Mirror</div><div class="evv-choice-grid">${visualChoice('x','Horizontal',m.x,"setEthvelleMirror('x')")}${visualChoice('y','Vertical',m.y,"setEthvelleMirror('y')")}${visualChoice('reset','Reset',!m.x&&!m.y,'resetEthvelleMirror()')}</div></div>`;return;
+    }
+    if(key==='visualMask'){
+      const m=getMask(t.obj);
+      host.innerHTML=`<div class="evv-panel"><div class="evv-panel-title">Mask</div><div class="evv-choice-grid">${maskShapes.map(([v,l])=>visualChoice(v,l,m.shape===v,`setEthvelleMaskValue('shape','${v}',true)`)).join('')}</div><label class="evv-switch-row"><span>Invert</span><input type="checkbox" ${m.invert?'checked':''} onchange="setEthvelleMaskValue('invert',this.checked,true)"></label>${sliderHtml('size','Size',m.size==null?100:m.size,25,140,1,'%')}${sliderHtml('width','Width',m.width,5,100,1,'%')}${sliderHtml('height','Height',m.height,5,100,1,'%')}${sliderHtml('x','Horizontal Position',m.x,-45,45,1,'%')}${sliderHtml('y','Vertical Position',m.y,-45,45,1,'%')}${sliderHtml('rotation','Rotation',m.rotation,-180,180,1,'°')}${t.kind!=='character'?sliderHtml('feather','Feather',m.feather,0,50,1,'%'):''}<button type="button" class="evv-choice" style="aspect-ratio:auto;min-height:40px" onclick="setEthvelleMaskValue('shape','none',true)">Remove Mask</button></div>`;
+      wireVisualRanges(host);return;
+    }
+    if(key==='visualEffects'){
+      const isCharClip=t.kind==='layer'&&t.obj&&t.obj.ethvelleEffectKind==='character',isChar=t.kind==='character'||isCharClip,store=t.obj.visualEffects||(t.obj.visualEffects={type:'none'}),items=isCharClip?charFx.filter(x=>x[0]!=='none'):(isChar?charFx:sceneFx);
+      host.innerHTML=`<div class="evv-panel"><div class="evv-panel-title">${isChar?'Character Effects':'Layer Effects'}</div><div class="evv-choice-grid">${items.map(([v,l])=>visualChoice(v,l,store.type===v,`setEthvelleVisualEffect('${v}')`)).join('')}</div></div>`;return;
+    }
+  }
+  function wireVisualRanges(host){host.querySelectorAll('input[type=range]').forEach(input=>{const paint=()=>{const min=Number(input.min)||0,max=Number(input.max)||100,v=Number(input.value)||0;input.style.setProperty('--evv-progress',clamp((v-min)/(max-min||1)*100,0,100)+'%');};input.addEventListener('input',paint);paint();});}
+  window.setEthvelleMaskValue=function(prop,value,commit){const t=visualTarget();if(!t)return;const m=getMask(t.obj);
+    if(prop==='shape'){m.shape=maskShapes.some(x=>x[0]===String(value))?String(value):'none';}
+    else if(prop==='invert')m.invert=!!value;
+    else if(prop==='size')m.size=clamp(value,25,140);
+    else if(['width','height'].includes(prop))m[prop]=clamp(value,5,100);
+    else if(['x','y'].includes(prop))m[prop]=clamp(value,-45,45);
+    else if(prop==='rotation')m.rotation=clamp(value,-180,180);
+    else if(prop==='feather')m.feather=clamp(value,0,50);
+    refreshVisual();if(commit){persistVisual();renderVisualPanel('visualMask');}
+  };
+  const fxDefaults={type:'none',intensity:135,density:135,speed:100,scale:100,x:0,y:0};
+  function ensureFxSettings(obj){obj.visualEffects=Object.assign({},fxDefaults,obj.visualEffects||{});return obj.visualEffects;}
+  window.setEthvelleVisualEffect=function(type){const t=visualTarget();if(!t)return;const isChar=t.kind==='character',items=isChar?charFx:sceneFx;if(!items.some(x=>x[0]===type))return;const fx=ensureFxSettings(t.obj);fx.type=type;refreshVisual();persistVisual();renderVisualPanel('visualEffects');};
+  window.setEthvelleEffectSetting=function(prop,value,commit){const t=visualTarget();if(!t)return;const fx=ensureFxSettings(t.obj);const limits={intensity:[0,250],density:[10,300],speed:[0,300],scale:[25,250],x:[-100,100],y:[-100,100]};if(!limits[prop])return;fx[prop]=clamp(value,limits[prop][0],limits[prop][1]);
+    // Slider drags repaint only the effect canvas. Avoid a full project render and media
+    // compositor pass for every pointer event; persist once on release.
+    if(commit){try{if(typeof renderFrame==='function')renderFrame();else if(typeof drawFxPreview==='function')drawFxPreview();}catch(_e){}persistVisual();}
+    else{try{if(typeof drawFxPreview==='function')drawFxPreview();else if(typeof drawStick==='function')drawStick();}catch(_e){}}
+  };
+  window.setEthvelleEffectIntensity=function(value){window.setEthvelleEffectSetting('intensity',value,false);};
+  // slider setter also updates the selected FX intensity field.
+  const maskSetter=window.setEthvelleMaskValue;
+  window.setEthvelleMaskValue=function(prop,value,commit){if(prop==='intensity'){window.setEthvelleEffectIntensity(value);if(commit)renderVisualPanel('visualEffects');return;}return maskSetter(prop,value,commit);};
+  function persistVisual(){try{if(typeof persistProjectState==='function')persistProjectState();}catch(e){console.warn('Visual setting save:',e);}}
+  function refreshVisual(){
+    try{
+      // renderFrame owns the stage/compositor refresh in normal editor use. Avoid separately
+      // walking and styling every overlay a second time after the frame has already rendered.
+      if(typeof renderFrame==='function')renderFrame();
+      else if(typeof drawStick==='function')drawStick();
+      if(typeof applyBgTransform==='function')applyBgTransform();
+    }catch(e){console.warn('Visual refresh:',e);}
+  }
+  const openPanelBase=window.openPanel;
+  if(typeof openPanelBase==='function'&&!openPanelBase.__evv70){const wrapped=function(key){const r=openPanelBase.apply(this,arguments);if(['visualMirror','visualMask','visualEffects'].includes(key))requestAnimationFrame(()=>renderVisualPanel(key));return r;};wrapped.__evv70=true;window.openPanel=wrapped;}
+
+  /* ---------- Per-character and per-layer animated effects ---------- */
+  function boneEndpoints(char,key){
+    const bs=char&&char.bones||{};if(!bs[key])return null;
+    function start(k,guard){const b=bs[k];if(!b)return {x:0,y:0};if(!b.parent)return {x:b.x||0,y:b.y||0};const e=end(k,(guard||0)+1);if(b.attachAt!==undefined){const p=start(b.parent,(guard||0)+1);const pe=end(b.parent,(guard||0)+1);return {x:p.x+(pe.x-p.x)*b.attachAt,y:p.y+(pe.y-p.y)*b.attachAt};}return e;}
+    function end(k,guard){if(guard>20)return {x:0,y:0};const b=bs[k];if(!b)return {x:0,y:0};const st=startNoRecurse(k,guard);return {x:st.x+Math.cos(Number(b.angle)||0)*(Number(b.length)||0),y:st.y+Math.sin(Number(b.angle)||0)*(Number(b.length)||0)};}
+    function startNoRecurse(k,guard){const b=bs[k];if(!b.parent)return {x:b.x||0,y:b.y||0};const pe=end(b.parent,guard+1);if(b.attachAt!==undefined){const ps=startNoRecurse(b.parent,guard+1);return {x:ps.x+(pe.x-ps.x)*b.attachAt,y:ps.y+(pe.y-ps.y)*b.attachAt};}return pe;}
+    const st=startNoRecurse(key,0),ed=end(key,0);return {start:st,end:ed};
+  }
+  function charPoint(char,p){
+    if(!p)return {x:stageW*.5,y:stageH*.35};const mt=char.modelTransform||{scale:1,offsetX:0,offsetY:0,rotation:0},hip=char.bones&&char.bones.hip||{x:stageW*.5,y:stageH*.55};
+    let x=(p.x-hip.x)*(Number(mt.scale)||1),y=(p.y-hip.y)*(Number(mt.scale)||1);if(char.mirrorX)x=-x;if(char.mirrorY)y=-y;const a=(Number(mt.rotation)||0)*Math.PI/180;return {x:hip.x+(Number(mt.offsetX)||0)+x*Math.cos(a)-y*Math.sin(a),y:hip.y+(Number(mt.offsetY)||0)+x*Math.sin(a)+y*Math.cos(a)};
+  }
+  /* v334: head frame (centre, radius, tilt, mirror, hand) used by every character effect. */
+  function charFrame(char){
+    if(!char||!char.bones||!char.bones.head)return null;
+    const ha=boneEndpoints(char,'head');if(!ha)return null;
+    const mt=char.modelTransform||{scale:1,rotation:0},sc=Number(mt.scale)||1;
+    const mid=charPoint(char,{x:(ha.start.x+ha.end.x)/2,y:(ha.start.y+ha.end.y)/2});
+    const len=Math.hypot(ha.end.x-ha.start.x,ha.end.y-ha.start.y)*sc;
+    if(!isFinite(mid.x)||!isFinite(mid.y)||!(len>0))return null;
+    let tilt=Math.atan2(ha.end.y-ha.start.y,ha.end.x-ha.start.x)+Math.PI/2,flip=false;
+    if(char.mirrorX){tilt=-tilt;flip=!flip;}
+    if(char.mirrorY){tilt=Math.PI-tilt;flip=!flip;}
+    tilt+=(Number(mt.rotation)||0)*Math.PI/180;
+    const arm=boneEndpoints(char,'armR_lo')||boneEndpoints(char,'armL_lo');
+    const hand=arm?charPoint(char,arm.end):{x:mid.x+len*1.5,y:mid.y+len*1.6};
+    return {x:mid.x,y:mid.y,r:Math.max(6,len*.55),rot:tilt,flip,hand};
+  }
+  function charFxCfg(fx){
+    fx=fx||{};const num=(v,d)=>(v===null||v===undefined||!Number.isFinite(Number(v)))?d:Number(v);
+    return {k:clamp(num(fx.intensity,135),0,250)/135,size:clamp(num(fx.scale,100),25,250)/100,ox:clamp(num(fx.x,0),-100,100)/100*3,oy:clamp(num(fx.y,0),-100,100)/100*3,speed:clamp(num(fx.speed,100),0,300)/100};
+  }
+  window.__ethvelleCharFrame=charFrame;window.__ethvelleCharFxCfg=charFxCfg;
+  function roundedGlow(ctx,x,y,r,color,alpha){const g=ctx.createRadialGradient(x-r*.2,y-r*.2,1,x,y,r);g.addColorStop(0,'rgba(255,255,255,'+(alpha*.9)+')');g.addColorStop(.35,color.replace('ALPHA',String(alpha*.78)));g.addColorStop(1,color.replace('ALPHA','0'));ctx.fillStyle=g;ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();}
+  function drawCharacterFx(ctx,char,t,w,h){
+    /* Legacy per-character effect (projects saved before effects became timeline clips). */
+    const fx=char&&char.visualEffects;if(!fx||!fx.type||fx.type==='none')return;
+    const lib=window.ethvelleCharFxLib;if(!lib||!lib.has(fx.type))return;
+    const frame=charFrame(char);if(!frame)return;
+    const cfg=charFxCfg(fx);
+    lib.draw(ctx,frame,fx.type,(Number(t)||0)*cfg.speed,cfg);
+  }
+  function drawSceneFx(ctx,type,t,w,h,settings){
+    const cfg=settings&&typeof settings==='object'?settings:{intensity:settings};
+    const intensity=clamp(cfg.intensity==null?135:cfg.intensity,0,250);
+    if(intensity<=0||!type||type==='none'||type==='blur')return;
+    const density=clamp(cfg.density==null?135:cfg.density,10,300)/100;
+    const speed=clamp(cfg.speed==null?100:cfg.speed,0,300)/100;
+    const scale=clamp(cfg.scale==null?100:cfg.scale,25,250)/100;
+    const ox=clamp(cfg.x,-100,100)/100*w*.34,oy=clamp(cfg.y,-100,100)/100*h*.34;
+    const tm=(Number(t)||0)*speed;
+    // Older projects used 0 - 100 intensity. Treat their previous 70% default as a full,
+    // lively baseline while allowing the expanded 0 - 250 slider to go substantially stronger.
+    const strength=Math.min(3,intensity/70);
+    const hash=i=>{const x=Math.sin((i+1)*127.1+37.7)*43758.5453;return x-Math.floor(x);};
+    const wrap=(v,m)=>((v%m)+m)%m;
+    const rgba=(r,g,b,a)=>`rgba(${r},${g},${b},${Math.max(0,Math.min(1,a))})`;
+    ctx.save();
+    ctx.translate(w*.5+ox,h*.5+oy);ctx.scale(scale,scale);ctx.translate(-w*.5,-h*.5);
+    ctx.globalCompositeOperation='source-over';
+
+    function cloudBand(dark,layer){
+      const baseY=h*(.12+layer*.13),travel=(dark?14:9)*(layer+1)*tm,alpha=(dark?.13:.075)*strength/(layer+1);
+      const grad=ctx.createLinearGradient(0,0,0,h*.74);
+      if(dark){grad.addColorStop(0,rgba(9,17,31,alpha*1.4));grad.addColorStop(.42,rgba(31,43,62,alpha));grad.addColorStop(1,'rgba(24,34,48,0)');}
+      else{grad.addColorStop(0,rgba(224,235,249,alpha));grad.addColorStop(.7,'rgba(210,226,242,0)');}
+      ctx.fillStyle=grad;ctx.fillRect(0,0,w,h*.76);
+      const count=Math.min(20,Math.max(4,Math.round((dark?8:10)*density/1.35))),puffW=w*(.11+.04*layer),puffH=h*(.055+.013*layer),span=w+puffW*3;
+      for(let i=0;i<count;i++){
+        const x=wrap(i*span/count+travel,span)-puffW*1.2;
+        const y=baseY+((hash(i+layer*20)-.5)*h*.075)+Math.sin(tm*.12+i*.8)*h*.012;
+        const shade=dark?rgba(28+layer*5,38+layer*5,55+layer*8,alpha*1.3):rgba(226,235,248,alpha*1.6);
+        // Layered overlapping puffs stay soft without a per-puff canvas blur filter, which is
+        // expensive on mobile GPU compositors.
+        ctx.save();ctx.fillStyle=shade;
+        ctx.beginPath();
+        ctx.ellipse(x,y,puffW*.72,puffH*.50,0,0,Math.PI*2);
+        ctx.ellipse(x-puffW*.33,y-puffH*.26,puffW*.40,puffH*.62,0,0,Math.PI*2);
+        ctx.ellipse(x+puffW*.05,y-puffH*.53,puffW*.45,puffH*.75,0,0,Math.PI*2);
+        ctx.ellipse(x+puffW*.42,y-puffH*.20,puffW*.37,puffH*.58,0,0,Math.PI*2);ctx.fill();ctx.restore();
+        if(dark){ctx.strokeStyle=rgba(129,154,188,alpha*.38);ctx.lineWidth=Math.max(1,h*.0018);ctx.beginPath();ctx.ellipse(x,y+puffH*.08,puffW*.64,puffH*.25,0,0,Math.PI);ctx.stroke();}
+      }
+    }
+    function rainLayer(count,layer,storm){
+      const fall=(storm?520:365)*(0.42+layer*.46)*speed;
+      const drift=(storm?155:64)*(0.35+layer*.5)*speed;
+      const lineLen=(storm?17:11)*(0.6+layer*.58)*scale;
+      const alpha=(storm?.25:.17)*strength*(.35+layer*.36);
+      ctx.lineCap='round';ctx.lineWidth=Math.max(.65,(w/1100)*(layer+1)*.8);
+      for(let i=0;i<count;i++){
+        const seed=hash(i+layer*701),x=wrap(seed*(w+140)+tm*drift,w+140)-70;
+        const y=wrap(hash(i+layer*1701)*(h+100)+tm*fall,h+100)-50;
+        ctx.strokeStyle=rgba(layer===2?218:174,layer===2?232:210,255,alpha*(.65+seed*.55));
+        ctx.beginPath();ctx.moveTo(x,y);ctx.lineTo(x-drift/fall*lineLen,y+lineLen);ctx.stroke();
+        if(layer===2&&i%7===0){ctx.fillStyle=rgba(190,220,255,alpha*.55);ctx.beginPath();ctx.ellipse(x-drift/fall*lineLen,y+lineLen,2.3,1.1,-.25,0,Math.PI*2);ctx.fill();}
+      }
+    }
+    function lightning(){
+      const cycle=4.4,phase=wrap(tm,cycle),pulse=phase<.085?1:phase>.13&&phase<.19?.48:phase>.25&&phase<.285?.22:0;
+      if(!pulse)return;
+      const flashAlpha=Math.min(.36,.13*strength*pulse);
+      ctx.save();ctx.globalCompositeOperation='screen';ctx.fillStyle=rgba(206,226,255,flashAlpha);ctx.fillRect(0,0,w,h);
+      const rootX=w*(.59+hash(Math.floor(tm/cycle))*0.25),rootY=0;
+      ctx.shadowColor='#9FCBFF';ctx.shadowBlur=Math.max(12,w*.035);ctx.strokeStyle=rgba(218,239,255,.92*pulse);ctx.lineWidth=Math.max(2,w*.0028);ctx.lineJoin='round';
+      const pts=[[rootX,rootY]];let x=rootX,y=0;
+      for(let i=0;i<9;i++){x+=(hash(i+Math.floor(tm/cycle)*13)-.5)*w*.095;y+=h*.105;pts.push([x,y]);}
+      ctx.beginPath();ctx.moveTo(...pts[0]);for(let i=1;i<pts.length;i++)ctx.lineTo(...pts[i]);ctx.stroke();
+      // Short side forks give the strike a branching, irregular silhouette.
+      ctx.lineWidth=Math.max(1.3,w*.0016);ctx.shadowBlur=Math.max(5,w*.018);
+      [2,4,6].forEach((at,j)=>{const p=pts[at],dir=j%2?-1:1;ctx.beginPath();ctx.moveTo(p[0],p[1]);ctx.lineTo(p[0]+dir*w*(.06+j*.012),p[1]+h*(.06+j*.016));ctx.lineTo(p[0]+dir*w*(.075+j*.014),p[1]+h*(.115+j*.018));ctx.stroke();});
+      const glow=ctx.createRadialGradient(rootX,h*.35,2,rootX,h*.35,Math.max(w,h)*.62);glow.addColorStop(0,rgba(194,220,255,.20*pulse*strength));glow.addColorStop(1,'rgba(175,210,255,0)');ctx.fillStyle=glow;ctx.fillRect(0,0,w,h);ctx.restore();
+    }
+
+    if(type==='clouds'||type==='sunrise'){cloudBand(false,0);cloudBand(false,1);if(type==='clouds')cloudBand(false,2);}
+    if(type==='storm'){cloudBand(true,0);cloudBand(true,1);cloudBand(true,2);}
+    if(type==='rain'){
+      const wash=ctx.createLinearGradient(0,0,0,h);wash.addColorStop(0,rgba(38,85,136,.06*strength));wash.addColorStop(1,rgba(8,26,49,.13*strength));ctx.fillStyle=wash;ctx.fillRect(0,0,w,h);
+      rainLayer(Math.min(76,Math.round(48*density)),0,false);rainLayer(Math.min(90,Math.round(55*density)),1,false);rainLayer(Math.min(65,Math.round(40*density)),2,false);
+    }
+    if(type==='storm'){
+      const shade=ctx.createLinearGradient(0,0,0,h);shade.addColorStop(0,rgba(4,10,23,.30*strength));shade.addColorStop(.55,rgba(12,25,45,.19*strength));shade.addColorStop(1,rgba(7,15,28,.24*strength));ctx.fillStyle=shade;ctx.fillRect(0,0,w,h);
+      rainLayer(Math.min(80,Math.round(54*density)),0,true);rainLayer(Math.min(100,Math.round(68*density)),1,true);rainLayer(Math.min(70,Math.round(44*density)),2,true);lightning();
+    }
+    if(type==='lightning')lightning();
+    if(type==='snow'){
+      const count=Math.min(220,Math.round(95*density));
+      for(let i=0;i<count;i++){
+        const z=.25+hash(i+77)*1.15,r=(.7+hash(i+211)*2.2)*z*scale,x=wrap(hash(i+331)*(w+50)+Math.sin(tm*.45+i)*10*speed,w+50)-25,y=wrap(hash(i+449)*(h+50)+tm*(12+z*35),h+50)-25;
+        ctx.fillStyle=rgba(236,246,255,(.28+.48*z/1.4)*strength);ctx.shadowColor='#C8E7FF';ctx.shadowBlur=r*2;
+        ctx.beginPath();ctx.arc(x,y,r,0,Math.PI*2);ctx.fill();
+        if(z>1.05&&i%5===0){ctx.strokeStyle=rgba(255,255,255,.55*strength);ctx.lineWidth=.7;ctx.beginPath();ctx.moveTo(x-r*2,y);ctx.lineTo(x+r*2,y);ctx.moveTo(x,y-r*2);ctx.lineTo(x,y+r*2);ctx.stroke();}
+      }
+      ctx.shadowBlur=0;
+    }
+    if(type==='flash'){
+      const phase=wrap(tm,3.25),pulse=phase<.06?1:phase>.13&&phase<.19?.62:phase>.24&&phase<.275?.28:0;
+      if(pulse){ctx.globalCompositeOperation='screen';const bloom=ctx.createRadialGradient(w*.53,h*.37,2,w*.53,h*.37,Math.max(w,h)*.82);bloom.addColorStop(0,rgba(255,255,244,.62*pulse*strength));bloom.addColorStop(.34,rgba(255,225,188,.24*pulse*strength));bloom.addColorStop(1,'rgba(255,220,174,0)');ctx.fillStyle=bloom;ctx.fillRect(0,0,w,h);}
+    }
+    if(type==='fog'){
+      ctx.globalCompositeOperation='screen';
+      const fogLayers=Math.min(7,Math.max(3,Math.round(5*density/1.35)));
+      for(let layer=0;layer<fogLayers;layer++){
+        const y=h*(.42+layer*.125),count=Math.min(6,Math.max(3,Math.round(4*density/1.35))),x0=wrap(tm*(8+layer*4)+layer*w*.28,w*1.55)-w*.28;
+        for(let i=0;i<count;i++){
+          const x=x0+i*w*.42+Math.sin(tm*.12+layer+i)*w*.025,yy=y+Math.sin(tm*.18+i*1.4+layer)*h*.018,rx=w*(.27+layer*.018),ry=h*(.07+layer*.008);
+          const g=ctx.createRadialGradient(x,yy,1,x,yy,rx);g.addColorStop(0,rgba(210,229,245,.13*strength));g.addColorStop(.55,rgba(194,219,239,.065*strength));g.addColorStop(1,'rgba(190,215,235,0)');ctx.fillStyle=g;ctx.fillRect(x-rx,yy-ry*2,rx*2,ry*4);
+        }
+      }
+    }
+    if(type==='sunrise'){
+      ctx.globalCompositeOperation='screen';
+      const sky=ctx.createLinearGradient(0,0,0,h);sky.addColorStop(0,rgba(89,118,194,.09*strength));sky.addColorStop(.36,rgba(241,111,100,.22*strength));sky.addColorStop(.68,rgba(255,170,92,.23*strength));sky.addColorStop(1,'rgba(255,213,144,0)');ctx.fillStyle=sky;ctx.fillRect(0,0,w,h);
+      const sx=w*.73,sy=h*.34,sr=Math.min(w,h)*.16,pulse=.97+.03*Math.sin(tm*.6);const sun=ctx.createRadialGradient(sx,sy,2,sx,sy,sr*2.7);sun.addColorStop(0,rgba(255,250,214,.62*strength));sun.addColorStop(.23,rgba(255,207,132,.37*strength));sun.addColorStop(.6,rgba(255,130,105,.12*strength));sun.addColorStop(1,'rgba(255,128,100,0)');ctx.fillStyle=sun;ctx.fillRect(sx-sr*3,sy-sr*3,sr*6,sr*6);
+      ctx.fillStyle=rgba(255,239,207,.24*strength);ctx.beginPath();ctx.ellipse(sx,sy,sr*.48*pulse,sr*.48*pulse,0,0,Math.PI*2);ctx.fill();
+    }
+    ctx.restore();
+  }
+  function drawOverlaySceneFx(targetCtx,ov,t,ow,oh){
+    if(!targetCtx||!ov||!ov.visualEffects||!ov.visualEffects.type||ov.visualEffects.type==='none'||ov.visualEffects.type==='blur')return;
+    if(ov.ethvelleEffectClip&&ov.ethvelleEffectKind==='character'){if(typeof window.ethvelleDrawCharacterEffectClip==='function')window.ethvelleDrawCharacterEffectClip(targetCtx,ov,t);return;}
+    if(ov.ethvelleEffectClip&&ov.ethvelleEffectTargetId){
+      const target=(Array.isArray(overlays)?overlays:[]).find(x=>x&&String(x.id)===String(ov.ethvelleEffectTargetId));
+      if(!target||t<Number(target.trimStart||0)||t>=Number(target.trimEnd||0))return;
+    }
+    const sx=ow/Math.max(1,stageW),sy=oh/Math.max(1,stageH);
+    let keyed=null,tracked=null,tr=null;
+    try{keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',t):null;}catch(_e){}
+    try{if(ov.clipTracking&&ov.clipTracking.enabled&&ov.clipTracking.targetId&&typeof window.ethvelleGetTrackedOverlayTransform==='function')tracked=window.ethvelleGetTrackedOverlayTransform(ov,t,keyed);}catch(_e){}
+    tr=(tracked||keyed||ov.transform||{});
+    let motion={x:0,y:0,rotation:0,scale:1};
+    try{if(typeof window.getEthvelleClipAnimationState==='function')motion=window.getEthvelleClipAnimationState(ov,t)||motion;}catch(_e){}
+    const ox=(Number(tr.offsetX)||0)+(Number(motion.x)||0),oy=(Number(tr.offsetY)||0)+(Number(motion.y)||0);
+    const scale=Math.max(.0001,(Number(tr.scale)||1)*(Number(motion.scale)||1));
+    const rotation=(Number(tr.rotation)||0)+(Number(motion.rotation)||0);
+    let iw=Number(ov.sourceWidth)||0,ih=Number(ov.sourceHeight)||0;
+    try{
+      const media=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[String(ov.id)]:null;
+      if(media){iw=iw||Number(media.videoWidth||media.naturalWidth||media.width)||0;ih=ih||Number(media.videoHeight||media.naturalHeight||media.height)||0;}
+    }catch(_e){}
+    let cw=ow,ch=oh;
+    if(iw>0&&ih>0){const fit=Math.min(ow/iw,oh/ih);cw=iw*fit;ch=ih*fit;}
+    const cx=(ow-cw)/2,cy=(oh-ch)/2;
+    let crop={left:0,right:0,top:0,bottom:0};
+    try{crop=window.ethvelleCropFractions?window.ethvelleCropFractions(ov.crop):(ov.crop||crop)||crop;}catch(_e){}
+    const left=Math.max(0,Math.min(.92,Number(crop.left)||0)),right=Math.max(0,Math.min(.92,Number(crop.right)||0));
+    const top=Math.max(0,Math.min(.92,Number(crop.top)||0)),bottom=Math.max(0,Math.min(.92,Number(crop.bottom)||0));
+    const visibleX=cx+left*cw,visibleY=cy+top*ch,visibleW=Math.max(1,cw*(1-left-right)),visibleH=Math.max(1,ch*(1-top-bottom));
+    targetCtx.save();
+    targetCtx.translate(ow/2+ox*sx,oh/2+oy*sy);
+    if(rotation)targetCtx.rotate(rotation*Math.PI/180);
+    targetCtx.scale(scale*(ov.mirrorX?-1:1),scale*(ov.mirrorY?-1:1));
+    targetCtx.translate(-ow/2,-oh/2);
+    // Keep particles/light/fog inside the actual cropped media rectangle, not the whole stage.
+    targetCtx.beginPath();targetCtx.rect(visibleX,visibleY,visibleW,visibleH);targetCtx.clip();
+    if(ov.visualMask&&typeof window.ethvelleApplyCanvasMaskClip==='function')window.ethvelleApplyCanvasMaskClip(targetCtx,ov.visualMask,ow,oh);
+    targetCtx.translate(visibleX,visibleY);
+    drawSceneFx(targetCtx,ov.visualEffects.type,t,visibleW,visibleH,ov.visualEffects);
+    targetCtx.restore();
+  }
+  window.ethvelleDrawVisualEffectsToContext=function(targetCtx,tSec,outW,outH){
+    if(!targetCtx||!stageW||!stageH)return;const t=Number(tSec)||0,ow=outW||stageW,oh=outH||stageH;
+    targetCtx.save();targetCtx.scale(ow/stageW,oh/stageH);
+    if(Array.isArray(backgrounds)&&typeof currentBackgroundClip==='function'){
+      const bg=currentBackgroundClip(t);if(bg&&bg.visualEffects&&bg.visualEffects.type&&bg.visualEffects.type!=='none')drawSceneFx(targetCtx,bg.visualEffects.type,t,stageW,stageH,bg.visualEffects);
+    }
+    if(Array.isArray(overlays))overlays.forEach(o=>{if(o&&['image','video','text','shape','color'].includes(o.type)&&t>=Number(o.trimStart||0)&&t<Number(o.trimEnd||0)&&o.visualEffects&&o.visualEffects.type&&o.visualEffects.type!=='none')drawOverlaySceneFx(targetCtx,o,t,ow,oh);});
+    if(Array.isArray(characters))characters.forEach(c=>drawCharacterFx(targetCtx,c,t,stageW,stageH));
+    targetCtx.restore();
+  };
+  let fxCanvas=null,fxCtx=null;
+  function drawFxPreview(){
+    const stage=$('canvasStage');if(!stage||!stageW||!stageH)return;
+    if(!fxCanvas||fxCanvas.parentNode!==stage){fxCanvas=$('evcaV70FxCanvas');if(!fxCanvas){fxCanvas=document.createElement('canvas');fxCanvas.id='evcaV70FxCanvas';stage.appendChild(fxCanvas);}fxCtx=fxCanvas.getContext('2d');}
+    if(fxCanvas.width!==stageW||fxCanvas.height!==stageH){fxCanvas.width=stageW;fxCanvas.height=stageH;delete fxCanvas.dataset.evFxPainted;}
+    if(!fxCtx)return;
+    const now=Number(currentAbsoluteTimeSec)||0;
+    const hasScene=(Array.isArray(backgrounds)&&backgrounds.some(b=>b&&b.visualEffects&&b.visualEffects.type&&b.visualEffects.type!=='none'&&now>=Number(b.trimStart||0)&&now<Number(b.trimEnd||Infinity)))||
+      (Array.isArray(overlays)&&overlays.some(o=>o&&o.visualEffects&&o.visualEffects.type&&o.visualEffects.type!=='none'&&now>=Number(o.trimStart||0)&&now<Number(o.trimEnd||0)))||
+      (Array.isArray(characters)&&characters.some(c=>c&&c.visualEffects&&c.visualEffects.type&&c.visualEffects.type!=='none'));
+    if(!hasScene){if(fxCanvas.dataset.evFxPainted==='1'){fxCtx.clearRect(0,0,stageW,stageH);delete fxCanvas.dataset.evFxPainted;}return;}
+    fxCtx.clearRect(0,0,stageW,stageH);window.ethvelleDrawVisualEffectsToContext(fxCtx,now,stageW,stageH);fxCanvas.dataset.evFxPainted='1';
+  }
+  const oldDraw=window.drawStick;if(typeof oldDraw==='function'&&!oldDraw.__evv70){const wrapped=function(){const r=oldDraw.apply(this,arguments);drawFxPreview();return r;};wrapped.__evv70=true;window.drawStick=wrapped;}
+  const oldRuler=window.renderFrame;if(typeof oldRuler==='function'&&!oldRuler.__evv70){const wrapped=function(){const r=oldRuler.apply(this,arguments);syncInlineZoomHud();return r;};wrapped.__evv70=true;window.renderFrame=wrapped;}
+
+  /* ---------- Inline canvas zoom: no Custom Animation page or new editor mode ---------- */
+  let inlineZoom=false,zoomHud=null;
+  function currentZoomRange(){
+    let item=null;
+    if(isCharClip()&&typeof getClipByRef==='function')item=getClipByRef(selectedClip);
+    else if(typeof selectedClip==='string'&&selectedClip.startsWith('char')){
+      const idx=parseInt(selectedClip.slice(4),10),ch=Number.isInteger(idx)&&Array.isArray(characters)?characters[idx]:null;
+      const cs=[];if(ch&&ch.clip)cs.push(ch.clip);if(ch&&Array.isArray(ch.segments))cs.push(...ch.segments);
+      if(cs.length)item={trimStart:Math.min(...cs.map(c=>Number(c.trimStart)||0)),trimEnd:Math.max(...cs.map(c=>Number(c.trimEnd)||0))};
+    }else if(Array.isArray(overlays))item=overlays.find(o=>o&&String(o.id)===String(selectedClip));
+    if(!item){const bg=bgSelected();if(bg)item=bg;}
+    const a=item?Math.max(0,Number(item.trimStart)||0):0,b=item?Math.max(a+.05,Number(item.trimEnd)||a+.05):Math.max(1,Number(timelineDuration)||1);
+    return {start:a,end:b};
+  }
+  function collectZoomCuts(range){
+    const values=[];const add=v=>{v=Number(v);if(Number.isFinite(v)&&v>range.start+.015&&v<range.end-.015)values.push(v);};
+    (Array.isArray(overlays)?overlays:[]).forEach(o=>{if(o){add(o.trimStart);add(o.trimEnd);}});
+    (Array.isArray(backgrounds)?backgrounds:[]).forEach(b=>{add(b.trimStart);add(b.trimEnd);});
+    add(activeClip&&activeClip.trimStart);add(activeClip&&activeClip.trimEnd);
+    (Array.isArray(splitStickmanSegments)?splitStickmanSegments:[]).forEach(c=>{add(c.trimStart);add(c.trimEnd);});
+    (Array.isArray(characters)?characters:[]).forEach(c=>{if(c&&c.clip){add(c.clip.trimStart);add(c.clip.trimEnd);} (c&&Array.isArray(c.segments)?c.segments:[]).forEach(x=>{add(x.trimStart);add(x.trimEnd);});});
+    return [...new Set(values.map(v=>Math.round(v*1000)/1000))].sort((a,b)=>a-b);
+  }
+  function ensureZoomHud(){
+    const legacy=$('evcaCustomMotionHud');if(legacy)legacy.remove();
+    const wrap=document.querySelector('#screen-editor .canvas-wrap');if(!wrap)return null;
+    let hud=$('evcaInlineZoomHud');if(hud&&hud.parentNode!==wrap){hud.remove();hud=null;}
+    if(!hud){hud=document.createElement('div');hud.id='evcaInlineZoomHud';hud.innerHTML=`<div class="evca-zoom-control-bar"><button type="button" class="evca-zoom-play" id="evcaZoomPlay" aria-label="Play or pause"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg></button><span class="evca-zoom-time" id="evcaZoomCurrent">00:00</span><div class="evca-zoom-scrub-wrap"><div class="evca-zoom-scrub-track"><input id="evcaZoomScrub" type="range" min="0" max="1" step="0.01" value="0" aria-label="Selected clip timeline"></div></div><span class="evca-zoom-time" id="evcaZoomTotal">00:00</span><button type="button" class="evca-zoom-out" id="evcaZoomOut" aria-label="Exit canvas zoom"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M8 3H3v5M3 3l7 7M16 21h5v-5m0 5-7-7"/></svg></button></div>`;wrap.appendChild(hud);
+      $('evcaZoomPlay').addEventListener('click',()=>{if(typeof togglePlay==='function')togglePlay();syncInlineZoomHud();});
+      $('evcaZoomOut').addEventListener('click',()=>window.toggleCanvasZoomView());
+      const slider=$('evcaZoomScrub');
+      let zoomScrubRaf=0,zoomScrubPendingTime=null,zoomScrubActive=false,zoomScrubLastFinish=0;
+      const beginZoomScrub=()=>{
+        if(zoomScrubActive)return;
+        zoomScrubActive=true;
+        if(typeof pausePlayback==='function')pausePlayback();
+        window.__ethvelleTimelineScrubbing=true;
+        window.__ethvelleTimelineScrubMaxDuration=typeof totalProjectDuration==='function'?totalProjectDuration():Math.max(1,Number(slider.max)||1);
+        if(typeof setTimelineScrubCanvasQuality==='function')setTimelineScrubCanvasQuality(true);
+      };
+      const queueZoomScrub=()=>{
+        zoomScrubPendingTime=Number(slider.value)||0;
+        if(zoomScrubRaf)return;
+        zoomScrubRaf=requestAnimationFrame(()=>{
+          zoomScrubRaf=0;
+          const value=zoomScrubPendingTime;zoomScrubPendingTime=null;
+          if(value===null)return;
+          if(typeof setCurrentAbsoluteTime==='function')setCurrentAbsoluteTime(value);
+          if(typeof renderTimelineScrubPreview==='function')renderTimelineScrubPreview();
+          else if(typeof renderFrame==='function')renderFrame();
+          syncInlineZoomHud();
+        });
+      };
+      const finishZoomScrub=()=>{
+        const now=performance.now();
+        if(!zoomScrubActive&&now-zoomScrubLastFinish<120)return;
+        zoomScrubLastFinish=now;
+        if(zoomScrubRaf){cancelAnimationFrame(zoomScrubRaf);zoomScrubRaf=0;}
+        const value=zoomScrubPendingTime===null?(Number(slider.value)||0):zoomScrubPendingTime;
+        zoomScrubPendingTime=null;zoomScrubActive=false;
+        if(typeof setCurrentAbsoluteTime==='function')setCurrentAbsoluteTime(value);
+        window.__ethvelleTimelineScrubbing=false;delete window.__ethvelleTimelineScrubMaxDuration;
+        if(typeof setTimelineScrubCanvasQuality==='function')setTimelineScrubCanvasQuality(false);
+        if(typeof renderFrame==='function')renderFrame();
+        syncInlineZoomHud();
+      };
+      slider.addEventListener('pointerdown',beginZoomScrub,{passive:true});
+      slider.addEventListener('input',()=>{if(zoomScrubActive||slider.matches(':active'))beginZoomScrub();queueZoomScrub();});
+      slider.addEventListener('pointerup',finishZoomScrub,{passive:true});
+      slider.addEventListener('pointercancel',finishZoomScrub,{passive:true});
+      slider.addEventListener('change',()=>{if(zoomScrubActive)finishZoomScrub();else{if(typeof renderFrame==='function')renderFrame();syncInlineZoomHud();}});
+    }
+    zoomHud=hud;return hud;
+  }
+  function syncInlineZoomHud(){
+    const hud=ensureZoomHud();if(!hud)return;const range=currentZoomRange(),duration=Math.max(.05,range.end-range.start),now=clamp(currentAbsoluteTimeSec,range.start,range.end);
+    const slider=$('evcaZoomScrub');if(slider){
+      slider.min=String(range.start);slider.max=String(range.end);slider.value=String(clamp(now,range.start,range.end));
+      const pct=duration>0?clamp((now-range.start)/duration*100,0,100):0;slider.style.setProperty('--ev-range-progress',pct+'%');
+    }
+    const fmt=v=>{const n=Math.max(0,Math.floor(Number(v)||0));return String(Math.floor(n/60))+':'+String(n%60).padStart(2,'0');};
+    const current=$('evcaZoomCurrent'),total=$('evcaZoomTotal');if(current)current.textContent=fmt(now-range.start);if(total)total.textContent=fmt(duration);
+    const play=$('evcaZoomPlay');if(play){play.innerHTML=isPlaying?'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 5h4v14H7zM15 5h4v14h-4z"/></svg>':'<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';play.title=isPlaying?'Pause':'Play';}
+    const back=$('evcaZoomOut');if(back){back.title=inlineZoom?'Back to normal canvas':'Zoom canvas';back.setAttribute('aria-label',inlineZoom?'Back to normal canvas':'Zoom canvas');}
+  }
+  function enterInlineZoom(){
+    if(inlineZoom)return;const screen=$('screen-editor'),wrap=screen&&screen.querySelector('.canvas-wrap');if(!screen||!wrap)return;
+    // Cleanly exit the retired custom studio if an older session left it active.
+    if(window.__ethvelleCustomAnimationMode){try{const oldClose=window.closeCustomAnimationStudio;if(oldClose)oldClose();}catch(_e){}}
+    const legacyHud=$('evcaCustomMotionHud');if(legacyHud)legacyHud.remove();wrap.classList.remove('evca-custom-mode');screen.classList.remove('evca-custom-animation-active');
+    inlineZoom=true;window.__ethvelleCustomAnimationMode=false;screen.classList.add('evca-inline-zoom-active');wrap.classList.add('evca-inline-zoom');
+    const ratio=(currentProject&&currentProject.ratio)||'16:9',parts=ratio.split(':').map(Number),isWide=(parts[0]||16)/(parts[1]||9)>=1.70;
+    wrap.classList.toggle('evca-inline-zoom-wide',isWide);wrap.classList.toggle('evca-inline-zoom-tall',!isWide);
+    wrap.style.setProperty('--evca-inline-zoom-top','0px');
+    // Never rotate the project itself to match the phone. The app layout follows the
+    // device; the canvas remains in its chosen aspect ratio and is re-fitted on resize.
+    window.__ethvelleInlineZoomLandscape=false;
+    window.__ethvelleInlineZoomFullscreen=!!isWide;
+    wrap.classList.remove('evca-inline-zoom-landscape');
+    if(typeof setupCanvasStage==='function')setupCanvasStage(ratio);
+    window.__ethvelleInlineZoomLock={ratio,landscape:window.__ethvelleInlineZoomLandscape,stageWidth:stageW,stageHeight:stageH};
+    const stage=$('canvasStage'),layer=$('selBoxLayer');
+    [stage,layer].forEach(el=>{if(el){el.style.removeProperty('max-width');el.style.removeProperty('max-height');}});
+    if(typeof renderFrame==='function')renderFrame();
+    ensureZoomHud();syncInlineZoomHud();if(typeof updateSelBox==='function')updateSelBox();
+    const b=$('transportZoomBtn');if(b){b.setAttribute('aria-pressed','true');b.title='Exit canvas zoom';}
+  }
+  function exitInlineZoom(){
+    inlineZoom=false;delete window.__ethvelleInlineZoomLock;window.__ethvelleInlineZoomFullscreen=false;
+    const screen=$('screen-editor'),wrap=screen&&screen.querySelector('.canvas-wrap');screen&&screen.classList.remove('evca-inline-zoom-active');
+    if(wrap){wrap.classList.remove('evca-inline-zoom','evca-inline-zoom-landscape','evca-inline-zoom-wide','evca-inline-zoom-tall');wrap.style.removeProperty('--evca-inline-zoom-top');}
+    window.__ethvelleInlineZoomLandscape=false;
+    const stage=$('canvasStage'),layer=$('selBoxLayer');
+    [stage,layer].forEach(el=>{if(el){el.style.removeProperty('transform');el.style.removeProperty('max-width');el.style.removeProperty('max-height');el.style.removeProperty('position');el.style.removeProperty('left');el.style.removeProperty('top');}});
+    if(typeof setupCanvasStage==='function')setupCanvasStage(currentProject&&currentProject.ratio||'16:9');
+    if(typeof renderFrame==='function')renderFrame();
+    if(typeof updateSelBox==='function')updateSelBox();const b=$('transportZoomBtn');if(b){b.style.display='inline-flex';b.setAttribute('aria-pressed','false');b.title='Zoom canvas';}
+  }
+  function selectCanvasLayerAtPoint(event){
+    // v331: intentionally empty. Canvas zoom used to run its own layer picker here (media ->
+    // background -> character), which grabbed the background instead of the model and broke
+    // dragging. The normal canvas picker (pickCanvasItemAt in canvas.onpointerdown) is used in
+    // zoom too, so selecting / dragging / resizing behaves exactly like the normal canvas.
+    return;
+  }
+  if(!window.__ethvelleZoomCanvasHitTest){window.__ethvelleZoomCanvasHitTest=true;document.addEventListener('pointerdown',selectCanvasLayerAtPoint,true);}
+  // Re-fit the same project-ratio canvas after phone rotation or viewport changes. This
+  // handles both normal preview and inline zoom without rotating the canvas element.
+  let viewportResizeRaf=0;
+  function resizeEditorCanvasForViewport(){
+    if(viewportResizeRaf)return;
+    viewportResizeRaf=requestAnimationFrame(()=>{
+      viewportResizeRaf=0;
+      const screen=$('screen-editor');if(!screen||!screen.classList.contains('active'))return;
+      const wrap=screen.querySelector('.canvas-wrap');if(!wrap)return;
+      const ratio=(window.__ethvelleInlineZoomLock&&window.__ethvelleInlineZoomLock.ratio)||(currentProject&&currentProject.ratio)||'16:9';
+      window.__ethvelleInlineZoomLandscape=false;wrap.classList.remove('evca-inline-zoom-landscape');
+      if(typeof setupCanvasStage==='function')setupCanvasStage(ratio);
+      if(typeof renderFrame==='function')renderFrame();
+      if(typeof updateSelBox==='function')updateSelBox();
+      syncInlineZoomHud();
+      if(inlineZoom)window.__ethvelleInlineZoomLock={ratio,landscape:false,stageWidth:stageW,stageHeight:stageH};
+    });
+  }
+  window.addEventListener('resize',resizeEditorCanvasForViewport,{passive:true});
+  window.addEventListener('orientationchange',resizeEditorCanvasForViewport,{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',resizeEditorCanvasForViewport,{passive:true});
+  window.toggleCanvasZoomView=function(force){if(force===false||inlineZoom)exitInlineZoom();else enterInlineZoom();};
+  window.openCustomAnimationStudio=function(){enterInlineZoom();};
+  window.closeCustomAnimationStudio=function(){exitInlineZoom();};
+  // Zoom is an always-visible transport control, independent of selection type.
+  const prevSyncForZoom=window.syncBottomToolsMode;
+  if(typeof prevSyncForZoom==='function'&&!prevSyncForZoom.__evv70zoom){const wrapped=function(){const r=prevSyncForZoom.apply(this,arguments);const b=$('transportZoomBtn');if(b){b.style.display='inline-flex';b.setAttribute('aria-pressed',String(inlineZoom));}syncContextTools();return r;};wrapped.__evv70zoom=true;window.syncBottomToolsMode=wrapped;}
+
+  // If the editor was already open during script evaluation, restore always-on controls and visuals.
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{ensureContextTools();syncContextTools();drawFxPreview();ensureZoomHud();syncInlineZoomHud();},{once:true});else{ensureContextTools();syncContextTools();drawFxPreview();ensureZoomHud();syncInlineZoomHud();}
+})();
+</script>
+
+
+<!-- Ethvelle v71: timeline follow-selection, media playback, canvas frame capture,
+     character tracking, transparent zoom HUD, chroma toggle and unified text swatches. -->
+<style id="ethvelle-v71-editor-fixes-css">
+
+  /* Chroma Key uses a compact on/off switch, like the text-shadow enable control. */
+  .evlt-chroma-enable-row .evlt-chroma-check{
+    position:relative!important;display:block!important;appearance:none!important;-webkit-appearance:none!important;
+    box-sizing:border-box!important;width:42px!important;height:24px!important;flex:0 0 42px!important;margin:0!important;padding:0!important;
+    border:1px solid #555865!important;border-radius:99px!important;background:#34343D!important;
+    cursor:pointer!important;box-shadow:inset 0 1px 2px rgba(0,0,0,.25)!important;
+    transition:background-color .16s ease,border-color .16s ease!important;
+  }
+  .evlt-chroma-enable-row .evlt-chroma-check::after{
+    content:""!important;display:block!important;position:absolute!important;left:3px!important;top:50%!important;
+    width:16px!important;height:16px!important;border:0!important;border-radius:50%!important;background:#E7E9F0!important;
+    opacity:1!important;transform:translateY(-50%)!important;box-shadow:0 1px 2px rgba(0,0,0,.3)!important;
+    transition:left .16s ease,background-color .16s ease!important;
+  }
+  .evlt-chroma-enable-row .evlt-chroma-check:checked{background:#2F5CE8!important;border-color:#2F5CE8!important;}
+  .evlt-chroma-enable-row .evlt-chroma-check:checked::after{left:21px!important;background:#FFFFFF!important;transform:translateY(-50%)!important;}
+  .evlt-chroma-enable-row .evlt-chroma-check:focus-visible{outline:2px solid #fff!important;outline-offset:3px!important;}
+
+  /* One consistent selected swatch border across all text color pickers. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvelleTextComposer .evtc-color-swatch,
+  #ethvelleTextComposer .evpa-swatch,
+  #ethvelleTextStylePanel .evts-swatch{
+    box-sizing:border-box!important;outline:none!important;outline-offset:0!important;
+    box-shadow:none!important;transition:border-color .12s ease!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextComposer .evtc-color-swatch.active,
+  #ethvelleTextComposer .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active{
+    border:2px solid #2F5CE8!important;outline:none!important;outline-offset:0!important;
+    box-shadow:0 0 0 1px rgba(15,15,18,.9)!important;z-index:10!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch:active,
+  #ethvelleTextComposer .evtc-color-swatch:active,
+  #ethvelleTextStylePanel .evts-swatch:active{outline:none!important;}
+
+  /* The old generic Effects / Character Effects control is removed from the toolbar. */
+  #clipEffectsTool{display:none!important;}
+  #bottomToolsClip #clipTrackingTool{display:none;}
+  #bottomToolsClip #clipTrackingTool.ev-v71-track-visible{display:flex!important;}
+  .evv-panel .evv-switch-row input{appearance:none;-webkit-appearance:none;width:42px;height:24px;flex:0 0 42px;border-radius:99px;background:radial-gradient(circle at 11px 12px,#E7E9F0 0 8px,transparent 8.5px) #34343D;border:1px solid #555865;position:relative;margin:0;}
+  .evv-panel .evv-switch-row input::after{display:none;content:none;}
+  .evv-panel .evv-switch-row input:checked{background:radial-gradient(circle at 30px 12px,#fff 0 8px,transparent 8.5px) #2F5CE8;border-color:#2F5CE8;}
+  .evv-panel .evv-track-select{width:100%;min-height:42px;padding:9px 11px;border:1px solid #383A46;border-radius:10px;background:#202027;color:#F5F5F7;font:600 12px Inter,Arial,sans-serif;}
+  .evv-panel .evv-track-note{font-size:11px;line-height:1.45;color:#A5A8B5;margin:0;}
+  /* v236: minimal clip-to-clip tracking picker  -  enable row + thumbnail cards only. */
+  .evv-tracking-compact{gap:12px!important;padding:2px 0 8px!important;}
+  .evv-track-enable-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:34px;color:#fff;font-size:13px;font-weight:800;}
+  .evv-track-enable-switch{position:relative;flex:0 0 46px;width:46px;height:27px;padding:0;border:1px solid #555865;border-radius:99px;background:#34343D;cursor:pointer;transition:background .16s,border-color .16s;}
+  .evv-track-enable-switch i{position:absolute;left:3px;top:3px;width:19px;height:19px;border-radius:50%;background:#E7E9F0;transition:transform .16s;}
+  .evv-track-enable-switch.on{background:#2F5CE8;border-color:#2F5CE8;}
+  .evv-track-enable-switch.on i{transform:translateX(19px);background:#fff;}
+  .evv-track-source-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:9px;width:100%;}
+  .evv-track-source-card{display:block;min-width:0;width:100%;aspect-ratio:16/9;padding:0;overflow:hidden;border:1.5px solid #343746;border-radius:9px;background:#191B24;box-shadow:none;cursor:pointer;}
+  .evv-track-source-card.selected{border:2px solid #2F5CE8;background:#202A48;box-shadow:0 0 0 1px rgba(47,92,232,.2);}
+  .evv-track-source-card img{display:block;width:100%;height:100%;object-fit:cover;background:#20232E;}
+  .evv-track-source-card:focus-visible,.evv-track-enable-switch:focus-visible{outline:2px solid #7DA0FF;outline-offset:2px;}
+</style>
+
+<script id="ethvelle-v71-editor-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const safeNum=(v,fallback=0)=>{const n=Number(v);return Number.isFinite(n)?n:fallback;};
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,safeNum(v,min)));
+  const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+
+  /* ---------- Clip Tracking: attach a selected image/video layer to another timeline clip ---------- */
+  function charKey(ch,index){return ch&&ch.id!=null?String(ch.id):'index:'+index;}
+  /* v339: the clip being edited can be ANY visual clip: image / video / text / effect clips AND the
+     animation clips of a character ('main' / 'segN'). Both kinds store their config in `clipTracking`. */
+  function getTrackingOverlay(){
+    const sel=selectedClip;
+    if(sel==null)return null;
+    const ov=Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(sel)&&['image','video','text'].includes(o.type)):null;
+    if(ov)return ov;
+    if(sel==='main'||/^seg\d+$/.test(String(sel))){
+      const clip=typeof getClipByRef==='function'?getClipByRef(String(sel)):null;
+      return clip&&typeof clip==='object'?clip:null;
+    }
+    return null;
+  }
+  /* ---------- v339: animation clips as tracking followers / sources ---------- */
+  function allAnimClips(){
+    const out=[],chars=Array.isArray(characters)?characters:[];
+    chars.forEach((ch,idx)=>{
+      if(!ch)return;
+      const list=[];
+      if(ch.clip&&typeof ch.clip==='object')list.push({ref:'main',clip:ch.clip});
+      (Array.isArray(ch.segments)?ch.segments:[]).forEach((seg,i)=>{if(seg&&typeof seg==='object')list.push({ref:'seg'+i,clip:seg});});
+      const used=new Set();
+      list.forEach(e=>{
+        // Animation clips have no id of their own. Give each a stable one (saved with the clip);
+        // a split/duplicate copies the id, so the later copy is re-issued a fresh one.
+        if(typeof e.clip.evTrackId!=='string'||!e.clip.evTrackId||used.has(e.clip.evTrackId)){
+          e.clip.evTrackId='at'+Date.now().toString(36)+Math.random().toString(36).slice(2,7);
+        }
+        used.add(e.clip.evTrackId);
+        out.push({ch,idx,ref:e.ref,clip:e.clip,key:'anim:'+charKey(ch,idx)+'|'+e.clip.evTrackId});
+      });
+    });
+    return out;
+  }
+  function trackingFollowerKey(f){
+    if(!f)return '';
+    const hit=allAnimClips().find(e=>e.clip===f);
+    return hit?hit.key:'ov:'+String(f.id);
+  }
+  function trackingAnimCharPart(key){const k=String(key||'');return k.slice(5,k.lastIndexOf('|'));}
+  function trackingTargetMatches(targetId,ref){
+    const t=String(targetId||''),r=String(ref||'');
+    if(t===r)return true;
+    if(r.indexOf('char:')===0&&t.indexOf('anim:')===0)return trackingAnimCharPart(t)===r.slice(5);
+    return false;
+  }
+  function trackingSameNode(a,b){
+    a=String(a);b=String(b);
+    if(a===b)return true;
+    return a.indexOf('anim:')===0&&b.indexOf('anim:')===0&&trackingAnimCharPart(a)===trackingAnimCharPart(b);
+  }
+  function trackingNodeNext(key){
+    const out=[],k=String(key||'');
+    if(k.indexOf('ov:')===0){
+      const id=k.slice(3),clip=(Array.isArray(overlays)?overlays:[]).find(o=>o&&String(o.id)===id);
+      if(!clip)return out;
+      const cfg=clip.clipTracking;
+      if(cfg&&cfg.enabled&&cfg.targetId)out.push(String(cfg.targetId));
+      if(clip.ethvelleEffectClip&&clip.ethvelleEffectKind==='character'){
+        allAnimClips().forEach(e=>{if(String(e.ch.id)===String(clip.ethvelleEffectCharId))out.push(e.key);});
+      }
+    }else if(k.indexOf('anim:')===0){
+      const all=allAnimClips(),hit=all.find(e=>e.key===k);
+      if(hit)all.forEach(e=>{if(e.ch===hit.ch){const c=e.clip.clipTracking;if(c&&c.enabled&&c.targetId)out.push(String(c.targetId));}});
+    }
+    return out;
+  }
+  // True when `startKey` (a candidate source) already follows  -  directly or through a chain  - 
+  // the clip being edited. Offering it would create a loop (A follows B follows A).
+  function trackingDependsOn(startKey,goalKey){
+    const seen=new Set(),stack=[String(startKey)];
+    while(stack.length){
+      const k=stack.pop();
+      if(seen.has(k))continue;seen.add(k);
+      if(trackingSameNode(k,goalKey))return true;
+      trackingNodeNext(k).forEach(n=>stack.push(n));
+    }
+    return false;
+  }
+  function trackingThumbForAnim(ch,clip){
+    const preset=(typeof animPresets!=='undefined'&&animPresets)?animPresets[clip.animKey]:null;
+    const name=String((preset&&preset.name)||'Animation').slice(0,22);
+    const who=String((ch&&ch.name)||'Character').slice(0,22);
+    const e=v=>v.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="#243B80"/><g stroke="#fff" stroke-width="5" stroke-linecap="round" fill="none"><circle cx="160" cy="42" r="14"/><path d="M160 56v38M160 68l-24 18M160 68l24 18M160 94l-19 32M160 94l19 32"/></g><text x="160" y="152" text-anchor="middle" font-family="Arial" font-size="19" font-weight="700" fill="#fff">'+e(name)+'</text><text x="160" y="171" text-anchor="middle" font-family="Arial" font-size="12" fill="#C9D3FF">'+e(who)+'</text></svg>';
+    return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+  }
+  function trackingNow(){
+    try{return typeof getCurrentAbsoluteTime==='function'?safeNum(getCurrentAbsoluteTime(),0):safeNum(currentAbsoluteTimeSec,0);}catch(_e){return safeNum(currentAbsoluteTimeSec,0);}
+  }
+  function trackingSnapshot(raw){
+    const t=raw||{};
+    return {scale:Math.max(.0001,safeNum(t.scale,1)),offsetX:safeNum(t.offsetX,0),offsetY:safeNum(t.offsetY,0),rotation:safeNum(t.rotation,0)};
+  }
+  function trackingAngleDelta(from,to){return ((safeNum(to)-safeNum(from)+540)%360)-180;}
+  function combineTrackingDelta(base,source,rest,cfg){
+    const b=trackingSnapshot(base),s=trackingSnapshot(source),r=trackingSnapshot(rest);
+    const followScale=!cfg||cfg.followScale!==false;
+    const followRotation=!cfg||cfg.followRotation!==false;
+    return {
+      scale:b.scale*(followScale?s.scale/Math.max(.0001,r.scale):1),
+      offsetX:b.offsetX+(s.offsetX-r.offsetX)+safeNum(cfg&&cfg.offsetX,0),
+      offsetY:b.offsetY+(s.offsetY-r.offsetY)+safeNum(cfg&&cfg.offsetY,0),
+      rotation:b.rotation+(followRotation?trackingAngleDelta(r.rotation,s.rotation):0)
+    };
+  }
+  function trackingRangesOverlap(a,b){
+    if(!a||!b)return false;
+    const as=Number(a.trimStart),ae=Number(a.trimEnd),bs=Number(b.trimStart),be=Number(b.trimEnd);
+    return [as,ae,bs,be].every(Number.isFinite)&&Math.max(as,bs)<Math.min(ae,be)-0.0001;
+  }
+  function unwrapTrackingThumb(src){
+    let value=String(src||'').trim();
+    if(/^url\(/i.test(value))value=value.replace(/^url\(\s*["']?/i,'').replace(/["']?\s*\)$/,'');
+    return value;
+  }
+  function trackingThumbForOverlay(clip){
+    if(!clip)return '';
+    if(clip.type==='image')return String((clip.thumbs&&clip.thumbs[0])||clip.poster||clip.src||'');
+    if(clip.type==='video'){
+      // Use the cached frame at the source timestamp shown FIRST by this timeline clip.
+      // The video may be reversed or trimmed, so the first timeline frame is not always t=0.
+      const sourceFrames=window.__evSourceFrames;
+      if(sourceFrames&&typeof sourceFrames.setFor==='function'&&typeof sourceFrames.nearest==='function'){
+        try{
+          const set=sourceFrames.setFor(clip);
+          if(set&&set.times&&set.times.length){
+            const span=Math.max(0,(Number(clip.trimEnd)-Number(clip.trimStart))*(Number(clip.speed)||1));
+            let firstSourceTime=Math.max(0,Number(clip.sourceOffset)||0);
+            if(clip.reversePlayback)firstSourceTime+=span;
+            const duration=Math.max(0,Number(clip.sourceDuration)||Number(set.duration)||0);
+            if(duration>0)firstSourceTime=Math.min(firstSourceTime,Math.max(0,duration-.04));
+            const cached=sourceFrames.nearest(set,firstSourceTime);
+            if(cached)return String(cached);
+          }
+        }catch(_e){}
+      }
+      const id=String(clip.id);
+      const node=Array.from(document.querySelectorAll('#timelineInner .overlay-clip')).find(el=>String(el.dataset.overlayId||'')===id);
+      // The strip can be virtualized while scrolled. Accept only tile zero, never an arbitrary
+      // visible middle frame, so the tracking card always represents the clip's first frame.
+      const tile=node&&node.querySelector('.ev-video-thumb-tile[data-ev-thumb-index="0"].ev-video-thumb-ready');
+      if(tile)return String(tile.dataset.evThumbUrl||unwrapTrackingThumb(getComputedStyle(tile).backgroundImage)||'');
+      // A supplied poster is only a fallback; prefer a real cached first frame whenever present.
+      return String(clip.poster||clip.thumbnail||'');
+    }
+    if(clip.type==='text'){
+      const label=String(clip.textContent||clip.name||'Text').slice(0,36);
+      const svg='<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 320 180"><rect width="320" height="180" fill="#242735"/><text x="160" y="98" text-anchor="middle" font-family="Arial" font-size="24" font-weight="700" fill="#fff">'+label.replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]))+'</text></svg>';
+      return 'data:image/svg+xml;charset=UTF-8,'+encodeURIComponent(svg);
+    }
+    return '';
+  }
+  function trackingThumbForBackground(clip){
+    if(!clip)return '';
+    const src=unwrapTrackingThumb(clip.thumbnail||clip.src||clip.image||'');
+    return src;
+  }
+  function trackingAspectRatio(clip){
+    if(!clip)return 16/9;
+    let el=null;
+    try{
+      if(clip.id!=null&&typeof overlayMediaEls!=='undefined'&&overlayMediaEls)el=overlayMediaEls[clip.id]||null;
+      if(!el&&String(clip.id||'').startsWith('bg'))el=document.getElementById('bgImgLayer');
+    }catch(_e){}
+    const w=Number(clip.sourceWidth)||Number(el&&(el.videoWidth||el.naturalWidth||el.width))||Number(clip.naturalWidth)||Number(clip.width)||0;
+    const h=Number(clip.sourceHeight)||Number(el&&(el.videoHeight||el.naturalHeight||el.height))||Number(clip.naturalHeight)||Number(clip.height)||0;
+    const explicit=Number(clip.aspectRatio||clip.ratio)||0;
+    const ratio=(w>0&&h>0)?w/h:explicit>0?explicit:16/9;
+    return Number.isFinite(ratio)&&ratio>0?Math.max(.18,Math.min(5.5,ratio)):16/9;
+  }
+  function trackingThumbBox(ratio){
+    const r=Math.max(.18,Math.min(5.5,Number(ratio)||16/9));
+    const h=Math.min(54,118/r),w=h*r;
+    return {width:Math.round(w),height:Math.round(h)};
+  }
+  function getTrackingCandidates(follower){
+    /* v339: a clip can follow a clip from ANY section  -  Background, Layer/Media, Text, Effects and
+       the Animation (character) rows  -  as long as the two overlap in time. */
+    const followerKey=trackingFollowerKey(follower);
+    const anims=allAnimClips();
+    const followerAnim=anims.find(e=>e.clip===follower)||null;
+    const chars=Array.isArray(characters)?characters:[];
+    const fxChar=o=>(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character')?(chars.find(c=>c&&String(c.id)===String(o.ethvelleEffectCharId))||null):null;
+    const followerFxChar=fxChar(follower);
+    const backgroundsList=Array.isArray(backgrounds)?backgrounds:[];
+    const overlaysList=Array.isArray(overlays)?overlays:[];
+    const byTimeline=(a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0)||String(a.id).localeCompare(String(b.id));
+    const isFx=o=>!!(o&&o.ethvelleEffectClip);
+    const notSelf=o=>o&&o.id!=null&&('ov:'+String(o.id))!==followerKey;
+    const bgItems=backgroundsList
+      .filter(b=>b&&b.id!=null&&b!==follower&&trackingRangesOverlap(b,follower))
+      .sort(byTimeline)
+      .map((b,i)=>({value:'bg:'+String(b.id),kind:'background',thumb:trackingThumbForBackground(b),ratio:trackingAspectRatio(b),label:'Background row clip '+(i+1),clipId:String(b.id)}));
+    const overlayClips=overlaysList
+      .filter(o=>notSelf(o)&&['image','video'].includes(o.type)&&!isFx(o)&&trackingRangesOverlap(o,follower))
+      .sort(byTimeline);
+    const textClips=overlaysList
+      .filter(o=>notSelf(o)&&o.type==='text'&&trackingRangesOverlap(o,follower))
+      .sort(byTimeline);
+    const fxClips=overlaysList
+      .filter(o=>notSelf(o)&&isFx(o)&&trackingRangesOverlap(o,follower)&&!(followerAnim&&fxChar(o)===followerAnim.ch))
+      .sort(byTimeline);
+    const animClips=anims
+      .filter(e=>e.clip!==follower&&!(followerAnim&&e.ch===followerAnim.ch)&&!(followerFxChar&&e.ch===followerFxChar)&&trackingRangesOverlap(e.clip,follower))
+      .sort((a,b)=>(Number(a.clip.trimStart)||0)-(Number(b.clip.trimStart)||0)||a.key.localeCompare(b.key));
+    const overlayItems=overlayClips.map((o,i)=>({value:'ov:'+String(o.id),kind:o.type,thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:'Layer row clip '+(i+1),clipId:String(o.id)}));
+    const textItems=textClips.map((o,i)=>({value:'ov:'+String(o.id),kind:o.type,thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:'Text row clip '+(i+1),clipId:String(o.id)}));
+    const fxItems=fxClips.map((o,i)=>({value:'ov:'+String(o.id),kind:'effect',thumb:trackingThumbForOverlay(o),ratio:trackingAspectRatio(o),label:(o.ethvelleEffectKind==='character'?'Character effect ':'Effect ')+(i+1),clipId:String(o.id)}));
+    const animItems=animClips.map((e,i)=>({value:e.key,kind:'animation',thumb:trackingThumbForAnim(e.ch,e.clip),ratio:16/9,label:'Animation row clip '+(i+1),clipId:String(e.clip.evTrackId)}));
+    return [
+      {label:'Background',items:bgItems},
+      {label:'Layer',items:overlayItems},
+      {label:'Text',items:textItems},
+      {label:'Animation',items:animItems},
+      {label:'Effects',items:fxItems}
+    ].map(group=>({...group,items:group.items.filter(item=>!!item.thumb&&!trackingDependsOn(item.value,followerKey))})).filter(group=>group.items.length);
+  }
+  function getTrackingSourceTransform(ref,time,seen){
+    const key=String(ref||''),t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const visited=seen||new Set();
+    if(key.indexOf('bg:')===0){
+      const id=key.slice(3),clip=(Array.isArray(backgrounds)?backgrounds:[]).find(b=>b&&String(b.id)===id);
+      if(!clip)return null;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',t):null;
+      return trackingSnapshot(keyed||clip.transform||{});
+    }
+    if(key.indexOf('char:')===0){
+      const id=key.slice(5),idx=(Array.isArray(characters)?characters:[]).findIndex((ch,i)=>charKey(ch,i)===id);
+      const ch=idx>=0?characters[idx]:null;
+      if(!ch)return null;
+      // modelTransform is the live evaluated transform: renderFrame/animateAllCharacters
+      // update it from the character's own clip keyframes before overlay media is painted.
+      return trackingSnapshot(ch.modelTransform||ch.restTransform||{});
+    }
+    if(key.indexOf('anim:')===0){
+      // An animation clip drives its character's live transform (already tracked, if that clip
+      // itself follows something)  -  read it exactly like the legacy 'char:' source below.
+      const hit=allAnimClips().find(e=>e.key===key);
+      if(!hit)return null;
+      return trackingSnapshot(hit.ch.modelTransform||hit.ch.restTransform||{});
+    }
+    if(key.indexOf('ov:')===0){
+      const id=key.slice(3),clip=(Array.isArray(overlays)?overlays:[]).find(o=>o&&String(o.id)===id&&['image','video','text','shape','color'].includes(o.type));
+      if(!clip)return null;
+      const marker='ov:'+id;
+      const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',t):null;
+      let tr=trackingSnapshot(keyed||clip.transform||{});
+      if(visited.has(marker))return tr; // break accidental A→B→A tracking loops safely
+      visited.add(marker);
+      const cfg=clip.clipTracking;
+      if(cfg&&cfg.enabled&&cfg.targetId&&cfg.targetBaseTransform){
+        const source=getTrackingSourceTransform(cfg.targetId,t,visited);
+        if(source)tr=combineTrackingDelta(tr,source,cfg.targetBaseTransform,cfg);
+      }
+      visited.delete(marker);
+      const motion=typeof window.getEthvelleClipAnimationState==='function'?window.getEthvelleClipAnimationState(clip,t):null;
+      if(motion){
+        tr.offsetX+=safeNum(motion.x,0);tr.offsetY+=safeNum(motion.y,0);
+        tr.rotation+=safeNum(motion.rotation,0);tr.scale*=Math.max(.0001,safeNum(motion.scale,1));
+      }
+      // v339: a character-effect clip is drawn relative to its character, so its on-screen motion
+      // is the character's own transform plus the effect's offset/scale/rotation.
+      if(clip.ethvelleEffectClip&&clip.ethvelleEffectKind==='character'){
+        const fxCh=(Array.isArray(characters)?characters:[]).find(c=>c&&String(c.id)===String(clip.ethvelleEffectCharId));
+        if(fxCh&&fxCh.modelTransform){
+          const cm=trackingSnapshot(fxCh.modelTransform);
+          tr={scale:tr.scale*cm.scale,offsetX:tr.offsetX+cm.offsetX,offsetY:tr.offsetY+cm.offsetY,rotation:tr.rotation+cm.rotation};
+        }
+      }
+      return tr;
+    }
+    return null;
+  }
+  function ensureTrackingConfig(ov){
+    if(!ov)return null;
+    if(!ov.clipTracking||typeof ov.clipTracking!=='object')ov.clipTracking={enabled:false,targetId:'',targetBaseTransform:null,offsetX:0,offsetY:0,followScale:true,followRotation:true};
+    const cfg=ov.clipTracking;
+    if(typeof cfg.enabled!=='boolean')cfg.enabled=false;
+    if(typeof cfg.targetId!=='string')cfg.targetId='';
+    if(!Number.isFinite(Number(cfg.offsetX)))cfg.offsetX=0;
+    if(!Number.isFinite(Number(cfg.offsetY)))cfg.offsetY=0;
+    if(typeof cfg.followScale!=='boolean')cfg.followScale=true;
+    if(typeof cfg.followRotation!=='boolean')cfg.followRotation=true;
+    if(cfg.targetBaseTransform&&typeof cfg.targetBaseTransform==='object')cfg.targetBaseTransform=trackingSnapshot(cfg.targetBaseTransform);
+    return cfg;
+  }
+  function captureTrackingBase(cfg,targetId){
+    const tr=getTrackingSourceTransform(targetId,trackingNow(),new Set());
+    cfg.targetBaseTransform=tr?trackingSnapshot(tr):null;
+  }
+  window.ethvelleGetTrackedOverlayTransform=function(ov,time,localBase){
+    const t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const keyed=localBase||(typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(ov,'transform',t):null);
+    const base=trackingSnapshot(keyed||ov&&ov.transform||{});
+    const cfg=ov&&ov.clipTracking;
+    if(cfg&&cfg.enabled&&cfg.targetId){
+      const seen=new Set(['ov:'+String(ov.id)]);
+      const source=getTrackingSourceTransform(cfg.targetId,t,seen);
+      if(source){
+        const rest=cfg.targetBaseTransform||source;
+        return combineTrackingDelta(base,source,rest,cfg);
+      }
+      return base;
+    }
+    // Backward compatibility: projects made before v235 may still contain characterTracking.
+    const legacy=ov&&ov.characterTracking;
+    if(!legacy||!legacy.enabled||!Array.isArray(characters)||!characters.length)return base;
+    const idx=characters.findIndex((ch,i)=>charKey(ch,i)===String(legacy.characterId));
+    if(idx<0)return base;
+    const ch=characters[idx],mt=ch.modelTransform||{},rest=ch.restTransform||mt;
+    const baseScale=Math.max(.0001,safeNum(rest.scale,1)),currentScale=Math.max(.0001,safeNum(mt.scale,baseScale));
+    const dx=safeNum(mt.offsetX)-safeNum(rest.offsetX),dy=safeNum(mt.offsetY)-safeNum(rest.offsetY);
+    const hipY=ch.bones&&ch.bones.hip?safeNum(ch.bones.hip.y,safeNum(ch.hipRestY)):safeNum(ch.hipRestY);
+    const hipShift=Number.isFinite(Number(ch.hipRestY))?hipY-safeNum(ch.hipRestY):0;
+    const dr=safeNum(mt.rotation)-safeNum(rest.rotation);
+    return {
+      scale:base.scale*(legacy.followScale===false?1:currentScale/baseScale),
+      offsetX:base.offsetX+dx+safeNum(legacy.offsetX),
+      offsetY:base.offsetY+dy+hipShift+safeNum(legacy.offsetY),
+      rotation:base.rotation+(legacy.followRotation?dr:0)
+    };
+  };
+  window.ethvelleRefreshTrackingFollowersForSource=function(sourceRef,time){
+    const ref=String(sourceRef||''),t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const list=Array.isArray(overlays)?overlays:[];
+    const layer=$('overlayMediaLayer');
+    list.forEach(follower=>{
+      const cfg=follower&&follower.clipTracking;
+      if(!cfg||!cfg.enabled||!trackingTargetMatches(cfg.targetId,ref))return;
+      const id=String(follower.id),live=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[id]:null;
+      if(live&&live.isConnected&&typeof window.ethvelleApplyOverlayVisualStyle==='function'){
+        window.ethvelleApplyOverlayVisualStyle(live,follower,t,live,false);
+        const chroma=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases)?overlayChromaCanvases[id]:null;
+        if(chroma&&chroma.isConnected)window.ethvelleApplyOverlayVisualStyle(chroma,follower,t,live,false);
+        const hold=live.__evScrubHoldCanvas;
+        if(hold&&hold.isConnected){hold.dataset.evMaskOwnerTime=String(t);window.ethvelleApplyOverlayVisualStyle(hold,follower,t,live,false);}
+      }
+      if(layer){
+        layer.querySelectorAll('[data-ev-mask-owner-id]').forEach(node=>{
+          if(String(node.dataset.evMaskOwnerId||'')!==id||node===live)return;
+          node.dataset.evMaskOwnerTime=String(t);
+          if(typeof window.ethvelleApplyOverlayVisualStyle==='function')window.ethvelleApplyOverlayVisualStyle(node,follower,t,live&&live.isConnected?live:node,false);
+        });
+      }
+    });
+  };
+  /* v339: animation clips that follow a clip. Runs once per rendered frame from animateAllCharacters(),
+     after every character has its authored transform and before anything is painted, so preview,
+     scrubbing and export all share it. */
+  window.ethvelleApplyCharacterTracking=function(time){
+    const chars=Array.isArray(characters)?characters:[];
+    const t=Number.isFinite(Number(time))?Number(time):trackingNow();
+    const wants=c=>!!(c&&c.clipTracking&&c.clipTracking.enabled&&c.clipTracking.targetId);
+    const jobs=[];
+    chars.forEach((ch,idx)=>{
+      if(!ch||!ch.modelTransform)return;
+      ch.__evTrackDelta=null;ch.__evTrackJob=null;
+      const segs=Array.isArray(ch.segments)?ch.segments:[];

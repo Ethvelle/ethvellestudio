@@ -1,0 +1,1000 @@
+
+<!-- Ethvelle v150: held-object single-hand fix, integrated custom variants, and neutral asset filters. -->
+<style id="ethvelle-v150-final-fixes-css">
+  /* Asset filters keep a crisp blue selected outline, but selection no longer paints a blue tint. */
+  #screen-editor #editorAssetFilters .editor-asset-filter.active,
+  #screen-editor #editorAssetFilters .editor-asset-filter.user-selected,
+  #screen-editor #editorAssetFilters .editor-asset-filter.active.user-selected{
+    background:var(--panel)!important;background-image:none!important;
+    border:1.5px solid #2F5CE8!important;border-color:#2F5CE8!important;
+    color:#F5F5F7!important;-webkit-text-fill-color:#F5F5F7!important;
+    box-shadow:none!important;filter:none!important;transform:none!important;
+  }
+
+  /* The saved-variants panel is replaced by custom-part tiles inside the normal part grid. */
+  #sheetEd #ev149SavedVariants{display:none!important;}
+  #sheetEd #edLayers .ev150-variant-chip,
+  #sheetEd #edLayers .ev150-custom-upload-tile{
+    flex:0 0 calc((100% - 32px)/5)!important;width:calc((100% - 32px)/5)!important;
+    min-width:0!important;min-height:76px!important;padding:5px 3px!important;
+    border:1.5px solid transparent!important;border-radius:12px!important;
+    background:var(--elevated)!important;color:var(--text-dim)!important;
+    display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:flex-start!important;gap:4px!important;font-size:10px!important;font-weight:700!important;
+  }
+  #sheetEd #edLayers .ev150-variant-chip .th,
+  #sheetEd #edLayers .ev150-custom-upload-tile .th{
+    width:100%!important;max-width:44px!important;height:38px!important;
+    display:grid!important;place-items:center!important;border-radius:8px!important;
+    background:repeating-conic-gradient(#2a2a33 0% 25%,#202027 0% 50%) 0 0/10px 10px!important;
+    overflow:hidden!important;
+  }
+  #sheetEd #edLayers .ev150-variant-chip .th img{max-width:100%!important;max-height:34px!important;object-fit:contain!important;}
+  #sheetEd #edLayers .ev150-variant-chip .n,
+  #sheetEd #edLayers .ev150-custom-upload-tile .n{
+    display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:ellipsis!important;
+    white-space:nowrap!important;font-size:9px!important;line-height:1.15!important;
+  }
+  #sheetEd #edLayers .ev150-variant-chip.is-on{
+    border-color:var(--accent)!important;color:#fff!important;background:#1a2447!important;
+    box-shadow:inset 0 0 0 1px rgba(47,92,232,.18)!important;
+  }
+  #sheetEd #edLayers .ev150-custom-upload-tile .ev150-plus{
+    width:27px;height:27px;border-radius:8px;display:grid;place-items:center;
+    background:#2149C4;border:1px solid #7597FF;color:#fff;font-size:21px;font-weight:500;line-height:1;
+  }
+
+  /* Held-object hand selectors and flip controls are four separate button blocks. */
+  #screen-editor .evpa-props-sheet .evpa-action-side{
+    display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;
+    margin:10px 0 13px!important;padding:0!important;border:0!important;border-radius:0!important;
+    background:transparent!important;overflow:visible!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button{
+    min-width:0!important;min-height:44px!important;flex:none!important;padding:8px 9px!important;
+    border:1px solid #343746!important;border-radius:12px!important;
+    background:#20212A!important;color:#D6D8E0!important;font-size:12px!important;font-weight:800!important;
+    box-shadow:none!important;outline:0!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-action-side button.active{
+    border:1.5px solid #4F7CFF!important;background:#20212A!important;color:#fff!important;
+    box-shadow:inset 0 0 0 1px rgba(79,124,255,.16)!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row{display:grid!important;grid-template-columns:repeat(2,minmax(0,1fr))!important;gap:10px!important;margin:10px 0 12px!important;}
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button{
+    min-width:0!important;min-height:44px!important;padding:8px 7px!important;
+    border:1px solid #343746!important;border-radius:12px!important;
+    background:#20212A!important;color:#D6D8E0!important;font-size:11px!important;font-weight:800!important;
+    box-shadow:none!important;
+  }
+  #screen-editor .evpa-props-sheet .evpa-v149-flip-row button.active{
+    border:1.5px solid #4F7CFF!important;background:#20212A!important;color:#fff!important;
+    box-shadow:inset 0 0 0 1px rgba(79,124,255,.16)!important;
+  }
+</style>
+
+<script id="ethvelle-v150-final-fixes-runtime">
+(function(){
+  'use strict';
+  if(window.__ethvelleV150FinalFixes)return;
+  window.__ethvelleV150FinalFixes=true;
+
+  const $=id=>document.getElementById(id);
+  const activeChar=()=>{try{return typeof activeCharacter==='function'?activeCharacter():null;}catch(_e){return null;}};
+  const esc=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const ensureProps=char=>{
+    if(!char)return null;
+    if(!char.handProps||typeof char.handProps!=='object')char.handProps={L:null,R:null};
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'L'))char.handProps.L=null;
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'R'))char.handProps.R=null;
+    return char.handProps;
+  };
+  const sameLegacyMirror=(a,b)=>{
+    if(!a||!b||!a.src||!b.src||a.src!==b.src)return false;
+    const val=(o,k,d)=>o[k]===undefined?d:o[k];
+    return ['name','scale','rotation','offsetX','offsetY','flipX','flipY'].every(k=>val(a,k,({scale:1,rotation:0,offsetX:0,offsetY:0,flipX:false,flipY:false})[k])===val(b,k,({scale:1,rotation:0,offsetX:0,offsetY:0,flipX:false,flipY:false})[k]));
+  };
+  function removeAccidentalMirror(char){
+    const p=ensureProps(char);if(!p||!sameLegacyMirror(p.L,p.R))return false;
+    /* v148 always uploaded into Right Hand and cloned that same record into Left Hand. */
+    p.L=null;return true;
+  }
+  /* Migrate an old v148 mirror once per character. Drawing must stay read-only so a
+     user can intentionally place the same image in both hands after the migration. */
+  const mirrorMigrationDone=typeof WeakSet==='function'?new WeakSet():null;
+  function cleanupLegacyMirrorOnce(char){
+    if(!char)return false;
+    if(mirrorMigrationDone&&mirrorMigrationDone.has(char))return false;
+    if(mirrorMigrationDone)mirrorMigrationDone.add(char);
+    const changed=removeAccidentalMirror(char);
+    if(changed&&typeof persistProjectState==='function')try{persistProjectState();}catch(_e){}
+    return changed;
+  }
+  function getSide(back){
+    const row=back&&back.querySelector('.evpa-action-side');if(!row)return 'R';
+    const buttons=Array.from(row.querySelectorAll('button'));
+    const left=buttons.find(b=>/left/i.test(b.textContent||'')),right=buttons.find(b=>/right/i.test(b.textContent||''));
+    if(left&&left.classList.contains('active'))return 'L';
+    if(right&&right.classList.contains('active'))return 'R';
+    return 'R';
+  }
+  function updateHeldPanelUI(char,side){
+    const back=$('ethvelleCharacterPropsBackdrop');if(!back)return;
+    const props=ensureProps(char),item=props&&props[side]||null;
+    const sides=back.querySelectorAll('.evpa-action-side button');
+    sides.forEach((button,index)=>{
+      const active=(index===0?'L':'R')===side;
+      button.classList.toggle('active',active);button.setAttribute('aria-pressed',active?'true':'false');
+    });
+    const preview=back.querySelector('#evpaPropPreview');
+    if(preview)preview.innerHTML=item&&item.src?'<img src="'+esc(item.src)+'" alt="Object image"><button type="button" class="evpa-prop-remove-icon" aria-label="Remove held object" title="Remove object" onclick="removeCharacterHeldProp()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5"/></svg></button>':'<span class="evpa-prop-empty">No object added</span>';
+    const upload=back.querySelector('.evpa-prop-upload');if(upload)upload.textContent='＋ '+(item&&item.src?'Replace object':'Add object image');
+    const controls=back.querySelector('.evpa-prop-controls');
+    if(controls){controls.style.opacity=item&&item.src?'1':'.45';controls.style.pointerEvents=item&&item.src?'auto':'none';}
+    const values=[item?Number(item.scale)||1:1,item?Number(item.rotation)||0:0,item?Number(item.offsetX)||0:0,item?Number(item.offsetY)||0:0];
+    const ranges=controls?Array.from(controls.querySelectorAll('input[type="range"]')):[];
+    ranges.slice(0,4).forEach((range,i)=>{range.value=String(i===0?Math.round(values[i]*100):Math.round(values[i]));});
+    const ids=['evpaPropScaleVal','evpaPropRotationVal','evpaPropXVal','evpaPropYVal'];
+    ids.forEach((id,i)=>{const out=$(id);if(out)out.textContent=i===0?Math.round(values[i]*100)+'%':i===1?Math.round(values[i])+'°':String(Math.round(values[i]));});
+    const flip=back.querySelector('.evpa-v149-flip-row');
+    if(flip){flip.style.opacity=item&&item.src?'1':'.45';flip.style.pointerEvents=item&&item.src?'auto':'none';flip.querySelectorAll('button').forEach(btn=>{const on=!!(item&&item[btn.dataset.flipField]);btn.classList.toggle('active',on);btn.setAttribute('aria-pressed',on?'true':'false');});}
+  }
+
+  /* Block the v148 auto-mirror logic by temporarily making both hand slots non-empty
+     while its wrappers call the original panel/side handlers. */
+  function callWithMirrorGuard(char,fn){
+    const p=ensureProps(char),guards=[];
+    if(p){['L','R'].forEach(side=>{if(!p[side]){const token={src:'',__ethvelleV150MirrorGuard:true};p[side]=token;guards.push({side,token});}});}
+    let result;
+    try{result=fn();}finally{guards.forEach(g=>{if(p[g.side]===g.token)p[g.side]=null;});}
+    return result;
+  }
+  const priorOpenHeld=window.openCharacterPropsPanel;
+  if(typeof priorOpenHeld==='function'){
+    window.openCharacterPropsPanel=function(){
+      const char=activeChar();cleanupLegacyMirrorOnce(char);
+      const result=callWithMirrorGuard(char,()=>priorOpenHeld.apply(this,arguments));
+      if(char)updateHeldPanelUI(char,'R');
+      return result;
+    };
+  }
+  const priorSetSide=window.setCharacterPropSide;
+  function safeSetSide(side){
+    if(side!=='L'&&side!=='R')return;
+    const char=activeChar();
+    const result=callWithMirrorGuard(char,()=>priorSetSide&&priorSetSide.call(window,side));
+    if(char)updateHeldPanelUI(char,side);
+    return result;
+  }
+  if(typeof priorSetSide==='function')window.setCharacterPropSide=function(side){return safeSetSide(side);};
+  function refreshStageSide(side){
+    const other=side==='L'?'R':'L';
+    /* Two genuine side changes refresh the high-resolution preview using the v130 renderer. */
+    safeSetSide(other);safeSetSide(side);
+  }
+
+  /* Migrate identical L/R records created by the old mirror feature and keep drawing
+     strictly to the side records the user actually chose. */
+  let migrated=false;
+  if(typeof characters!=='undefined'&&Array.isArray(characters))characters.forEach(char=>{if(cleanupLegacyMirrorOnce(char))migrated=true;});
+  if(migrated&&typeof window.persistProjectState==='function')try{window.persistProjectState();}catch(_e){}
+
+  window.setCharacterHeldPropFile=function(input){
+    const file=input&&input.files&&input.files[0];if(input)input.value='';if(!file)return;
+    const char=activeChar();if(!char)return;
+    cleanupLegacyMirrorOnce(char);
+    const side=getSide($('ethvelleCharacterPropsBackdrop'));
+    safeSetSide(side);
+    const reader=new FileReader();
+    reader.onerror=()=>{if(typeof showToast==='function')showToast('Could not read the object image',{icon:toastIcons.info});};
+    reader.onload=()=>{
+      const img=new Image();
+      img.onerror=()=>{if(typeof showToast==='function')showToast('Could not decode the object image',{icon:toastIcons.info});};
+      img.onload=()=>{
+        const max=640,ratio=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+        const w=Math.max(1,Math.round(img.naturalWidth*ratio)),h=Math.max(1,Math.round(img.naturalHeight*ratio));
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        const ctx=canvas.getContext('2d');if(!ctx){if(typeof showToast==='function')showToast('Object image could not be prepared',{icon:toastIcons.info});return;}
+        ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+        const props=ensureProps(char);
+        props[side]={src:canvas.toDataURL('image/png'),name:file.name||'Object',scale:1,rotation:0,offsetX:0,offsetY:0,flipX:false,flipY:false};
+        const clip=typeof selectedClip!=='undefined'&&typeof getClipByRef==='function'?getClipByRef(selectedClip):null;
+        const parts=char.sheet&&char.sheet.parts||{},field=side==='L'?'leftHand':'rightHand';
+        if(clip&&parts['hand'+side+'_hold']){const a={expression:'none',mouth:'preset',blink:'auto',eyes:'auto',leftHand:'none',rightHand:'none',...(clip.faceActions&&typeof clip.faceActions==='object'?clip.faceActions:{})};clip.faceActions={...a,[field]:'hold'};}
+        if(typeof drawStick==='function')drawStick();
+        if(typeof persistProjectState==='function')persistProjectState();
+        updateHeldPanelUI(char,side);refreshStageSide(side);
+        if(typeof showToast==='function')showToast('Object attached at the '+(side==='L'?'left':'right')+' hand',{icon:toastIcons.check,duration:1400});
+      };
+      img.src=String(reader.result||'');
+    };
+    reader.readAsDataURL(file);
+  };
+
+  window.removeCharacterHeldProp=function(){
+    const char=activeChar();if(!char)return;
+    const side=getSide($('ethvelleCharacterPropsBackdrop')),props=ensureProps(char);
+    safeSetSide(side);props[side]=null;
+    if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();
+    updateHeldPanelUI(char,side);refreshStageSide(side);
+  };
+
+  /* Do not call the old v148-wrapped draw hook: that hook silently clones a lone prop
+     into the opposite hand before painting. */
+  window.ethvelleDrawCharacterProps=function(ctx,char,boneStart,boneEnd){
+    const props=char&&char.handProps,cache=window.__ethvelleHeldPropImageCache||(window.__ethvelleHeldPropImageCache=new Map());
+    if(props){['L','R'].forEach(side=>{
+      const item=props[side];if(!item||!item.src)return;
+      let img=cache.get(item.src);
+      if(!img){img=new Image();img.onload=()=>{if(typeof drawStick==='function')drawStick();};img.onerror=()=>{};cache.set(item.src,img);img.src=item.src;}
+      if(!img.complete||!img.naturalWidth)return;
+      let start,end;try{start=boneStart('hand'+side);end=boneEnd('hand'+side);}catch(_e){return;}
+      if(!start||!end||![start.x,start.y,end.x,end.y].every(Number.isFinite))return;
+      const dx=end.x-start.x,dy=end.y-start.y,angle=Math.atan2(dy,dx)-Math.PI/2+(Number(item.rotation)||0)*Math.PI/180;
+      const handX=start.x+dx*.5,handY=start.y+dy*.5;
+      const bodyKeys=['spine_lower','spine_upper','chest','neck','thighL','shinL','thighR','shinR'];
+      const bodyLen=bodyKeys.reduce((sum,key)=>sum+Math.max(0,Number(char.bones&&char.bones[key]&&char.bones[key].length)||0),0)||Number(typeof stageH!=='undefined'?stageH:420)||420;
+      const scale=Math.max(.2,Math.min(2.5,Number(item.scale)||1));
+      const rawH=Math.max(.5,bodyLen*.235*scale),aspect=img.naturalWidth/Math.max(1,img.naturalHeight),rawW=rawH*aspect;
+      const fit=Math.min(1,320/Math.max(rawH,rawW)),h=rawH*fit,w=rawW*fit;
+      ctx.save();ctx.translate(handX,handY);ctx.rotate(angle);ctx.translate(Number(item.offsetX)||0,Number(item.offsetY)||0);
+      ctx.scale(item.flipX?-1:1,item.flipY?-1:1);ctx.drawImage(img,-w*.5,-h*.5,w,h);ctx.restore();
+    });}
+    const mouth=char&&char.mouthProp,type=String(char&&(char.modelType||(char.sheet&&char.sheet.modelType))||'humanoid');
+    if(false&&mouth&&mouth.src&&(type==='animal'||type==='bird')){
+      let img=cache.get(mouth.src);
+      if(!img){img=new Image();img.onload=()=>{if(typeof drawStick==='function')drawStick();};img.onerror=()=>{};cache.set(mouth.src,img);img.src=mouth.src;}
+      if(img.complete&&img.naturalWidth){
+        let start,end;try{start=boneStart('head');end=boneEnd('head');}catch(_e){start=end=null;}
+        if(start&&end&&[start.x,start.y,end.x,end.y].every(Number.isFinite)){
+          const dx=end.x-start.x,dy=end.y-start.y,headLen=Math.max(1,Math.hypot(dx,dy));
+          const bodyKeys=['spine_lower','spine_upper','chest','neck','thighL','shinL','thighR','shinR'];
+          const bodyLen=bodyKeys.reduce((sum,key)=>sum+Math.max(0,Number(char.bones&&char.bones[key]&&char.bones[key].length)||0),0)||Number(typeof stageH!=='undefined'?stageH:420)||420;
+          const frontX=-dy/headLen,frontY=dx/headLen;
+          const anchorX=start.x+dx*.55+frontX*bodyLen*.045,anchorY=start.y+dy*.55+frontY*bodyLen*.045;
+          const angle=Math.atan2(dy,dx)+Math.PI/2+(Number(mouth.rotation)||0)*Math.PI/180;
+          const scale=Math.max(.2,Math.min(2.2,Number(mouth.scale)||1)),rawH=Math.max(12,bodyLen*.12*scale),aspect=img.naturalWidth/Math.max(1,img.naturalHeight),rawW=rawH*aspect;
+          const fit=Math.min(1,180/Math.max(rawH,rawW)),h=rawH*fit,w=rawW*fit;
+          ctx.save();ctx.translate(anchorX,anchorY);ctx.rotate(angle);ctx.translate(Number(mouth.offsetX)||0,Number(mouth.offsetY)||0);ctx.scale(mouth.flipX?-1:1,mouth.flipY?-1:1);ctx.drawImage(img,-w*.5,-h*.5,w,h);ctx.restore();
+        }
+      }
+    }
+  };
+
+  /* Custom face/hand variants become selectable in the same grid as the normal model parts. */
+  function fieldForVariant(category,item){
+    if(category==='expressions'&&item.kind==='custom-expression')return 'customExpressionId';
+    if(category==='headParts'){
+      if(item.kind==='custom-eyes')return 'customEyeId';
+      if(item.kind==='mouth-open')return 'customMouthOpenId';
+      if(item.kind==='mouth-closed')return 'customMouthClosedId';
+    }
+    if(category==='gestures')return item.side==='L'||item.kind==='left-hand-gesture'?'customGestureLId':'customGestureRId';
+    return null;
+  }
+  function targetEditorChar(){
+    try{if(typeof ED!=='undefined'&&ED&&ED.kind==='edit'&&Number.isInteger(ED.editIdx)&&characters[ED.editIdx])return characters[ED.editIdx];}catch(_e){}
+    return activeChar();
+  }
+  function applyVariantToCharacter(item,field){
+    const char=targetEditorChar();if(!char||!char.sheet||!item||!field)return;
+    if(!char.expr||typeof char.expr!=='object')char.expr=typeof sheetExprFresh==='function'?sheetExprFresh():{};
+    const expr=char.expr,id=String(item.id);
+    if(field==='customExpressionId'){
+      expr.customExpressionId=id;expr.customEyeId=null;expr.customMouthOpenId=null;expr.customMouthClosedId=null;expr.emo=null;
+    }else if(field==='customEyeId'){
+      expr.customEyeId=id;expr.customExpressionId=null;
+    }else if(field==='customMouthOpenId'){
+      expr.customMouthOpenId=id;expr.customMouthClosedId=null;expr.mouth='open';
+    }else if(field==='customMouthClosedId'){
+      expr.customMouthClosedId=id;expr.customMouthOpenId=null;expr.mouth='closed';
+    }else if(field==='customGestureLId'){
+      expr.customGestureLId=id;expr.gestL=null;expr.fistL=false;
+    }else if(field==='customGestureRId'){
+      expr.customGestureRId=id;expr.gestR=null;expr.fistR=false;
+    }
+    if(char.sheet&&typeof ED!=='undefined'&&ED.extraVariants){
+      char.sheet.customVariants=JSON.parse(JSON.stringify(ED.extraVariants));
+    }
+    const clip=typeof selectedClip!=='undefined'&&typeof getClipByRef==='function'?getClipByRef(selectedClip):null;
+    if(clip){
+      const a={...(clip.faceActions&&typeof clip.faceActions==='object'?clip.faceActions:{})};a[field]=id;
+      if(field==='customExpressionId'){a.expression='none';a.customEyeId=null;a.customMouthOpenId=null;a.customMouthClosedId=null;}
+      else if(field==='customEyeId'){a.eyes='closed';a.expression='none';a.customExpressionId=null;}
+      else if(field==='customMouthOpenId'){a.mouth='talk';a.customMouthClosedId=null;}
+      else if(field==='customMouthClosedId'){a.mouth='closed';a.customMouthOpenId=null;}
+      else if(field==='customGestureLId')a.leftHand='none';
+      else if(field==='customGestureRId')a.rightHand='none';
+      clip.faceActions=a;
+    }
+    if(typeof pausePlayback==='function')pausePlayback();
+    if(typeof renderFrame==='function'&&clip)renderFrame();
+    if(typeof drawStick==='function')drawStick();
+    if(typeof persistProjectState==='function')persistProjectState();
+  }
+  function renderEditorVariantTiles(){
+    const box=$('edLayers');if(!box||typeof ED==='undefined'||!ED)return;
+    box.querySelectorAll('.ev150-variant-chip,.ev150-custom-upload-tile').forEach(node=>node.remove());
+    const variants=ED.extraVariants||{},active=window.__ethvelleV150ActiveVariant||null;
+    ['expressions','headParts','gestures'].forEach(category=>{
+      const list=Array.isArray(variants[category])?variants[category]:[];
+      list.forEach(item=>{
+        const field=fieldForVariant(category,item);if(!field||!item||!item.id||!item.src)return;
+        const button=document.createElement('button');button.type='button';
+        const selected=!!(active&&active.id===item.id&&active.field===field);
+        const displayName=String(item.fileName||item.originalFileName||item.name||'Custom part');
+        button.className='ed-chip ev150-variant-chip'+(selected?' is-on':'');
+        button.dataset.variantId=String(item.id);button.dataset.variantField=field;
+        button.title=displayName;
+        button.setAttribute('aria-pressed',selected?'true':'false');
+        button.innerHTML='<span class="th"><img src="'+esc(item.src)+'" alt=""></span><span class="n">'+esc(displayName)+'</span>';
+        button.addEventListener('click',event=>{
+          event.preventDefault();event.stopPropagation();
+          window.__ethvelleV150ActiveVariant={id:String(item.id),field};
+          if(typeof ED!=='undefined'){
+            ED.sel=null;
+            const targetKey=field==='customGestureLId'?(ED.st.handL?'handL':'armL_lower'):field==='customGestureRId'?(ED.st.handR?'handR':'armR_lower'):'head';
+            ED.previewVariant={id:String(item.id),field,src:item.src,targetKey};
+          }
+          applyVariantToCharacter(item,field);
+          if(typeof window.edSyncUI==='function')window.edSyncUI();
+          if($('edSubtitle'))$('edSubtitle').textContent=displayName+' selected';
+          if(typeof edDraw==='function')edDraw();
+        });
+        box.appendChild(button);
+      });
+    });
+    if(active&&$('edSubtitle'))$('edSubtitle').textContent='Custom part selected';
+  }
+  const priorEdSync=window.edSyncUI;
+  if(typeof priorEdSync==='function'){
+    window.edSyncUI=function(){const result=priorEdSync.apply(this,arguments);requestAnimationFrame(()=>{const old=$('ev149SavedVariants');if(old)old.remove();renderEditorVariantTiles();});return result;};
+  }
+  const priorEdOpen=window.edOpen;
+  if(typeof priorEdOpen==='function'){
+    window.edOpen=function(){window.__ethvelleV150ActiveVariant=null;if(typeof ED!=='undefined')ED.previewVariant=null;const result=priorEdOpen.apply(this,arguments);requestAnimationFrame(()=>{const old=$('ev149SavedVariants');if(old)old.remove();renderEditorVariantTiles();});return result;};
+  }
+  const priorEdSelect=window.edSelect;
+  if(typeof priorEdSelect==='function'){
+    window.edSelect=function(key){window.__ethvelleV150ActiveVariant=null;if(typeof ED!=='undefined')ED.previewVariant=null;return priorEdSelect.apply(this,arguments);};
+  }
+
+  /* Face/hand action panel: show only the custom tile's border when its override is selected. */
+  function actionForCurrentClip(){
+    try{const clip=typeof selectedClip!=='undefined'&&typeof getClipByRef==='function'?getClipByRef(selectedClip):null;return clip&&clip.faceActions||{};}catch(_e){return {};}
+  }
+  function syncExclusiveActionBorders(){
+    const back=$('ethvelleClipFaceActionsBackdrop');if(!back||!back.classList.contains('active'))return;
+    const a=actionForCurrentClip();
+    const suppress={
+      'face expression':!!a.customExpressionId,
+      'facial expression':!!a.customExpressionId,
+      'eyes':!!a.customEyeId,'eye':!!a.customEyeId,
+      'mouth':!!(a.customMouthOpenId||a.customMouthClosedId),
+      'mouth movement':!!(a.customMouthOpenId||a.customMouthClosedId),
+      'left hand':!!a.customGestureLId,'left hand gesture':!!a.customGestureLId,
+      'right hand':!!a.customGestureRId,'right hand gesture':!!a.customGestureRId
+    };
+    back.querySelectorAll('.evpa-section').forEach(section=>{
+      const heading=section.querySelector('.evpa-section-title');const label=String(heading&&heading.textContent||'').trim().toLowerCase();
+      if(!suppress[label])return;
+      section.querySelectorAll('.evpa-choice:not(.evpa-custom-variant-choice)').forEach(button=>{button.classList.remove('active');button.setAttribute('aria-pressed','false');});
+    });
+  }
+  const priorOpenActions=window.openClipCharacterActions;
+  if(typeof priorOpenActions==='function')window.openClipCharacterActions=function(){const result=priorOpenActions.apply(this,arguments);requestAnimationFrame(syncExclusiveActionBorders);return result;};
+
+  /* Keep the visible character in sync immediately as well as retaining the clip action. */
+  function applyBuiltinToCharacter(field,value){
+    const char=activeChar();if(!char||!char.sheet)return;
+    if(!char.expr||typeof char.expr!=='object')char.expr=typeof sheetExprFresh==='function'?sheetExprFresh():{};
+    const e=char.expr;
+    if(field==='expression'){e.emo=value==='none'?null:value;e.customExpressionId=null;e.customEyeId=null;}
+    else if(field==='eyes'){e.eyeState=value==='auto'?'auto':value;e.customEyeId=null;}
+    else if(field==='mouth'){e.mouth=value==='talk'?'open':'closed';e.customMouthOpenId=null;e.customMouthClosedId=null;}
+    else if(field==='leftHand'){e.customGestureLId=null;e.fistL=value==='fist';e.gestL=value==='none'||value==='fist'?null:value;}
+    else if(field==='rightHand'){e.customGestureRId=null;e.fistR=value==='fist';e.gestR=value==='none'||value==='fist'?null:value;}
+    if(typeof drawStick==='function')drawStick();
+  }
+  const priorUpdateFace=window.updateClipFaceAction;
+  if(typeof priorUpdateFace==='function')window.updateClipFaceAction=function(field,value){const result=priorUpdateFace.apply(this,arguments);applyBuiltinToCharacter(field,value);if(typeof persistProjectState==='function')persistProjectState();return result;};
+  const priorUpdateCustom=window.updateClipCustomVariant;
+  if(typeof priorUpdateCustom==='function')window.updateClipCustomVariant=function(field,id){const result=priorUpdateCustom.apply(this,arguments);const char=activeChar(),variants=char&&char.sheet&&char.sheet.customVariants||{};let item=null;['headParts','expressions','gestures'].some(cat=>{item=(Array.isArray(variants[cat])?variants[cat]:[]).find(v=>v&&v.id===id)||null;return !!item;});if(item)applyVariantToCharacter(item,field);requestAnimationFrame(syncExclusiveActionBorders);return result;};
+
+  /* A few models may have been opened before this final patch ran. Normalize their hand slots. */
+  if(typeof characters!=='undefined'&&Array.isArray(characters))characters.forEach(removeAccidentalMirror);
+  const back=$('ethvelleCharacterPropsBackdrop');if(back&&back.classList.contains('active'))updateHeldPanelUI(activeChar(),getSide(back));
+})();
+</script>
+
+
+
+<!-- Ethvelle v152: model-part defaults, independent held hands, matched adjustment/speed sliders, and volume cleanup. -->
+<style id="ethvelle-v152-model-speed-volume-css">
+  /* Model Editing keeps selectable custom variants, but no longer exposes an Add Part upload tile. */
+  #sheetEd #edLayers > .ev150-custom-upload-tile,
+  #sheetEd #edLayers > .ed-chip-custom,
+  #sheetEd #edLayers > .ed-chip-plus,
+  #sheetEd #edLayers > .ed-extra-add-card{display:none!important;}
+
+  /* Match the Adjustment and Speed controls to the exact compact slider treatment used by Text > Shadow. */
+  #toolPanel .evlt-controls .evpa-range,
+  #speedPanelBody .evpa-range{
+    display:block!important;margin:7px 0 8px!important;color:#D7DBF1!important;
+    font-size:11px!important;font-weight:700!important;
+  }
+  #toolPanel .evlt-controls .evpa-range>span,
+  #speedPanelBody .evpa-range>span{
+    display:flex!important;align-items:center!important;justify-content:space-between!important;
+    gap:8px!important;margin-bottom:4px!important;
+  }
+  #toolPanel .evlt-controls .evpa-range output,
+  #speedPanelBody .evpa-range output{
+    color:#AAB3FF!important;font-size:11px!important;font-variant-numeric:tabular-nums!important;
+  }
+  #toolPanel .evlt-controls .evpa-range input[type=range],
+  #speedPanelBody .evpa-range input[type=range]{
+    display:block!important;width:100%!important;height:17px!important;margin:0!important;
+    padding:0!important;accent-color:#6F68FF!important;touch-action:pan-x!important;
+  }
+  #toolPanel .evlt-controls .evlt-secondary{margin-top:9px!important;}
+
+  /* Professional Speed panel: one continuous slider with meaningful tick marks, no preset-button blocks. */
+  #speedPanelBody .evv-speed-panel{display:flex;flex-direction:column;gap:10px;padding:2px 0 6px;}
+  #speedPanelBody .evv-speed-head{display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  #speedPanelBody .evv-speed-title{font-size:12px;font-weight:800;color:#D7DBF1;}
+  #speedPanelBody .evv-speed-value{color:#AAB3FF;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;}
+  #speedPanelBody .evv-speed-clip{margin:0;color:#9299AC;font-size:10px;line-height:1.4;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #speedPanelBody .evv-speed-track-wrap{position:relative;padding:0 0 1px;}
+  #speedPanelBody .evv-speed-ticks{position:absolute;left:0;right:0;top:26px;height:5px;pointer-events:none;}
+  #speedPanelBody .evv-speed-ticks i{position:absolute;width:4px;height:4px;border-radius:50%;background:#A3A9BA;transform:translateX(-50%);opacity:.9;}
+  #speedPanelBody .evv-speed-marks{position:relative;height:16px;margin-top:-2px;color:#8B91A2;font-size:9px;font-weight:700;font-variant-numeric:tabular-nums;}
+  #speedPanelBody .evv-speed-marks span{position:absolute;top:0;white-space:nowrap;transform:translateX(-50%);}
+  #speedPanelBody .evv-speed-marks span:first-child{transform:none;}
+  #speedPanelBody .evv-speed-marks span:last-child{transform:translateX(-100%);}
+  #speedPanelBody .evv-speed-done{width:100%;min-height:44px;margin-top:3px;border-radius:12px;background:linear-gradient(165deg,#4E7CFF,#1E46C4);color:#fff;font-size:14px;font-weight:800;}
+  #speedPanelBody .evv-speed-done:active{transform:scale(.99);}
+
+  /* Volume: remove only the Volume-panel Extract Audio action and the two tiny end ticks. */
+  #volumePanelBody .evv-volume-extract{display:none!important;}
+  #volumePanelBody .evv-volume-slider-wrap::before,
+  #volumePanelBody .evv-volume-slider-wrap::after{content:none!important;display:none!important;}
+</style>
+<script id="ethvelle-v152-model-speed-volume-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV152Installed)return;
+  window.__ethvelleV152Installed=true;
+  const $=id=>document.getElementById(id);
+  const renderCharacterNow=()=>{
+    try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(err){console.warn('Ethvelle model-part frame refresh:',err);}
+    requestAnimationFrame(()=>{
+      try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(_e){}
+      try{if(typeof window.drawStick==='function')window.drawStick();}catch(_e){}
+    });
+  };
+  function getEditorCharacter(){
+    try{if(typeof ED!=='undefined'&&ED&&ED.kind==='edit'&&Number.isInteger(ED.editIdx)&&Array.isArray(characters)&&characters[ED.editIdx])return characters[ED.editIdx];}catch(_e){}
+    try{return typeof window.activeCharacter==='function'?window.activeCharacter():null;}catch(_e){return null;}
+  }
+  function ensureDefaultParts(char){
+    if(!char)return null;
+    if(!char.modelPartDefaults||typeof char.modelPartDefaults!=='object'){
+      const saved=char.expr&&char.expr.__modelPartDefaults&&typeof char.expr.__modelPartDefaults==='object'?char.expr.__modelPartDefaults:{};
+      char.modelPartDefaults={...saved};
+    }
+    return char.modelPartDefaults;
+  }
+  function setDefaultVariant(char,field,id){
+    const d=ensureDefaultParts(char);if(!d)return;
+    const value=String(id||'')||null;
+    if(field==='customExpressionId'){
+      d.customExpressionId=value;d.customEyeId=null;d.customMouthOpenId=null;d.customMouthClosedId=null;
+    }else if(field==='customEyeId'){
+      d.customEyeId=value;d.customExpressionId=null;
+    }else if(field==='customMouthOpenId'){
+      d.customMouthOpenId=value;d.customMouthClosedId=null;
+    }else if(field==='customMouthClosedId'){
+      d.customMouthClosedId=value;d.customMouthOpenId=null;
+    }else if(field==='customGestureLId'||field==='customGestureRId')d[field]=value;
+    if(!char.expr||typeof char.expr!=='object')char.expr=typeof window.sheetExprFresh==='function'?window.sheetExprFresh():{};
+    char.expr[field]=value;
+    if(field==='customMouthOpenId'&&value)char.expr.mouth='open';
+    if(field==='customMouthClosedId'&&value)char.expr.mouth='closed';
+    char.expr.__modelPartDefaults={...d};
+  }
+  function persistPartDefaults(char){
+    try{if(char&&char.sheet&&typeof ED!=='undefined'&&ED&&ED.extraVariants)char.sheet.customVariants=JSON.parse(JSON.stringify(ED.extraVariants));}catch(_e){}
+    try{if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});}catch(_e){}
+  }
+
+  /* Model Lab custom tiles are character defaults, not temporary playhead-only actions. */
+  document.addEventListener('click',event=>{
+    const button=event.target&&event.target.closest?event.target.closest('#sheetEd #edLayers .ev150-variant-chip'):null;
+    if(!button)return;
+    const field=button.dataset.variantField,id=button.dataset.variantId;
+    if(!field||!id)return;
+    const char=getEditorCharacter();if(!char||!char.sheet)return;
+    setDefaultVariant(char,field,id);
+    persistPartDefaults(char);
+    renderCharacterNow();
+  },true);
+
+  /* Restore Model Lab defaults after the timeline's frame reset. Clip-specific custom IDs win. */
+  const oldReset=window.resetCharacterForTimelineFrame;
+  if(typeof oldReset==='function'&&!oldReset.__ethvelleV152Defaults){
+    const wrappedReset=function(char){
+      const result=oldReset.apply(this,arguments);
+      if(char&&char.sheet){
+        if(!char.expr||typeof char.expr!=='object')char.expr=typeof window.sheetExprFresh==='function'?window.sheetExprFresh():{};
+        const d=char.modelPartDefaults&&typeof char.modelPartDefaults==='object'?char.modelPartDefaults:(char.expr.__modelPartDefaults||{});
+        char.modelPartDefaults={...d};
+        ['customExpressionId','customEyeId','customMouthOpenId','customMouthClosedId','customGestureLId','customGestureRId'].forEach(k=>{char.expr[k]=d[k]||null;});
+        if(d.customMouthOpenId)char.expr.mouth='open';else if(d.customMouthClosedId)char.expr.mouth='closed';
+      }
+      return result;
+    };
+    wrappedReset.__ethvelleV152Defaults=true;window.resetCharacterForTimelineFrame=wrappedReset;
+  }
+  const oldApplyPose=window.applyPoseToBones;
+  if(typeof oldApplyPose==='function'&&!oldApplyPose.__ethvelleV152Defaults){
+    const wrappedApplyPose=function(pose,targetBones,targetBaseAngles,targetHipRestY){
+      const result=oldApplyPose.apply(this,arguments);
+      let b=targetBones;
+      if(b===undefined){try{b=typeof bones!=='undefined'?bones:null;}catch(_e){b=null;}}
+      let char=null;try{if(Array.isArray(characters)&&b)char=characters.find(c=>c&&c.bones===b)||null;}catch(_e){}
+      if(char&&char.sheet){
+        if(!char.expr||typeof char.expr!=='object')char.expr=typeof window.sheetExprFresh==='function'?window.sheetExprFresh():{};
+        const d=char.modelPartDefaults&&typeof char.modelPartDefaults==='object'?char.modelPartDefaults:(char.expr.__modelPartDefaults||{});
+        char.modelPartDefaults={...d};
+        const source=pose||{},modern=source.__ethvelleModernPose||(typeof window.ethvelleIs21Pose==='function'&&window.ethvelleIs21Pose(source)?source:null)||{};
+        const pairs=[['customExpressionId','__customExpressionId'],['customEyeId','__customEyeId'],['customMouthOpenId','__customMouthOpenId'],['customMouthClosedId','__customMouthClosedId'],['customGestureLId','__customGestureLId'],['customGestureRId','__customGestureRId']];
+        pairs.forEach(([field,meta])=>{char.expr[field]=modern[meta]||d[field]||null;});
+        if(modern.__mouth==='open'||d.customMouthOpenId)char.expr.mouth='open';
+        else if(modern.__mouth==='hold')char.expr.mouth='hold';
+        else if(modern.__mouth==='closed'||d.customMouthClosedId)char.expr.mouth='closed';
+      }
+      return result;
+    };
+    wrappedApplyPose.__ethvelleV152Defaults=true;window.applyPoseToBones=wrappedApplyPose;
+  }
+
+  /* Explicit built-in Face & Hands choices clear the matching model-wide custom default. */
+  const oldUpdateFace=window.updateClipFaceAction;
+  if(typeof oldUpdateFace==='function'&&!oldUpdateFace.__ethvelleV152Defaults){
+    const wrappedUpdateFace=function(field,value){
+      const char=(()=>{try{return typeof window.activeCharacter==='function'?window.activeCharacter():null;}catch(_e){return null;}})();
+      const d=char?ensureDefaultParts(char):null;
+      if(d){
+        if(field==='expression'){d.customExpressionId=null;}
+        else if(field==='eyes'){d.customEyeId=null;}
+        else if(field==='mouth'){d.customMouthOpenId=null;d.customMouthClosedId=null;}
+        else if(field==='leftHand')d.customGestureLId=null;
+        else if(field==='rightHand')d.customGestureRId=null;
+        if(char&&char.expr)char.expr.__modelPartDefaults={...d};
+      }
+      const result=oldUpdateFace.apply(this,arguments);
+      if(char)try{if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});}catch(_e){}
+      renderCharacterNow();
+      return result;
+    };
+    wrappedUpdateFace.__ethvelleV152Defaults=true;window.updateClipFaceAction=wrappedUpdateFace;
+  }
+
+  /* Speed uses the same slider-card UI as Mask. Each speed stop has an equal visual gap. */
+  const speedStops=[.25,.5,1,1.5,2,3];
+  const speedStopIndex=value=>{const n=Number(value)||1;let best=0,dist=Infinity;speedStops.forEach((v,i)=>{const d=Math.abs(v-n);if(d<dist){dist=d;best=i;}});return best;};
+  function paintSpeedPanel(){
+    const slider=$('evvSpeedSlider'),clip=typeof window.speedTargetClip==='function'?window.speedTargetClip():null;
+    if(!slider)return;
+    const speed=Math.max(.25,Math.min(3,Number(clip&&clip.speed)||1)),index=speedStopIndex(speed),pct=index/(speedStops.length-1)*100;
+    slider.value=String(index);slider.style.setProperty('--evv-progress',pct+'%');
+    const output=$('speedVal');if(output)output.textContent=speed.toFixed(2)+'x';
+  }
+  window.speedPanelSetStop=function(index){
+    const i=Math.max(0,Math.min(speedStops.length-1,Math.round(Number(index)||0)));
+    if(typeof window.speedPanelSetSpeed==='function')window.speedPanelSetSpeed(speedStops[i]);
+  };
+  window.renderSpeedPanel=function(){
+    const body=$('speedPanelBody');if(!body)return;
+    const clip=typeof window.speedTargetClip==='function'?window.speedTargetClip():null;
+    if(!clip){body.innerHTML='<p class="field-label">Select an animation, video, image, or audio clip on the timeline to change its speed.</p>';return;}
+    const speed=Math.max(.25,Math.min(3,Number(clip.speed)||1)),index=speedStopIndex(speed);
+    const name=typeof window.escapeHtml==='function'?window.escapeHtml(clip.name||(typeof window.isStickmanSpeedTarget==='function'&&window.isStickmanSpeedTarget(clip)?'Animation':'Clip')):String(clip.name||'Clip');
+    const marks=speedStops.map((v,i)=>`<span style="left:${i/(speedStops.length-1)*100}%">${v}x</span>`).join('');
+    const ticks=speedStops.map((v,i)=>`<i style="left:${i/(speedStops.length-1)*100}%"></i>`).join('');
+    body.innerHTML=`<div class="evv-speed-panel">
+      <div class="evv-speed-head"><span class="evv-speed-title">Playback speed</span></div>
+      <p class="evv-speed-clip" id="speedPanelHeader">${name}</p>
+      <div class="evv-slider-card evv-speed-slider-card">
+        <div class="evv-slider-head"><label for="evvSpeedSlider">Speed</label><output id="speedVal">${speed.toFixed(2)}x</output></div>
+        <input id="evvSpeedSlider" type="range" min="0" max="${speedStops.length-1}" step="1" value="${index}" style="--evv-progress:${index/(speedStops.length-1)*100}%" oninput="window.speedPanelSetStop(this.value)" aria-label="Playback speed">
+        <div class="evv-speed-stop-ticks" aria-hidden="true">${ticks}</div>
+        <div class="evv-speed-marks" aria-hidden="true">${marks}</div>
+      </div>
+      <button type="button" class="evv-speed-done" onclick="closePanel()">Done</button>
+    </div>`;
+    paintSpeedPanel();
+  };
+  const oldSetSpeed=window.speedPanelSetSpeed;
+  if(typeof oldSetSpeed==='function'&&!oldSetSpeed.__ethvelleV153Stops){
+    const wrappedSetSpeed=function(value){
+      const result=oldSetSpeed.apply(this,arguments);
+      const clip=typeof window.speedTargetClip==='function'?window.speedTargetClip():null;
+      const header=$('speedPanelHeader');if(header&&clip)header.textContent=clip.name||(typeof window.isStickmanSpeedTarget==='function'&&window.isStickmanSpeedTarget(clip)?'Animation':'Clip');
+      paintSpeedPanel();
+      return result;
+    };
+    wrappedSetSpeed.__ethvelleV153Stops=true;window.speedPanelSetSpeed=wrappedSetSpeed;
+  }
+
+  /* Remove Extract Audio from Volume only; the editor's separate Extract Audio tool remains available. */
+  const oldVolumeRender=window.renderVolumePanel;
+  if(typeof oldVolumeRender==='function'&&!oldVolumeRender.__ethvelleV152NoExtract){
+    const wrappedVolumeRender=function(){const result=oldVolumeRender.apply(this,arguments);const button=$('volumePanelBody')?.querySelector('.evv-volume-extract');if(button)button.remove();return result;};
+    wrappedVolumeRender.__ethvelleV152NoExtract=true;window.renderVolumePanel=wrappedVolumeRender;
+  }
+
+  /* Repaint the active model immediately when a custom variant is applied through Face & Hands. */
+  const oldUpdateCustom=window.updateClipCustomVariant;
+  if(typeof oldUpdateCustom==='function'&&!oldUpdateCustom.__ethvelleV152Immediate){
+    const wrappedUpdateCustom=function(){const result=oldUpdateCustom.apply(this,arguments);renderCharacterNow();return result;};
+    wrappedUpdateCustom.__ethvelleV152Immediate=true;window.updateClipCustomVariant=wrappedUpdateCustom;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v153: custom-part source names/canvas preview, hand-transfer adjustments, unified Mask sliders, and mask size. -->
+<style id="ethvelle-v153-final-ui-css">
+  /* Adjustment and Speed now use the same bordered card, blue filled track and white-ring thumb as Mask. */
+  #toolPanel .evlt-controls .evv-slider-card,
+  #speedPanelBody .evv-speed-slider-card{padding:12px 13px!important;border:1px solid #30303A!important;border-radius:11px!important;background:#17171C!important;}
+  #toolPanel .evlt-controls .evv-slider-head,
+  #speedPanelBody .evv-slider-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;margin:0 0 10px!important;color:#FFFFFF!important;font-size:12px!important;font-weight:700!important;}
+  #toolPanel .evlt-controls .evv-slider-head label,
+  #speedPanelBody .evv-slider-head label{color:#FFFFFF!important;}
+  #toolPanel .evlt-controls .evv-slider-head output,
+  #speedPanelBody .evv-slider-head output{color:#AFC2FF!important;font-size:12px!important;font-weight:800!important;font-variant-numeric:tabular-nums!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range],
+  #speedPanelBody .evv-speed-slider-card input[type=range]{-webkit-appearance:none!important;appearance:none!important;width:100%!important;height:18px!important;margin:0!important;padding:0!important;background:transparent!important;touch-action:pan-x!important;accent-color:#2F5CE8!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range]::-webkit-slider-runnable-track,
+  #speedPanelBody .evv-speed-slider-card input[type=range]::-webkit-slider-runnable-track{height:4px!important;border-radius:4px!important;background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--evv-progress,0%),#45495D var(--evv-progress,0%),#45495D 100%)!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range]::-webkit-slider-thumb,
+  #speedPanelBody .evv-speed-slider-card input[type=range]::-webkit-slider-thumb{-webkit-appearance:none!important;width:10px!important;height:10px!important;margin-top:-3px!important;border:2px solid #FFFFFF!important;border-radius:50%!important;background:#2F5CE8!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range]::-moz-range-track,
+  #speedPanelBody .evv-speed-slider-card input[type=range]::-moz-range-track{height:4px!important;border-radius:4px!important;background:#45495D!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range]::-moz-range-progress,
+  #speedPanelBody .evv-speed-slider-card input[type=range]::-moz-range-progress{height:4px!important;border-radius:4px!important;background:#2F5CE8!important;}
+  #toolPanel .evlt-controls .evv-slider-card input[type=range]::-moz-range-thumb,
+  #speedPanelBody .evv-speed-slider-card input[type=range]::-moz-range-thumb{width:10px!important;height:10px!important;border:2px solid #FFFFFF!important;border-radius:50%!important;background:#2F5CE8!important;}
+  #toolPanel .evlt-controls .evlt-secondary{margin-top:9px!important;}
+  #speedPanelBody .evv-speed-panel{display:flex!important;flex-direction:column!important;gap:12px!important;padding:2px 0 6px!important;}
+  #speedPanelBody .evv-speed-title{color:#FFFFFF!important;font-size:12px!important;font-weight:800!important;}
+  #speedPanelBody .evv-speed-clip{color:#FFFFFF!important;font-size:11px!important;font-weight:600!important;line-height:1.4!important;margin:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;}
+  #speedPanelBody .evv-speed-stop-ticks{position:relative;height:0;margin-top:-11px;pointer-events:none;z-index:2;}
+  #speedPanelBody .evv-speed-stop-ticks i{position:absolute;top:-1px;width:1px;height:7px;background:#AAB2C5;transform:translateX(-50%);}
+  #speedPanelBody .evv-speed-marks{display:flex!important;justify-content:space-between!important;align-items:center!important;margin:2px 0 0!important;color:#AAB2C5!important;font-size:9px!important;font-weight:700!important;font-variant-numeric:tabular-nums!important;}
+  #speedPanelBody .evv-speed-marks span{flex:1 1 0!important;min-width:0!important;text-align:center!important;white-space:nowrap!important;}
+  #speedPanelBody .evv-speed-marks span:first-child{text-align:left!important;}
+  #speedPanelBody .evv-speed-marks span:last-child{text-align:right!important;}
+  #speedPanelBody .evv-speed-done{width:100%!important;min-height:44px!important;margin-top:2px!important;border-radius:12px!important;background:linear-gradient(165deg,#4E7CFF,#1E46C4)!important;color:#FFFFFF!important;font-size:14px!important;font-weight:800!important;}
+  #speedPanelBody .evv-speed-value{display:none!important;}
+  #volumePanelBody .evv-volume-value{color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;}
+</style>
+<script id="ethvelle-v153-hand-transfer-runtime">
+(function(){
+  'use strict';
+  if(window.__ethvelleV153HandTransfer)return;
+  window.__ethvelleV153HandTransfer=true;
+  const $=id=>document.getElementById(id);
+  const getChar=()=>{try{return typeof window.activeCharacter==='function'?window.activeCharacter():null;}catch(_e){return null;}};
+  function handSide(back){
+    const row=back&&back.querySelector('.evpa-action-side');if(!row)return 'R';
+    const buttons=Array.from(row.querySelectorAll('button'));
+    const left=buttons.find(b=>/left/i.test(b.textContent||''));
+    const right=buttons.find(b=>/right/i.test(b.textContent||''));
+    if(left&&left.classList.contains('active'))return 'L';
+    if(right&&right.classList.contains('active'))return 'R';
+    return 'R';
+  }
+  function ensureProps(char){
+    if(!char)return null;
+    if(!char.handProps||typeof char.handProps!=='object')char.handProps={L:null,R:null};
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'L'))char.handProps.L=null;
+    if(!Object.prototype.hasOwnProperty.call(char.handProps,'R'))char.handProps.R=null;
+    return char.handProps;
+  }
+  function moveObjectToHand(char,from,to){
+    const props=ensureProps(char);if(!props||props[to]||!props[from]||!props[from].src)return false;
+    props[to]=props[from];props[from]=null;
+    const clip=(()=>{try{return typeof selectedClip!=='undefined'&&typeof getClipByRef==='function'?getClipByRef(selectedClip):null;}catch(_e){return null;}})();
+    const parts=char.sheet&&char.sheet.parts||{};
+    if(clip){
+      const actions={...(clip.faceActions&&typeof clip.faceActions==='object'?clip.faceActions:{})};
+      const oldField=from==='L'?'leftHand':'rightHand',newField=to==='L'?'leftHand':'rightHand';
+      if(parts['hand'+from+'_hold'])actions[oldField]='none';
+      if(parts['hand'+to+'_hold'])actions[newField]='hold';
+      clip.faceActions=actions;
+    }
+    try{if(typeof window.drawStick==='function')window.drawStick();}catch(_e){}
+    try{if(typeof window.persistProjectState==='function')window.persistProjectState();}catch(_e){}
+    return true;
+  }
+  const baseSetSide=window.setCharacterPropSide;
+  if(typeof baseSetSide==='function'&&!baseSetSide.__ethvelleV153Transfer){
+    const wrapped=function(side){
+      if(side!=='L'&&side!=='R')return;
+      const back=$('ethvelleCharacterPropsBackdrop'),from=handSide(back),char=getChar();
+      if(char&&side!==from)moveObjectToHand(char,from,side);
+      const result=baseSetSide.apply(this,arguments);
+      return result;
+    };
+    wrapped.__ethvelleV153Transfer=true;window.setCharacterPropSide=wrapped;
+  }
+})();
+</script>
+
+<!-- Ethvelle v154: Volume-matched Speed UI, long-press part actions, type-based custom names, and hidden audio filenames. -->
+<style id="ethvelle-v328-part-lock-css">
+  #sheetEd .ed-chip{position:relative;}
+  #sheetEd .ed-chip .th{position:relative;}
+  #sheetEd .ed-chip.is-locked .th img{opacity:.5;}
+  #sheetEd .ed-chip.is-locked{border-color:rgba(255,184,77,.55);}
+  #sheetEd .ed-chip .ed-lock-badge{position:absolute;top:-4px;right:-4px;width:16px;height:16px;border-radius:50%;display:grid;place-items:center;background:#FFB84D;color:#1B1405;border:1px solid #17171C;box-shadow:0 1px 3px rgba(0,0,0,.5);pointer-events:none;}
+  #evvPartActionBackdrop .evv-part-action-buttons button[hidden]{display:none!important;}
+  #evvPartActionBackdrop .evv-part-action-buttons.has-lock{grid-template-columns:repeat(2,minmax(0,1fr))!important;}
+  #evvPartActionBackdrop .evv-part-action-buttons button[data-action="lock"]{border-color:rgba(255,184,77,.45)!important;background:#2B2517!important;color:#FFD08A!important;}
+  #evvPartActionBackdrop .evv-part-action-buttons button[data-action="lock"].is-unlock{border-color:rgba(18,184,134,.5)!important;background:#14271F!important;color:#7DE3BF!important;}
+</style>
+<style id="ethvelle-v154-speed-part-menu-css">
+  /* Speed deliberately reuses the Volume panel's layout and visual language. */
+  #speedPanelBody .evv-volume-panel{display:flex!important;flex-direction:column!important;gap:15px!important;padding:2px 0 6px!important;}
+  #speedPanelBody .evv-volume-head{display:flex!important;align-items:center!important;justify-content:space-between!important;gap:12px!important;min-width:0!important;}
+  #speedPanelBody .evv-volume-name{min-width:0!important;overflow:hidden!important;text-overflow:ellipsis!important;white-space:nowrap!important;color:#D9DCE8!important;font-size:12px!important;font-weight:700!important;}
+  #speedPanelBody .evv-volume-value{flex:0 0 auto!important;color:#AFC4FF!important;font-size:13px!important;font-weight:800!important;font-variant-numeric:tabular-nums!important;}
+  #speedPanelBody .evv-volume-slider-wrap{position:relative!important;padding:7px 0 3px!important;}
+  #speedPanelBody .evv-volume-slider{display:block!important;width:100%!important;height:22px!important;margin:0!important;padding:0!important;appearance:none!important;-webkit-appearance:none!important;background:transparent!important;outline:none!important;cursor:pointer!important;touch-action:pan-x!important;}
+  #speedPanelBody .evv-volume-slider::-webkit-slider-runnable-track{height:4px!important;border-radius:99px!important;background:linear-gradient(to right,#3F6FFF 0%,#3F6FFF var(--evv-volume-fill,50%),#3A3A45 var(--evv-volume-fill,50%),#3A3A45 100%)!important;}
+  #speedPanelBody .evv-volume-slider::-webkit-slider-thumb{appearance:none!important;-webkit-appearance:none!important;width:16px!important;height:16px!important;margin-top:-6px!important;border-radius:50%!important;background:#F5F7FF!important;border:3px solid #4776FF!important;box-shadow:0 0 0 2px rgba(71,118,255,.16)!important;}
+  #speedPanelBody .evv-volume-slider::-moz-range-track{height:4px!important;border-radius:99px!important;background:#3A3A45!important;}
+  #speedPanelBody .evv-volume-slider::-moz-range-progress{height:4px!important;border-radius:99px!important;background:#3F6FFF!important;}
+  #speedPanelBody .evv-volume-slider::-moz-range-thumb{width:11px!important;height:11px!important;border-radius:50%!important;background:#F5F7FF!important;border:3px solid #4776FF!important;box-shadow:0 0 0 2px rgba(71,118,255,.16)!important;}
+  #speedPanelBody .evv-volume-marks{display:flex!important;justify-content:space-between!important;align-items:center!important;gap:0!important;margin-top:-2px!important;color:#8B91A2!important;font-size:9.5px!important;font-weight:700!important;font-variant-numeric:tabular-nums!important;}
+  #speedPanelBody .evv-volume-marks span{flex:1 1 0!important;min-width:0!important;text-align:center!important;white-space:nowrap!important;}
+  #speedPanelBody .evv-volume-marks span:first-child{text-align:left!important;}
+  #speedPanelBody .evv-volume-marks span:last-child{text-align:right!important;}
+  #speedPanelBody .evv-volume-legend{display:flex!important;justify-content:space-between!important;gap:8px!important;margin-top:-7px!important;color:#747B8C!important;font-size:10px!important;font-weight:600!important;}
+  #speedPanelBody .evv-volume-done{width:100%!important;min-height:44px!important;border-radius:12px!important;background:linear-gradient(165deg,#4E7CFF,#1E46C4)!important;color:#fff!important;font-size:14px!important;font-weight:800!important;}
+  #speedPanelBody .evv-volume-done:active{transform:scale(.99)!important;}
+  #speedPanelBody .evv-speed-stop-ticks,#speedPanelBody .evv-volume-stop-points{display:none!important;}
+  /* The audio waveform remains visible; only its filename overlay is removed. */
+  #screen-editor #timelineInner .overlay-clip[data-group="audio"] .clip-media-label-audio{display:none!important;visibility:hidden!important;opacity:0!important;}
+  /* Long-press action sheet: three separate controls, consistent with Ethvelle's dark panels. */
+  #evvPartActionBackdrop{position:fixed;inset:0;z-index:100500;display:none;align-items:flex-end;justify-content:center;padding:16px 14px calc(16px + env(safe-area-inset-bottom));background:rgba(0,0,0,.62);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);}
+  #evvPartActionBackdrop.active{display:flex;}
+  #evvPartActionBackdrop .evv-part-action-sheet{width:min(100%,430px);max-height:min(72dvh,520px);overflow:auto;border:1px solid #343746;border-radius:20px;background:#17171C;padding:12px;box-shadow:0 18px 54px rgba(0,0,0,.48);}
+  #evvPartActionBackdrop .evv-part-action-handle{width:38px;height:4px;border-radius:10px;background:#555A68;margin:0 auto 14px;}
+  #evvPartActionBackdrop .evv-part-action-title{font-size:13px;font-weight:800;color:#F5F5F7;margin:0 2px 4px;}
+  #evvPartActionBackdrop .evv-part-action-subtitle{font-size:11px;color:#9299AC;margin:0 2px 12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #evvPartActionBackdrop .evv-part-action-buttons{display:grid;grid-template-columns:1fr;gap:8px;}
+  #evvPartActionBackdrop .evv-part-action-buttons button{width:100%;min-height:46px;border:1px solid #343746;border-radius:12px;background:#20212A;color:#F5F5F7;font-size:13px;font-weight:800;}
+  #evvPartActionBackdrop .evv-part-action-buttons button[data-action="delete"]{border-color:rgba(255,107,107,.38);color:#FF8585;background:rgba(255,107,107,.07);}
+  #evvPartActionBackdrop .evv-part-action-buttons button[data-action="close"]{background:#2A2A33;color:#D7DBE8;}
+  #evvPartActionBackdrop .evv-part-action-buttons button:active{transform:scale(.99);}
+  .evv-longpress-target{-webkit-touch-callout:none;user-select:none;-webkit-user-select:none;}
+</style>
+<script id="ethvelle-v154-runtime">
+(function(){
+  'use strict';
+  if(window.__ethvelleV154Installed)return;
+  window.__ethvelleV154Installed=true;
+  const $=id=>document.getElementById(id);
+  const esc=value=>String(value==null?'':value).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const SPEED_STOPS=[0.25,0.5,1,1.5,2,3];
+  const activeChar=()=>{try{return typeof window.activeCharacter==='function'?window.activeCharacter():null;}catch(_e){return null;}};
+  const modelLabChar=()=>{try{if(typeof ED!=='undefined'&&ED&&ED.kind==='edit'&&Number.isInteger(ED.editIdx)&&typeof characters!=='undefined'&&Array.isArray(characters)&&characters[ED.editIdx])return characters[ED.editIdx];}catch(_e){}return activeChar();};
+  const cloneVariants=variants=>{try{return JSON.parse(JSON.stringify(variants||{headParts:[],expressions:[],gestures:[]}));}catch(_e){return {headParts:[],expressions:[],gestures:[]};}};
+
+  /* Uploaded artwork is stored under stable type labels, never the user's source filename. */
+  function normalizeVariantNames(variants){
+    if(!variants||typeof variants!=='object')return false;
+    ['headParts','expressions','gestures'].forEach(k=>{if(!Array.isArray(variants[k]))variants[k]=[];});
+    const head=[];
+    variants.headParts.forEach((item,index)=>{if(item&&typeof item==='object')head.push({item,order:index,when:Number(item.createdAt)||0});});
+    variants.expressions.forEach((item,index)=>{if(item&&typeof item==='object')head.push({item,order:variants.headParts.length+index,when:Number(item.createdAt)||0});});
+    head.sort((a,b)=>(a.when&&b.when?a.when-b.when:a.when?-1:b.when?1:a.order-b.order));
+    head.forEach((entry,index)=>{
+      const label='Custom Head '+(index+1),item=entry.item;
+      item.name=label;item.fileName=label;item.originalFileName=label;item.displayName=label;
+    });
+    const hands=variants.gestures.map((item,index)=>({item,index,when:Number(item&&item.createdAt)||0})).filter(x=>x.item&&typeof x.item==='object');
+    hands.sort((a,b)=>(a.when&&b.when?a.when-b.when:a.when?-1:b.when?1:a.index-b.index));
+    hands.forEach((entry,index)=>{
+      const label='Custom Hand '+(index+1),item=entry.item;
+      item.name=label;item.fileName=label;item.originalFileName=label;item.displayName=label;
+    });
+    return true;
+  }
+  function normalizeCharacter(char){
+    if(!char||!char.sheet)return;
+    if(!char.sheet.customVariants||typeof char.sheet.customVariants!=='object')char.sheet.customVariants={headParts:[],expressions:[],gestures:[]};
+    normalizeVariantNames(char.sheet.customVariants);
+  }
+  function normalizeEditor(){try{if(typeof ED!=='undefined'&&ED&&ED.extraVariants)normalizeVariantNames(ED.extraVariants);}catch(_e){}}
+  const oldAssetUpdate=window.updateModelAssetFromChar;
+  if(typeof oldAssetUpdate==='function'&&!oldAssetUpdate.__ethvelleV154Names){
+    const wrapped=function(char){normalizeCharacter(char);normalizeEditor();return oldAssetUpdate.apply(this,arguments);};
+    wrapped.__ethvelleV154Names=true;window.updateModelAssetFromChar=wrapped;
+  }
+  const oldEditorSync=window.edSyncUI;
+  if(typeof oldEditorSync==='function'&&!oldEditorSync.__ethvelleV154Names){
+    const wrapped=function(){normalizeEditor();return oldEditorSync.apply(this,arguments);};
+    wrapped.__ethvelleV154Names=true;window.edSyncUI=wrapped;
+  }
+  const oldExtraRender=window.edRenderExtraParts;
+  if(typeof oldExtraRender==='function'&&!oldExtraRender.__ethvelleV154Names){
+    const wrapped=function(){normalizeEditor();return oldExtraRender.apply(this,arguments);};
+    wrapped.__ethvelleV154Names=true;window.edRenderExtraParts=wrapped;
+  }
+  const oldCompile=window.edCompile;
+  if(typeof oldCompile==='function'&&!oldCompile.__ethvelleV154Names){
+    const wrapped=function(){normalizeEditor();return oldCompile.apply(this,arguments);};
+    wrapped.__ethvelleV154Names=true;window.edCompile=wrapped;
+  }
+  normalizeCharacter(activeChar());normalizeEditor();
+  const oldOpenCharacterActions=window.openClipCharacterActions;
+  if(typeof oldOpenCharacterActions==='function'&&!oldOpenCharacterActions.__ethvelleV154Names){
+    const wrapped=function(){normalizeCharacter(activeChar());return oldOpenCharacterActions.apply(this,arguments);};
+    wrapped.__ethvelleV154Names=true;window.openClipCharacterActions=wrapped;
+  }
+
+  /* Speed panel matches the Volume panel. The six labels are evenly spaced reference points,
+     while the control itself remains continuous between every point. */
+  const speedIndex=value=>{const n=Number(value)||1;let best=0,dist=Infinity;SPEED_STOPS.forEach((v,i)=>{const d=Math.abs(v-n);if(d<dist){dist=d;best=i;}});return best;};
+  function speedPosition(value){
+    const n=Math.max(SPEED_STOPS[0],Math.min(SPEED_STOPS[SPEED_STOPS.length-1],Number(value)||1));
+    for(let i=0;i<SPEED_STOPS.length-1;i++){
+      const a=SPEED_STOPS[i],b=SPEED_STOPS[i+1];
+      if(n<=b)return i+(n-a)/(b-a);
+    }
+    return SPEED_STOPS.length-1;
+  }
+  function speedValueAtPosition(position){
+    const p=Math.max(0,Math.min(SPEED_STOPS.length-1,Number(position)||0));
+    const i=Math.min(SPEED_STOPS.length-2,Math.floor(p));
+    const f=p-i;
+    return SPEED_STOPS[i]+(SPEED_STOPS[i+1]-SPEED_STOPS[i])*f;
+  }
+  const speedText=value=>{const v=Number(value);return (Number.isFinite(v)?String(Number(v.toFixed(2))):'1')+'x';};
+  function paintSpeedPanel(){
+    const slider=$('evvSpeedSlider');if(!slider)return;
+    const clip=typeof window.speedTargetClip==='function'?window.speedTargetClip():null;
+    const speed=Math.max(.25,Math.min(3,Number(clip&&clip.speed)||1));
+    const pos=speedPosition(speed),pct=pos/(SPEED_STOPS.length-1)*100,nearest=speedIndex(speed);
+    slider.value=pos.toFixed(2);slider.style.setProperty('--evv-volume-fill',pct+'%');
+    const output=$('speedVal');if(output)output.textContent=speedText(speed);
+    const header=$('speedPanelHeader');if(header)header.textContent=clip?(clip.name||(typeof window.isStickmanSpeedTarget==='function'&&window.isStickmanSpeedTarget(clip)?'Animation':'Clip')):'';
+    const marks=$('speedPanelMarks');if(marks)marks.querySelectorAll('span').forEach((node,i)=>{node.style.color=i===nearest?'#FFFFFF':'#8B91A2';});
+  }
+  window.speedPanelSetStop=function(position){
+    const speed=speedValueAtPosition(position);
+    if(typeof window.speedPanelSetSpeed==='function')window.speedPanelSetSpeed(speed);
+  };
+  const originalSpeedSetter=window.speedPanelSetSpeed;
+  if(typeof originalSpeedSetter==='function'&&!originalSpeedSetter.__ethvelleV155Continuous){
+    const wrapped=function(value){const result=originalSpeedSetter.apply(this,arguments);paintSpeedPanel();return result;};
+    wrapped.__ethvelleV155Continuous=true;window.speedPanelSetSpeed=wrapped;
+  }
+  window.renderSpeedPanel=function(){
+    const body=$('speedPanelBody');if(!body)return;
+    const clip=typeof window.speedTargetClip==='function'?window.speedTargetClip():null;
+    if(!clip){body.innerHTML='<p class="field-label">Select an animation, video, image, or audio clip on the timeline to change its speed.</p>';return;}
+    const speed=Math.max(.25,Math.min(3,Number(clip.speed)||1)),pos=speedPosition(speed);
+    const name=esc(clip.name||(typeof window.isStickmanSpeedTarget==='function'&&window.isStickmanSpeedTarget(clip)?'Animation':'Clip'));
+    const marks=SPEED_STOPS.map((v,i)=>'<span data-stop="'+i+'">'+speedText(v)+'</span>').join('');
+    body.innerHTML='<div class="evv-volume-panel evv-speed-volume-panel">'+
+      '<div class="evv-volume-head"><span class="evv-volume-name" id="speedPanelHeader">'+name+'</span><output class="evv-volume-value" id="speedVal">'+speedText(speed)+'</output></div>'+
+      '<div class="evv-volume-slider-wrap"><input id="evvSpeedSlider" class="evv-volume-slider" type="range" min="0" max="'+(SPEED_STOPS.length-1)+'" step="0.01" value="'+pos.toFixed(2)+'" style="--evv-volume-fill:'+(pos/(SPEED_STOPS.length-1)*100)+'%" oninput="window.speedPanelSetStop(this.value)" aria-label="Playback speed"></div>'+
+      '<div class="evv-volume-marks" id="speedPanelMarks">'+marks+'</div>'+
+      '<button type="button" class="evv-volume-done" onclick="closePanel()">Done</button>'+
+    '</div>';
+    paintSpeedPanel();
+  };
+
+  /* Long-press menu targets body-part tiles in both Model Editing and Character Edit. */
+  let partMenuTarget=null,longPressState=null,longPressTimer=0,ignoreClickTarget=null,ignoreClickUntil=0;
+  let replaceTarget=null;
+  let partMenuAnchor=null;
+  function ensureMenu(){
+    let back=$('evvPartActionBackdrop');if(back)return back;
+    back=document.createElement('div');back.id='evvPartActionBackdrop';
+    back.innerHTML='<div class="evv-part-action-sheet" role="dialog" aria-modal="false" aria-label="Body part options"><p class="evv-part-action-title">Part options</p><p class="evv-part-action-subtitle" id="evvPartActionSubtitle"></p><div class="evv-part-action-buttons"><button type="button" data-action="edit">Edit</button><button type="button" data-action="lock" hidden>Lock</button><button type="button" data-action="close">Close</button><button type="button" data-action="delete">Delete</button></div></div>';
+    (document.getElementById('screen-editor')||document.body).appendChild(back);
+    back.querySelectorAll('[data-action]').forEach(button=>button.addEventListener('click',()=>runMenuAction(button.dataset.action)));
+    document.addEventListener('pointerdown',event=>{
+      const root=$('evvPartActionBackdrop');if(!root||!root.classList.contains('active'))return;
+      const sheet=root.querySelector('.evv-part-action-sheet');
+      if((sheet&&sheet.contains(event.target))||(partMenuAnchor&&partMenuAnchor.contains(event.target)))return;
+      closeMenu();
+    },true);
+    return back;
+  }
+  function closeMenu(){const back=$('evvPartActionBackdrop');if(back)back.classList.remove('active');partMenuTarget=null;partMenuAnchor=null;}
+  function categoriesOf(char){
+    const variants=char&&char.sheet&&char.sheet.customVariants;
+    return variants&&typeof variants==='object'?variants:{headParts:[],expressions:[],gestures:[]};
+  }
+  function fieldForItem(category,item){
+    if(category==='expressions')return 'customExpressionId';
+    if(category==='headParts'){
+      if(item.kind==='custom-eyes')return 'customEyeId';
+      if(item.kind==='mouth-closed')return 'customMouthClosedId';
+      return item.kind==='mouth-open'?'customMouthOpenId':'customEyeId';
+    }
+    if(category==='gestures')return item.side==='L'||item.kind==='left-hand-gesture'?'customGestureLId':'customGestureRId';
+    return null;
+  }
+  function findVariant(variants,category,id){const list=variants&&Array.isArray(variants[category])?variants[category]:[];return list.find(item=>item&&String(item.id)===String(id))||null;}
+  function findItemByTile(char,category,tile){
+    const img=tile.querySelector('img'),src=img&&(img.getAttribute('src')||img.src),title=tile.title||'';
+    const list=categoriesOf(char)[category]||[];
+    return list.find(item=>item&&((src&&item.src===src)||(title&&item.name===title)))||null;
+  }
+  function actionRoute(section){
+    const label=String(section&&section.querySelector('.evpa-section-title')?.textContent||'').trim().toLowerCase();
+    if(label.includes('face expression'))return {category:'expressions',field:'customExpressionId',baseField:'expression',neutral:'none'};
+    if(label==='eyes'||label==='eye')return {category:'headParts',field:'customEyeId',baseField:'eyes',neutral:'auto'};
+    if(label==='mouth'||label.includes('mouth movement'))return {category:'headParts',field:'customMouthOpenId',baseField:'mouth',neutral:'preset'};
+    if(label.includes('left hand'))return {category:'gestures',field:'customGestureLId',baseField:'leftHand',neutral:'none'};
+    if(label.includes('right hand'))return {category:'gestures',field:'customGestureRId',baseField:'rightHand',neutral:'none'};
+    if(label.includes('blink'))return {category:null,field:null,baseField:'blink',neutral:'auto'};
+    return null;
+  }
+  function buildTarget(tile){
+    if(tile.matches('#sheetEd #edLayers .ev150-variant-chip')){
+      const id=tile.dataset.variantId,category=['headParts','expressions','gestures'].find(k=>findVariant((typeof ED!=='undefined'&&ED.extraVariants)||{},k,id));
+      const variants=typeof ED!=='undefined'&&ED&&ED.extraVariants?ED.extraVariants:null,item=category&&findVariant(variants,category,id);
+      return item?{kind:'variant',location:'model',category,itemId:id,field:fieldForItem(category,item),title:item.name||'Custom part',char:modelLabChar()}:null;
+    }
+    if(tile.matches('#sheetEd #edLayers .ed-chip[data-k]')&&!tile.classList.contains('ed-chip-custom')){
+      return {kind:'base-part',location:'model',partKey:tile.dataset.k,title:(tile.querySelector('.n')?.textContent||tile.dataset.k),char:modelLabChar()};
+    }
+    if(tile.matches('#ethvelleClipFaceActionsBackdrop .evpa-custom-variant-choice')){
+      const section=tile.closest('.evpa-section'),route=actionRoute(section),char=activeChar();if(!route||!char)return null;
+      const category=route.category;if(!category)return null;
+      const item=findItemByTile(char,category,tile);if(!item)return null;
+      return {kind:'variant',location:'character',category,itemId:item.id,field:fieldForItem(category,item)||route.field,title:item.name||'Custom part',char};
+    }
+    if(tile.matches('#ethvelleClipFaceActionsBackdrop .evpa-choice:not(.evpa-choice-add)')){
+      const section=tile.closest('.evpa-section'),route=actionRoute(section);if(!route)return null;
+      const handler=tile.getAttribute('onclick')||'',match=handler.match(/updateClipFaceAction\(['"]([^'"]+)['"]\s*,\s*['"]([^'"]+)['"]\)/);
+      return {kind:'action-part',location:'character',field:route.field,baseField:match?match[1]:route.baseField,neutral:route.neutral,title:tile.querySelector('.evpa-choice-label')?.textContent||route.baseField,char:activeChar()};
+    }
+    return null;
+  }
+  function openMenu(tile){
+    const target=buildTarget(tile);if(!target)return;
+    partMenuTarget=target;partMenuAnchor=tile;
+    const back=ensureMenu(),sheet=back.querySelector('.evv-part-action-sheet'),subtitle=$('evvPartActionSubtitle');
+    const isBase=target.kind==='base-part'&&typeof ED!=='undefined'&&ED&&typeof edIsLocked==='function',locked=isBase&&edIsLocked(target.partKey);
+    const lockBtn=sheet&&sheet.querySelector('[data-action="lock"]'),btnRow=sheet&&sheet.querySelector('.evv-part-action-buttons');
+    if(lockBtn){lockBtn.hidden=!isBase;lockBtn.textContent=locked?'Unlock':'Lock';lockBtn.classList.toggle('is-unlock',!!locked);}
+    if(btnRow)btnRow.classList.toggle('has-lock',!!isBase);
+    if(subtitle)subtitle.textContent=(target.title||'Body part')+(locked?' · locked':'');
+    back.classList.add('active');
+    requestAnimationFrame(()=>{
+      if(!sheet||!tile.isConnected)return;
+      const rect=tile.getBoundingClientRect(),width=sheet.offsetWidth||236,height=sheet.offsetHeight||116,gap=8,pad=8;
+      let left=rect.right+gap;
+      if(left+width>window.innerWidth-pad)left=rect.left-width-gap;
+      left=Math.max(pad,Math.min(window.innerWidth-width-pad,left));
+      let top=rect.top+(rect.height-height)/2;
+      top=Math.max(pad,Math.min(window.innerHeight-height-pad,top));
+      sheet.style.left=Math.round(left)+'px';sheet.style.top=Math.round(top)+'px';
+    });
+  }
+  function cancelLongPress(){if(longPressTimer){clearTimeout(longPressTimer);longPressTimer=0;}longPressState=null;}
+  function longPressTile(node){
+    return node&&node.closest?node.closest('#sheetEd #edLayers .ed-chip[data-k],#sheetEd #edLayers .ev150-variant-chip,#ethvelleClipFaceActionsBackdrop .evpa-choice:not(.evpa-choice-add)'):null;

@@ -1,0 +1,1000 @@
+    // Never let a synthetic/native click change a range after the pointerdown guard.
+    // Keyboard arrow-key changes still work because they do not produce pointer clicks.
+    window.addEventListener('click',e=>{
+      if(isEditorRange(e.target)){
+        e.preventDefault();e.stopPropagation();
+        if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+      }
+    },{capture:true,passive:false});
+    // Keep older interceptor refresh from re-enabling track-jump shields.
+    const prevRefresh=window.__ethvelleRefreshRangeOverlays;
+    window.__ethvelleRefreshRangeOverlays=function(){
+      try{if(typeof prevRefresh==='function')prevRefresh();}catch(_e){}
+      document.querySelectorAll('.evpa-range-interceptor,.ev-v33-thumb-hit').forEach(el=>el.remove());
+      document.querySelectorAll(RANGE_ROOTS).forEach(root=>{
+        root?.querySelectorAll('input[type="range"]').forEach(inp=>{
+          if(inp.closest('#ethvellePicsartTextDock,#ethvelleTextStylePanel,#ethvelleTextComposer,#evpaCustomEffectEditor,#ethvelleColorPicker,#textPanelBody')){
+            /* v191: owned by ethvelle-v191-text-slider-js */
+            inp.style.setProperty('pointer-events','none','important');
+            inp.style.setProperty('touch-action','pan-y','important');
+            return;
+          }
+          inp.style.setProperty('pointer-events','auto','important');
+          inp.style.setProperty('touch-action','none','important');
+          inp.style.setProperty('pointer-events','auto','important');
+        });
+      });
+    };
+    const dock=$('ethvellePicsartTextDock');
+    if(dock){
+      new MutationObserver(queueLayout).observe(dock,{subtree:true,childList:true,attributes:true,attributeFilter:['class','style']});
+    }
+    document.addEventListener('click',e=>{
+      if(e.target?.closest?.('#evpaTabs .evpa-tab'))queueLayout();
+    },true);
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  if(document.body){
+    new MutationObserver(()=>{
+      document.querySelectorAll('.ev-v33-thumb-hit').forEach(el=>el.remove());
+      queueLayout();
+    }).observe(document.body,{childList:true,subtree:true});
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle text editor UX repair v34: keyboard-aware composer, visible Font colours,
+     reliable transparent swatch, clean tab state, and strict thumb-only slider input. -->
+<style id="ethvelle-text-editor-ux-v34-css">
+  /* Keep the composer above Android's soft keyboard by allowing the viewport script below
+     to size the fixed sheet to visualViewport rather than the obscured layout viewport. */
+  #ethvelleTextComposer.evtc-root { left:0!important; right:0!important; }
+
+  /* Remove the extra underline on the active text-edit tab; retain its selected colour/background. */
+  #ethvellePicsartTextDock .evpa-tab.active::after {
+    content:none!important; display:none!important;
+  }
+
+  /* Font palette: top row contains custom/transparent controls plus six normal colour chips.
+     The second row remains the full, horizontally scrollable colour palette. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    overflow:visible!important; min-height:84px!important; padding:2px 5px 5px!important;
+    box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important; flex-direction:column!important; align-items:stretch!important;
+    justify-content:flex-start!important; gap:5px!important; width:100%!important;
+    height:auto!important; min-height:0!important; max-height:none!important;
+    overflow:visible!important; padding:0 7px 4px!important; margin:0!important;
+    box-sizing:border-box!important; touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools {
+    flex:0 0 36px!important; height:36px!important; min-height:36px!important; max-height:36px!important;
+    display:flex!important; flex-flow:row nowrap!important; align-items:center!important;
+    justify-content:flex-start!important; gap:6px!important; padding:0!important; margin:0!important;
+    overflow:visible!important; width:100%!important; box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools > button {
+    display:block!important; flex:0 0 35px!important; width:35px!important; min-width:35px!important;
+    max-width:35px!important; height:35px!important; min-height:35px!important; max-height:35px!important;
+    margin:0!important; padding:0!important; border-radius:50%!important; aspect-ratio:1/1!important;
+    overflow:visible!important; box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools > .evpa-font-extra-swatch {
+    box-shadow:0 0 0 1px rgba(255,255,255,.2)!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row {
+    display:flex!important; flex:0 0 38px!important; flex-flow:row nowrap!important;
+    align-items:center!important; justify-content:flex-start!important; gap:6px!important;
+    width:100%!important; height:38px!important; min-height:38px!important; max-height:38px!important;
+    padding:1px 3px 3px!important; margin:0!important; overflow-x:auto!important; overflow-y:visible!important;
+    overscroll-behavior-x:contain!important; -webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important; touch-action:pan-x!important; box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row > .evpa-swatch {
+    flex:0 0 35px!important; width:35px!important; min-width:35px!important; max-width:35px!important;
+    height:35px!important; min-height:35px!important; max-height:35px!important; margin:0!important;
+    padding:0!important; border-radius:50%!important; aspect-ratio:1/1!important;
+    box-sizing:border-box!important; overflow:visible!important; touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock .evpa-transparent.active {
+    box-shadow:0 0 0 2px #121319,0 0 0 4px #2F5CE8!important; z-index:4!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-color-wheel,
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent {
+    border-radius:50%!important; aspect-ratio:1/1!important;
+  }
+</style>
+<script id="ethvelle-text-editor-ux-v34-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const raf=fn=>requestAnimationFrame(()=>{try{fn();}catch(_e){}});
+  const safeCall=(fn,...args)=>{try{return typeof fn==='function'?fn(...args):undefined;}catch(_e){return undefined;}};
+  const dock=()=> $('ethvellePicsartTextDock');
+  const activeTab=()=>dock()?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';
+  const getTarget=()=>safeCall(window.ethvellePicsartGetTarget)||null;
+
+  // Build the first Font row with the existing custom/transparent buttons plus clones of the
+  // first six normal swatches. Clones keep the original inline click action and stay in sync.
+  function syncFontPalette(){
+    if(window.__ETHVELLE_V15_LOCKED_PALETTE)return;
+    const d=dock();
+    if(!d||d.classList.contains('evpa-in-composer')||activeTab()!=='font')return;
+    const swatches=$('evpaPalette')?.querySelector('.evpa-swatches');
+    const tools=swatches?.querySelector(':scope > .evpa-font-color-tools');
+    const row=swatches?.querySelector(':scope > .evpa-font-color-row');
+    if(!swatches||!tools||!row)return;
+    tools.querySelectorAll('.evpa-font-extra-swatch').forEach(n=>n.remove());
+    const wheel=tools.querySelector('.evpa-color-wheel');
+    const transparent=tools.querySelector('.evpa-transparent');
+    // The Font tab has no eyedropper or save-to-palette controls. Detach any leftovers
+    // from older palette layouts before rebuilding its two rows.
+    tools.querySelectorAll('.evpa-eye,.evpa-save-swatch').forEach(n=>n.remove());
+    row.querySelectorAll('.evpa-eye,.evpa-save-swatch').forEach(n=>n.remove());
+    tools.replaceChildren();
+    if(wheel)tools.appendChild(wheel);
+    if(transparent)tools.appendChild(transparent);
+    [...row.querySelectorAll(':scope > .evpa-swatch[data-color]')].slice(0,6).forEach(original=>{
+      const copy=original.cloneNode(true);
+      copy.classList.add('evpa-font-extra-swatch');
+      copy.removeAttribute('data-evpaFontOrder');
+      copy.removeAttribute('data-evV33Order');
+      copy.setAttribute('aria-label','Text colour '+(copy.dataset.color||''));
+      tools.appendChild(copy);
+    });
+    syncTransparentState();
+  }
+  function removeFontClones(){
+    dock()?.querySelectorAll('.evpa-font-extra-swatch').forEach(n=>n.remove());
+  }
+  function syncTransparentState(){
+    const d=dock();if(!d)return;
+    const t=getTarget();
+    if(typeof window.ethvelleRefreshDockSwatches==='function'){window.ethvelleRefreshDockSwatches();return;}/* v223-fix: single owner for chip markers */
+    const transparent=!!t&&Number(t.textOpacity)===0&&(!activeTab()||activeTab()==='font'||activeTab()==='color');
+    d.querySelectorAll('.evpa-transparent').forEach(b=>b.classList.toggle('active',transparent));
+  }
+  let fontQueued=false;
+  function queueFont(){if(fontQueued)return;fontQueued=true;raf(()=>{fontQueued=false;syncFontPalette();syncTransparentState();});}
+
+  // Before the legacy Font-tab restore handlers run, remove only the six temporary clones.
+  document.addEventListener('pointerdown',e=>{
+    if(e.target?.closest?.('#evpaTabs .evpa-tab[data-tab]:not([data-tab="font"])'))removeFontClones();
+  },true);
+  document.addEventListener('click',e=>{
+    if(e.target?.closest?.('#evpaTabs .evpa-tab'))queueFont();
+    if(e.target?.closest?.('#ethvellePicsartTextDock .evpa-transparent'))raf(syncTransparentState);
+  },true);
+
+  // Ensure Android's virtual keyboard resizes the composer sheet and keeps the colour controls
+  // attached to the visible viewport (above the keyboard), without moving the text on the canvas.
+  function syncComposerViewport(){
+    const root=$('ethvelleTextComposer');
+    if(!root?.classList.contains('active'))return;
+    const vv=window.visualViewport;
+    const top=vv?vv.offsetTop:0;
+    const height=vv?vv.height:(window.innerHeight||document.documentElement.clientHeight||600);
+    root.style.setProperty('top',top+'px','important');
+    root.style.setProperty('height',Math.max(1,height)+'px','important');
+    root.style.setProperty('bottom','auto','important');
+    root.style.setProperty('left','0px','important');
+    root.style.setProperty('right','0px','important');
+  }
+  window.addEventListener('resize',syncComposerViewport,{passive:true});
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',syncComposerViewport,{passive:true});
+    window.visualViewport.addEventListener('scroll',syncComposerViewport,{passive:true});
+  }
+
+  // Auto-focus synchronously while the Add Text button's user gesture is still active; this
+  // opens the Android keyboard immediately. The composer viewport then keeps its dock above it.
+  const priorOpen=window.openEthvelleTextComposer;
+  if(typeof priorOpen==='function'&&!priorOpen.__evV34Keyboard){
+    const wrappedOpen=function(){
+      const args=arguments;
+      const result=priorOpen.apply(this,args);
+      const input=$('evtcStageText');
+      if(input&&$('ethvelleTextComposer')?.classList.contains('active')){
+        // Fresh text defaults to a dark fill so it can be seen on the editor's white canvas.
+        // Existing non-empty text and its selected colour are never overwritten.
+        const fresh=!String(input.value||'').trim()&&(!args[0]||args[0]==='__ethvelle_new_text_layer__');
+        if(fresh&&typeof window.setEthvelleComposerColor==='function')safeCall(window.setEthvelleComposerColor,'#FFFFFF');
+        // The Font tab is the default when the saved layer's editor dock is shown.
+        safeCall(window.ethvellePicsartSetTool,'font');
+        try{input.focus({preventScroll:true});}catch(_e){safeCall(input.focus?.bind(input));}
+        try{const end=input.value.length;input.setSelectionRange(end,end);}catch(_e){}
+        syncComposerViewport();
+        raf(syncComposerViewport);
+      }
+      return result;
+    };
+    wrappedOpen.__evV34Keyboard=true;
+    window.openEthvelleTextComposer=wrappedOpen;
+  }
+
+  // A normal colour selection restores text opacity if the transparent swatch was active.
+  const priorSetColor=window.ethvellePicsartSetColor;
+  if(typeof priorSetColor==='function'&&!priorSetColor.__evV34Opacity){
+    const wrappedColor=function(key,color){
+      const t=getTarget();
+      if(key==='textColor'&&t&&Number(t.textOpacity)===0){
+        safeCall(window.ethvellePicsartSetValue,'textOpacity',100,'',true);
+      }
+      const result=priorSetColor.apply(this,arguments);
+      raf(syncTransparentState);
+      return result;
+    };
+    wrappedColor.__evV34Opacity=true;
+    window.ethvellePicsartSetColor=wrappedColor;
+  }
+  const priorSetNone=window.ethvellePicsartSetNone;
+  if(typeof priorSetNone==='function'&&!priorSetNone.__evV34Transparent){
+    const wrappedNone=function(){const result=priorSetNone.apply(this,arguments);raf(syncTransparentState);queueFont();return result;};
+    wrappedNone.__evV34Transparent=true;
+    window.ethvellePicsartSetNone=wrappedNone;
+  }
+  const priorSetTool=window.ethvellePicsartSetTool;
+  if(typeof priorSetTool==='function'&&!priorSetTool.__evV34Layout){
+    const wrappedTool=function(){const result=priorSetTool.apply(this,arguments);queueFont();return result;};
+    wrappedTool.__evV34Layout=true;
+    window.ethvellePicsartSetTool=wrappedTool;
+  }
+  const priorSaveColour=window.ethvellePicsartSaveCustomColor;
+  if(typeof priorSaveColour==='function'&&!priorSaveColour.__evV34Layout){
+    const wrappedSaveColour=function(){const result=priorSaveColour.apply(this,arguments);queueFont();return result;};
+    wrappedSaveColour.__evV34Layout=true;
+    window.ethvellePicsartSaveCustomColor=wrappedSaveColour;
+  }
+
+  // Make sure the live canvas text glyph uses the model's real fill colour. This also clears a
+  // stale transparent text-fill left behind by a prior gradient/texture selection, but does not
+  // interfere with gradient or texture layers or with a user's intentional zero opacity.
+  function enforceCanvasTextFill(){
+    const layer=$('overlayMediaLayer');if(!layer)return;
+    let list=[];
+    try{if(typeof overlays!=='undefined'&&Array.isArray(overlays))list=overlays;else if(Array.isArray(window.overlays))list=window.overlays;}catch(_e){list=Array.isArray(window.overlays)?window.overlays:[];}
+    list.filter(o=>o&&o.type==='text').forEach(o=>{
+      const host=[...layer.children].find(n=>String(n.dataset.overlayId||n.dataset.ovId||'')===String(o.id));
+      const node=host?.querySelector?.('.ethvelle-overlay-text-content');
+      const glyph=node?.querySelector?.(':scope > .evpa-text-effect-layer');
+      if(!node||!glyph)return;
+      if(o.textGradient||o.textTexture)return;
+      const hex=String(o.textColor||'#17171C');
+      const match=hex.match(/^#([0-9a-f]{6})$/i);
+      if(!match)return;
+      const h=match[1],opacity=Math.max(0,Math.min(100,Number(o.textOpacity==null?100:o.textOpacity)))/100;
+      const fill='rgba('+parseInt(h.slice(0,2),16)+','+parseInt(h.slice(2,4),16)+','+parseInt(h.slice(4,6),16)+','+opacity+')';
+      node.style.setProperty('color',fill,'important');
+      glyph.style.setProperty('color',fill,'important');
+      glyph.style.setProperty('-webkit-text-fill-color',fill,'important');
+      glyph.style.setProperty('background-image','none','important');
+      glyph.style.setProperty('opacity','1','important');
+    });
+  }
+  ['renderFrame','renderOverlayLayers'].forEach(name=>{
+    const prior=window[name];
+    if(typeof prior!=='function'||prior.__evV34Fill)return;
+    const wrapped=function(){const result=prior.apply(this,arguments);enforceCanvasTextFill();return result;};
+    wrapped.__evV34Fill=true;window[name]=wrapped;
+  });
+
+  // If text selection opens the dock, start from Font; direct tab taps still keep their choice.
+  const priorSelect=window.selectClipForChrome;
+  if(typeof priorSelect==='function'&&!priorSelect.__evV34FontDefault){
+    const wrappedSelect=function(){
+      const result=priorSelect.apply(this,arguments);
+      const id=String(arguments[0]??window.selectedClip??'');
+      let list=[];
+      try{if(typeof overlays!=='undefined'&&Array.isArray(overlays))list=overlays;else if(Array.isArray(window.overlays))list=window.overlays;}catch(_e){list=Array.isArray(window.overlays)?window.overlays:[];}
+      const selected=list.find(o=>o&&o.type==='text'&&String(o.id)===id);
+      /* v231: layer selection must not initialize or rebuild the text dock. */if(selected&&window.__evTextEditorOpen===true){safeCall(window.ethvellePicsartSetTool,'font');queueFont();}
+      return result;
+    };
+    wrappedSelect.__evV34FontDefault=true;
+    window.selectClipForChrome=wrappedSelect;
+  }
+
+  function boot(){queueFont();syncComposerViewport();syncTransparentState();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  // Avoid observing palette child mutations directly: this layout itself clones swatches,
+  // so a broad body observer would repeatedly rebuild the same row.
+})();
+</script>
+
+
+
+<!-- Ethvelle v280: realtime filmstrip repaint during long-press video trim/extend; ordinary move-drag remains frozen. -->
+<!-- Ethvelle local video tools v2: live video filmstrip fallback + integrated adjustment/enhance tools. -->
+<style id="ethvelle-local-video-tools-css">
+  /* The four media tools live inside the existing selected-clip toolbar; no extra bottom row. */
+  #bottomToolsClip .evlt-inline-tool{display:none;}
+  #bottomToolsClip .evlt-inline-tool svg{width:21px;height:21px;}
+  .tool-panel.evlt-expanded-panel{height:58vh;max-height:76%;}
+  .tool-panel.evlt-expanded-panel .tool-panel-body{padding:12px 14px calc(18px + env(safe-area-inset-bottom,0px));}
+  #screen-editor #toolPanel.tool-panel.evlt-expanded-panel.evlt-chroma-compact-panel{height:42vh!important;max-height:44vh!important;min-height:0!important;}
+  #screen-editor #toolPanel.evlt-chroma-compact-panel .tool-panel-body{min-height:0!important;overflow-y:auto!important;padding:8px 14px calc(10px + env(safe-area-inset-bottom,0px))!important;}
+  #screen-editor #toolPanel.evlt-chroma-compact-panel .evlt-chroma-enable-row{min-height:36px!important;padding:3px 0!important;}
+  #screen-editor #toolPanel.evlt-chroma-compact-panel .evlt-chroma-color-line{gap:6px!important;padding:4px 0 2px!important;}
+  #screen-editor #toolPanel.evlt-chroma-compact-panel .evlt-chroma-palette{gap:7px!important;padding:3px 2px 4px!important;}
+  #screen-editor #toolPanel.evlt-chroma-compact-panel .evlt-chroma-range{gap:4px!important;}
+  .evlt-panel{display:flex;flex-direction:column;gap:13px;padding:0 0 6px;color:var(--text);}
+  .evlt-controls{display:flex;flex-direction:column;gap:13px;padding:0 0 8px;}
+  .evlt-field{display:flex;flex-direction:column;gap:7px;min-width:0;}
+  .evlt-field-head{display:flex;align-items:center;justify-content:space-between;gap:8px;font-size:12px;font-weight:700;color:var(--text);}
+  .evlt-field output{color:var(--text-dim);font-size:12px;font-variant-numeric:tabular-nums;}
+  .evlt-field input[type=range],.evlt-slider-line input[type=range],.evlt-compare-range{width:100%;min-width:0;accent-color:var(--accent);height:18px;margin:0;touch-action:pan-y;}
+  .evlt-field select{height:42px;background:var(--elevated);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:0 10px;font:inherit;font-size:13px;}
+  .evlt-primary{height:44px;width:100%;border-radius:12px;background:var(--accent);color:var(--accent-ink);font-size:13px;font-weight:800;}
+  .evlt-primary:disabled{opacity:.5;}
+  .evlt-secondary{height:40px;width:100%;border-radius:11px;background:var(--elevated);border:1px solid var(--line);color:var(--text);font-size:12px;font-weight:700;}
+  .evlt-status{font-size:11px;line-height:1.35;color:var(--text-dim);overflow-wrap:anywhere;}
+  .evlt-progress{width:100%;height:5px;border-radius:99px;background:var(--elevated-2);overflow:hidden;display:none;}
+  .evlt-progress>i{display:block;height:100%;width:0;background:var(--accent);transition:width .15s linear;}
+  .evlt-compare{position:relative;width:100%;height:clamp(118px,25vh,190px);border:1px solid var(--line);border-radius:10px;overflow:hidden;background:#08090c;isolation:isolate;}
+  .evlt-compare-media,.evlt-compare-media img,.evlt-compare-media video{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;display:block;background:#08090c;}
+  .evlt-compare-after{position:absolute;inset:0;clip-path:inset(0 50% 0 0);pointer-events:none;}
+  .evlt-compare-wipe{position:absolute;top:0;bottom:0;left:50%;width:2px;background:#fff;box-shadow:0 0 0 1px rgba(0,0,0,.28);transform:translateX(-1px);pointer-events:none;z-index:4;}
+  .evlt-compare-wipe:before{content:'↔';position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);width:28px;height:28px;border-radius:50%;display:grid;place-items:center;background:#fff;color:#17171c;font-size:17px;font-weight:800;box-shadow:0 1px 5px #0008;}
+  .evlt-compare-tag{position:absolute;top:7px;z-index:5;padding:4px 7px;border-radius:6px;background:#0009;color:white;font-size:10px;font-weight:700;pointer-events:none;}
+  .evlt-compare-tag.before{left:7px;}.evlt-compare-tag.after{right:7px;}
+  .evlt-compare-range-wrap{margin-top:-4px;}
+  .evlt-compare-range-wrap input{width:100%;accent-color:var(--accent);height:16px;margin:0;touch-action:pan-y;}
+  .evlt-compact-controls .chroma-enable-row{padding:10px 0;border:0;background:transparent;border-radius:0;}
+  .evlt-compact-controls .chroma-color-row label,.evlt-compact-controls .chroma-range label{color:var(--text);font-size:12px;font-weight:700;}
+  .evlt-compact-controls .chroma-color-row input[type=color]{height:38px;width:60px;}
+  .evlt-compact-controls .chroma-range input{accent-color:var(--accent);height:18px;}
+  .evlt-compact-controls .chroma-reset-btn{height:40px;border:1px solid var(--line);border-radius:10px;background:var(--elevated);color:var(--text);}
+  #overlayRows .clip-thumb-strip img,
+  .overlay-clip .clip-thumb-strip img,
+  .track-clip .clip-thumb-strip img{width:calc(100% / var(--ev-filmstrip-count, 8))!important;height:100%!important;min-width:0!important;max-width:none!important;flex:0 0 calc(100% / var(--ev-filmstrip-count, 8))!important;object-fit:cover!important;display:block!important;}
+  @media(max-width:380px){.evlt-compare{height:clamp(108px,22vh,155px);}.evlt-panel{gap:11px;}}
+</style>
+<script id="ethvelle-local-video-tools-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const defaults={brightness:100,contrast:100,saturation:100,hue:0,blur:0,grayscale:0,sepia:0};
+  let enhanceRunning=false,enhanceRunToken=0,comparePercent=50,previewSyncTimer=0;
+  function clamp(n,min,max){n=Number(n);return Number.isFinite(n)?Math.max(min,Math.min(max,n)):min;}
+  function normalizeAdj(a){return Object.assign({},defaults,a||{});}
+  function adjCss(a,enhanceAmount){
+    // Enhance amount is handled by the per-frame processor, not a CSS filter.
+    const x=normalizeAdj(a);
+    const brightness=Number(x.brightness);
+    const contrast=Number(x.contrast);
+    const saturation=Number(x.saturation);
+    const parts=[];
+    // Do not attach a CSS filter at all when the clip is unchanged. On Android WebView,
+    // even blur(0px) / a chain of identity filters can force low-resolution compositing.
+    if(brightness!==100)parts.push(`brightness(${brightness}%)`);
+    if(contrast!==100)parts.push(`contrast(${contrast}%)`);
+    if(saturation!==100)parts.push(`saturate(${saturation}%)`);
+    if(Number(x.hue)!==0)parts.push(`hue-rotate(${Number(x.hue)}deg)`);
+    if(Number(x.blur)>0)parts.push(`blur(${Math.min(12,Number(x.blur))}px)`);
+    if(Number(x.grayscale)>0)parts.push(`grayscale(${Math.min(100,Number(x.grayscale))}%)`);
+    if(Number(x.sepia)>0)parts.push(`sepia(${Math.min(100,Number(x.sepia))}%)`);
+    return parts.join(' ')||'none';
+  }
+  window.ethvelleAdjustmentFilter=adjCss;
+  function findBackgroundById(id){return (typeof backgrounds!=='undefined'?backgrounds:[]).find(x=>String(x.id)===String(id))||null;}
+  function findOverlayById(id){return (typeof overlays!=='undefined'?overlays:[]).find(x=>String(x.id)===String(id))||null;}
+  function unwrapSource(src){let v=String(src||'').trim();const m=v.match(/^url\((.*)\)$/i);if(m)v=m[1].trim().replace(/^["']|["']$/g,'');return v;}
+  function visualTarget(){
+    const id=String(typeof selectedClip==='undefined'?'':(selectedClip||''));
+    const bg=findBackgroundById(id);if(bg)return {kind:'background',model:bg};
+    const ov=findOverlayById(id);if(ov&&(ov.type==='video'||ov.type==='image'))return {kind:'overlay',model:ov};
+    // v299: character animation clips (main / segN) can be colour-adjusted too.
+    if(/^(main|seg\d+)$/.test(id)&&typeof getClipByRef==='function'){const cc=getClipByRef(id);if(cc)return {kind:'character',model:cc};}
+    if(!id){let active=null;try{active=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0):null;}catch(e){}if(active)return {kind:'background',model:active};}
+    return null;
+  }
+  function enhanceTarget(){
+    const target=visualTarget();if(!target||!target.model)return null;
+    const src=unwrapSource(target.model.src);
+    if(!src||!/^((blob:|data:)|https?:|file:)/i.test(src))return null;
+    if(target.kind==='overlay'&&!['video','image'].includes(target.model.type))return null;
+    if(target.kind==='background'&&String(target.model.src||'').trim()===src)return null;
+    return {...target,src,type:target.kind==='background'?'image':target.model.type};
+  }
+  function migrateLegacyEnhanceDefault(model){
+    // v2 initialized Enhance to 40% merely by opening the panel. Treat that unconfirmed
+    // legacy value as neutral so previously edited clips do not suddenly look soft/filtered.
+    if(model && !model.__evltEnhanceUserSet && Number(model.enhanceAmount)===40) model.enhanceAmount=0;
+  }
+  function updateTargetFilter(target){
+    if(!target)return;
+    migrateLegacyEnhanceDefault(target.model);
+    const filter=adjCss(target.model.adjustments,target.model.enhanceAmount||0);
+    if(target.kind==='overlay'){
+      const el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls[target.model.id])||null;if(el)el.style.filter=filter;
+      const canvas=(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases[target.model.id])||null;if(canvas)canvas.style.filter=filter;
+    }else if(target.kind==='character'){
+      if(!window.__evCharFxRaf)window.__evCharFxRaf=requestAnimationFrame(()=>{window.__evCharFxRaf=0;try{if(typeof drawStick==='function')drawStick();}catch(_e){}});
+    }else{const img=$('bgImgLayer');if(img)img.style.filter=filter;}
+  }
+  function refreshToolVisibility(){
+    const row=$('bottomToolsClip');if(!row)return;
+    const id=String(typeof selectedClip==='undefined'?'':(selectedClip||'')),ov=findOverlayById(id);
+    const isTextOrAudio=!!ov&&(ov.type==='text'||ov.type==='audio');
+    const isCharacter=!id||id==='main'||id.startsWith('seg')||id.startsWith('char')||(typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null);
+    const target=visualTarget(),enh=enhanceTarget();
+    const isCharClipSel=/^(main|seg\d+)$/.test(id)&&!(typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null);
+    const showVisual=(!!target&&!isTextOrAudio&&!isCharacter)||(isCharClipSel&&!!target);
+    const adj=$('clipAdjustTool');if(adj)adj.style.display=showVisual?'flex':'none';
+    const en=$('clipEnhanceTool');if(en)en.style.display=!!enh&&!isTextOrAudio&&!isCharacter?'flex':'none';
+    // Chroma and Extract Audio are the original clip-row controls; never create duplicates.
+    const chroma=$('clipChromaTool'),audio=$('clipExtractAudioTool');
+    const isVideo=!!ov&&ov.type==='video';
+    if(chroma)chroma.style.display=isVideo?'flex':'none';if(audio)audio.style.display=isVideo?'flex':'none';
+  }
+  function ensureToolbar(){
+    const row=$('bottomToolsClip');if(!row||$('clipAdjustTool'))return;
+    const make=(id,label,icon,handler,title)=>{
+      const b=document.createElement('div');b.className='tool-item evlt-inline-tool';b.id=id;b.setAttribute('role','button');b.setAttribute('tabindex','0');b.setAttribute('aria-label',label);b.title=title||label;b.innerHTML=`${icon}<span>${label}</span>`;
+      b.addEventListener('click',handler);b.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});return b;
+    };
+    const adjustIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M2 14h4M10 8h4M18 16h4"/></svg>';
+    const enhanceIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4-5 4 3 4-6 4 8"/><rect x="3" y="3" width="18" height="18" rx="3"/></svg>';
+    const adj=make('clipAdjustTool','Adjust',adjustIcon,()=>window.ethvelleOpenAdjustments(),'Adjust clip');
+    const enh=make('clipEnhanceTool','Enhance',enhanceIcon,()=>window.ethvelleOpenEnhance(),'Enhance image or video');
+    const anchor=$('clipForwardTool')||$('clipBackwardTool')||$('clipDuplicateTool');
+    row.insertBefore(adj,anchor||null);row.insertBefore(enh,anchor||null);
+    // Move the existing Chroma Key / Extract Audio tools beside Adjust/Enhance, in this same row.
+    const chroma=$('clipChromaTool'),audio=$('clipExtractAudioTool'),forward=$('clipForwardTool');
+    if(forward){if(chroma)row.insertBefore(chroma,forward);if(audio)row.insertBefore(audio,forward);}
+    const obsolete=$('ethvelleLocalVideoTools');if(obsolete)obsolete.remove();
+  }
+  function esc(str){return String(str==null?'':str).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
+  function renderAdjustmentsPanel(){
+    const host=$('evltAdjustmentsPanel');if(!host)return;
+    const target=visualTarget();
+    if(!target){host.innerHTML='<div class="text-editor-controls"></div>';return;}
+    if(!target.model.adjustments)target.model.adjustments={...defaults};
+    const a=normalizeAdj(target.model.adjustments);
+    const fields=[['brightness','Brightness',0,200,1,'%'],['contrast','Contrast',0,200,1,'%'],['saturation','Saturation',0,200,1,'%'],['hue','Hue',-180,180,1,'°'],['blur','Blur',0,12,.5,'px'],['grayscale','Grayscale',0,100,1,'%'],['sepia','Sepia',0,100,1,'%']];
+    const perspVals={x:Math.round(clamp(target.model.mediaPerspectiveX||0,-55,55)),y:Math.round(clamp(target.model.mediaPerspectiveY||0,-55,55))};
+    const perspCard=(axis,label,val)=>`<div class="evv-slider-card evlt-adjust-slider"><div class="evv-slider-head"><label for="evAdj_persp${axis}">${label}</label><output id="evAdj_persp${axis}Val">${val}°</output></div><input type="range" id="evAdj_persp${axis}" min="-55" max="55" step="1" value="${val}" style="--evv-progress:${((val+55)/110)*100}%" oninput="window.ethvelleSetMediaPerspective('${axis.toLowerCase()}',this.value);this.style.setProperty('--evv-progress',((Number(this.value)+55)/110)*100+'%')"></div>`;
+    const perspHtml=`<div class="evlt-persp-heading" style="display:flex;flex-direction:column;gap:2px;margin-top:6px"><b style="font-size:13px">Perspective</b></div>${perspCard('X','Horizontal',perspVals.x)}${perspCard('Y','Vertical',perspVals.y)}`;
+    host.innerHTML=`<div class="text-editor-controls evlt-controls">${fields.map(([k,label,min,max,step,unit])=>{const pct=((Number(a[k])-min)/(max-min))*100;return `<div class="evv-slider-card evlt-adjust-slider"><div class="evv-slider-head"><label for="evAdj_${k}">${label}</label><output id="evAdj_${k}Val">${a[k]}${unit}</output></div><input type="range" id="evAdj_${k}" min="${min}" max="${max}" step="${step}" value="${a[k]}" style="--evv-progress:${pct}%" oninput="window.ethvelleSetAdjustment('${k}',this.value);this.style.setProperty('--evv-progress',((Number(this.value)-(${min}))/((${max})-(${min})))*100+'%')"></div>`;}).join('')}${target.kind==='character'?'':perspHtml}<button class="evlt-secondary" onclick="window.ethvelleResetAdjustments()">Reset</button></div>`;
+    updateTargetFilter(target);
+  }
+  window.ethvelleSetAdjustment=function(key,value){
+    const target=visualTarget();if(!target)return;if(!target.model.adjustments)target.model.adjustments={...defaults};
+    const ranges={brightness:[0,200],contrast:[0,200],saturation:[0,200],hue:[-180,180],blur:[0,12],grayscale:[0,100],sepia:[0,100]};if(!ranges[key])return;
+    target.model.adjustments[key]=clamp(value,...ranges[key]);
+    const unit=key==='hue'?'°':key==='blur'?'px':'%';const text=target.model.adjustments[key]+unit;
+    const out=$('evAdj_'+key+'Val');if(out)out.textContent=text;
+    updateTargetFilter(target);clearTimeout(window.__ethvelleAdjustmentPersistTimer);window.__ethvelleAdjustmentPersistTimer=setTimeout(()=>{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});},420);
+  };
+  function applyPerspectiveLive(target){
+    if(!target||!target.model||!window.ethvelleStripPerspective||target.kind==='character')return;
+    const suffix=window.ethvellePerspectiveSuffix(target.model),els=[];
+    if(target.kind==='overlay'){
+      const id=target.model.id;
+      if(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)els.push(overlayMediaEls[id]);
+      if(typeof overlayChromaCanvases!=='undefined'&&overlayChromaCanvases)els.push(overlayChromaCanvases[id]);
+    }else els.push($('bgImgLayer'));
+    els.forEach(el=>{
+      if(!el||!el.style)return;
+      const base=window.ethvelleStripPerspective(el.style.transform);
+      if(!base)return; /* no base transform yet: the next render will add the perspective */
+      const next=base+suffix;if(el.style.transform!==next)el.style.transform=next;
+    });
+  }
+  window.ethvelleSetMediaPerspective=function(axis,value){
+    const target=visualTarget();if(!target)return;
+    const key=axis==='y'?'mediaPerspectiveY':'mediaPerspectiveX';
+    target.model[key]=Math.round(clamp(value,-55,55));
+    const out=$('evAdj_persp'+(axis==='y'?'Y':'X')+'Val');if(out)out.textContent=target.model[key]+'°';
+    applyPerspectiveLive(target);
+    clearTimeout(window.__ethvellePerspectivePersistTimer);
+    window.__ethvellePerspectivePersistTimer=setTimeout(()=>{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});},420);
+  };
+  window.ethvelleResetAdjustments=function(){const target=visualTarget();if(!target)return;target.model.adjustments={...defaults};target.model.mediaPerspectiveX=0;target.model.mediaPerspectiveY=0;applyPerspectiveLive(target);renderAdjustmentsPanel();updateTargetFilter(target);if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState();};
+  window.ethvelleOpenAdjustments=function(){if(!visualTarget())return;window.openPanel('evltAdjustments');};
+
+  function enhancementCss(amount){const n=clamp(amount,0,100);return `brightness(${100+n*.015}%) contrast(${100+n*.18}%) saturate(${100+n*.12}%)`;}
+  function setCompare(percent){
+    comparePercent=clamp(percent,0,100);const after=$('evltAfterLayer'),wipe=$('evltCompareWipe'),range=$('evltCompare');
+    if(after)after.style.clipPath=`inset(0 ${100-comparePercent}% 0 0)`;if(wipe)wipe.style.left=comparePercent+'%';if(range)range.value=String(comparePercent);
+  }
+  function syncEnhancePreview(){
+    const before=$('evltEnhanceBeforeVideo'),after=$('evltEnhanceAfterVideo');
+    if(before&&after&&before.readyState>=1&&after.readyState>=1){try{if(Math.abs(before.currentTime-after.currentTime)>.12)after.currentTime=before.currentTime;}catch(e){}}
+  }
+  function renderEnhancePanel(){
+    const host=$('evltEnhancePanel');if(!host)return;
+    const target=enhanceTarget();
+    if(!target){host.innerHTML='<div class="text-editor-controls"></div>';return;}
+    const model=target.model;migrateLegacyEnhanceDefault(model);const amount=clamp(model.enhanceAmount==null?0:model.enhanceAmount,0,100);if(model.enhanceAmount==null)model.enhanceAmount=0;
+    const isVideo=target.type==='video',src=esc(target.src),tag=(id)=>isVideo?`<video id="${id}" src="${src}" muted playsinline preload="metadata"></video>`:`<img src="${src}" alt="">`;
+    host.innerHTML=`<div class="text-editor-controls evlt-controls">
+      <div class="evlt-compare" id="evltEnhanceCompare">
+        <div class="evlt-compare-media">${tag('evltEnhanceBeforeVideo')}</div>
+        <div class="evlt-compare-after" id="evltAfterLayer"><div class="evlt-compare-media">${tag('evltEnhanceAfterVideo')}</div></div>
+        <span class="evlt-compare-tag before">Before</span><span class="evlt-compare-tag after">After</span><span class="evlt-compare-wipe" id="evltCompareWipe"></span>
+      </div>
+      <div class="evlt-compare-range-wrap"><input id="evltCompare" class="evlt-compare-range" type="range" min="0" max="100" value="${comparePercent}" aria-label="Before and after comparison" oninput="window.ethvelleSetEnhanceCompare(this.value)"></div>
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceAmount">Enhance amount</label><output id="evltEnhanceAmountValue">${amount}%</output></div><div class="text-range-line"><input id="evltEnhanceAmount" type="range" min="0" max="100" step="1" value="${amount}" oninput="window.ethvelleSetEnhanceAmount(this.value)"></div></div>
+      <div class="evlt-field"><div class="evlt-field-head"><label for="evltEnhanceQuality">Output quality</label></div><select id="evltEnhanceQuality"><option value="1080">1080p</option><option value="1440">1440p</option><option value="2160">4K</option></select></div>
+      <div class="evlt-progress" id="evltEnhanceProgress"><i id="evltEnhanceProgressFill"></i></div><div class="evlt-status" id="evltEnhanceStatus" role="status"></div>
+      <button id="evltEnhanceStart" class="evlt-primary" onclick="window.ethvelleStartVideoEnhance()">Enhance & Export</button>
+    </div>`;
+    const before=$('evltEnhanceBeforeVideo'),after=$('evltEnhanceAfterVideo');
+    [before,after].forEach(v=>{if(v){v.muted=true;v.defaultMuted=true;v.volume=0;v.playsInline=true;v.addEventListener('loadedmetadata',syncEnhancePreview);v.addEventListener('timeupdate',syncEnhancePreview);}});
+    const baseFilter=adjCss(model.adjustments,0);if($('evltEnhanceCompare'))$('evltEnhanceCompare').querySelector('.evlt-compare-media').style.filter=baseFilter;
+    if($('evltAfterLayer'))$('evltAfterLayer').style.filter=adjCss(model.adjustments,amount);
+    setCompare(comparePercent);updateTargetFilter(target);
+  }
+  window.ethvelleSetEnhanceCompare=function(v){setCompare(v);};
+  window.ethvelleSetEnhanceAmount=function(value){
+    const target=enhanceTarget();if(!target)return;const amount=clamp(value,0,100);target.model.enhanceAmount=amount;target.model.__evltEnhanceUserSet=true;
+    const out=$('evltEnhanceAmountValue');if(out)out.textContent=amount+'%';
+    const after=$('evltAfterLayer');if(after)after.style.filter=adjCss(target.model.adjustments,amount);
+    updateTargetFilter(target);if(typeof renderFrame==='function')renderFrame();if(typeof persistProjectState==='function')persistProjectState();
+  };
+  function setEnhanceStatus(text,pct){const el=$('evltEnhanceStatus');if(el)el.textContent=text||'';const bar=$('evltEnhanceProgress'),fill=$('evltEnhanceProgressFill');if(bar)bar.style.display=pct==null?'none':'block';if(fill&&pct!=null)fill.style.width=clamp(pct,0,100)+'%';}
+  window.ethvelleOpenEnhance=function(){if(!enhanceTarget())return;comparePercent=50;window.openPanel('evltEnhance');};
+  function downloadBlob(blob,name){const url=URL.createObjectURL(blob),a=document.createElement('a');a.href=url;a.download=name;document.body.appendChild(a);a.click();a.remove();setTimeout(()=>URL.revokeObjectURL(url),60000);}
+  function outputSize(iw,ih,quality){const ratio=iw/ih;let w,h;if(ratio>=1){h=quality;w=Math.round(quality*ratio);}else{w=quality;h=Math.round(quality/ratio);}return {w:Math.max(2,w-(w%2)),h:Math.max(2,h-(h%2))};}
+
+  async function exportEnhancedImage(target,quality,amount){
+    const img=new Image();img.crossOrigin='anonymous';img.decoding='async';
+    await new Promise((resolve,reject)=>{img.onload=resolve;img.onerror=()=>reject(new Error('Image cannot be processed by this browser.'));img.src=target.src;if(img.complete&&img.naturalWidth)resolve();});
+    const {w,h}=outputSize(img.naturalWidth||img.width,img.naturalHeight||img.height,quality);
+    const cv=document.createElement('canvas');cv.width=w;cv.height=h;const ctx=cv.getContext('2d');if(!ctx)throw new Error('Could not create image canvas.');
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';ctx.filter=enhancementCss(amount);ctx.drawImage(img,0,0,w,h);
+    const blob=await new Promise((resolve,reject)=>cv.toBlob(b=>b?resolve(b):reject(new Error('Image export failed.')),'image/png'));
+    const base=String(target.model.name||'ethvelle-image').replace(/\.[^.]+$/,'').replace(/[^a-z0-9_-]+/gi,'_')||'ethvelle-image';
+    downloadBlob(blob,`${base}-${quality}p-enhanced.png`);setEnhanceStatus(`${w} × ${h}`,100);
+  }
+  window.ethvelleStartVideoEnhance=async function(){
+    if(enhanceRunning)return;const target=enhanceTarget();if(!target)return;
+    const quality=Number($('evltEnhanceQuality')?.value)||1080,amount=clamp(target.model.enhanceAmount==null?40:target.model.enhanceAmount,0,100);
+    if(target.type==='image'){
+      enhanceRunning=true;const btn=$('evltEnhanceStart');if(btn){btn.disabled=true;btn.textContent='Processing…';}
+      setEnhanceStatus('',0);
+      try{await exportEnhancedImage(target,quality,amount);if(typeof showToast==='function')showToast('Enhanced image exported',{icon:toastIcons.check,duration:1800});}
+      catch(err){console.error('Ethvelle image enhancement:',err);setEnhanceStatus(err&&err.message?err.message:'Image export failed.',null);if(typeof showToast==='function')showToast('Image export failed',{icon:toastIcons.info,duration:2000});}
+      finally{enhanceRunning=false;const b=$('evltEnhanceStart');if(b){b.disabled=false;b.textContent='Enhance & Export';}}
+      return;
+    }
+    if(typeof MediaRecorder==='undefined'||!HTMLCanvasElement.prototype.captureStream){setEnhanceStatus('');if(typeof showToast==='function')showToast('Video export is not supported in this browser',{icon:toastIcons.info,duration:2000});return;}
+    const clip=target.model;if(target.type!=='video')return;
+    const token=++enhanceRunToken;enhanceRunning=true;const btn=$('evltEnhanceStart');if(btn){btn.disabled=true;btn.textContent='Processing…';}
+    setEnhanceStatus('',0);
+    const video=document.createElement('video');video.preload='auto';video.playsInline=true;video.crossOrigin='anonymous';video.volume=0;video.muted=false;
+    let sourceStream=null,outStream=null,recorder=null,raf=0,watchdog=0,stopped=false,chunks=[];
+    try{
+      video.src=target.src;
+      await new Promise((resolve,reject)=>{let done=false;const finish=(err)=>{if(done)return;done=true;video.removeEventListener('loadedmetadata',loaded);video.removeEventListener('error',failed);err?reject(err):resolve();};const loaded=()=>finish();const failed=()=>finish(new Error('Video cannot be processed. Check the source URL CORS access or use a local video file.'));video.addEventListener('loadedmetadata',loaded,{once:true});video.addEventListener('error',failed,{once:true});video.load();if(video.readyState>=1)finish();});
+      if(!video.videoWidth||!video.videoHeight||!Number.isFinite(video.duration)||video.duration<=0)throw new Error('Video has no readable frames or duration.');
+      const {w,h}=outputSize(video.videoWidth,video.videoHeight,quality);
+      const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;const ctx=canvas.getContext('2d',{alpha:false});if(!ctx)throw new Error('Could not create video canvas.');ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+      if(typeof video.captureStream==='function')sourceStream=video.captureStream();else if(typeof video.mozCaptureStream==='function')sourceStream=video.mozCaptureStream();
+      let sourceFps=30;try{const track=sourceStream&&sourceStream.getVideoTracks&&sourceStream.getVideoTracks()[0],settings=track&&track.getSettings?track.getSettings():null,detected=Number(settings&&settings.frameRate);if(Number.isFinite(detected)&&detected>=1&&detected<=120)sourceFps=detected;}catch(_e){}
+      outStream=canvas.captureStream(sourceFps);
+      if(sourceStream)sourceStream.getAudioTracks().forEach(t=>outStream.addTrack(t));
+      const mime=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'].find(m=>!MediaRecorder.isTypeSupported||MediaRecorder.isTypeSupported(m));if(!mime)throw new Error('No supported video format.');
+      recorder=new MediaRecorder(outStream,{mimeType:mime,videoBitsPerSecond:quality>=2160?18000000:quality>=1440?12000000:8000000});
+      const stopPromise=new Promise((resolve,reject)=>{recorder.ondataavailable=e=>{if(e.data&&e.data.size)chunks.push(e.data);};recorder.onerror=e=>reject(e.error||new Error('Video recording failed.'));recorder.onstop=resolve;});
+      recorder.start(250);await video.play();
+      const duration=video.duration;let lastDraw=0;
+      const stopOnce=()=>{if(stopped)return;stopped=true;if(raf)cancelAnimationFrame(raf);if(watchdog)clearTimeout(watchdog);try{if(recorder&&recorder.state!=='inactive')recorder.stop();}catch(e){}};
+      watchdog=setTimeout(()=>stopOnce(),Math.ceil(duration*1000)+15000);
+      const draw=now=>{
+        if(token!==enhanceRunToken||stopped)return;
+        if(video.readyState>=2&&now-lastDraw>=1000/sourceFps){lastDraw=now;try{ctx.save();ctx.filter=enhancementCss(amount);ctx.drawImage(video,0,0,w,h);ctx.restore();}catch(e){stopOnce();return;}const pct=clamp(video.currentTime/duration*100,0,99);setEnhanceStatus(`${Math.floor(pct)}%`,pct);}
+        if(video.ended||video.currentTime>=duration-.03){stopOnce();return;}raf=requestAnimationFrame(draw);
+      };
+      raf=requestAnimationFrame(draw);await stopPromise;if(!chunks.length)throw new Error('No video output was created.');
+      const blob=new Blob(chunks,{type:recorder.mimeType||'video/webm'});if(!blob.size)throw new Error('The video output is empty.');
+      const base=String(clip.name||'ethvelle-video').replace(/\.[^.]+$/,'').replace(/[^a-z0-9_-]+/gi,'_')||'ethvelle-video';downloadBlob(blob,`${base}-${quality}p-enhanced.webm`);setEnhanceStatus('100%',100);
+      if(typeof showToast==='function')showToast('Enhanced video exported',{icon:toastIcons.check,duration:1800});
+    }catch(err){console.error('Ethvelle local enhancement:',err);setEnhanceStatus(err&&err.message?err.message:'Export failed.',null);if(typeof showToast==='function')showToast('Video export failed',{icon:toastIcons.info,duration:2000});}
+    finally{
+      if(raf)cancelAnimationFrame(raf);if(watchdog)clearTimeout(watchdog);try{if(recorder&&recorder.state!=='inactive')recorder.stop();}catch(e){}
+      try{video.pause();video.removeAttribute('src');video.load();}catch(e){}try{if(sourceStream)sourceStream.getTracks().forEach(t=>t.stop());}catch(e){}try{if(outStream)outStream.getTracks().forEach(t=>t.stop());}catch(e){}
+      enhanceRunning=false;const b=$('evltEnhanceStart');if(b){b.disabled=false;b.textContent='Enhance & Export';}
+    }
+  };
+
+  // Keep all four tools in the same selected-clip row and reuse the site's established slide-up panel.
+  try{panelContent.evltAdjustments={title:'Adjust',body:'<div id="evltAdjustmentsPanel"></div>'};panelContent.evltEnhance={title:'Enhance',body:'<div id="evltEnhancePanel"></div>'};}catch(e){}
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__evltV2){
+    const wrapped=function(key){const result=oldOpenPanel.apply(this,arguments);const panel=$('toolPanel');if(panel){panel.classList.toggle('evlt-expanded-panel',['evltAdjustments','evltEnhance','chroma'].includes(key));panel.classList.toggle('evlt-chroma-compact-panel',key==='chroma');}if(key==='evltAdjustments')renderAdjustmentsPanel();if(key==='evltEnhance')renderEnhancePanel();return result;};wrapped.__evltV2=true;window.openPanel=wrapped;
+  }
+  const oldClosePanel=window.closePanel;
+  if(typeof oldClosePanel==='function'&&!oldClosePanel.__evltV2){const wrapped=function(){const result=oldClosePanel.apply(this,arguments);$('toolPanel')?.classList.remove('evlt-expanded-panel','evlt-chroma-compact-panel');document.querySelectorAll('#evltEnhancePanel video').forEach(v=>{try{v.pause();v.removeAttribute('src');v.load();}catch(e){}});return result;};wrapped.__evltV2=true;window.closePanel=wrapped;}
+
+  // Video timeline thumbnails are owned by the lazy, shared sequential decoder below.
+  // No per-tile <video> fallback is created: ten full-length decoders per clip would
+  // exceed the three-decoder budget on long sources.
+  const oldRenderOverlayLayers=window.renderOverlayLayers;
+  if(typeof oldRenderOverlayLayers==='function'&&!oldRenderOverlayLayers.__evltV2Filmstrip){
+    const wrapped=function(){const result=oldRenderOverlayLayers.apply(this,arguments);refreshToolVisibility();return result;};
+    wrapped.__evltV2Filmstrip=true;window.renderOverlayLayers=wrapped;
+  }
+  const oldAddAdminAsset=window.addAdminAssetToProject;
+  if(typeof oldAddAdminAsset==='function'&&!oldAddAdminAsset.__evltV2Filmstrip){
+    const wrapped=function(){const result=oldAddAdminAsset.apply(this,arguments);try{if(window.__evTimelineVideoThumbs)window.__evTimelineVideoThumbs.schedule();}catch(_e){}return result;};
+    wrapped.__evltV2Filmstrip=true;window.addAdminAssetToProject=wrapped;
+  }
+  const oldApplyBackground=window.applyBackground;
+  if(typeof oldApplyBackground==='function'&&!oldApplyBackground.__evltV2Filter){const wrapped=function(){const result=oldApplyBackground.apply(this,arguments);let bg=null;try{bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0):null;}catch(e){}if(bg&&!bg.__evltEnhanceUserSet&&Number(bg.enhanceAmount)===40)bg.enhanceAmount=0;const img=$('bgImgLayer');if(img)img.style.filter=bg?adjCss(bg.adjustments,bg.enhanceAmount||0):'none';return result;};wrapped.__evltV2Filter=true;window.applyBackground=wrapped;}
+  const oldRenderMedia=window.renderOverlayMedia;
+  if(typeof oldRenderMedia==='function'&&!oldRenderMedia.__evltV2Filter){const wrapped=function(){const result=oldRenderMedia.apply(this,arguments);try{overlays.forEach(ov=>{if(!ov)return;if(!ov.__evltEnhanceUserSet&&Number(ov.enhanceAmount)===40)ov.enhanceAmount=0;const el=overlayMediaEls[ov.id];if(el)el.style.filter=adjCss(ov.adjustments,ov.enhanceAmount||0);const cv=overlayChromaCanvases[ov.id];if(cv)cv.style.filter=adjCss(ov.adjustments,ov.enhanceAmount||0);});}catch(e){}return result;};wrapped.__evltV2Filter=true;window.renderOverlayMedia=wrapped;}
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evltV2Tools){const wrapped=function(){const result=oldSync.apply(this,arguments);refreshToolVisibility();return result;};wrapped.__evltV2Tools=true;window.syncBottomToolsMode=wrapped;}
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evltV2Tools){const wrapped=function(){const result=oldSelect.apply(this,arguments);refreshToolVisibility();return result;};wrapped.__evltV2Tools=true;window.selectClipForChrome=wrapped;}
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evltV2Tools){const wrapped=function(){const result=oldDeselect.apply(this,arguments);refreshToolVisibility();return result;};wrapped.__evltV2Tools=true;window.deselectAllClips=wrapped;}
+  function boot(){ensureToolbar();refreshToolVisibility();try{if(window.__evTimelineVideoThumbs)window.__evTimelineVideoThumbs.schedule();}catch(_e){}}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+
+<script id="ethvelle-v3-chroma-color-picker">
+(function(){
+  'use strict';
+  const presetColors=['#FFFFFF','#000000','#A3A3A3','#414141','#FFC5CF','#FA847C','#FF4E57','#FF174D','#D70D20','#FF7B24','#FFD43B','#B5E53B','#25C98A','#16D9D0','#13A7FF','#2F5CE8','#605DFF','#875BFA','#D946EF'];
+  let activeHex='#00FF00',pickerDraftHex=null,hue=120,saturation=100,lightness=50;
+  const $=id=>document.getElementById(id);
+  function safeHex(v){return /^#[0-9a-f]{6}$/i.test(String(v||''))?String(v).toUpperCase():'#00FF00';}
+  function toHex(h,s,l){s/=100;l/=100;const k=n=>(n+h/30)%12,a=s*Math.min(l,1-l),f=n=>{const c=k(n);return l-a*Math.max(-1,Math.min(c-3,Math.min(9-c,1)));};return '#'+[f(0),f(8),f(4)].map(v=>Math.round(v*255).toString(16).padStart(2,'0')).join('').toUpperCase();}
+  function toHsl(hex){const h=safeHex(hex).slice(1),r=parseInt(h.slice(0,2),16)/255,g=parseInt(h.slice(2,4),16)/255,b=parseInt(h.slice(4,6),16)/255,max=Math.max(r,g,b),min=Math.min(r,g,b);let hh=0,ss=0,ll=(max+min)/2,d=max-min;if(d){ss=d/(1-Math.abs(2*ll-1));switch(max){case r:hh=((g-b)/d)%6;break;case g:hh=(b-r)/d+2;break;default:hh=(r-g)/d+4;}hh*=60;if(hh<0)hh+=360;}return {h:hh,s:ss*100,l:ll*100};}
+  function getSavedColors(){try{const seen=new Set();return JSON.parse(localStorage.getItem('ethvelleCustomTextColors')||'[]').filter(c=>/^#[0-9a-f]{6}$/i.test(c)).map(c=>c.toUpperCase()).filter(c=>seen.has(c)?false:(seen.add(c),true)).slice(0,30);}catch(e){return [];}}
+  function persistNewColor(hex){const c=safeHex(hex);if(c==='#00FF00'||presetColors.includes(c))return;const saved=getSavedColors();if(saved.includes(c))return;try{localStorage.setItem('ethvelleCustomTextColors',JSON.stringify([c,...saved].slice(0,30)));}catch(e){}}
+  function getClip(){try{return typeof getSelectedVideoOverlay==='function'?getSelectedVideoOverlay():null;}catch(e){return null;}}
+  function ensureActiveChromaSwatch(hex){
+    const host=$('evltChromaPalette');if(!host)return null;const color=safeHex(hex);
+    let swatch=[...host.querySelectorAll('.evlt-chroma-swatch[data-color]')].find(b=>safeHex(b.dataset.color)===color);
+    if(!swatch){
+      swatch=document.createElement('button');swatch.type='button';swatch.className='evlt-chroma-swatch';swatch.dataset.color=color;
+      swatch.style.backgroundColor=color;swatch.title=color;swatch.setAttribute('aria-label',color);
+      swatch.addEventListener('click',()=>window.ethvelleSetChromaPaletteColor(color,swatch));
+      const custom=host.querySelector('.evlt-chroma-custom');host.insertBefore(swatch,custom||null);
+    }
+    host.querySelectorAll('.evlt-chroma-swatch').forEach(b=>b.classList.toggle('active',safeHex(b.dataset.color)===color));
+    return swatch;
+  }
+  function applyToClip(hex){
+    const clip=getClip();if(!clip)return;activeHex=safeHex(hex);persistNewColor(activeHex);window.updateChromaSetting('color',activeHex);
+    const c=$('evltChromaCurrent');if(c)c.style.background=activeHex;ensureActiveChromaSwatch(activeHex);
+  }
+  function renderPalette(){
+    const host=$('evltChromaPalette');if(!host)return;const clip=getClip(),current=safeHex(clip&&clip.chromaKey&&clip.chromaKey.color||'#00FF00');
+    persistNewColor(current);const colors=[...new Set([...getSavedColors(),'#00FF00',...presetColors])];
+    host.innerHTML=colors.map(c=>`<button type="button" class="evlt-chroma-swatch ${c===current?'active':''}" style="background:${c}" data-color="${c}" aria-label="${c}" title="${c}" onclick="window.ethvelleSetChromaPaletteColor('${c}',this)"></button>`).join('')+`<button type="button" class="evlt-chroma-custom" aria-label="Custom color" title="Custom color" onclick="window.openEthvelleChromaColorPicker()"></button>`;
+    const preview=$('evltChromaCurrent');if(preview)preview.style.background=current;ensureActiveChromaSwatch(current);
+  }
+  window.ethvelleSetChromaPaletteColor=function(hex,btn){applyToClip(hex);const host=$('evltChromaPalette');host?.querySelectorAll('.evlt-chroma-swatch').forEach(b=>b.classList.toggle('active',safeHex(b.dataset.color)===safeHex(hex)));};
+  window.renderChromaKeyPanel=function(){
+    const host=$('chromaPanelBody');if(!host)return;const clip=getClip();
+    if(!clip){host.innerHTML='<div class="chroma-controls"></div>';return;}
+    if(!clip.chromaKey)clip.chromaKey={enabled:false,color:'#00FF00',tolerance:75,softness:24};
+    const cfg=clip.chromaKey,tol=Math.max(10,Math.min(180,Number(cfg.tolerance)||75)),soft=Math.max(0,Math.min(100,Number.isFinite(Number(cfg.softness))?Number(cfg.softness):24));
+    host.innerHTML=`<div class="chroma-controls evlt-compact-controls">
+      <label class="chroma-enable-row evlt-chroma-enable-row"><span>Chroma Key</span><input class="evlt-chroma-check" type="checkbox" ${cfg.enabled?'checked':''} onchange="setChromaEnabled(this.checked)" aria-label="Enable chroma key"></label>
+      <div class="evlt-chroma-color-line"><div class="evlt-chroma-color-top"><label>Key color</label><span id="evltChromaCurrent" class="evlt-chroma-current" style="background:${safeHex(cfg.color)}"></span></div><div id="evltChromaPalette" class="evlt-chroma-palette"></div></div>
+      <div class="chroma-range evlt-chroma-range"><div class="chroma-range-top"><label for="chromaTolerance">Tolerance</label><output id="chromaToleranceValue">${tol}</output></div><input id="chromaTolerance" type="range" min="10" max="180" step="1" value="${tol}" oninput="updateChromaSetting('tolerance',this.value)"></div>
+      <div class="chroma-range evlt-chroma-range"><div class="chroma-range-top"><label for="chromaSoftness">Edge softness</label><output id="chromaSoftnessValue">${soft}</output></div><input id="chromaSoftness" type="range" min="0" max="100" step="1" value="${soft}" oninput="updateChromaSetting('softness',this.value)"></div>
+      <button type="button" class="chroma-reset-btn" onclick="resetChromaSettings()">Reset</button>
+    </div>`;
+    renderPalette();
+  };
+  function syncPickerBounds(){
+    const root=$('ethvelleChromaColorPicker');
+    if(!root||!root.classList.contains('active'))return;
+    root.style.removeProperty('left');root.style.removeProperty('top');root.style.removeProperty('width');root.style.removeProperty('height');root.style.removeProperty('right');root.style.removeProperty('bottom');
+    root.style.setProperty('--evcp-vh',(window.visualViewport?window.visualViewport.height:window.innerHeight)+'px');
+  }
+  window.addEventListener('resize',syncPickerBounds,{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',syncPickerBounds,{passive:true});
+  function renderPicker(){
+    let root=$('ethvelleChromaColorPicker');if(!root){root=document.createElement('div');root.id='ethvelleChromaColorPicker';root.className='evcp-root evlt-chroma-picker-overlay';document.body.appendChild(root);root.addEventListener('click',e=>{if(e.target===root)window.closeEthvelleChromaColorPicker();});}
+    root.classList.add('evlt-chroma-picker-overlay');
+    const current=safeHex(pickerDraftHex||activeHex),hsl=toHsl(current);pickerDraftHex=current;hue=hsl.h;saturation=hsl.s;lightness=hsl.l;
+    root.innerHTML=`<div class="evcp-sheet"><div class="evcp-grabber"></div><div class="evcp-head"><div><h3>Custom Color</h3></div><button type="button" class="evcp-close" aria-label="Close" onclick="window.closeEthvelleChromaColorPicker()">×</button></div><div class="evcp-main"><div id="evckWheel" class="evcp-wheel" role="slider" aria-label="Color wheel" tabindex="0" style="--picked-color:${current}"></div><div class="evcp-preview-row"><span id="evckPreview" class="evcp-preview-chip" style="background-color:${current}"></span><label for="evckHex">HEX</label><input id="evckHex" class="evcp-hex" value="${current}" maxlength="7" spellcheck="false" oninput="window.setEthvelleChromaPickerHex(this.value)"></div><div class="evcp-field"><label for="evckLight">Lightness <output id="evckLightVal">${Math.round(lightness)}%</output></label><input id="evckLight" type="range" min="5" max="95" value="${Math.round(lightness)}" oninput="window.setEthvelleChromaPickerLightness(this.value)"></div></div><button type="button" class="evcp-done" onclick="window.applyEthvelleChromaCustomColor()">Done</button></div>`;
+    root.classList.add('active');
+    syncPickerBounds();requestAnimationFrame(()=>requestAnimationFrame(syncPickerBounds));
+    const wheel=$('evckWheel');let dragging=false;
+    function setWheel(e){const r=wheel.getBoundingClientRect(),dx=e.clientX-(r.left+r.width/2),dy=e.clientY-(r.top+r.height/2),radius=Math.max(1,Math.min(r.width,r.height)/2),distance=Math.min(radius,Math.hypot(dx,dy));hue=(Math.atan2(dy,dx)*180/Math.PI+90+360)%360;saturation=Math.max(0,Math.min(100,distance/radius*100));drawPickerColor();}
+    wheel.onpointerdown=e=>{dragging=true;wheel.setPointerCapture&&wheel.setPointerCapture(e.pointerId);setWheel(e);e.preventDefault();};wheel.onpointermove=e=>{if(dragging)setWheel(e);};wheel.onpointerup=wheel.onpointercancel=()=>{dragging=false;};wheel.onkeydown=e=>{if(e.key==='ArrowRight')hue=(hue+4)%360;else if(e.key==='ArrowLeft')hue=(hue+356)%360;else return;drawPickerColor();};
+    drawPickerColor();
+  }
+  function drawPickerColor(){pickerDraftHex=toHex(hue,saturation,lightness);const wheel=$('evckWheel'),hex=$('evckHex'),prev=$('evckPreview'),lv=$('evckLightVal');if(wheel){const ang=(hue-90)*Math.PI/180,rad=42*saturation/100;wheel.style.setProperty('--picked-color',pickerDraftHex);wheel.style.setProperty('--picker-x',(50+rad*Math.cos(ang))+'%');wheel.style.setProperty('--picker-y',(50+rad*Math.sin(ang))+'%');}if(hex&&hex!==document.activeElement)hex.value=pickerDraftHex;if(prev)prev.style.backgroundColor=pickerDraftHex;if(lv)lv.textContent=Math.round(lightness)+'%';}
+  window.openEthvelleChromaColorPicker=function(){const clip=getClip();if(!clip)return;pickerDraftHex=safeHex(clip.chromaKey&&clip.chromaKey.color||'#00FF00');renderPicker();};
+  window.closeEthvelleChromaColorPicker=function(){const root=$('ethvelleChromaColorPicker');if(root)root.classList.remove('active');pickerDraftHex=null;};
+  window.setEthvelleChromaPickerHex=function(v){if(!/^#[0-9a-f]{6}$/i.test(String(v||'')))return;pickerDraftHex=safeHex(v);const h=toHsl(pickerDraftHex);hue=h.h;saturation=h.s;lightness=h.l;drawPickerColor();};
+  window.setEthvelleChromaPickerLightness=function(v){lightness=Math.max(5,Math.min(95,Number(v)||50));drawPickerColor();};
+  window.applyEthvelleChromaCustomColor=function(){const color=safeHex(pickerDraftHex||activeHex);if(!getClip())return;applyToClip(color);activeHex=color;try{persistNewColor(color);}catch(e){}window.closeEthvelleChromaColorPicker();renderPalette();};
+  window.saveEthvelleChromaCustomColor=function(){let arr=getSavedColors();if(!arr.includes(activeHex))arr=[activeHex,...arr].slice(0,30);try{localStorage.setItem('ethvelleCustomTextColors',JSON.stringify(arr));}catch(e){}renderPalette();};
+  // Rebuild the swatch row after choosing Reset and keep panel values in sync.
+  const oldReset=window.resetChromaSettings;
+  if(typeof oldReset==='function'&&!oldReset.__evltV3){const wrapped=function(){const r=oldReset.apply(this,arguments);renderPalette();return r;};wrapped.__evltV3=true;window.resetChromaSettings=wrapped;}
+  const oldOpen=window.openPanel;
+  if(typeof oldOpen==='function'&&!oldOpen.__evltChromaPalette){const wrapped=function(key){const r=oldOpen.apply(this,arguments);if(key==='chroma')window.renderChromaKeyPanel();return r;};wrapped.__evltChromaPalette=true;window.openPanel=wrapped;}
+})();
+</script>
+
+<style id="ethvelle-v5-single-toolbar-and-enhance-compare">
+  /* Bottom-row visibility has one owner: the idempotent V80 stabilizer. Keep the
+     clip row hidden until that controller applies the selected-state display. */
+  #evltAfterLayer{clip-path:inset(0 0 0 50%);}
+</style>
+<script id="ethvelle-v5-auto-apply-enhance-watermark">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const neutralAdjustments={brightness:100,contrast:100,saturation:100,hue:0,blur:0,grayscale:0,sepia:0};
+  let pendingEnhancement=null,pendingPreviewURL=null;
+  const clamp=(v,min,max)=>{v=Number(v);return Number.isFinite(v)?Math.max(min,Math.min(max,v)):min;};
+  const unwrap=src=>{let s=String(src||'').trim();const m=s.match(/^url\((.*)\)$/i);return m?m[1].trim().replace(/^['"]|['"]$/g,''):s;};
+  function liveTarget(){
+    const id=String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+    const b=(typeof backgrounds!=='undefined'&&Array.isArray(backgrounds))?backgrounds.find(x=>String(x.id)===id):null;
+    if(b)return {kind:'background',model:b,type:'image',src:b.__evltRuntimeEnhancedSrc||unwrap(b.src)};
+    const ov=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays.find(x=>String(x.id)===id):null;
+    if(ov&&['video','image'].includes(ov.type))return {kind:'overlay',model:ov,type:ov.type,src:ov.__evltRuntimeEnhancedSrc||unwrap(ov.src)};
+    if(!id){let active=null;try{active=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0)):null;}catch(e){}if(active)return {kind:'background',model:active,type:'image',src:active.__evltRuntimeEnhancedSrc||unwrap(active.src)};}
+    return null;
+  }
+  function resolvePendingTarget(pending){
+    const saved=pending&&pending.target;if(!saved||!saved.model||saved.model.id==null)return null;
+    const id=String(saved.model.id);
+    const list=saved.kind==='overlay'?(Array.isArray(overlays)?overlays:[]):saved.kind==='background'?(Array.isArray(backgrounds)?backgrounds:[]):[];
+    const model=list.find(item=>item&&String(item.id)===id&&(saved.kind!=='overlay'||item.type===saved.type));
+    if(!model)return null;
+    return {...saved,model,src:model.__evltRuntimeEnhancedSrc||unwrap(model.src)};
+  }
+  function qualityLabel(q){return Number(q)>=2160?'ULTRA HD':Number(q)>=1440?'QHD':'FULL HD';}
+  function filterFor(model,amount){
+    try{if(typeof window.ethvelleAdjustmentFilter==='function')return window.ethvelleAdjustmentFilter(model&&model.adjustments,0);}catch(e){}
+    return 'none';
+  }
+  function roundedRect(ctx,x,y,w,h,r){
+    r=Math.min(r,w/2,h/2);ctx.beginPath();ctx.moveTo(x+r,y);ctx.arcTo(x+w,y,x+w,y+h,r);ctx.arcTo(x+w,y+h,x,y+h,r);ctx.arcTo(x,y+h,x,y,r);ctx.arcTo(x,y,x+w,y,r);ctx.closePath();
+  }
+  function drawQualityWatermark(ctx,w,h,label){
+    const scale=Math.max(.7,Math.min(w,h)/720),font=Math.max(15,Math.round(17*scale)),padX=Math.round(font*.62),padY=Math.round(font*.38),margin=Math.round(font*.65),radius=Math.round(font*.32);
+    ctx.save();ctx.font=`800 ${font}px Inter, Arial, sans-serif`;ctx.textBaseline='middle';
+    const tw=ctx.measureText(label).width,bw=Math.ceil(tw+padX*2),bh=Math.ceil(font+padY*2),x=w-margin-bw,y=h-margin-bh;
+    roundedRect(ctx,x,y,bw,bh,radius);ctx.fillStyle='rgba(8,10,16,.68)';ctx.fill();ctx.strokeStyle='rgba(255,255,255,.72)';ctx.lineWidth=Math.max(1,scale);ctx.stroke();
+    ctx.fillStyle='#FFFFFF';ctx.fillText(label,x+padX,y+bh/2);ctx.restore();
+  }
+  let evltEnhancedDbPromise=null;
+  function openEnhancedDb(){
+    if(!('indexedDB' in window))return Promise.reject(new Error('IndexedDB unavailable'));
+    if(!evltEnhancedDbPromise)evltEnhancedDbPromise=new Promise((resolve,reject)=>{const req=indexedDB.open('ethvelle-enhanced-media-v1',1);req.onupgradeneeded=()=>{const db=req.result;if(!db.objectStoreNames.contains('assets'))db.createObjectStore('assets');};req.onsuccess=()=>resolve(req.result);req.onerror=()=>reject(req.error||new Error('IndexedDB open failed'));});
+    return evltEnhancedDbPromise;
+  }
+  function mediaStamp(src){const s=String(src||'');let h=2166136261;const stride=Math.max(1,Math.floor(s.length/1600));for(let i=0;i<s.length;i+=stride){h^=s.charCodeAt(i);h=Math.imul(h,16777619);}return s.length.toString(36)+'-'+(h>>>0).toString(36);}
+  async function storeEnhancedMedia(target,blob,quality){
+    const projectId=typeof currentProject!=='undefined'&&currentProject&&currentProject.id!=null?String(currentProject.id):'draft';
+    const key=[projectId,target.kind,String(target.model.id||'media'),'enhanced'].join(':');
+    const stamp=mediaStamp(target.model.deviceMediaKey?'ethvelle-device-media:'+target.model.deviceMediaKey:target.model.src);
+    try{const db=await openEnhancedDb();await new Promise((resolve,reject)=>{const tx=db.transaction('assets','readwrite');tx.objectStore('assets').put({blob,quality:Number(quality),stamp,kind:target.kind,type:target.type},key);tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error||new Error('Enhanced media save failed'));tx.onabort=()=>reject(tx.error||new Error('Enhanced media save was cancelled'));});return {key,stamp,quality:Number(quality)};}catch(e){console.warn('Ethvelle: enhanced output is session-only because local media storage is unavailable.',e);return null;}
+  }
+  async function loadEnhancedMedia(key){const db=await openEnhancedDb();return new Promise((resolve,reject)=>{const tx=db.transaction('assets','readonly'),req=tx.objectStore('assets').get(key);req.onsuccess=()=>resolve(req.result||null);req.onerror=()=>reject(req.error||new Error('Enhanced media load failed'));});}
+  function defineRuntimeUrl(model,url,quality){const old=model.__evltRuntimeEnhancedSrc;if(old&&old!==url&&String(old).startsWith('blob:')){try{URL.revokeObjectURL(old);}catch(e){}}Object.defineProperty(model,'__evltRuntimeEnhancedSrc',{value:url,writable:true,configurable:true,enumerable:false});Object.defineProperty(model,'__evltRuntimeEnhancedQuality',{value:qualityLabel(quality),writable:true,configurable:true,enumerable:false});}
+  // V285: MediaRecorder writes WebM/Matroska without a Duration or a seek index (Cues). Chrome then reports
+  // duration=Infinity and the app's "prime" seek (currentTime=1e7) can wedge the <video> in a never-ending seek:
+  // the clip stays hidden / frozen while its audio is fine. This rewrites only the container header
+  // (adds Duration + Cues, gives Segment/Cluster real sizes) and reuses the encoded frames untouched.
+  // Any unexpected structure returns null so the caller keeps the original blob.
+  function evltRemuxSeekable(d){
+    const L1=[0x1F43B675,0x1C53BB6B,0x1549A966,0x1654AE6B,0x114D9B74,0x1254C367,0x1043A770,0x1941A469];
+    const rd=(p,marker)=>{
+      if(p>=d.length)throw new Error('eof');
+      const b=d[p];let n=1,m=0x80;while(n<=8&&!(b&m)){n++;m>>=1;}
+      if(n>8||p+n>d.length)throw new Error('vint');
+      let v=marker?b:(b&(m-1));let all=(b&(m-1))===(m-1);
+      for(let i=1;i<n;i++){v=v*256+d[p+i];if(d[p+i]!==0xFF)all=false;}
+      return {n:n,v:v,unk:!marker&&all};
+    };
+    const uint=(s,e)=>{let v=0;for(let i=s;i<e;i++)v=v*256+d[i];return v;};
+    const vsize=n=>n<127?1:n<16383?2:n<2097151?3:n<268435455?4:5;
+    const wsize=(n,len)=>{const a=new Uint8Array(len);let v=n;for(let i=len-1;i>=0;i--){a[i]=v%256;v=Math.floor(v/256);}a[0]|=(0x80>>(len-1));return a;};
+    const concat=arrs=>{let t=0;arrs.forEach(a=>t+=a.length);const o=new Uint8Array(t);let q=0;arrs.forEach(a=>{o.set(a,q);q+=a.length;});return o;};
+    const idBytes=id=>{const a=[];let v=id;while(v>0){a.unshift(v%256);v=Math.floor(v/256);}return new Uint8Array(a);};
+    const el=(id,payload)=>concat([idBytes(id),wsize(payload.length,vsize(payload.length)),payload]);
+    // EBML header
+    const h=rd(0,true);if(h.v!==0x1A45DFA3)return null;
+    const hs=rd(h.n,false);const ebmlEnd=h.n+hs.n+hs.v;
+    const sg=rd(ebmlEnd,true);if(sg.v!==0x18538067)return null;
+    const sgs=rd(ebmlEnd+sg.n,false);
+    const S=ebmlEnd+sg.n+sgs.n;const segEnd=sgs.unk?d.length:Math.min(d.length,S+sgs.v);
+    let info=null,tracks=null;const others=[];const clusters=[];
+    let pos=S;
+    while(pos<segEnd){
+      const id=rd(pos,true),sz=rd(pos+id.n,false);const ds=pos+id.n+sz.n;
+      if(id.v===0x1F43B675){
+        let end;
+        if(!sz.unk)end=ds+sz.v;
+        else{let p=ds;while(p<segEnd){const c=rd(p,true);if(L1.indexOf(c.v)>=0)break;const cs=rd(p+c.n,false);if(cs.unk)throw new Error('unk child');p+=c.n+cs.n+cs.v;}end=p;}
+        if(end>segEnd)end=segEnd;
+        clusters.push({hs:pos,ds:ds,end:end,unk:sz.unk,hdrLen:id.n+sz.n,szLen:sz.n});
+        pos=end;continue;
+      }
+      if(sz.unk)throw new Error('unk l1');
+      const end=ds+sz.v;if(end>segEnd)return null;
+      if(id.v===0x1C53BB6B)return null; // already has Cues
+      if(id.v===0x1549A966)info={ds:ds,end:end};
+      else if(id.v===0x1654AE6B)tracks={ds:ds,end:end,hs:pos};
+      else if(id.v!==0x114D9B74&&id.v!==0xEC)others.push({hs:pos,end:end});
+      pos=end;
+    }
+    if(!info||!tracks||!clusters.length)return null;
+    // Info
+    let scale=1000000;const infoKids=[];
+    {let p=info.ds;while(p<info.end){const c=rd(p,true),cs=rd(p+c.n,false);const cds=p+c.n+cs.n,cend=cds+cs.v;
+      if(c.v===0x2AD7B1)scale=uint(cds,cend)||1000000;
+      if(c.v!==0x4489&&c.v!==0xEC)infoKids.push(d.subarray(p,cend));
+      p=cend;}}
+    // Tracks -> video track number
+    let vtrack=0;
+    {let p=tracks.ds;while(p<tracks.end){const c=rd(p,true),cs=rd(p+c.n,false);const cds=p+c.n+cs.n,cend=cds+cs.v;
+      if(c.v===0xAE){let num=0,type=0,q=cds;while(q<cend){const k=rd(q,true),ks=rd(q+k.n,false);const kds=q+k.n+ks.n,kend=kds+ks.v;if(k.v===0xD7)num=uint(kds,kend);else if(k.v===0x83)type=uint(kds,kend);q=kend;}
+        if(type===1&&!vtrack)vtrack=num;}
+      p=cend;}}
+    if(!vtrack)return null;
+    // Clusters: timecode + blocks
+    const cues=[];let maxTs=0,vFirst=-1,vLast=-1,vCount=0;
+    clusters.forEach((cl,ci)=>{
+      let p=cl.ds,tc=0;
+      while(p<cl.end){const c=rd(p,true),cs=rd(p+c.n,false);const cds=p+c.n+cs.n,cend=cds+cs.v;
+        if(c.v===0xE7)tc=uint(cds,cend);
+        else if(c.v===0xA3||c.v===0xA0){
+          let bs=cds,isGroup=c.v===0xA0;
+          if(isGroup){let q=cds;bs=-1;while(q<cend){const k=rd(q,true),ks=rd(q+k.n,false);const kds=q+k.n+ks.n;if(k.v===0xA1){bs=kds;break;}q=kds+ks.v;}}
+          if(bs>=0){const tr=rd(bs,false);let rel=d[bs+tr.n]*256+d[bs+tr.n+1];if(rel>=32768)rel-=65536;const flags=d[bs+tr.n+2];const ts=tc+rel;
+            if(ts>maxTs)maxTs=ts;
+            if(tr.v===vtrack){vCount++;if(vFirst<0||ts<vFirst)vFirst=ts;if(ts>vLast)vLast=ts;
+              if(!isGroup&&(flags&0x80))cues.push({t:ts,ci:ci});}}
+        }
+        p=cend;}
+    });
+    if(!cues.length)clusters.forEach((cl,ci)=>{let p=cl.ds;while(p<cl.end){const c=rd(p,true),cs=rd(p+c.n,false);if(c.v===0xE7){cues.push({t:uint(p+c.n+cs.n,p+c.n+cs.n+cs.v),ci:ci});break;}p+=c.n+cs.n+cs.v;}});
+    cues.sort((a,b)=>a.t-b.t);
+    const frameDur=vCount>1?Math.round((vLast-vFirst)/(vCount-1)):Math.round(33*1000000/scale);
+    const durUnits=Math.max(maxTs+Math.round(20*1000000/scale),vLast+frameDur);
+    // Duration element (float64)
+    const dur=new Uint8Array(8);new DataView(dur.buffer).setFloat64(0,durUnits,false);
+    infoKids.push(el(0x4489,dur));
+    const infoEl=el(0x1549A966,concat(infoKids));
+    const tracksEl=d.subarray(tracks.hs,tracks.end);
+    const otherEls=others.map(o=>d.subarray(o.hs,o.end));
+    // Cues (fixed-width fields => size known before offsets)
+    const cueLen=19,cuesContent=cues.length*cueLen;
+    const cuesHdr=4+vsize(cuesContent);
+    let pre=infoEl.length+tracksEl.length+cuesHdr+cuesContent;otherEls.forEach(o=>pre+=o.length);
+    // Cluster layout
+    const offs=[];let cur=pre;
+    clusters.forEach(cl=>{offs.push(cur);cur+=cl.hdrLen+(cl.end-cl.ds);});
+    const segSize=cur;
+    const cueBytes=new Uint8Array(cuesContent);let q=0;
+    cues.forEach(c=>{
+      cueBytes[q++]=0xBB;cueBytes[q++]=0x80|17;
+      cueBytes[q++]=0xB3;cueBytes[q++]=0x84;cueBytes[q++]=(c.t>>>24)&255;cueBytes[q++]=(c.t>>>16)&255;cueBytes[q++]=(c.t>>>8)&255;cueBytes[q++]=c.t&255;
+      cueBytes[q++]=0xB7;cueBytes[q++]=0x80|9;
+      cueBytes[q++]=0xF7;cueBytes[q++]=0x81;cueBytes[q++]=vtrack&255;
+      const o=offs[c.ci];
+      cueBytes[q++]=0xF1;cueBytes[q++]=0x84;cueBytes[q++]=(o>>>24)&255;cueBytes[q++]=(o>>>16)&255;cueBytes[q++]=(o>>>8)&255;cueBytes[q++]=o&255;
+    });
+    const cuesEl=concat([idBytes(0x1C53BB6B),wsize(cuesContent,vsize(cuesContent)),cueBytes]);
+    // Output parts: small typed arrays + original byte ranges (copied by the Blob constructor, not by us)
+    const parts=[d.subarray(0,ebmlEnd),concat([idBytes(0x18538067),wsize(segSize,8)]),infoEl,tracksEl].concat(otherEls).concat([cuesEl]);
+    const ranges=[];
+    clusters.forEach(cl=>{
+      const hdr=concat([d.subarray(cl.hs,cl.hs+(cl.hdrLen-cl.szLen)),wsize(cl.end-cl.ds,8)]);
+      // header keeps its 12-byte layout only when the original size field was 8 bytes; otherwise grow it and rebase offsets
+      ranges.push({hdr:hdr,from:cl.ds,to:cl.end});
+    });
+    return {parts:parts,ranges:ranges,segSize:segSize,expectedHdr:clusters.map(cl=>cl.hdrLen)};
+  }
+  async function evltMakeRecordedMediaSeekable(blob){
+    try{
+      if(!blob||!blob.size||blob.size>1.5e9)return blob;
+      const d=new Uint8Array(await blob.arrayBuffer());
+      const r=evltRemuxSeekable(d);
+      if(!r)return blob;
+      // Cluster headers were rewritten with an 8-byte size field; verify the layout used for the Cues is what we write.
+      let okLayout=true;r.ranges.forEach((rg,i)=>{if(rg.hdr.length!==r.expectedHdr[i])okLayout=false;});
+      if(!okLayout)return blob;
+      const out=[];r.parts.forEach(p=>out.push(p));
+      r.ranges.forEach(rg=>{out.push(rg.hdr);out.push(blob.slice(rg.from,rg.to));});
+      const fixed=new Blob(out,{type:blob.type});
+      if(!fixed.size||fixed.size<blob.size*0.9||fixed.size>blob.size+4096+r.ranges.length*16)return blob;
+      return fixed;
+    }catch(_e){return blob;}
+  }
+  window.__evltMakeRecordedMediaSeekable=evltMakeRecordedMediaSeekable;
+  window.evEffectiveVideoSrc=ov=>String((ov&&ov.__evltRuntimeEnhancedSrc)||(ov&&ov.src)||'');
+  window.evPrimeEnhancedVideo=function(el,url){
+    const source=String(url||'');
+    if(!el||el.tagName!=='VIDEO'||!source||el.src!==source||el.dataset.evEnhPrimed===source)return;
+    const clipId=String(el.dataset.evV72OverlayId||'');
+    const model=(typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays:[]).find(item=>item&&String(item.id)===clipId)||null;
+    if(!model||model.__evltRuntimeEnhancedSrc!==source||el.__evEnhPrimeInProgress===source)return;
+    let playing=false;try{playing=typeof isPlaying!=='undefined'&&!!isPlaying;}catch(_e){}
+    if(playing||window.__ethvelleTimelineScrubbing){
+      if(el.__evEnhPrimeRetryUrl===source||el.__evEnhPrimeRetryUsed===source)return;
+      const retryOnScrub=!!window.__ethvelleTimelineScrubbing;
+      const retry=()=>{
+        if(retryOnScrub)window.removeEventListener('ethvelleTimelineScrubReleased',retry);else el.removeEventListener('pause',retry);
+        if(el.__evEnhPrimeRetry===retry){delete el.__evEnhPrimeRetry;delete el.__evEnhPrimeRetryUrl;}
+        el.__evEnhPrimeRetryUsed=source;
+        window.evPrimeEnhancedVideo(el,source);
+      };
+      el.__evEnhPrimeRetryUrl=source;el.__evEnhPrimeRetry=retry;
+      if(retryOnScrub)window.addEventListener('ethvelleTimelineScrubReleased',retry,{once:true});else el.addEventListener('pause',retry,{once:true});
+      return;
+    }
+    if(el.readyState<1){
+      if(el.__evEnhPrimeMetadataWaitUrl!==source){
+        el.__evEnhPrimeMetadataWaitUrl=source;
+        el.addEventListener('loadedmetadata',function(){if(el.__evEnhPrimeMetadataWaitUrl===source)delete el.__evEnhPrimeMetadataWaitUrl;window.evPrimeEnhancedVideo(el,source);},{once:true});
+      }
+      return;
+    }
+    el.__evEnhPrimeInProgress=source;
+    (async function(){
+      const t0=Number.isFinite(Number(el.currentTime))?Number(el.currentTime):0;
+      const priorVisibility=el.style.visibility,priorMuted=el.muted;
+      const stillCurrent=()=>el.src===source&&model.__evltRuntimeEnhancedSrc===source;
+      try{
+        el.muted=true;el.style.visibility='hidden';
+        if(!stillCurrent())return;
+        await new Promise(resolve=>{
+          let settled=false,guard=0;
+          const finish=()=>{if(settled)return;settled=true;el.removeEventListener('durationchange',onDuration);el.removeEventListener('seeked',finish);clearTimeout(guard);resolve();};
+          const onDuration=()=>{if(Number.isFinite(el.duration)&&el.duration>0)finish();};
+          el.addEventListener('durationchange',onDuration);
+          el.addEventListener('seeked',finish,{once:true});
+          guard=setTimeout(finish,2500);
+          try{el.currentTime=1e7;}catch(_e){finish();}
+        });
+        if(!stillCurrent())return;
+        await new Promise(resolve=>{
+          let settled=false,guard=0;
+          const finish=()=>{if(settled)return;settled=true;el.removeEventListener('seeked',finish);clearTimeout(guard);resolve();};
+          el.addEventListener('seeked',finish,{once:true});
+          guard=setTimeout(finish,1500);
+          try{el.currentTime=t0;}catch(_e){finish();}
+        });
+      }catch(_e){}
+      finally{
+        try{el.muted=priorMuted;}catch(_e){}
+        try{el.style.visibility=priorVisibility;}catch(_e){}
+        const primed=stillCurrent();
+        if(primed)el.dataset.evEnhPrimed=source;
+        if(el.__evEnhPrimeInProgress===source)delete el.__evEnhPrimeInProgress;
+        if(primed){try{window.requestAnimationFrame(()=>{if(stillCurrent()&&typeof window.renderFrame==='function')window.renderFrame();});}catch(_e){}}
+      }
+    })();
+  };
+  function evNotifyEnhancedPrimeScrubRelease(){
+    if(!window.__ethvelleTimelineScrubbing){try{window.dispatchEvent(new Event('ethvelleTimelineScrubReleased'));}catch(_e){}}
+  }
+  const priorEnhancedPrimeFlush=window.flushTimelineScrub;
+  if(typeof priorEnhancedPrimeFlush==='function'&&!priorEnhancedPrimeFlush.__evEnhancedPrimeRelease){
+    const wrappedEnhancedPrimeFlush=function(){const result=priorEnhancedPrimeFlush.apply(this,arguments);evNotifyEnhancedPrimeScrubRelease();return result;};
+    wrappedEnhancedPrimeFlush.__evEnhancedPrimeRelease=true;window.flushTimelineScrub=wrappedEnhancedPrimeFlush;
+  }
+  window.addEventListener('pointerup',evNotifyEnhancedPrimeScrubRelease,{passive:true});
+  window.addEventListener('pointercancel',evNotifyEnhancedPrimeScrubRelease,{passive:true});
+  function setRuntimeOutput(target,blob,quality,assetInfo){
+    const url=URL.createObjectURL(blob),model=target.model;defineRuntimeUrl(model,url,quality);
+    if(assetInfo){model.enhancedAssetKey=assetInfo.key;model.enhancedAssetQuality=assetInfo.quality;model.enhancedBaseStamp=assetInfo.stamp;model.adjustments={...neutralAdjustments};model.enhanceAmount=0;model.__evltEnhanceUserSet=true;}
+    if(target.kind==='overlay'){

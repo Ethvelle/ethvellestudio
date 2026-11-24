@@ -1,0 +1,1000 @@
+    const wideCandidates = sorted.map(b=>{
+      const bw=b.x1-b.x0+1, bh=b.y1-b.y0+1;
+      return { b, bw, bh, aspect:bw/Math.max(1,bh) };
+    }).filter(c=>c.bw > c.bh*1.55 && c.bh >= h*0.07)
+      .sort((a,b)=>b.aspect-a.aspect);
+    for(const c of wideCandidates){
+      const currentMissing = 27-sorted.length;
+      if(currentMissing<=0) break;
+      const guess = Math.max(2, Math.min(4, Math.round(c.bw/(c.bh*0.72))));
+      // Do not over-count: the split must explain exactly the remaining missing items.
+      if(guess-1 !== currentMissing) continue;
+      const parts=[];
+      for(let j=0;j<guess;j++){
+        const x0=Math.floor(c.b.x0+j*c.bw/guess);
+        const x1=j===guess-1?c.b.x1:Math.floor(c.b.x0+(j+1)*c.bw/guess)-1;
+        if(x1<x0) continue;
+        parts.push({...c.b, x0, x1, cropClipX0:x0, cropClipX1:x1, n:c.b.n/guess, recoveredSplit:true});
+      }
+      if(parts.length===guess){
+        sorted=sorted.flatMap(b=>b.id===c.b.id?parts:[b]);
+      }
+    }
+    nParts=sorted.length;
+  }
+  // New humanoid uploads use the anatomy-position 14-part layout (with legacy 12/27 formats kept
+  // for compatibility). New animal and bird uploads use the corresponding species-specific 14-part layout.
+  const type = modelType || 'humanoid';
+  let layout, COLS, layoutMode = 'legacy27', ordered = null, dressOut = false;
+  const top = sorted.slice(0, nParts);
+  if(isWingedHumanoidType(type) && nParts===16){
+    layout=SHEET_KEYS_WINGED_HUMANOID_16;
+    ordered=sheetOrderWingedHumanoid16(top,w,h);
+    if(ordered)layoutMode='winged16';
+    else return {error:'Could not recognise the 16-part '+twoSheetTypeName(type)+' sheet. Keep the standard 14 humanoid body parts and add only two separate, balanced back wings at shoulder-blade height.',detectedRegions:nParts};
+  }
+  else if(type === 'humanoid' && dressFlag){
+    const need = beastFlag ? 15 : 14;
+    if(nParts !== need) return { error:'Found '+nParts+' separate regions. A girl saree / dress base sheet needs exactly '+need+' isolated pieces: head, ONE complete garment body'+(beastFlag?', one tail':'')+', two upper arms, two forearms, two hands, two thighs, two shins and two feet, each with a clear transparent gap. Copy the girl base-sheet prompt and make the sheet again.', detectedRegions:nParts };
+    layout = beastFlag ? SHEET_KEYS_BEAST_15 : SHEET_KEYS_14;
+    ordered = sheetOrderDressAnatomy(top, w, h, !!beastFlag);
+    if(!ordered) return { error:'Could not read the girl saree / dress layout. Use the girl prompt: head on top, the tall one-piece garment body in the centre, a leg column (thigh, shin, foot) on each side of it and an arm column (upper arm, forearm, hand) at each outer edge'+(beastFlag?', plus the tail under the body':'')+'.', detectedRegions:nParts };
+    layoutMode = beastFlag ? 'beast15' : 'anatomy14'; dressOut = true;
+  }
+  else if(isMythicModelType(type) && nParts >= 9 && nParts <= 11){
+    // v347: read by body position (centre column = head, body, tail pieces; left/right columns = arm pieces). A tail drawn in
+    // 1 or 2 pieces (9 or 10 sheet pieces) is sliced into the three rig segments. Legacy 4x3 grid sheets (11 pieces) still work.
+    layout = SHEET_KEYS_MYTHIC_BASE; COLS = 4; layoutMode = 'mythic11';
+    ordered = sheetOrderMythicAnatomy(top, w, h);
+    if(!ordered && !(nParts === 11 && sheetLooksLikeRegularPartGrid(top,w,h))){
+      return { error:'Found '+nParts+' pieces but could not match them to the '+twoSheetTypeName(type)+' layout. Use the '+twoSheetTypeName(type)+' prompt: the head and body in the centre, the three tail pieces stacked under the body, and the left and right arms (upper arm, forearm, hand from top to bottom) in the outer columns, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if(type === 'humanoid' && nParts === 12){
+    layout = SHEET_KEYS_12;
+    const isGrid = sheetLooksLikeRegularPartGrid(top,w,h);
+    // Only run the anatomy/merged-region heuristics on a genuine standing-character layout.
+    // A grid with 12 components must keep its row-major part order.
+    const recovered14 = !isGrid ? sheetRecoverAnatomy14From12(top, w, h, m) : null;
+    if(recovered14){ layout = SHEET_KEYS_14; ordered = recovered14; layoutMode = 'anatomy14'; }
+    else {
+      const strictAnatomy = !isGrid && sheetIsAnatomy12(top, w, h) ? sheetOrderAnatomy12(top, w, h) : null;
+      const anatomy = !isGrid ? (strictAnatomy || sheetOrderAnatomy12ByPosition(top,w,h)) : null;
+      if(anatomy){ ordered = anatomy; layoutMode = 'anatomy12'; }
+      else { COLS = 6; layoutMode = 'legacy12'; }
+    }
+  }else if(type === 'humanoid' && nParts === 14){
+    layout = SHEET_KEYS_14;
+    const isGrid = sheetLooksLikeRegularPartGrid(top,w,h);
+    const strictAnatomy = !isGrid ? sheetOrderAnatomy14(top, w, h) : null;
+    const anatomy = !isGrid ? (strictAnatomy || sheetOrderAnatomy14ByPosition(top,w,h)) : null;
+    if(anatomy){ ordered = anatomy; layoutMode = 'anatomy14'; }
+    else { COLS = 4; layoutMode = 'base14'; }
+  }
+  else if(type === 'humanoid' && beastFlag && nParts === 15){
+    layout = SHEET_KEYS_BEAST_15;
+    ordered = sheetOrderBeastAnatomy15(top, w, h);
+    if(ordered) layoutMode = 'beast15';
+    else return { error:'Could not recognise the 15-piece beast-man layout. Use the beast-man prompt: head at the top centre, the jacket body below it, two upper arms at the sides, forearms and hands, thighs, shins and shoes, plus ONE separate tail piece in an empty area, all separated by transparent gaps.', detectedRegions:nParts };
+  }
+  else if(type === 'bird' && nParts === 7){
+    layout = SHEET_KEYS_BIRD_7; COLS = 4; layoutMode = 'bird7';
+  }
+  else if(type === 'bird' && nParts === 13){
+    layout = SHEET_KEYS_BIRD_13;
+    ordered = sheetOrderBirdAnatomy13(top, w, h);
+    if(ordered) layoutMode = 'bird13';
+    else {
+      return { error:'Could not recognise the 13-piece bird layout. Use the bird prompt: head and wing-less body in the centre, one separate tail at the rear/left, four leg pieces on the left, six wing pieces on the right, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if((type === 'animal' || type === 'bird') && nParts === 15){
+    layout = SHEET_KEYS_SPECIES_15;
+    ordered = sheetOrderSpeciesAnatomy15(top, w, h, type);
+    if(ordered) layoutMode = 'species15';
+    else {
+      return { error:'Could not recognise the 15-piece '+type+' anatomy layout. Use the matching prompt: head/front at the right, horizontal body in the centre, one separate tail at the rear/left, six front-leg/wing pieces and six hind-leg/foot pieces, all separated by transparent gaps.', detectedRegions:nParts };
+    }
+  }
+  else if((type === 'animal' || type === 'bird') && nParts === 14){
+    layout = SHEET_KEYS_14;
+    ordered = sheetOrderSpeciesAnatomy14(top, w, h, type);
+    if(ordered) layoutMode = 'species14';
+    else {
+      return { error:'Could not recognise the 14-piece legacy '+type+' anatomy layout. Existing 14-piece uploads are supported; new sheets should use the 15-piece prompt with a separate tail.', detectedRegions:nParts };
+    }
+  }
+  else if(type === 'bird-variants' && nParts === 7){
+    layout = SHEET_KEYS_BIRD_VARIANTS_7; COLS = 3; layoutMode = 'birdVariants7';
+  }
+  else if(type === 'bird-variants' && nParts === 6){
+    layout = SHEET_KEYS_BIRD_VARIANTS_6; COLS = 3; layoutMode = 'birdVariants6';
+  }
+  else if(type === 'humanoid-variants' && nParts === 19){
+    layout = SHEET_KEYS_HUMANOID_VARIANTS_19; COLS = 4; layoutMode = 'humanoidVariants19';
+  }
+  else if(type === 'humanoid-variants' && nParts === 17){
+    layout = SHEET_KEYS_HUMANOID_VARIANTS_17; COLS = 4; layoutMode = 'humanoidVariants17';
+  }
+  else if(type === 'humanoid-variants' && nParts === 16){
+    layout = SHEET_KEYS_VARIANTS_16; COLS = 4; layoutMode = 'variants16';
+  }
+  else if(type === 'humanoid-variants' && nParts === 13){
+    layout = SHEET_KEYS_VARIANTS_13; COLS = 3; layoutMode = 'variants13';
+  }
+  else if(type === 'animal-variants' && nParts === 11){
+    layout = SHEET_KEYS_ANIMAL_VARIANTS; COLS = 3; layoutMode = 'animalVariants11';
+    ordered = sheetOrderAnimalFaceKit11(top, d, W, H, lab, w, h, cx, cy);
+    if(!ordered) return {error:'Found 11 regions, but they do not match the locked animal face-kit structure. Use exactly 3 columns × 5 rows: 3 expression heads; happy head + inner mouth; 2 open eyes; 2 closed eyes; 2 eyebrows. Keep all four designated empty cells empty.', detectedRegions:nParts};
+  }
+  else if(type === 'species-variants' && nParts === 9){
+    layout = SHEET_KEYS_SPECIES_VARIANTS; COLS = 3; layoutMode = 'speciesVariants9';
+  }
+  else if(nParts === 27){ layout = SHEET_KEYS_27; COLS = 6; layoutMode = 'legacy27'; }
+  else {
+    const err = { error: isWingedHumanoidType(type)
+      ? 'Found '+nParts+' separate regions. A '+twoSheetTypeName(type)+' base sheet must contain exactly 16 isolated pieces: the standard 14-part humanoid body plus two complete back wings.'
+      : isMythicModelType(type)
+      ? 'Found '+nParts+' separate regions. A '+twoSheetTypeName(type)+' base sheet needs 11 isolated pieces: head, body, two upper arms, two forearms, two hands and a 3-piece tail (a tail drawn in 1 or 2 pieces is also accepted), laid out around one upright figure with a clear transparent gap around every piece. Copy the new '+twoSheetTypeName(type)+' prompt and make the sheet again.'
+      : (type === 'humanoid' && beastFlag)
+      ? 'Found '+nParts+' separate regions. The beast-man base sheet must contain exactly 15 isolated pieces: head, jacket/outfit body, ONE separate tail, two upper arms, two forearms, two hands, two thighs, two shins and two shoes. Use a real transparent background and leave a clear gap around every piece, especially the tail.'
+      : type === 'humanoid-variants'
+      ? 'Found '+nParts+' separate regions. The humanoid face/hand sheet must contain exactly 19 pieces: two open eyes, two eyebrows, four hollow-mouth expression heads, one inner-mouth layer, two closed eyes and eight paired hand gestures. Legacy 17/16/13-part sheets remain supported.'
+      : type === 'animal-variants'
+        ? 'Found '+nParts+' separate regions. The animal face-kit sheet must contain exactly 11 isolated pieces in a locked 3-column by 5-row layout: four eye-free expression heads, one inner mouth, two open eyes, two closed-eye parts and two eyebrows.'
+      : type === 'species-variants'
+        ? 'Found '+nParts+' separate regions. The animal/bird face sheet must contain exactly 9 isolated pieces in a 3-column by 3-row layout: blink head, open-eye head, closed mouth, open mouth, four emotion heads, and a mouth/beak holding-grip pose.'
+        : 'Found '+nParts+' separate regions. The current humanoid workflow expects exactly 27 isolated parts (four rows of six plus a final row of three), including facial expressions and hand gestures. Use a real transparent background and leave clear gaps between every part. Older 12/14-part uploads remain supported for compatibility.', detectedRegions:nParts };
+    const bx0 = sorted.length ? Math.min(...sorted.map(b=>b.x0)) : 0;
+    const by0 = sorted.length ? Math.min(...sorted.map(b=>b.y0)) : 0;
+    const bx1 = sorted.length ? Math.max(...sorted.map(b=>b.x1)) : 0;
+    const by1 = sorted.length ? Math.max(...sorted.map(b=>b.y1)) : 0;
+    const looksLikeUprightHumanoid = sorted.length > 0 && (by1-by0+1) > (bx1-bx0+1)*1.18;
+    if(type === 'humanoid' && !beastFlag && nParts > 0 && nParts < 14 && looksLikeUprightHumanoid){
+      // Keep the background-removed pixels. In upright cut-out images, sleeves, wrists or the hip
+      // seam may touch, so connected-component counting under-counts the intended parts. Switch to
+      // the whole-image rig preview rather than rejecting the upload; wide/legacy grids still use
+      // the regular 12/14/27-part parser paths above.
+      g.putImageData(id,0,0);
+      err.fallbackAutoRig = true;
+      err.cleanedCanvas = cv;
+    }
+    return err;
+  }
+  const need = layout.length;
+  if(!ordered){
+    const byTop = top.slice().sort((a,b)=>(((a.y0+a.y1)-(b.y0+b.y1)) || a.x0-b.x0));
+    ordered = [];
+    if(layoutMode==='humanoidVariants17' || layoutMode==='humanoidVariants19'){
+      // Its 4×5 sheet is NOT a uniform grid: row 3 holds only the inner mouth (17-part) or the inner mouth + two closed eyes (19-part).
+      // Sort by the component's top edge for this layout so the unusually tall mouth crop cannot
+      // drift into the following hand row merely because its centre is lower.
+      const byRowTop=top.slice().sort((a,b)=>(a.y0-b.y0)||(a.x0-b.x0));
+      let offset=0; (layoutMode==='humanoidVariants19'?[4,4,3,4,4]:[4,4,1,4,4]).forEach(count=>{
+        ordered.push(...byRowTop.slice(offset,offset+count).sort((a,b)=>a.x0-b.x0)); offset+=count;
+      });
+    }else{
+      const rows = Math.ceil(layout.length/COLS);
+      for(let r=0;r<rows;r++) ordered.push(...byTop.slice(r*COLS,(r+1)*COLS).sort((a,b)=>a.x0-b.x0));
+    }
+  }
+  const arts = {};
+  ordered.forEach((b,i)=>{
+    const key = layout[i], pad = Math.ceil(R/s)+1;
+    const x0 = Math.max(0, Math.floor(b.x0/s)-pad), y0 = Math.max(0, Math.floor(b.y0/s)-pad), x1 = Math.min(W-1, Math.ceil((b.x1+1)/s)+pad), y1 = Math.min(H-1, Math.ceil((b.y1+1)/s)+pad);
+    const cw = x1-x0+1, ch = y1-y0+1, out = g.createImageData(cw, ch); let mnx = cw, mny = ch, mxx = -1, mxy = -1;
+    for(let y=0;y<ch;y++) for(let x=0;x<cw;x++){
+      const si = ((y0+y)*W+x0+x)*4, gx=cx(x0+x), gy=cy(y0+y);
+      if(d[si+3]<=30 || lab[gy*w+gx]!==b.id ||
+         (b.cropClipX0!=null && (gx<b.cropClipX0 || gx>b.cropClipX1)) ||
+         (b.cropClipY0!=null && gy<b.cropClipY0) || (b.cropClipY1!=null && gy>b.cropClipY1)) continue;
+      // In a fused head/torso crop, shoulder-blue pixels can extend slightly above the neckline.
+      // Keep skin/neck pixels with the head, but leave those blue shirt pixels to the Body part.
+      if(b.cropExcludeBlueFrom!=null && gy>=b.cropExcludeBlueFrom){
+        const rr=d[si], gg=d[si+1], bb=d[si+2];
+        if(bb>rr*1.08 && bb>=gg*.99 && bb-gg>8) continue;
+      }
+      const di = (y*cw+x)*4; out.data[di]=d[si]; out.data[di+1]=d[si+1]; out.data[di+2]=d[si+2]; out.data[di+3]=d[si+3];
+      mnx = Math.min(mnx,x); mxx = Math.max(mxx,x); mny = Math.min(mny,y); mxy = Math.max(mxy,y);
+    }
+    let c = document.createElement('canvas'); c.width = mxx-mnx+1; c.height = mxy-mny+1; c.getContext('2d').putImageData(out, -mnx, -mny);
+    // Preserve every source pixel in recovered torso art, including the original waist/pants-start shape.
+    const artModelType=modelType==='animal-variants' ? 'animal' : modelType==='species-variants' ? ((twoSheetUploadState&&twoSheetUploadState.type==='bird')?'bird':'animal') : (modelType||'humanoid');
+    const art=edMakeArt(c, key, artModelType);
+    // v347: a lower-body piece that was sliced from one drawn tail is cut exactly at its joint, so its pivot sits on the top edge
+    // and its parent attaches at the matching bottom edge with no overlap (see edDefaultLayout).
+    if(b.mythicSplit){ art.mythicSplit=true; art.splitGroup=b.splitGroup; art.dpx=art.topEdgeX; art.dpy=0; }
+    // The fused 14-part recovery intentionally assigns the complete throat + shirt + original
+    // pants-start section to Body, while Head contains only hair/face. Preserve that meaning for
+    // the initial assembly proportions below without changing the artwork itself.
+    if(b.recoveredSplit && (modelType || 'humanoid') === 'humanoid'){
+      if(key==='head') art.recoveredHeadWithoutNeck = true;
+      if(key==='torso') art.bodyIncludesNeckAndWaist = true;
+    }
+    arts[key] = art;
+  });
+  return { arts, layout: layoutMode, dress: dressOut||undefined };
+}
+// Down-samples a part's alpha silhouette onto a small fixed grid so two parts of slightly different
+// pixel sizes can still be compared shape-for-shape.
+function edSiloGrid(art, gw, gh){
+  const g = new Float32Array(gw*gh);
+  for(let gy=0; gy<gh; gy++) for(let gx=0; gx<gw; gx++){
+    const x0 = Math.floor(gx*art.w/gw), x1 = Math.max(x0+1, Math.floor((gx+1)*art.w/gw));
+    const y0 = Math.floor(gy*art.h/gh), y1 = Math.max(y0+1, Math.floor((gy+1)*art.h/gh));
+    let s = 0, n = 0;
+    for(let y=y0; y<y1; y++) for(let x=x0; x<x1; x++){ s += art.alpha[y*art.w+x]; n++; }
+    g[gy*gw+gx] = n ? s/n : 0;
+  }
+  return g;
+}
+// True when the RIGHT-side piece looks like the same drawing as the LEFT-side piece just pasted
+// again (same orientation) rather than a genuine mirror image of it -- the classic "both hands drawn
+// with the thumb on the same side" mistake that makes one arm look anatomically backwards. Compares
+// silhouettes only (not colour/shading), both as-is and with the right side flipped; if flipping would
+// clearly line the two shapes up better, the art was never mirrored to begin with.
+function edLooksUnmirrored(artL, artR){
+  const gw = 16, gh = 28, gL = edSiloGrid(artL, gw, gh), gR = edSiloGrid(artR, gw, gh), gRf = new Float32Array(gw*gh);
+  for(let y=0; y<gh; y++) for(let x=0; x<gw; x++) gRf[y*gw+x] = gR[y*gw+(gw-1-x)];
+  const diff = (a,b)=>{ let s = 0; for(let i=0;i<gw*gh;i++) s += Math.abs(a[i]-b[i]); return s; };
+  const direct = diff(gL, gR), flipped = diff(gL, gRf);
+  // Only act when the pair is clearly a near-duplicate in the first place, and mirroring it would
+  // unambiguously line the shapes up better -- avoids "fixing" two legitimately different poses.
+  return direct < gw*gh*0.06 && direct < flipped*0.7;
+}
+const ED_POSITION_SHEET_HUMANOID_FRONT = {"sheetType":"ethvelle-position-sheet","modelType":"humanoid","view":"front","parts":{"torso":{"w":264,"h":522,"ax":0,"ay":0,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"head":{"w":262,"h":283,"ax":132,"ay":13.05,"s":0.99704,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"eye_L":{"w":118,"h":68,"ax":119.57357,"ay":162.89314,"s":0.35,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"eye_R":{"w":123,"h":68,"ax":186.03155,"ay":164.1722,"s":0.35,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"eye_closed_L":{"w":131,"h":37,"ax":183.17479,"ay":165.83335,"s":0.3,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"eye_closed_R":{"w":131,"h":37,"ax":121.89715,"ay":163.95116,"s":0.3,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"brow_L":{"w":150,"h":35,"ax":116.97874,"ay":146.46067,"s":0.37,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"brow_R":{"w":150,"h":35,"ax":187.4841,"ay":147.58938,"s":0.37,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"mouth_inner":{"w":118,"h":96,"ax":144.24,"ay":220.79,"s":0.43,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"armL_upper":{"w":135,"h":266,"ax":44.82,"ay":88.74,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"armL_lower":{"w":66,"h":156,"ax":55.66176,"ay":261.32,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"handL":{"w":71,"h":116,"ax":38.34744,"ay":143.52,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"legL_upper":{"w":174,"h":350,"ax":46.74,"ay":454.14,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"legL_lower":{"w":131,"h":311,"ax":73.14396,"ay":301,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"shoeL":{"w":174,"h":133,"ax":69.16808,"ay":292.34,"s":1,"wx":1,"hy":1,"fx":-1,"fy":1,"rot":0},"armR_upper":{"w":135,"h":266,"ax":219.18,"ay":88.74,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"armR_lower":{"w":65,"h":156,"ax":83.13688,"ay":261.32,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"handR":{"w":70,"h":115,"ax":26.58672,"ay":143.52,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"legR_upper":{"w":169,"h":351,"ax":214.81,"ay":454.14,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"legR_lower":{"w":128,"h":311,"ax":86.48347,"ay":301.86,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"shoeR":{"w":193,"h":128,"ax":65.15627,"ay":292.34,"s":1,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"head_sad":{"w":228,"h":255,"ax":135.09932,"ay":54.89139,"s":1.10652,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"head_angry":{"w":229,"h":257,"ax":135.09932,"ay":54.89139,"s":1.09791,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"head_shock":{"w":229,"h":256,"ax":135.09932,"ay":54.89139,"s":1.1022,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"head_laugh":{"w":227,"h":253,"ax":135.09932,"ay":54.89139,"s":1.11527,"wx":1,"hy":1,"fx":1,"fy":1,"rot":0},"handL_point":{"w":208,"h":157,"ax":21.19208,"ay":147.85806,"s":0.59,"wx":1,"hy":1,"fx":1,"fy":-1,"rot":81.80592},"handL_thumb":{"w":139,"h":191,"ax":64.56032,"ay":177.68717,"s":0.5236,"wx":1,"hy":1,"fx":1,"fy":-1,"rot":81.88875},"handL_palm":{"w":193,"h":216,"ax":39.87344,"ay":140.85346,"s":0.66,"wx":1,"hy":1,"fx":1,"fy":-1,"rot":-1},"handL_hold":{"w":148,"h":151,"ax":-9.72157,"ay":204.4074,"s":0.58542,"wx":1,"hy":1,"fx":-1,"fy":1,"rot":-88.64231},"handR_point":{"w":209,"h":158,"ax":44.61738,"ay":145.51498,"s":0.59,"wx":1,"hy":1,"fx":1,"fy":-1,"rot":-86.47314},"handR_thumb":{"w":138,"h":191,"ax":-1.91634,"ay":179.9892,"s":0.59,"wx":1,"hy":1,"fx":-1,"fy":1,"rot":98.5565},"handR_palm":{"w":194,"h":217,"ax":26.72993,"ay":142.49479,"s":0.6112,"wx":1,"hy":1,"fx":-1,"fy":1,"rot":-175.53892},"handR_hold":{"w":147,"h":150,"ax":72.96267,"ay":208.2097,"s":0.61,"wx":1,"hy":1,"fx":-1,"fy":1,"rot":92.69829}}};
+
+// v378 DEFAULT POSITION SHEET: new FRONT-view plain-humanoid models (14-part base + face/hand sheet) open with the
+// hand-tuned layout stored in ED_POSITION_SHEET_HUMANOID_FRONT instead of the auto guess for the parts that have to be
+// fitted by eye: the face kit (eyes, closed eyes, brows, inner mouth), the four expression heads and the hand gestures
+// (point / thumbs up / open palm / holding hand). Every number is stored against the reference model's artwork size, so it
+// is re-scaled to THIS model's own artwork (position = fraction of the parent part, size = fraction of the head / hand).
+// The 14 base-body parts (arms, legs, shoes) keep their artwork-measured joint attachments, which already match the sheet.
+function edApplyPositionSheetDefault(st, A, view, modelType, opts){
+  try{
+    const R = ED_POSITION_SHEET_HUMANOID_FRONT, T = A && A.torso, H = A && A.head;
+    if(!R || !T || !H || !st || !st.head || view !== 'front' || modelType !== 'humanoid') return st;
+    if(T.dress || !T.bodyIncludesNeckAndWaist || (opts && opts.beast)) return st;
+    const P = R.parts, rT = P.torso, rH = P.head;
+    if(!rT || !rH) return st;
+    const sz = a=>Math.sqrt(Math.max(1,a.w)*Math.max(1,a.h));
+    const mk = a=>({ ax:0, ay:0, pvx:a.dpx, pvy:a.dpy, s:1, wx:1, hy:1, fx:1, fy:1, rot:0 });
+    const ensure = k=>{ if(!A[k]) return null; if(!st[k]) st[k] = mk(A[k]); return st[k]; };
+    // 1) base-body parts: only the scale comes from the sheet (their positions are measured from each model's own artwork)
+    ['torso','armL_upper','armL_lower','handL','armR_upper','armR_lower','handR','legL_upper','legL_lower','shoeL','legR_upper','legR_lower','shoeR'].forEach(k=>{
+      if(st[k] && P[k] && Number.isFinite(P[k].s)) st[k].s = P[k].s;
+    });
+    // 2) expression heads: same neck offset as the sheet, measured from the base head
+    const kTx = T.w/rT.w, kTy = T.h/rT.h;
+    ['head_sad','head_angry','head_shock','head_laugh'].forEach(k=>{
+      const r = P[k], s0 = ensure(k); if(!r || !s0) return;
+      s0.ax = st.head.ax + (r.ax - rH.ax)*kTx; s0.ay = st.head.ay + (r.ay - rH.ay)*kTy;
+      s0.rot = r.rot; s0.fx = r.fx; s0.fy = r.fy; s0.wx = r.wx; s0.hy = r.hy;
+    });
+    // 3) face kit nested in the head: position as a fraction of the head artwork, size as a fraction of the head's drawn size
+    const headRefSize = sz(rH)*rH.s, headNewSize = sz(H)*st.head.s;
+    ['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'].forEach(k=>{
+      const r = P[k], s0 = ensure(k); if(!r || !s0) return;
+      s0.ax = r.ax*(H.w/rH.w); s0.ay = r.ay*(H.h/rH.h);
+      s0.s = (r.s*sz(r)/headRefSize)*headNewSize/sz(A[k]);
+      s0.rot = r.rot; s0.fx = r.fx; s0.fy = r.fy; s0.wx = r.wx; s0.hy = r.hy;
+    });
+    // 4) hand gestures nested in the forearm: position as a fraction of the forearm artwork, size as a fraction of the plain hand
+    ['L','R'].forEach(S=>{
+      const fk = 'arm'+S+'_lower', hk = 'hand'+S, rF = P[fk], rHa = P[hk], F = A[fk], Ha = A[hk];
+      if(!rF || !rHa || !F || !Ha || !st[hk]) return;
+      const handRefSize = sz(rHa)*rHa.s, handNewSize = sz(Ha)*st[hk].s;
+      ['point','thumb','palm','hold'].forEach(g=>{
+        const k = hk+'_'+g, r = P[k], s0 = ensure(k); if(!r || !s0) return;
+        s0.ax = r.ax*(F.w/rF.w); s0.ay = r.ay*(F.h/rF.h);
+        s0.s = (r.s*sz(r)/handRefSize)*handNewSize/sz(A[k]);
+        s0.rot = r.rot; s0.fx = r.fx; s0.fy = r.fy; s0.wx = r.wx; s0.hy = r.hy;
+      });
+    });
+  }catch(e){ console.warn('Ethvelle: default position sheet could not be applied', e); }
+  return st;
+}
+// Default rest layout: pelvis at the origin, every part attached to its parent at a natural joint,
+// with the forearm's sleeve tucked under the upper arm's cuff so the two pieces read as one arm.
+function edDefaultLayout(A, view, modelType, opts){
+  const side = view === 'side', species = modelType === 'animal' || modelType === 'bird', mythic=isMythicModelType(modelType);
+  const T = A.torso, base = a=>({ pvx:a.dpx, pvy:a.dpy, s:1, wx:1, hy:1, fx:1, fy:1, rot:0 }), st = {};
+  st.torso = { ax:0, ay:0, ...base(T) };
+  if(isWingedHumanoidType(modelType)&&A.wingL&&A.wingR){
+    st.wingL={ax:T.w*.29,ay:T.h*.20,pvx:A.wingL.w*.94,pvy:A.wingL.h*.52,s:1,wx:1,hy:1,fx:1,fy:1,rot:0};
+    st.wingR={ax:T.w*.71,ay:T.h*.20,pvx:A.wingR.w*.06,pvy:A.wingR.h*.52,s:1,wx:1,hy:1,fx:1,fy:1,rot:0};
+  }
+  if(mythic && A.tail && A.tail_mid && A.tail_tip){
+    st.tail={ax:T.w*.5,ay:T.h*.9,...base(A.tail)};
+    // v347: attach each segment where the previous one REALLY ends (measured edge centre) instead of assuming a straight, centred
+    // tail; segments sliced from one drawn tail meet exactly at the cut line (no overlap).
+    const tailLink=(P,C)=>{const exact=!!(C.mythicSplit&&P.mythicSplit&&C.splitGroup!=null&&C.splitGroup===P.splitGroup);return {ax:exact?P.botEdgeX:(Number.isFinite(P.botCx)?P.botCx:P.w*.5),ay:exact?P.h:P.h*.94};};
+    st.tail_mid={...tailLink(A.tail,A.tail_mid),...base(A.tail_mid)};
+    st.tail_tip={...tailLink(A.tail_mid,A.tail_tip),...base(A.tail_tip)};
+  }else if(species && A.tail) st.tail = { ax:T.w*0.035, ay:T.h*0.52, ...base(A.tail) };
+  else if(!species && A.tail) st.tail = T.dress ? { ax:T.dpx, ay:T.dpy, ...base(A.tail) } : { ax:T.w*0.44, ay:T.h*0.84, ...base(A.tail) };   // v344 beast man: tail root at the lower back, hanging down behind the legs
+  st.head = { ax:species ? T.w*0.86 : T.dpx, ay:species ? T.h*0.9 : (T.dress ? A.head.h*0.14 : (T.bodyIncludesNeckAndWaist ? 0.025*T.h : 0.10*T.h)), ...base(A.head) };
+  const headFix = T.dress ? 1 : A.head.h > 0 ? (species ? Math.max(0.72, Math.min(1.35, T.h/A.head.h)) : T.bodyIncludesNeckAndWaist ? Math.max(0.85, Math.min(1.15, (T.h/1.85)/A.head.h)) : Math.max(0.6, Math.min(1.6, (T.h/1.2)/A.head.h))) : 1;
+  st.head.s = headFix;
+  const birdCompact = modelType==='bird' && SHEET_KEYS_BIRD_7.every(k=>!!A[k]) && !A.armL_lower && !A.armR_lower && !A.legL_lower && !A.legR_lower;
+  const mouthFitScale = part => part ? Math.max(0.12,Math.min(1,
+    (A.head.w*(modelType==='animal'?0.46:modelType==='bird'?0.44:0.34))/Math.max(1,part.w),
+    (A.head.h*(modelType==='animal'?0.28:modelType==='bird'?0.26:0.18))/Math.max(1,part.h))) : 1;
+  const mouthAx = modelType === 'bird' ? A.head.w*0.82 : modelType === 'animal' ? A.head.w*0.70 : A.head.w*0.5;
+  const mouthAy = modelType === 'bird' ? A.head.h*0.64 : modelType === 'animal' ? A.head.h*0.82 : A.head.h*0.88;
+  if(A.mouth_closed) st.mouth_closed = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_closed), s:mouthFitScale(A.mouth_closed) };
+  if(A.mouth_open) st.mouth_open = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_open), s:mouthFitScale(A.mouth_open) };
+  if(A.mouth_hold) st.mouth_hold = { ax:mouthAx, ay:mouthAy, ...base(A.mouth_hold), s:mouthFitScale(A.mouth_hold) };
+  if(modelType === 'animal' && SHEET_FACE_KIT_KEYS.some(k=>A[k])){
+    const emoK = ['head_sad','head_angry','head_shock','head_laugh'].filter(k=>A[k] && A[k].h > 0);
+    const vr = emoK.length ? Math.max(.65,Math.min(1.7,emoK.reduce((t,k)=>t+A.head.h/A[k].h,0)/emoK.length)) : 1;
+    const put = (k,fx,fy)=>{ if(A[k]) st[k] = { ax:A.head.w*fx, ay:A.head.h*fy, ...base(A[k]), s:headFix*vr }; };
+    put('mouth_inner',.66,.86); put('eye_L',.46,.63); put('eye_R',.77,.63); put('eye_closed_L',.46,.63); put('eye_closed_R',.77,.63); put('brow_L',.46,.50); put('brow_R',.77,.50);
+  }
+  if((modelType==='humanoid'||mythic||isWingedHumanoidType(modelType)) && SHEET_HUMANOID_FACE_KIT_KEYS.some(k=>A[k])){
+    const emoK=['head_sad','head_angry','head_shock','head_laugh'].filter(k=>A[k]&&A[k].h>0);
+    const vr=emoK.length?Math.max(.72,Math.min(1.35,emoK.reduce((t,k)=>t+A.head.h/A[k].h,0)/emoK.length)):1;
+    const put=(k,fx,fy,scale=vr)=>{if(A[k])st[k]={ax:A.head.w*fx,ay:A.head.h*fy,...base(A[k]),s:headFix*scale};};
+    put('eye_L',.365,.455);put('eye_R',.655,.455);put('eye_closed_L',.365,.455);put('eye_closed_R',.655,.455);put('brow_L',.365,.315);put('brow_R',.655,.315);put('mouth_inner',.51,.77,vr);
+  }
+  if(modelType==='bird' && A.bird_eye && A.beak_closed && A.bird_brow){
+    const put=(key,fx,fy,maxW,maxH)=>{const a=A[key];if(!a)return;const fit=Math.min(1,(A.head.w*maxW)/Math.max(1,a.w),(A.head.h*maxH)/Math.max(1,a.h));st[key]={ax:A.head.w*fx,ay:A.head.h*fy,...base(a),s:headFix*fit};};
+    put('bird_eye',.69,.43,.25,.24);put('bird_eye_closed',.69,.43,.25,.24);put('bird_brow',.68,.29,.27,.13);put('beak_closed',.86,.66,.48,.32);
+    if(A.beak_open){const a=A.beak_open, b=st.beak_closed;st.beak_open={ax:b.ax,ay:b.ay,...base(a),s:b.s};}
+  }
+  [['L',-1],['R',1]].forEach(([S,sg])=>{
+    const U=A['arm'+S+'_upper'],F=A['arm'+S+'_lower'],Ha=A['hand'+S],Th=A['leg'+S+'_upper'],Sh=A['leg'+S+'_lower'];
+    const armX=modelType==='animal'?T.w*(S==='L'?.75:.70):modelType==='bird'?T.w*(S==='L'?.56:.48):(side?T.w/2+sg*.18*T.w:(T.dress?T.dpx+sg*(A.head.w*.8-(U?U.w*.42:0)+A.head.w*.07):T.w/2+sg*(T.w/2-(U?U.w*.42:0)+T.w*.045)));
+    const armY=modelType==='animal'?T.h*.78:modelType==='bird'?T.h*.24:(T.dress?A.head.h*.30:.17*T.h);
+    if(U)st['arm'+S+'_upper']={ax:armX,ay:armY,...base(U)};
+    if(F&&U){const overlap=Number(F.skinTop)>=.12?F.skinTop*F.h:(Number(F.skinTop)>=0?.03*F.h:.25*F.h);st['arm'+S+'_lower']={ax:U.botCx,ay:U.h-overlap,...base(F)};}
+    if(Ha&&F)st['hand'+S]={ax:F.botCx,ay:F.h-.08*F.h,...base(Ha)};
+    const legX=modelType==='animal'?T.w*(S==='L'?.28:.23):modelType==='bird'?T.w*(S==='L'?.54:.46):(side?T.w/2-sg*.14*(Th?Th.w:0):(T.dress?T.dpx+sg*(Th?Th.w:0)*.55:T.w/2+sg*(Th?Th.w:0)*.49));
+    const legY=species?T.h*.82:(T.dress?T.dpy:.87*T.h);
+    if(Th)st['leg'+S+'_upper']={ax:legX,ay:legY,...base(Th)};
+    if(Sh&&Th){const longTrouser=Th.h>T.h*1.15;st['leg'+S+'_lower']={ax:Th.botCx,ay:(longTrouser?.94:.86)*Th.h,...base(Sh)};}
+    const shoe=A['shoe'+S];
+    if(shoe&&Sh)st['shoe'+S]={ax:Sh.botCx,ay:Sh.h*.94,...base(shoe)};
+  });
+  Object.keys(SHEET_ALT_OF).forEach(a=>{
+    const b=SHEET_ALT_OF[a];
+    if(A[a]&&st[b]&&!st[a]&&b!=='mouth_closed'){
+      st[a]={ax:st[b].ax,ay:st[b].ay,...base(A[a])};
+      if(b==='head'){const variantRatio=A[a].h>0?A.head.h/A[a].h:1;st[a].s=headFix*Math.max(.65,Math.min(1.7,variantRatio));}
+    }
+  });
+  if(modelType==='bird'){
+    [['L','wingL_fly','armL_upper'],['R','wingR_fly','armR_upper']].forEach(([sideKey,variant,baseKey])=>{
+      if(st[variant]&&st[baseKey]){st[variant]={...st[variant],ax:st[baseKey].ax,ay:st[baseKey].ay,s:st[baseKey].s,wx:st[baseKey].wx,hy:st[baseKey].hy,fx:st[baseKey].fx,fy:st[baseKey].fy,rot:st[baseKey].rot};}
+    });
+  }
+  ['handL','handR','handL_fist','handR_fist','handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'].forEach(k=>{if(st[k])st[k].s*=.92;});
+  if(!species){if(st.handL_point)st.handL_point.rot+=90;if(st.handR_point)st.handR_point.rot-=90;}
+  if(!side)SHEET_FLIP_PAIRS.forEach(([lk,rk])=>{if(A[lk]&&A[rk]&&st[lk]&&st[rk]&&edLooksUnmirrored(A[lk],A[rk]))st[rk].fx=-1;});
+  return edApplyPositionSheetDefault(st, A, view, modelType, opts);
+}
+
+/* ---------- 2) editor state + geometry ---------- */
+/* EDIT STANCE: every model opens in the editor with the same T-pose shown in the joint-overlay reference
+   (arms straight out to the sides, legs a little apart). The stance is an offset over each limb's own rotation
+   (st.rot stays 0 = "no change"). When Done is pressed, edCompile() keeps this stance as the saved default rig pose
+   so the model lines up with the visible joints in the main video editor as well. Values are degrees; L parts are on the viewer's left. */
+const ED_STANCE = { armL_upper:90, armR_upper:-90, legL_upper:8, legR_upper:-8 };
+// The T-pose display stance is for front-facing sheets only. In side view every limb is shown hanging straight down.
+function edStanceOf(k){ return ED.view === 'side' ? 0 : (ED_STANCE[k]||0); }
+const ED = { view:'front', facing:1, modelType:'humanoid', open:false, arts:{}, assign:{}, st:{}, order:[], sel:'torso', cam:{z:1,x:0,y:0}, undo:[], redo:[], bones:true, lock:false, mode:'size', kind:'new', editIdx:null, name:'Model', init:null, cv:null, g:null, dpr:1, ready:false, extraVariants:{headParts:[],expressions:[],gestures:[]}, pendingVariantType:null };
+const edArt = k=>ED.arts[ED.assign[k]];
+// World (figure-space) placement of every part: { x, y (pivot), rot (rad, incl. parents), sx, sy (signed scale) }.
+function edWorld(rest){
+  const W = {};
+  const go = k=>{
+    if(W[k] !== undefined) return W[k];
+    const st = ED.st[k];
+    if(!st) return W[k] = null;   // this model doesn't have this (optional) part -- skip it, don't crash
+    const p = SHEET_PARENT[k], sx = st.s*st.wx*st.fx, sy = st.s*st.hy*st.fy;
+    let x, y, rot = (st.rot + (rest ? 0 : edStanceOf(k)))*Math.PI/180;
+    if(!p){ x = st.ax; y = st.ay; }
+    else {
+      const P = go(p); if(!P) return W[k] = null;
+      const ps = ED.st[p], c = Math.cos(P.rot), s = Math.sin(P.rot), vx = (st.ax-ps.pvx)*P.sx, vy = (st.ay-ps.pvy)*P.sy;
+      x = P.x + vx*c - vy*s; y = P.y + vx*s + vy*c; rot += P.rot;
+    }
+    return W[k] = { x, y, rot, sx, sy };
+  };
+  SHEET_KEYS.forEach(go);
+  return W;
+}
+function edL2W(W, k, lx, ly){ const w = W[k], st = ED.st[k], vx = (lx-st.pvx)*w.sx, vy = (ly-st.pvy)*w.sy, c = Math.cos(w.rot), s = Math.sin(w.rot); return { x:w.x+vx*c-vy*s, y:w.y+vx*s+vy*c }; }
+// v370 MIRROR FIX: Flip H / Flip V must mirror only the ARTWORK of a part, never its bones or joints.
+// (a) A bone's far end is measured with the part's opening flip, so a user flip never swings the bone line / rig joint.
+let edInitStCache = { src:null, st:{} };
+function edInitFlip(k){
+  if(edInitStCache.src !== ED.init){ edInitStCache = { src:ED.init, st:{} }; try{ edInitStCache.st = (typeof ED.init === 'string' ? JSON.parse(ED.init) : ED.init).st || {}; }catch(e){} }
+  const s = edInitStCache.st[k];
+  return { fx: s && s.fx < 0 ? -1 : 1, fy: s && s.fy < 0 ? -1 : 1 };
+}
+function edL2Wbone(W, k, lx, ly){
+  const w = W[k]; if(!w || /^tail/.test(k)) return edL2W(W, k, lx, ly);
+  const f = edInitFlip(k), o = {}; o[k] = { ...w, sx:Math.abs(w.sx)*f.fx, sy:Math.abs(w.sy)*f.fy };
+  return edL2W(o, k, lx, ly);
+}
+// (b) Face artwork nested in the head (eyes, brows, mouths) is part of the picture, so it still flips with the head.
+function edIsFaceNestedKey(c){
+  return edIsFaceOverlayKey(c) || c==='mouth_closed' || c==='mouth_open' || c==='mouth_hold'
+    || (typeof SHEET_FACE_NESTED!=='undefined' && SHEET_FACE_NESTED.includes(c))
+    || (typeof SHEET_FACE_KIT_NESTED!=='undefined' && SHEET_FACE_KIT_NESTED.includes(c))
+    || (typeof SHEET_BIRD_FACE_NESTED!=='undefined' && SHEET_BIRD_FACE_NESTED.includes(c));
+}
+// (c) Runs mutate() (which changes how part k is flipped) and then puts every child joint back on the exact
+// world position it had, so the skeleton is untouched.
+function edKeepJoints(k, mutate){
+  const W0 = edWorld(), kids = Object.keys(ED.st).filter(c=>SHEET_PARENT[c]===k && ED.st[c] && W0[c] && !edIsFaceNestedKey(c));
+  mutate();
+  kids.forEach(c=>edSetPos(c, W0[c].x, W0[c].y));
+}
+function edW2L(W, k, px, py){ const w = W[k], st = ED.st[k], dx = px-w.x, dy = py-w.y, c = Math.cos(w.rot), s = Math.sin(w.rot); return { x:st.pvx + (dx*c+dy*s)/w.sx, y:st.pvy + (-dx*s+dy*c)/w.sy }; }
+// Moves part k so its pivot lands on world point (x,y) by rewriting its attach point (children follow automatically).
+function edSetPos(k, x, y){
+  const st = ED.st[k], p = SHEET_PARENT[k];
+  if(!p){ st.ax = x; st.ay = y; return; }
+  const W = edWorld(), P = W[p], ps = ED.st[p], c = Math.cos(P.rot), s = Math.sin(P.rot), dx = x-P.x, dy = y-P.y;
+  st.ax = ps.pvx + (dx*c+dy*s)/P.sx; st.ay = ps.pvy + (-dx*s+dy*c)/P.sy;
+}
+// LOCK MODE helper: the bone that ends at joint `k` belongs to k's parent part. Rotates + stretches that parent part so the
+// joint lands on world point (tx,ty); k and everything below it are carried along by the hierarchy.
+function edBoneDrive(k, tx, ty){
+  if(edIsLocked(SHEET_PARENT[k]) || edIsLocked(k)) return;   // v328: never rotate/stretch a locked part
+  const p = SHEET_PARENT[k], ps = ED.st[p], cs = ED.st[k], stance = edStanceOf(p), P = edWorld()[p];
+  const dx = cs.ax-ps.pvx, dy = cs.ay-ps.pvy, Tx = tx-P.x, Ty = ty-P.y, sxv = dx*P.sx;
+  let sy = P.sy;
+  if(Math.abs(dy) > 1){
+    const d2 = Tx*Tx+Ty*Ty-sxv*sxv;
+    if(d2 > 0){ ps.hy = Math.max(0.2, Math.min(4, Math.sqrt(d2)/(Math.abs(dy)*ps.s))); sy = ps.s*ps.hy*ps.fy; }
+  }
+  const world = Math.atan2(Ty,Tx) - Math.atan2(dy*sy, sxv), inherited = P.rot - (ps.rot+stance)*Math.PI/180;
+  let r = (world-inherited)*180/Math.PI - stance; ps.rot = ((r+180)%360+360)%360-180;
+}
+// The tail bone runs from the tail root (the pivot dot) to the far end of the tail piece. Its tip is a real,
+// draggable joint: dragging it swings the tail around the root and stretches/shrinks it to follow the finger.
+// v344: animals/birds have a sideways tail (tip at the left-middle edge); a beast man has an upright tail (tip at the bottom).
+function edHasTail(){ return isMythicModelType(ED.modelType) || ED.modelType==='animal' || ED.modelType==='bird' || (ED.modelType==='humanoid' && !!ED.beast && !!edArt('tail')); }
+function edTailTipLocal(a){ return isMythicModelType(ED.modelType) ? {x:(Number.isFinite(a.botCx)?a.botCx:a.w*.5),y:a.h*.96} : ED.modelType==='humanoid' ? { x:(Number.isFinite(a.botCx)?a.botCx:a.w/2), y:a.h*0.96 } : { x:0, y:a.h*0.5 }; }
+function edTailTip(W){
+  if(!edHasTail()) return null;
+  if(isMythicModelType(ED.modelType)){if(!W||!W.tail_tip||!ED.st.tail_tip||!edArt('tail_tip')||!edKeyVisible('tail_tip'))return null;const tl=edTailTipLocal(edArt('tail_tip'));return edL2W(W,'tail_tip',tl.x,tl.y);}
+  if(!W || !W.tail || !ED.st.tail || !edArt('tail') || !edKeyVisible('tail')) return null;
+  const tl=edTailTipLocal(edArt('tail'));
+  return edL2W(W,'tail',tl.x,tl.y);
+}
+function edBoneSegs(W){
+  const pv=k=>W[k]?({x:W[k].x,y:W[k].y}):null;
+  const far=(k,lx,ly)=>W[k]&&ED.st[k]?edL2Wbone(W,k,lx,ly):null;
+  const segs=[],st=ED.st,add=(a,b)=>{if(a&&b&&Number.isFinite(a.x)&&Number.isFinite(a.y)&&Number.isFinite(b.x)&&Number.isFinite(b.y))segs.push([a,b]);};
+  if(W.torso&&W.head){
+    const pelvis=pv('torso'),neck=pv('head'),chest={x:pelvis.x+(neck.x-pelvis.x)*.86,y:pelvis.y+(neck.y-pelvis.y)*.86};
+    add(pelvis,neck);add(neck,far('head',st.head.pvx,0));
+    if(isMythicModelType(ED.modelType)&&W.tail&&W.tail_mid&&W.tail_tip&&st.tail&&st.tail_mid&&st.tail_tip){
+      const a=edArt('tail_tip'),tl=edTailTipLocal(a);add(pv('tail'),pv('tail_mid'));add(pv('tail_mid'),pv('tail_tip'));add(pv('tail_tip'),far('tail_tip',tl.x,tl.y));
+    }else if(W.tail&&st.tail&&edArt('tail')){const tl=edTailTipLocal(edArt('tail'));add(pv('tail'),far('tail',tl.x,tl.y));}
+    if(isWingedHumanoidType(ED.modelType)){
+      if(W.wingL&&st.wingL&&edArt('wingL'))add(pv('wingL'),far('wingL',0,st.wingL.pvy));
+      if(W.wingR&&st.wingR&&edArt('wingR'))add(pv('wingR'),far('wingR',edArt('wingR').w,st.wingR.pvy));
+    }
+    ['L','R'].forEach(S=>{
+      const up='arm'+S+'_upper',lo='arm'+S+'_lower',hand='hand'+S,th='leg'+S+'_upper',sh='leg'+S+'_lower',shoe='shoe'+S;
+      add(chest,pv(up));
+      if(W[lo]){add(pv(up),pv(lo));if(W[hand]){add(pv(lo),pv(hand));add(pv(hand),far(hand,st[hand].pvx,edArt(hand).h));}else add(pv(lo),far(lo,st[lo].pvx,edArt(lo).h));}
+      else if(W[up])add(pv(up),far(up,st[up].pvx,edArt(up).h));
+      if(W[sh]){add(pv(th),pv(sh));if(W[shoe]){add(pv(sh),pv(shoe));add(pv(shoe),far(shoe,st[shoe].pvx,edArt(shoe).h));}else add(pv(sh),far(sh,st[sh].pvx,edArt(sh).h));}
+      else if(W[th])add(pv(th),far(th,st[th].pvx,edArt(th).h));
+    });
+  }
+  return segs;
+}
+// Selection handles of part k, in SCREEN pixels: rot = bottom-right corner (scale + rotate), len = stretch length, wid = stretch width.
+function edHandles(k, W){
+  const a = edArt(k), st = ED.st[k], Z = ED.cam.z, S = p=>({ x:ED.cam.x+p.x*Z, y:ED.cam.y+p.y*Z }), L = (x,y)=>S(edL2W(W,k,x,y));
+  // handles sit on the side / end FARTHEST from the joint (stable ratios) and are pushed a little outside the box (never stacked on each other)
+  const farY = st.pvy < a.h/2 ? a.h : 0, sideX = st.pvx <= a.w/2 ? a.w : 0, ctr = L(a.w/2, a.h/2);
+  const out = (p, d)=>{ const dx = p.x-ctr.x, dy = p.y-ctr.y, l = Math.hypot(dx,dy) || 1; return { x:p.x+dx/l*d, y:p.y+dy/l*d }; };
+  return { corners:[L(0,0),L(a.w,0),L(a.w,a.h),L(0,a.h)], rot:out(L(sideX,farY),15), len:out(L(st.pvx,farY),19), wid:out(L(sideX,a.h/2),19) };
+}
+// True when key k should actually be shown/tappable right now. An alt expression texture (head_blink,
+// mouth_open, handL_fist, handR_fist) is invisible unless it's the one currently selected for editing;
+// its base hides right back while that's happening, so the two never draw stacked on each other.
+const ED_FACE_OVERLAY_KEYS = new Set(['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R']);
+function edIsFaceOverlayKey(k){return ED_FACE_OVERLAY_KEYS.has(String(k||''));}
+function edKeyVisible(k){
+  // Facial overlays never replace the base head. Selecting an eye, lid, brow or inner mouth
+  // must leave the complete head visible under the selected feature's white bounds.
+  if(k==='head' && ED.sel && edIsFaceOverlayKey(ED.sel))return true;
+  if(SHEET_ALT_OF[k]) return k === ED.sel;
+  const alts = SHEET_ALTS[k]; if(alts && alts.includes(ED.sel) && !(k==='head'&&edIsFaceOverlayKey(ED.sel))) return false;
+  return true;
+}
+// Legacy editor oval-joint blend helpers removed; do not repaint over imported part artwork.
+function edPick(p, W){
+  const edTipHit = (radius)=>{
+    const tipKey=isMythicModelType(ED.modelType)?'tail_tip':'tail';
+    if(!ED.bones || edIsLocked(tipKey)) return null;
+    const t = edTailTip(W); if(!t) return null;
+    const q = { x:ED.cam.x+t.x*ED.cam.z, y:ED.cam.y+t.y*ED.cam.z };
+    return Math.hypot(p.x-q.x, p.y-q.y) < (radius||20) ? { type:'tailtip', key:tipKey } : null;
+  };
+  if(ED.lock && ED.bones){
+    const tipLocked = edTipHit(); if(tipLocked) return tipLocked;
+    // Mouth crops are nested face artwork, not bones: keep their pixels draggable even while
+    // every structural joint is locked to its connected artwork. Their pivot dots are hidden
+    // in edDraw(), so exclude them from bone-point hit-testing as well.
+    const jointKeys = ED.order.filter(k=>W[k] && edKeyVisible(k) && !edIsLocked(k) && !edIsFaceOverlayKey(k) && k!=='mouth_closed' && k!=='mouth_open' && k!=='mouth_hold').sort((a,b)=>(a===ED.sel?-1:0)-(b===ED.sel?-1:0));
+    for(const k of jointKeys){
+      const q={x:ED.cam.x+W[k].x*ED.cam.z,y:ED.cam.y+W[k].y*ED.cam.z};
+      if(Math.hypot(p.x-q.x,p.y-q.y)<20) return {type:'pivot',key:k};
+    }
+    const fx=(p.x-ED.cam.x)/ED.cam.z, fy=(p.y-ED.cam.y)/ED.cam.z;
+    for(let i=ED.order.length-1;i>=0;i--){
+      const k=ED.order[i];
+      if((k!=='mouth_closed' && k!=='mouth_open' && k!=='mouth_hold') || !W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+      const a=edArt(k), l=edW2L(W,k,fx,fy), lx=Math.round(l.x), ly=Math.round(l.y);
+      for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+        const X=lx+ox,Y=ly+oy;
+        if(X>=0 && Y>=0 && X<a.w && Y<a.h && a.alpha[Y*a.w+X]) return {type:'move',key:k};
+      }
+    }
+    // v348: locked mode must still let a plain tap select a body part. Only joint dots
+    // are draggable while locked; selecting the artwork itself never starts a transform.
+    for(let i=ED.order.length-1;i>=0;i--){
+      const k=ED.order[i];
+      if(!W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+      const a=edArt(k), l=edW2L(W,k,fx,fy), lx=Math.round(l.x), ly=Math.round(l.y);
+      for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+        const X=lx+ox,Y=ly+oy;
+        if(X>=0 && Y>=0 && X<a.w && Y<a.h && a.alpha[Y*a.w+X]) return {type:'select',key:k};
+      }
+    }
+    return {type:'locked',key:ED.sel};
+  }
+  const tipExact = edTipHit(11); if(tipExact) return tipExact;   // the width knob of a selected tail sits right next to the tip dot
+  if(ED.sel){ const h = edHandles(ED.sel, W); for(const n of ['rot','len','wid']) if(Math.hypot(p.x-h[n].x, p.y-h[n].y) < 20) return { type:n, key:ED.sel }; }
+  const tipFree = edTipHit(); if(tipFree) return tipFree;
+  if(ED.bones){
+    const keys = ED.order.filter(k=>W[k] && edKeyVisible(k) && !edIsLocked(k) && !edIsFaceOverlayKey(k)).sort((a,b)=>(a===ED.sel?-1:0)-(b===ED.sel?-1:0));
+    for(const k of keys){ const q = { x:ED.cam.x+W[k].x*ED.cam.z, y:ED.cam.y+W[k].y*ED.cam.z }; if(Math.hypot(p.x-q.x, p.y-q.y) < 17) return { type:'pivot', key:k }; }
+  }
+  const fx = (p.x-ED.cam.x)/ED.cam.z, fy = (p.y-ED.cam.y)/ED.cam.z;
+  const opaqueAt = k=>{
+    const a = edArt(k), l = edW2L(W, k, fx, fy), lx = Math.round(l.x), ly = Math.round(l.y);
+    for(const [ox,oy] of [[0,0],[2,0],[-2,0],[0,2],[0,-2]]){
+      const X = lx+ox, Y = ly+oy; if(X >= 0 && Y >= 0 && X < a.w && Y < a.h && a.alpha[Y*a.w+X]) return true;
+    }
+    return false;
+  };
+  let hitKey = null;
+  for(let i = ED.order.length-1; i >= 0; i--){
+    const k = ED.order[i]; if(!W[k] || !edKeyVisible(k) || edIsLocked(k)) continue;
+    if(opaqueAt(k)){ hitKey = k; break; }
+  }
+  // v332 FIX (small part grabbed through its own box selects the big part underneath):
+  // a thin/small selected part (eyebrow, eye, ...) is mostly transparent inside its selection
+  // border, so a drag that starts inside that border missed the part's pixels and fell through
+  // to the large part below it (usually the Head), which then got selected. If the touch is
+  // inside (or right on) the SELECTED part's drawn border, and what the pixel test found is
+  // only a part layered BELOW it (or nothing) that is bigger than the selected part, keep
+  // the selected part and move it. A part layered ABOVE the selected one with real pixels
+  // under the finger still wins, so tapping an eyebrow while the head is selected works.
+  const selK = ED.sel;
+  if(selK && hitKey !== selK && W[selK] && edKeyVisible(selK) && !edIsLocked(selK) && edArt(selK) && ED.st[selK]){
+    const selIdx = ED.order.indexOf(selK), hitIdx = hitKey == null ? -1 : ED.order.indexOf(hitKey);
+    if(hitKey == null || hitIdx < selIdx){
+      const sq = edHandles(selK, W).corners;
+      const quadArea = q=>{ let s = 0; for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4]; s += a.x*b.y - b.x*a.y; } return Math.abs(s)/2; };
+      const inQuad = (q, pt)=>{ let pos = false, neg = false; for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4], c = (b.x-a.x)*(pt.y-a.y) - (b.y-a.y)*(pt.x-a.x); if(c > 0) pos = true; else if(c < 0) neg = true; } return !(pos && neg); };
+      const nearEdge = (q, pt, r)=>{ for(let i = 0; i < 4; i++){ const a = q[i], b = q[(i+1)%4], dx = b.x-a.x, dy = b.y-a.y, l2 = dx*dx+dy*dy || 1, t = Math.max(0, Math.min(1, ((pt.x-a.x)*dx+(pt.y-a.y)*dy)/l2)); if(Math.hypot(pt.x-(a.x+t*dx), pt.y-(a.y+t*dy)) <= r) return true; } return false; };
+      if(inQuad(sq, p) || nearEdge(sq, p, 8)){
+        let selWins = hitKey == null;
+        if(!selWins){ try{ selWins = quadArea(sq) < quadArea(edHandles(hitKey, W).corners); }catch(_e){ selWins = false; } }
+        if(selWins) return { type:'move', key:selK };
+      }
+    }
+  }
+  if(hitKey != null) return { type:'move', key:hitKey };
+  return { type:'pan' };
+}
+
+/* ---------- editor drawing ---------- */
+function edDraw(){
+  if(!ED.open || !ED.g) return;
+  const g = ED.g, cv = ED.cv, dpr = ED.dpr, Z = ED.cam.z, W = edWorld();
+  g.setTransform(1,0,0,1,0,0); g.clearRect(0,0,cv.width,cv.height);
+  g.setTransform(dpr*Z,0,0,dpr*Z,dpr*ED.cam.x,dpr*ED.cam.y); g.imageSmoothingQuality = 'high';
+  ED.order.forEach(k=>{
+    if(!W[k] || !edKeyVisible(k)) return;
+    const w = W[k], st = ED.st[k]; g.save(); g.translate(w.x,w.y); g.rotate(w.rot); g.scale(w.sx,w.sy); g.drawImage(edArt(k).canvas, -st.pvx, -st.pvy);
+    const preview=ED.previewVariant;
+    if(preview&&preview.targetKey===k&&preview.src){
+      const cache=window.__ethvelleModelLabVariantPreviewCache||(window.__ethvelleModelLabVariantPreviewCache=new Map());
+      let previewImage=cache.get(preview.src);
+      if(!previewImage){previewImage=new Image();previewImage.onload=()=>{if(ED.previewVariant&&ED.previewVariant.src===preview.src)edDraw();};previewImage.onerror=()=>{};cache.set(preview.src,previewImage);previewImage.src=preview.src;}
+      if(previewImage.complete&&previewImage.naturalWidth){const art=edArt(k);g.drawImage(previewImage,-st.pvx,-st.pvy,art.w,art.h);}
+    }
+    g.restore();
+  });
+  g.setTransform(dpr,0,0,dpr,0,0);
+  const S = p=>({ x:ED.cam.x+p.x*Z, y:ED.cam.y+p.y*Z });
+  // Joint-bridge painting intentionally removed: it generated oval/crescent artifacts over source art.
+  if(ED.bones){
+    const segs = edBoneSegs(W); g.lineCap = 'round';
+    [['rgba(255,255,255,.95)',ED.lock?7:6],[ED.lock?'#12B886':'#2F5CE8',ED.lock?4:3]].forEach(([c,lw])=>{ g.strokeStyle = c; g.lineWidth = lw; g.beginPath(); segs.forEach(([a,b])=>{ const A = S(a), B = S(b); g.moveTo(A.x,A.y); g.lineTo(B.x,B.y); }); g.stroke(); });
+  }
+  if(ED.sel){
+    const h = edHandles(ED.sel, W), c = h.corners;
+    g.beginPath(); g.moveTo(c[0].x,c[0].y); for(let i=1;i<4;i++) g.lineTo(c[i].x,c[i].y); g.closePath();
+    g.lineJoin = 'round'; g.strokeStyle = 'rgba(0,0,0,.5)'; g.lineWidth = 4; g.stroke(); g.strokeStyle = '#fff'; g.lineWidth = 2; g.stroke();
+    // Part selection stays visible in locked mode; manipulation knobs remain unlocked-only.
+    if(!ED.lock){
+      const rot = W[ED.sel].rot;
+      const knob = (p, ang, glyph)=>{
+        g.save(); g.translate(p.x,p.y); g.rotate(ang);
+        g.beginPath(); g.arc(0,0,11,0,Math.PI*2); g.fillStyle = '#fff'; g.shadowColor = 'rgba(0,0,0,.45)'; g.shadowBlur = 6; g.fill(); g.shadowBlur = 0;
+        g.strokeStyle = '#2F5CE8'; g.fillStyle = '#2F5CE8'; g.lineWidth = 2; g.lineCap = 'round'; glyph(); g.restore();
+      };
+      const arrows = ()=>{ g.beginPath(); g.moveTo(0,-5); g.lineTo(0,5); g.stroke(); [[-1,-5],[1,5]].forEach(([d,y])=>{ g.beginPath(); g.moveTo(-3,y-d*3); g.lineTo(0,y); g.lineTo(3,y-d*3); g.stroke(); }); };
+      knob(h.wid, rot + Math.PI/2, arrows);
+      knob(h.len, rot, arrows);
+      knob(h.rot, 0, ()=>{ g.beginPath(); g.arc(0,0,5,Math.PI*0.15,Math.PI*1.55); g.stroke(); g.beginPath(); g.moveTo(-1,-6.5); g.lineTo(2.5,-4.2); g.lineTo(-1.5,-2.4); g.closePath(); g.fill(); });
+    }
+  }
+  if(ED.bones) ED.order.forEach(k=>{
+    if(!W[k] || !edKeyVisible(k)) return;
+    // Facial overlays are positioned inside the head artwork, not skeleton joints. Their
+    // pivot dots intercepted taps intended for an eye/brow and made the head jump/disappear.
+    if(edIsFaceOverlayKey(k) || k==='mouth_closed' || k==='mouth_open' || k==='mouth_hold') return;
+    const p = S(W[k]), on = k === ED.sel;
+    g.beginPath(); g.arc(p.x,p.y,on?9:7,0,Math.PI*2); g.fillStyle = '#fff'; g.fill();
+    g.beginPath(); g.arc(p.x,p.y,on?6.5:4.5,0,Math.PI*2); g.fillStyle = ED.lock ? (on ? '#12B886' : '#3fd6a6') : (on ? '#2F5CE8' : '#5b7cf0'); g.fill();
+  });
+  if(ED.bones){
+    const tailTip = edTailTip(W);
+    if(tailTip){
+      const p = S(tailTip), on = ED.sel === (isMythicModelType(ED.modelType)?'tail_tip':'tail');
+      g.beginPath(); g.arc(p.x,p.y,on?9:7,0,Math.PI*2); g.fillStyle = '#fff'; g.fill();
+      g.beginPath(); g.arc(p.x,p.y,on?6.5:4.5,0,Math.PI*2); g.fillStyle = ED.lock ? (on ? '#12B886' : '#3fd6a6') : (on ? '#2F5CE8' : '#5b7cf0'); g.fill();
+    }
+  }
+}
+function edResize(){
+  const st = document.getElementById('edStage'), r = st.getBoundingClientRect(); if(r.width < 10 || r.height < 10) return;
+  ED.dpr = window.devicePixelRatio || 1; ED.cv.width = Math.round(r.width*ED.dpr); ED.cv.height = Math.round(r.height*ED.dpr); ED.cw = r.width; ED.ch = r.height;
+  if(ED.needFit){ ED.needFit = false; edFit(); return; }
+  edDraw();
+}
+function edFit(){
+  const W = edWorld(); let x0 = 1e9, y0 = 1e9, x1 = -1e9, y1 = -1e9;
+  ED.order.forEach(k=>{ const a = edArt(k); if(!a) return; [[0,0],[a.w,0],[a.w,a.h],[0,a.h]].forEach(([lx,ly])=>{ const p = edL2W(W,k,lx,ly); x0 = Math.min(x0,p.x); x1 = Math.max(x1,p.x); y0 = Math.min(y0,p.y); y1 = Math.max(y1,p.y); }); });
+  const bw = Math.max(1,x1-x0), bh = Math.max(1,y1-y0), z = Math.min((ED.cw-36)/bw, (ED.ch-36)/bh);
+  ED.cam.z = Math.max(0.05, z); ED.cam.x = ED.cw/2 - (x0+x1)/2*ED.cam.z; ED.cam.y = ED.ch/2 - (y0+y1)/2*ED.cam.z;
+  edSyncZoom(); edDraw();
+}
+function edSyncZoom(){ const e = document.getElementById('edZoomVal'); if(e) e.textContent = Math.round(ED.cam.z*100)+'%'; }
+function edZoomAt(f, cx, cy){ const z = Math.max(0.08, Math.min(8, ED.cam.z*f)), k = z/ED.cam.z; ED.cam.x = cx-(cx-ED.cam.x)*k; ED.cam.y = cy-(cy-ED.cam.y)*k; ED.cam.z = z; edSyncZoom(); edDraw(); }
+function edZoomBy(f){ edZoomAt(f, ED.cw/2, ED.ch/2); }
+
+/* ---------- undo / redo ---------- */
+const edSnap = ()=>JSON.stringify({ st:ED.st, order:ED.order, assign:ED.assign, facing:ED.facing });
+function edRestore(j){ const o = JSON.parse(j); ED.st = o.st; ED.order = o.order; ED.assign = o.assign; ED.facing = o.facing === -1 ? -1 : 1; }
+function edPush(){ ED.undo.push(edSnap()); if(ED.undo.length > 80) ED.undo.shift(); ED.redo.length = 0; edSyncHistory(); }
+function edUndo(){ if(!ED.undo.length) return; ED.redo.push(edSnap()); edRestore(ED.undo.pop()); edAfterChange(true); }
+function edRedo(){ if(!ED.redo.length) return; ED.undo.push(edSnap()); edRestore(ED.redo.pop()); edAfterChange(true); }
+function edSyncHistory(){ document.getElementById('edUndoBtn').disabled = !ED.undo.length; document.getElementById('edRedoBtn').disabled = !ED.redo.length; }
+function edAfterChange(full){ edSyncHistory(); if(full) edSyncUI(); else edSyncVals(); edDraw(); }
+
+/* ---------- selection + toolbar ---------- */
+function edThumb(a){
+  if(!a.thumb){ const k = 60/Math.max(a.w,a.h), c = document.createElement('canvas'); c.width = Math.max(1,Math.round(a.w*k)); c.height = Math.max(1,Math.round(a.h*k)); c.getContext('2d').drawImage(a.canvas,0,0,c.width,c.height); a.thumb = c.toDataURL('image/png'); }
+  return a.thumb;
+}
+// v328 PART LOCK: a locked part can't be selected (chip or canvas tap), moved, resized, rotated or bulk-edited until it is
+// unlocked again from its long-press "Part options" panel. State lives in ED.lockedParts and is saved with the model.
+function edIsLocked(k){ return !!(k && ED.lockedParts && ED.lockedParts[k]); }
+function edSetPartLocked(k, on){
+  if(!k || !ED.st || !ED.st[k]) return false;
+  if(!ED.lockedParts) ED.lockedParts = {};
+  if(on){ ED.lockedParts[k] = true; if(ED.sel === k) ED.sel = null; }
+  else delete ED.lockedParts[k];
+  edSyncUI(); edDraw();
+  showToast(sheetLabel(k)+(on ? ' locked' : ' unlocked'), { duration:1300 });
+  return true;
+}
+function edSelect(k){
+  if(edIsLocked(k)){ showToast(sheetLabel(k)+' is locked. Long press it to unlock.', { duration:1500 }); return; }
+  ED.sel = k; edSyncUI(); edDraw();
+}
+// Facial reactions, mouths and each side's hand gestures are interchangeable variants. Paired
+// arms/legs share size and rotation edits without destroying their different anatomical positions.
+function edSimilarKeys(k){
+  // v333: every part family now has a rule, for humanoid, animal and bird models alike.
+  // Head variants (incl. the open-eye head), mouths (incl. mouth_hold), hands (incl. holding hands).
+  if(ED_SIM.head.test(k)) return SHEET_KEYS.filter(x=>ED_SIM.head.test(x));
+  if(ED_SIM.mouth.test(k)) return ['mouth_closed','mouth_open','mouth_hold'];
+  // v318: open eyes (eye_L/eye_R) and closed eyes (eye_closed_L/eye_closed_R) are left/right pairs.
+  const em=k.match(/^(eye|eye_closed)_([LR])$/);
+  if(em) return [em[1]+'_L',em[1]+'_R'];
+  // v333: eyebrows are a left/right pair (humanoid + animal face kits).
+  if(/^brow_[LR]$/.test(k)) return ['brow_L','brow_R'];
+  // Hand transforms are a paired character-level edit, not side-specific: include both base hands
+  // and every matching gesture on both sides. Per-part defaults still preserve each gesture's own
+  // wrist pivot and the left/right model's original mirror direction.
+  if(ED_SIM.hand.test(k)) return SHEET_KEYS.filter(x=>ED_SIM.hand.test(x));
+  const lm=k.match(/^(arm|leg)([LR])_(upper|lower)$/);
+  if(lm){ const other=lm[2]==='L'?'R':'L'; return [k,lm[1]+other+'_'+lm[3]]; }
+  // v333: shoes are a left/right pair.
+  if(/^shoe[LR]$/.test(k)) return ['shoeL','shoeR'];
+  // v333: bird flight wings are a left/right pair; bird eye and beak states are interchangeable variants.
+  if(/^wing[LR]_fly$/.test(k)) return ['wingL_fly','wingR_fly'];
+  if(/^bird_eye(?:_closed)?$/.test(k)) return ['bird_eye','bird_eye_closed'];
+  if(/^beak_(?:closed|open)$/.test(k)) return ['beak_closed','beak_open'];
+  return [k];
+}
+// v333: shared matchers so "which parts are similar" and "how to transfer the edit" never disagree.
+const ED_SIM={
+  // v371: head variants include the emotion heads (sad / angry / shocked / laughing) - they were missing, so "Apply similar" found no matches.
+  head:/^head(?:_(?:blink|open|sad|angry|shock|laugh))?$/,
+  mouth:/^mouth_(?:closed|open|hold)$/,
+  hand:/^hand[LR](?:_(?:fist|point|thumb|palm|hold))?$/,
+  birdVariant:/^(?:bird_eye(?:_closed)?|beak_(?:closed|open))$/
+};
+function edApplyToSimilarParts(){
+  const k=ED.sel;
+  if(!k || !ED.st[k]){ showToast('Select a part first',{duration:1300}); return; }
+  let init;
+  try{ init = typeof ED.init === 'string' ? JSON.parse(ED.init).st : ED.init.st; }
+  catch(e){ showToast('Could not read the starting layout',{duration:1500}); return; }
+  const headGroup=ED_SIM.head.test(k);
+  const keys=edSimilarKeys(k);
+  const group=keys.filter(x=>x!==k && !edIsLocked(x) && ED.st[x] && init[x] && ED.arts[ED.assign[x]]);
+  if(!group.length){ showToast(keys.length<=1 ? 'This part has no matching pair to copy to' : 'No other matching parts are present in this sheet',{duration:1500}); return; }
+  const src=ED.st[k], src0=init[k], srcArt=edArt(k);
+  if(!src0 || !srcArt){ showToast('Could not read the selected part',{duration:1500}); return; }
+  const ratio=(v,b)=>Math.abs(b)>1e-6?v/b:1;
+  const variants=headGroup || ED_SIM.mouth.test(k) || ED_SIM.hand.test(k) || ED_SIM.birdVariant.test(k);
+  let applied=0;
+  edPush();
+  group.forEach(q=>{
+    const dst=ED.st[q], d0=init[q], art=edArt(q);
+    if(!dst || !d0 || !art) return;
+    const prevDst={...dst};
+    // Transfer edit DELTAS from the selected piece, relative to its opening state. This preserves
+    // the destination's own detected proportions while copying every intentional transform edit.
+    dst.s=Math.max(.3,Math.min(3,d0.s*ratio(src.s,src0.s)));
+    dst.wx=Math.max(.2,Math.min(4,d0.wx*ratio(src.wx,src0.wx)));
+    dst.hy=Math.max(.2,Math.min(4,d0.hy*ratio(src.hy,src0.hy)));
+    dst.rot=d0.rot+(src.rot-src0.rot);
+    dst.fx=src.fx===src0.fx ? d0.fx : -d0.fx;
+    dst.fy=src.fy===src0.fy ? d0.fy : -d0.fy;
+    if(variants){
+      const srcParent=SHEET_PARENT[k], dstParent=SHEET_PARENT[q];
+      const pa=srcParent&&edArt(srcParent), pb=dstParent&&edArt(dstParent);
+      const sx=pa&&pb ? pb.w/Math.max(1,pa.w) : 1;
+      const sy=pa&&pb ? pb.h/Math.max(1,pa.h) : 1;
+      const sp0=srcParent&&init[srcParent], dp0=dstParent&&init[dstParent];
+      const sign=v=>v ? Math.sign(v.s*v.wx*v.fx)||1 : 1;
+      const flipLocalX=ED.view!=='side' && sign(sp0)!==sign(dp0) ? -1 : 1;
+      dst.ax=d0.ax+(src.ax-src0.ax)*sx*flipLocalX;
+      dst.ay=d0.ay+(src.ay-src0.ay)*sy;
+    } else {
+      const mirror=ED.view!=='side';
+      dst.ax=d0.ax+(mirror?-(src.ax-src0.ax):(src.ax-src0.ax));
+      dst.ay=d0.ay+(src.ay-src0.ay);
+    }
+    // Keep each part's own pivot but copy only the selected part's pivot CHANGE (relative to its opening state).
+    // FIX: this used to be measured from the art's default pivot (dpx/dpy) while ax/ay were measured from the
+    // opening layout, so any model with an already-moved pivot made the matching part jump away / seem to vanish.
+    dst.pvx=d0.pvx+(src.pvx-src0.pvx)*(art.w/Math.max(1,srcArt.w));
+    dst.pvy=d0.pvy+(src.pvy-src0.pvy)*(art.h/Math.max(1,srcArt.h));
+    // Safety net: never let a bad number hide a part. If anything went non-finite, put this part back as it was.
+    if(!['s','wx','hy','rot','fx','fy','ax','ay','pvx','pvy'].every(f=>Number.isFinite(dst[f]))){ Object.assign(dst, prevDst); return; }
+    applied++;
+  });
+  if(!applied){ ED.undo.pop(); showToast('No matching parts could be updated',{duration:1500}); return; }
+  edAfterChange(true);
+  showToast(headGroup ? 'Applied head edits to '+applied+' head variants' : 'Applied edits to '+applied+' matching parts',{duration:1800});
+}
+function edSyncUI(){
+  const box = document.getElementById('edLayers');
+  box.innerHTML = ED.order.slice().reverse().map(k=>`<button class="ed-chip ${k===ED.sel?'is-on':''} ${edIsLocked(k)?'is-locked':''}" data-k="${k}" data-locked="${edIsLocked(k)?'1':'0'}" onclick="edSelect('${k}')"><span class="th"><img src="${edThumb(edArt(k))}" alt="">${edIsLocked(k)?'<i class="ed-lock-badge" aria-label="Locked"><svg viewBox="0 0 24 24" width="10" height="10" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round" stroke-linejoin="round"><rect x="5" y="11" width="14" height="9.5" rx="2.2"/><path d="M8.2 11V8a3.8 3.8 0 0 1 7.6 0v3"/></svg></i>':''}</span><span class="n">${sheetLabel(k)}</span></button>`).join('');
+  const on = box.querySelector('.is-on'); if(on) on.scrollIntoView({ inline:'nearest', block:'nearest' });
+  document.getElementById('edSubtitle').textContent = ED.sel ? sheetLabel(ED.sel) + ' selected' : 'Tap a part to edit it';
+  document.getElementById('edSwapBtn').disabled = !ED.sel || !/[LR]_/.test(ED.sel);
+  const fmb = document.getElementById('edFlipModelBtn'); if(fmb) fmb.style.display = ED.view === 'side' ? '' : 'none';
+  document.querySelectorAll('#edModes button').forEach(b=>b.classList.toggle('is-on', b.dataset.m === ED.mode));
+  const bb = document.getElementById('edBonesBtn'); bb.classList.toggle('is-on', ED.bones); bb.classList.toggle('is-off', !ED.bones); bb.innerHTML = edIcon(ED.bones ? 'eye' : 'eyeOff');
+  const bg = document.getElementById('edLockBadge'); if(bg){ bg.classList.remove('show'); bg.textContent = ''; }
+  const lb = document.getElementById('edLockBtn'); lb.classList.toggle('is-lock', ED.lock); lb.innerHTML = edIcon(ED.lock ? 'lock' : 'unlock'); lb.setAttribute('aria-pressed', ED.lock ? 'true' : 'false');
+  edSyncHistory(); edSyncVals();
+}
+const ED_RANGE = { size:[30,300,'%'], width:[30,300,'%'], height:[30,300,'%'], rotate:[-180,180,'°'], position:[-150,150,'%'] };
+// The part's auto-placed position when the sheet was first opened -- the 0% reference point for the
+// Move sliders, and what "Reset part" already returns ax/ay to, so the two stay conceptually in sync.
+function edInitSt(k){ try{ return JSON.parse(ED.init).st[k]; }catch(e){ return null; } }
+// Position is expressed as a percentage of the part's OWN width/height (not raw pixels) so the same
+// slider range feels right whether you're nudging a tiny mouth or the whole torso.
+function edPosVal(axis){
+  const st = ED.st[ED.sel], init = edInitSt(ED.sel), a = edArt(ED.sel); if(!st || !init || !a) return 0;
+  const span = axis==='x' ? a.w : a.h; if(!span) return 0;
+  const cur = axis==='x' ? st.ax : st.ay, base = axis==='x' ? init.ax : init.ay;
+  return Math.round((cur-base)/span*100);
+}
+function edApplyPos(axis, v){
+  const st = ED.st[ED.sel], init = edInitSt(ED.sel), a = edArt(ED.sel); if(!st || !init || !a) return;
+  const span = axis==='x' ? a.w : a.h;
+  if(axis==='x'){ st.ax = init.ax + v/100*span; document.getElementById('edVal').textContent = 'X ' + v + '%'; }
+  else { st.ay = init.ay + v/100*span; document.getElementById('edValY').textContent = 'Y ' + v + '%'; }
+  edDraw();
+}
+function edGetVal(){
+  const st = ED.st[ED.sel]; if(!st) return 0;
+  if(ED.mode === 'size') return Math.round(st.s*100);
+  if(ED.mode === 'width') return Math.round(st.wx*100);
+  if(ED.mode === 'height') return Math.round(st.hy*100);
+  if(ED.mode === 'rotate') return Math.round(st.rot);
+  return edPosVal('x');   // position mode: the main (first) slider is X
+}
+function edSyncVals(){
+  const rowY = document.getElementById('edSliderRowY');
+  if(ED.mode === 'position'){
+    rowY.style.display = '';
+    const r = ED_RANGE.position;
+    const slX = document.getElementById('edSlider'), vX = edPosVal('x');
+    slX.min = r[0]; slX.max = r[1]; slX.value = vX; document.getElementById('edVal').textContent = 'X ' + vX + '%';
+    const slY = document.getElementById('edSliderY'), vY = edPosVal('y');
+    slY.min = r[0]; slY.max = r[1]; slY.value = vY; document.getElementById('edValY').textContent = 'Y ' + vY + '%';
+  } else {
+    rowY.style.display = 'none';
+    const r = ED_RANGE[ED.mode], sl = document.getElementById('edSlider'), v = edGetVal();
+    sl.min = r[0]; sl.max = r[1]; sl.value = v; document.getElementById('edVal').textContent = v + r[2];
+  }
+}
+function edSetMode(m){ ED.mode = m; edSyncUI(); }
+let edSliderPushed = false;
+function edSliderStart(){ if(!edSliderPushed){ edPush(); edSliderPushed = true; } }
+function edSliderEnd(){ edSliderPushed = false; }
+function edSliderInput(v){
+  const st = ED.st[ED.sel]; if(!st) return; v = +v;
+  if(ED.mode === 'position'){ edApplyPos('x', v); return; }
+  if(ED.mode==='size') st.s = v/100; else if(ED.mode==='width') st.wx = v/100; else if(ED.mode==='height') st.hy = v/100; else st.rot = v;
+  document.getElementById('edVal').textContent = v + ED_RANGE[ED.mode][2]; edDraw();
+}
+function edSliderInputY(v){ if(ED.mode !== 'position' || !ED.sel) return; edApplyPos('y', +v); }
+function edNudge(d){ if(!ED.sel) return; edPush(); const r = ED_RANGE[ED.mode]; edSliderInput(Math.max(r[0], Math.min(r[1], edGetVal()+d))); edSyncVals(); }
+function edNudgeY(d){ if(!ED.sel || ED.mode !== 'position') return; edPush(); const r = ED_RANGE.position; edSliderInputY(Math.max(r[0], Math.min(r[1], edPosVal('y')+d))); edSyncVals(); }
+function edFlip(axis){ if(!ED.sel) return; edPush(); const k = ED.sel, st = ED.st[k]; edKeepJoints(k, ()=>{ if(axis==='x') st.fx *= -1; else st.fy *= -1; }); edDraw(); }
+// NEAR/FAR limb pairs in a side-view sheet: two pieces with the same silhouette (the far one a touch darker,
+// see SHEET_PROMPT_SIDE's "NO MIRRORING IN SIDE VIEW" rule). When the model turns around, the near and far
+// limbs trade places, so the far leg becomes the near one and vice versa.
+const SHEET_FLIP_PAIRS = [['armL_upper','armR_upper'], ['armL_lower','armR_lower'], ['handL','handR'], ['legL_upper','legR_upper'], ['legL_lower','legR_lower'], ['shoeL','shoeR'], ['wingL','wingR'],
+  ['handL_fist','handR_fist'], ['handL_point','handR_point'], ['handL_thumb','handR_thumb'], ['handL_palm','handR_palm']];
+// Turns the WHOLE side-view model around so it faces the other way. Every piece turns, limbs and hands included:
+// its art is reflected (fx), its joint is mirrored across the body's centre line and its angle is negated, so a foot
+// or hand that pointed forward now points the new way. The near and far limbs first trade places together with their
+// own state (art, size, stretch, rotation and joint edits), so nothing the person tuned is lost. Parents go first so
+// children are placed against their new parent transforms. Side view only.
+// ED.facing flips as well: the animation presets read it, so arms and legs swing toward the way the model now faces.
+function edFlipModel(){
+  if(ED.view !== 'side') return;
+  edPush();
+  SHEET_FLIP_PAIRS.forEach(([l,r])=>{
+    if(!ED.arts[ED.assign[l]] || !ED.arts[ED.assign[r]]) return;   // basic sheets may not have the fist pair
+    const t = ED.assign[l]; ED.assign[l] = ED.assign[r]; ED.assign[r] = t;
+    const s = ED.st[l]; ED.st[l] = ED.st[r]; ED.st[r] = s;
+  });
+  const W0 = edWorld(true), cx = W0.torso.x, done = {};
+  const go = k => {
+    if(done[k] || !ED.st[k] || !W0[k]) return; done[k] = true;
+    const p = SHEET_PARENT[k]; if(p) go(p);
+    const st = ED.st[k], old = W0[k];
+    st.fx *= -1;                                   // reflect this piece's art (limbs and hands included)
+    if(p){
+      const P = edWorld(true)[p];
+      st.rot = (-old.rot - P.rot)*180/Math.PI;
+      edSetPos(k, 2*cx - old.x, old.y);
+    } else st.rot = -old.rot*180/Math.PI;
+  };
+  SHEET_KEYS.forEach(go);
+  ED.facing = -(ED.facing || 1);
+  edSyncVals(); edDraw();
+  const flipBtn=document.getElementById('edFlipModelBtn');
+  if(flipBtn){ flipBtn.setAttribute('aria-pressed', ED.facing < 0 ? 'true' : 'false'); flipBtn.title='Turn the entire side-profile rig 180 degrees. Near/far limbs swap, and every piece stays editable'; }
+  showToast(ED.facing < 0 ? 'Model turned to face left' : 'Model turned to face right', { duration:1500 });
+}
+function edSwap(){
+  const k = ED.sel; if(!k || !/[LR]_/.test(k)) return;
+  const o = k.replace(/([LR])_/, (m,s)=>(s==='L'?'R':'L')+'_');
+  if(edIsLocked(o)){ showToast(sheetLabel(o)+' is locked. Unlock it first.', { duration:1500 }); return; }
+  edPush(); const t = ED.assign[k]; ED.assign[k] = ED.assign[o]; ED.assign[o] = t;
+  [k,o].forEach(x=>{ const a = edArt(x); ED.st[x].pvx = a.dpx; ED.st[x].pvy = a.dpy; });
+  edSyncUI(); edDraw(); showToast('Swapped '+sheetLabel(k).toLowerCase()+' and '+sheetLabel(o).toLowerCase(), { duration:1500 });
+}
+function edResetPart(){
+  if(!ED.sel) return; const init = JSON.parse(ED.init), k = ED.sel; edPush();
+  const a = edArt(k); const cur = ED.st[k], i0 = init.st[k];
+  if(cur && i0 && (cur.fx !== i0.fx || cur.fy !== i0.fy)) edKeepJoints(k, ()=>{ cur.fx = i0.fx; cur.fy = i0.fy; });
+  ED.st[k] = { ...init.st[k], pvx:a.dpx, pvy:a.dpy }; edAfterChange(true);
+}
+// v372 POSITION SHEET: writes the CURRENT position of every part of the model being edited (size, width, length,
+// rotation, flips, joint attachment and pivot) plus the opening layout and draw order into a downloadable .json sheet.
+// Hand this sheet back to lock these positions as the model's default layout.
+function edPosSheetNum(v){ return Number.isFinite(v) ? Math.round(v*100000)/100000 : v; }
+function edBuildPositionSheet(){
+  let init={}; try{ init = typeof ED.init === 'string' ? JSON.parse(ED.init).st : (ED.init && ED.init.st) || {}; }catch(e){}
+  const clean=o=>{ const r={}; Object.keys(o||{}).forEach(f=>{ const v=o[f]; if(typeof v==='number') r[f]=edPosSheetNum(v); else if(typeof v==='boolean'||typeof v==='string') r[f]=v; }); return r; };
+  const parts={};
+  Object.keys(ED.st||{}).forEach(k=>{
+    const a=ED.arts && ED.arts[(ED.assign&&ED.assign[k])||k];
+    parts[k]={ label:(typeof sheetLabel==='function'?sheetLabel(k):k), art:a?{ w:a.w, h:a.h, dpx:edPosSheetNum(a.dpx), dpy:edPosSheetNum(a.dpy) }:null, position:clean(ED.st[k]), startLayout:clean(init[k]), locked:!!(ED.lockedParts&&ED.lockedParts[k]) };
+  });
+  return { sheetType:'ethvelle-position-sheet', version:1, createdAt:new Date().toISOString(), modelName:ED.name||'Model', modelType:ED.modelType||'humanoid', view:ED.view, facing:ED.facing, dress:!!ED.dress, beast:!!ED.beast, partCount:Object.keys(parts).length, order:(ED.order||[]).slice(), parts };
+}
+function edDownloadPositionSheet(){
+  if(!ED.open || !ED.st || !Object.keys(ED.st).length){ showToast('Open a model first',{duration:1400}); return; }
+  try{
+    const sheet=edBuildPositionSheet();
+    const safe=String(sheet.modelName||'model').replace(/[^\w\-]+/g,'_').replace(/^_+|_+$/g,'').slice(0,40)||'model';
+    const name='Position_Sheet_'+safe+'_'+sheet.modelType+'_'+sheet.view+'.json';
+    const blob=new Blob([JSON.stringify(sheet,null,2)],{type:'application/json'});
+    const url=URL.createObjectURL(blob), a=document.createElement('a');
+    a.href=url; a.download=name; a.style.display='none'; document.body.appendChild(a); a.click();
+    setTimeout(()=>{ a.remove(); URL.revokeObjectURL(url); },4000);
+    showToast('Position sheet created ('+sheet.partCount+' parts)',{duration:2000});
+  }catch(e){ showToast('Could not create the position sheet',{duration:1800}); }
+}
+function edResetAll(){ edPush(); const keepLocked = {}; Object.keys(ED.lockedParts||{}).forEach(k=>{ if(ED.lockedParts[k] && ED.st[k]) keepLocked[k] = JSON.parse(JSON.stringify(ED.st[k])); }); edRestore(ED.init); Object.keys(keepLocked).forEach(k=>{ if(ED.st[k]) ED.st[k] = keepLocked[k]; }); edAfterChange(true); edFit(); showToast('Reset to the starting layout', { duration:1300 }); }
+// Only joint attachment coordinates and bone rotations are restored. Artwork scale, width, length,
+// flips and the rest of the part edits remain untouched. The "default" is the pose/layout this
+// specific model had when this editing session opened.
+// v379: parts whose edited position/rotation must survive Done on a plain humanoid (head + both legs: thigh, shin, shoe).
+function edKeepOnDone(k){ return k==='head' || /^(leg[LR]_(upper|lower)|shoe[LR])$/.test(String(k||'')); }
+function edSkeletonAtDefault(keepHead){
+  if(!ED.init || !ED.st) return false;
+  let base; try{ base=JSON.parse(ED.init).st||{}; }catch(e){ return false; }
+  for(const k of Object.keys(ED.st)){
+    if(k==='tail' && ED.modelType==='humanoid') continue;   // v344: the beast-man tail keeps the rest pose chosen in the editor
+    if(keepHead && edKeepOnDone(k)) continue;   // v378/v379: head and leg positions edited by the user are saved, never reset on Done
+    // Mouth crops are independent face overlays nested inside the head, not skeleton joints.
+    // Their ax/ay/rot are part of the model's saved facial layout and must not block the
+    // skeleton-default check after a user deliberately repositions them.
+    if(k==='mouth_closed'||k==='mouth_open'||k==='mouth_hold'||(typeof SHEET_FACE_NESTED!=='undefined'&&SHEET_FACE_NESTED.includes(k))||(typeof SHEET_FACE_KIT_NESTED!=='undefined'&&SHEET_FACE_KIT_NESTED.includes(k))||(typeof SHEET_HUMANOID_FACE_KIT_KEYS!=='undefined'&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(k))||(typeof SHEET_BIRD_FACE_NESTED!=='undefined'&&SHEET_BIRD_FACE_NESTED.includes(k))||(typeof SHEET_ALT_OF!=='undefined'&&SHEET_ALT_OF[k])) continue;
+    const cur=ED.st[k], ref=base[k]; if(!cur || !ref) continue;
+    for(const prop of ['ax','ay','rot']){
+      if(Number.isFinite(ref[prop]) && (!Number.isFinite(cur[prop]) || Math.abs(cur[prop]-ref[prop])>1e-4)) return false;
+    }
+  }
+  return true;
+}
+function edResetSkeletonToDefault(silent, keepHead){
+  if(!ED.open || !ED.init || !ED.st) return false;
+  let base; try{ base=JSON.parse(ED.init).st||{}; }catch(e){ return false; }
+  const keys=Object.keys(ED.st).filter(k=>{
+    if(k==='tail' && ED.modelType==='humanoid') return false;   // v344: never reset the beast-man tail
+    if(keepHead && edKeepOnDone(k)) return false;   // v378/v379: keep the edited head and leg positions (Done)
+    // Reset only structural joint attachments. Keep mouth overlay transforms as edited by
+    // the user; they are nested in the head and are not part of the skeleton pose.
+    if(k==='mouth_closed'||k==='mouth_open'||k==='mouth_hold'||(typeof SHEET_FACE_NESTED!=='undefined'&&SHEET_FACE_NESTED.includes(k))||(typeof SHEET_FACE_KIT_NESTED!=='undefined'&&SHEET_FACE_KIT_NESTED.includes(k))||(typeof SHEET_HUMANOID_FACE_KIT_KEYS!=='undefined'&&SHEET_HUMANOID_FACE_KIT_KEYS.includes(k))||(typeof SHEET_BIRD_FACE_NESTED!=='undefined'&&SHEET_BIRD_FACE_NESTED.includes(k))||(typeof SHEET_ALT_OF!=='undefined'&&SHEET_ALT_OF[k])) return false;
+    const cur=ED.st[k], ref=base[k];
+    return !!(cur && ref && ['ax','ay','rot'].some(prop=>Number.isFinite(ref[prop]) && (!Number.isFinite(cur[prop]) || Math.abs(cur[prop]-ref[prop])>1e-4)));
+  });
+  if(keys.length){
+    edPush();
+    keys.forEach(k=>['ax','ay','rot'].forEach(prop=>{
+      const cur=ED.st[k], ref=base[k];
+      if(cur && ref && Number.isFinite(ref[prop])) cur[prop]=ref[prop];
+    }));
+    if(!ED.st[ED.sel]) ED.sel=ED.st.torso?'torso':Object.keys(ED.st)[0]||null;
+    edAfterChange(true);
+  }
+  const ok=edSkeletonAtDefault(keepHead);
+  if(!silent) showToast(ok ? (keys.length?'Skeleton reset to its default position':'Skeleton is already in its default position') : 'Could not reset this skeleton', {duration:1600});
+  return ok;
+}
+function edToggleBones(){ ED.bones = !ED.bones; edSyncUI(); edDraw(); showToast(ED.bones ? 'Bones shown' : 'Bones hidden' + (ED.lock ? ' (still locked)' : ''), { duration:1100 }); }
+// Bone <-> body-part lock. OFF: a joint dot moves on its own (the art stays where it is, so you can line the bones up with the art).
+// ON: the body part is locked to its bone, so dragging a joint moves the part with it; an elbow / knee dot swings and stretches

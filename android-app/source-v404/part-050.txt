@@ -1,0 +1,1000 @@
+    if(el.id==='animClipEl')return 'main';
+    if(el.classList.contains('anim-clip-readonly')&&el.dataset.readonlyClipRef!=null)return String(el.dataset.readonlyClipRef);
+    if(el.classList.contains('anim-clip')&&el.dataset.segIdx!=null)return 'seg'+el.dataset.segIdx;
+    if(el.classList.contains('overlay-clip')&&el.dataset.overlayId!=null)return String(el.dataset.overlayId);
+    if(el.classList.contains('track-clip')&&el.dataset.bgId!=null)return String(el.dataset.bgId);
+    return null;
+  }
+  function rowForPointer(x,y){
+    const hit=document.elementFromPoint(x,y);
+    return hit&&hit.closest?hit.closest('.overlay-track-row,#backgroundRow,.char-row'):null;
+  }
+  function timelineEntriesForRow(row){
+    if(!row)return [];
+    if(row.id==='backgroundRow'){
+      return (Array.isArray(backgrounds)?backgrounds:[]).map(model=>({id:String(model.id),model,characterIndex:null,kind:'background'}));
+    }
+    if(row.classList.contains('overlay-track-row')){
+      const group=String(row.dataset.group||'clips');
+      return (Array.isArray(overlays)?overlays:[]).filter(model=>group==='audio'?model.type==='audio':group==='text'?model.type==='text':model.type!=='audio'&&model.type!=='text')
+        .map(model=>({id:String(model.id),model,characterIndex:null,kind:'overlay'}));
+    }
+    if(row.classList.contains('char-row')){
+      const idx=Number(row.dataset.charIdx);
+      if(!Number.isInteger(idx)||!Array.isArray(characters)||!characters[idx])return [];
+      const model=characters[idx];
+      const clip=idx===Number(activeCharIdx)?activeClip:model.clip;
+      const segments=idx===Number(activeCharIdx)?splitStickmanSegments:model.segments;
+      if(typeof getAllStickmanClips!=='function')return [];
+      return getAllStickmanClips(clip,segments).map(entry=>({id:String(entry.ref),model:entry.clip,characterIndex:idx,kind:'character'}));
+    }
+    return [];
+  }
+  function timelineEntryElement(row,entry){
+    if(!row||!entry)return null;
+    if(entry.kind==='background')return qa(row,'.track-clip[data-bg-id]').find(el=>String(el.dataset.bgId)===entry.id)||null;
+    if(entry.kind==='overlay')return qa(row,'.overlay-clip[data-overlay-id]').find(el=>String(el.dataset.overlayId)===entry.id)||null;
+    if(entry.kind==='character'){
+      return qa(row,'.anim-clip,.anim-clip-readonly').find(el=>{
+        const ref=el.dataset.readonlyClipRef!=null?String(el.dataset.readonlyClipRef):(el.id==='animClipEl'?'main':el.dataset.segIdx!=null?'seg'+el.dataset.segIdx:'');
+        return ref===entry.id;
+      })||null;
+    }
+    return null;
+  }
+  function resolveTimelineClipAtTime(row,x,y){
+    if(!row)return null;
+    const now=typeof getCurrentAbsoluteTime==='function'?Number(getCurrentAbsoluteTime()):Number(currentAbsoluteTimeSec)||0;
+    const entries=timelineEntriesForRow(row).filter(entry=>{
+      const start=Number(entry.model&&entry.model.trimStart)||0;
+      const end=Number(entry.model&&entry.model.trimEnd)||start;
+      return end>start&&now>=start-0.000001&&now<end-0.000001;
+    });
+    if(!entries.length)return null;
+    if(entries.length===1)return {id:entries[0].id,characterIndex:entries[0].characterIndex};
+    // v258: stacked clips (x on top, y underneath, same time coverage). If the clip that is
+    // already selected still covers the playhead, it stays selected for the whole slide  - 
+    // the border never jumps to the other clip. Only when the selected clip no longer covers
+    // the playhead does the pointer's lane pick a new one.
+    const keepRef=currentSelectedRef();
+    if(keepRef){
+      const keepOwner=window.__ethvelleTimelineSelectionCharacterIndex;
+      const keepEntry=entries.find(entry=>String(entry.id)===keepRef&&(entry.characterIndex==null||keepOwner==null||String(entry.characterIndex)===String(keepOwner)));
+      if(keepEntry)return {id:keepEntry.id,characterIndex:keepEntry.characterIndex};
+    }
+    // Multiple clips can occupy separate vertical sub-lanes at the same time. Use the
+    // pointer's lane only to choose between those data-matched candidates; time membership
+    // always comes from trimStart/trimEnd, never horizontal DOM rectangles.
+    const hit=document.elementFromPoint(x,y);
+    const hitClip=hit&&hit.closest?hit.closest('.anim-clip,.anim-clip-readonly,.overlay-clip,.track-clip[data-bg-id]'):null;
+    const hitTop=hitClip?Number.parseFloat(hitClip.style.top||'0'):NaN;
+    let best=entries[0],bestScore=Infinity;
+    entries.forEach(entry=>{
+      const el=timelineEntryElement(row,entry);
+      const top=el?Number.parseFloat(el.style.top||'0'):NaN;
+      const score=Number.isFinite(hitTop)&&Number.isFinite(top)?Math.abs(top-hitTop):0;
+      if(score<bestScore){best=entry;bestScore=score;}
+    });
+    return {id:best.id,characterIndex:best.characterIndex};
+  }
+  window.__ethvelleResolveTimelineClipAtTime=resolveTimelineClipAtTime;
+  function autoSelectAtPlayhead(){
+    if(typeof isPlaying!=='undefined'&&isPlaying)return;
+    // A clip's own move/trim gesture owns selection until release. The only exception
+    // is an actual playhead scrub, where the lock must yield to the clip under the playhead.
+    const selectionLock=String(window.__ethvelleTimelineSelectionLockId||'');
+    if(!window.__ethvelleTimelineScrubbing){
+      const activeManipulator=document.querySelector('#timelineInner .dragging,#timelineInner [data-ev-timeline-drag-active="1"]');
+      if(selectionLock||activeManipulator)return;
+    }
+    const ref=currentSelectedRef();
+    const pointer=window.__ethvelleTimelineSelectionPointer;
+    // A quick tap on a clip selects that clip but must not immediately be replaced by the
+    // clip currently beneath the playhead. Auto-selection is reserved for real scrub drags.
+    if(!window.__ethvelleTimelineScrubbing&&pointer&&!pointer.moved)return;
+    // Stay in the row where the slide STARTED; a finger drifting over the fox's row must not switch rows.
+    const pointerRow=pointer&&pointer.active?((pointer.startRow&&pointer.startRow.isConnected)?pointer.startRow:rowForPointer(pointer.x,pointer.y)):null;
+    const selected=selectedElementForRef(ref);
+    let row=pointerRow||selected?.closest('.layer-row')||null;
+    if(!row&&ref){
+      const char=ref.match(/^char(\d+)$/);
+      if(char)row=$('timelineInner')?.querySelector('.char-row[data-char-idx="'+char[1]+'"]')||null;
+    }
+    if(!row)return;
+    const x=pointer&&pointer.active?pointer.x:0;
+    const y=pointer&&pointer.active?pointer.y:0;
+    const result=resolveTimelineClipAtTime(row,x,y);
+    if(!result||String(result.id)===String(ref)&&String(result.characterIndex??'')===String(window.__ethvelleTimelineSelectionCharacterIndex??''))return;
+    if(typeof window.__ethvelleLightSelectTimelineClip==='function')window.__ethvelleLightSelectTimelineClip(result.id,result.characterIndex);
+  }
+  let selectRaf=0,forceSelectPending=false;
+  function scheduleAutoSelect(force=false){
+    // Selection is cheap while a gesture is live: resolve clip membership from model time
+    // once per display frame and paint only the selection chrome. Heavy toolbar/keyframe/media
+    // synchronization is deferred to the single pointer-up commit.
+    if(force)forceSelectPending=true;
+    if(selectRaf)return;
+    selectRaf=requestAnimationFrame(()=>{
+      selectRaf=0;
+      autoSelectAtPlayhead();
+      if(forceSelectPending){
+        forceSelectPending=false;
+        if(typeof window.__ethvelleCommitTimelineSelection==='function')window.__ethvelleCommitTimelineSelection();
+        if(window.__ethvelleTimelineSelectionPointer)window.__ethvelleTimelineSelectionPointer.active=false;
+      }
+    });
+  }
+  const timeline=$('timelineScroll');
+  if(timeline&&!timeline.dataset.evcaV74AutoSelect){
+    timeline.dataset.evcaV74AutoSelect='1';
+    let lastLeft=timeline.scrollLeft;
+    timeline.addEventListener('scroll',()=>{
+      const left=timeline.scrollLeft;
+      if(Math.abs(left-lastLeft)>.25){lastLeft=left;scheduleAutoSelect(false);}
+    },{passive:true});
+    // Commit selection immediately after a gesture; during movement the expensive row scan
+    // is throttled because the playhead/canvas remain independently frame-smooth.
+    timeline.addEventListener('pointerup',()=>scheduleAutoSelect(true),{passive:true});
+    timeline.addEventListener('touchend',()=>scheduleAutoSelect(true),{passive:true});
+  }
+  // Scrubbing the playhead also changes the clip crossing the fixed centre line.
+  const oldSetTime=window.setCurrentAbsoluteTime;
+  if(typeof oldSetTime==='function'&&!oldSetTime.__evcaV75AutoSelect){
+    const wrapped=function(){const r=oldSetTime.apply(this,arguments);scheduleAutoSelect();return r;};
+    wrapped.__evcaV75AutoSelect=true;window.setCurrentAbsoluteTime=wrapped;
+  }
+
+  /* Force sharp character-row corners after each dynamic timeline render. This is style-only:
+     the observer watches child replacement, not style attributes, so it cannot feed back. */
+  function forceSquareCharacterRows(){
+    const rows=$('characterRows');if(!rows)return;
+    qa(rows,'.char-row,.char-row .char-row-track,.char-row .char-row-track *').forEach(el=>{
+      el.style.setProperty('border-radius','0','important');
+    });
+  }
+  const oldRenderChars=window.renderCharacterLayers;
+  if(typeof oldRenderChars==='function'&&!oldRenderChars.__evcaV75Square){
+    const wrapped=function(){const r=oldRenderChars.apply(this,arguments);requestAnimationFrame(forceSquareCharacterRows);return r;};
+    wrapped.__evcaV75Square=true;window.renderCharacterLayers=wrapped;
+  }
+  const oldRenderClips=window.renderTimelineClip;
+  if(typeof oldRenderClips==='function'&&!oldRenderClips.__evcaV75Square){
+    const wrapped=function(){const r=oldRenderClips.apply(this,arguments);requestAnimationFrame(forceSquareCharacterRows);scheduleAutoSelect();return r;};
+    wrapped.__evcaV75Square=true;window.renderTimelineClip=wrapped;
+  }
+  forceSquareCharacterRows();
+
+  // The older v72 script also installs a DOMContentLoaded callback that may recreate
+  // Save PNG + Add Layer after this file has already inserted the single Frame button.
+  // Run this normalizer after that older callback so the final live toolbar always has one.
+  function normalizeV75UI(){
+    replaceFrameToolbarItems();
+    syncCanvasZoomEntry();
+    ensureSingleZoomFrameButton();
+    forceSquareCharacterRows();
+    scheduleAutoSelect();
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',normalizeV75UI,{once:true});
+  else normalizeV75UI();
+})();
+</script>
+
+
+
+<!-- Ethvelle v77: stable white selection, discoverable keyframes, native zoom orientation,
+     reliable text swatches and full-height media filmstrips. -->
+<style id="ethvelle-v77-editor-fixes-css">
+  /* Single source of truth for selected timeline clips across Background, Character, Media and Text. */
+  html body #screen-editor #timelineInner .anim-clip.selected,
+  html body #screen-editor #timelineInner .track-clip.selected,
+  html body #screen-editor #timelineInner .overlay-clip.selected {
+    position:absolute!important;box-sizing:border-box!important;overflow:visible!important;
+    border:1px solid transparent!important;outline:0!important;box-shadow:none!important;
+    filter:none!important;transform:none!important;z-index:42!important;
+  }
+  /* Let outward trim tabs render beyond their clip and lane boundaries while the clip is selected. */
+  
+  /* Thin neutral-gray top/bottom rails are present on every selected clip type, including Text. */
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-bottom {
+    display:block!important;visibility:visible!important;opacity:1!important;
+    position:absolute!important;left:0!important;right:0!important;width:auto!important;
+    height:3px!important;min-height:3px!important;max-height:3px!important;
+    padding:0!important;margin:0!important;border:0!important;border-radius:0!important;
+    background:#fff!important;box-shadow:none!important;z-index:44!important;pointer-events:none!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-top {top:0!important;bottom:auto!important;}
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-bottom {bottom:0!important;top:auto!important;}
+  /* Each 20px side handle sits fully outside the clip border-box. The extra 1px offset accounts for the selected clip's transparent 1px border. */
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-right {
+    display:block!important;visibility:visible!important;opacity:1!important;
+    position:absolute!important;top:0!important;bottom:0!important;height:100%!important;
+    min-height:100%!important;max-height:none!important;width:20px!important;
+    min-width:20px!important;max-width:20px!important;padding:0!important;margin:0!important;
+    border:0!important;border-radius:0!important;overflow:hidden!important;
+    background:#fff!important;
+    box-shadow:none!important;z-index:45!important;pointer-events:none!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-left {left:-21px!important;right:auto!important;}
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-right {right:-21px!important;left:auto!important;}
+  /* The trim hit zones coincide with the outward white tabs. Hide their old blue center
+     marks while selected so the selection chrome remains white/neutral-gray on every clip. */
+  html body #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle::after,
+  html body #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle::after,
+  html body #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle::after {
+    content:none!important;display:none!important;
+  }
+  /* The row badge moves left by the same 21px offset so its icon clears the fully external handle. */
+  
+  /* Every timeline row type uses the same softened 26px rounded-square badge. */
+  html body #screen-editor #timelineInner .layer-row .layer-badge,
+  html body #screen-editor #timelineInner .char-row .layer-badge {
+    border-radius:8px!important;overflow:hidden!important;
+  }
+
+  /* Keyframe diamonds sit above the clip body and trim handles. Keep the diamond itself
+     inset from the clip edge (the renderer clamps its center to 9px) so a keyframe added at
+     the exact clip start/end is not clipped by overflow:hidden or hidden under the white tabs. */
+  html body #screen-editor #timelineInner .anim-clip .keyframe-track,
+  html body #screen-editor #timelineInner .track-clip .keyframe-track,
+  html body #screen-editor #timelineInner .overlay-clip .keyframe-track {
+    position:absolute!important;left:0!important;right:0!important;top:0!important;bottom:0!important;
+    display:block!important;overflow:visible!important;visibility:visible!important;opacity:1!important;
+    z-index:110!important;pointer-events:none!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip .kf-marker,
+  html body #screen-editor #timelineInner .track-clip .kf-marker,
+  html body #screen-editor #timelineInner .overlay-clip .kf-marker {
+    display:block!important;position:absolute!important;top:50%!important;width:13px!important;height:13px!important;
+    min-width:13px!important;min-height:13px!important;max-width:13px!important;max-height:13px!important;
+    transform:translate(-50%,-50%) rotate(45deg)!important;border:2px solid #fff!important;
+    border-radius:1px!important;background:#fff!important;opacity:1!important;visibility:visible!important;
+    z-index:111!important;pointer-events:auto!important;box-shadow:none!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip .kf-marker.active,
+  html body #screen-editor #timelineInner .track-clip .kf-marker.active,
+  html body #screen-editor #timelineInner .overlay-clip .kf-marker.active {
+    background:#2F5CE8!important;border-color:#fff!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip .kf-marker.under-playhead,
+  html body #screen-editor #timelineInner .track-clip .kf-marker.under-playhead,
+  html body #screen-editor #timelineInner .overlay-clip .kf-marker.under-playhead {
+    background:#FF3B30!important;border-color:#fff!important;
+  }
+
+  html body #screen-editor #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools > .evpa-eye{
+    display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;
+  }
+
+  /* A stable two-row horizontal palette. On each Font-tab open the scroller is reset to the
+     first swatches, while both rows retain their own full intrinsic width and never shrink. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette {
+    min-width:0!important;width:100%!important;max-width:100%!important;overflow:visible!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches.evpa-v25-font-built,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    display:flex!important;flex:0 1 auto!important;flex-flow:column nowrap!important;align-items:flex-start!important;
+    justify-content:flex-start!important;width:100%!important;min-width:0!important;max-width:100%!important;
+    overflow-x:auto!important;overflow-y:hidden!important;scrollbar-width:none!important;
+    -webkit-overflow-scrolling:touch!important;overscroll-behavior-x:contain!important;clip-path:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-row,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-row {
+    display:flex!important;flex:0 0 43px!important;flex-flow:row nowrap!important;align-items:center!important;
+    justify-content:flex-start!important;gap:6px!important;width:max-content!important;min-width:max-content!important;
+    max-width:none!important;white-space:nowrap!important;overflow:visible!important;transform:none!important;
+    box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-tools>* ,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-row>* ,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-tools>* ,
+  #ethvellePicsartTextDock.evpa-v25-font-mode:not(.evpa-in-composer) #evpaPalette .evpa-font-color-row>* {
+    flex-shrink:0!important;box-sizing:border-box!important;
+  }
+
+</style>
+<script id="ethvelle-v77-editor-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  /* The zoom-out control already exits zoom through its original handler. Upgrade
+     only its placeholder glyph, leaving the control's behavior and layout untouched. */
+  function cleanZoomHud(){
+    const back=$('evcaZoomOut');
+    if(!back)return;
+    const restoreIcon='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 3v5H3M3 3l6 6"/><path d="M16 3v5h5M21 3l-6 6"/><path d="M3 16v5h5M3 21l6-6"/><path d="M21 16v5h-5M21 21l-6-6"/></svg>';
+    const currentSvg=back.querySelector('svg');
+    const iconIsCurrent=!!currentSvg&&currentSvg.getAttribute('viewBox')==='0 0 24 24'&&
+      currentSvg.querySelector('path')?.getAttribute('d')==='M8 3v5H3M3 3l6 6'&&currentSvg.querySelectorAll('path').length===4;
+    if(!iconIsCurrent)back.innerHTML=restoreIcon;
+    back.setAttribute('aria-label','Back to original canvas');
+    back.title='Back to original canvas';
+  }
+
+  function attachZoomHudObserver(){
+    const hud=$('evcaInlineZoomHud');
+    if(!hud||typeof MutationObserver!=='function'||hud.dataset.evV77IconObserver==='1')return;
+    hud.dataset.evV77IconObserver='1';
+    new MutationObserver(cleanZoomHud).observe(hud,{childList:true,subtree:true});
+    cleanZoomHud();
+  }
+  if(typeof MutationObserver==='function'&&document.body){
+    new MutationObserver(attachZoomHudObserver).observe(document.body,{childList:true,subtree:true});
+  }
+  attachZoomHudObserver();
+  cleanZoomHud();
+
+  const oldToggle=window.toggleCanvasZoomView;
+  if(typeof oldToggle==='function'&&!oldToggle.__evv77ZoomIcon){
+    const wrapped=function(){
+      const result=oldToggle.apply(this,arguments);
+      requestAnimationFrame(cleanZoomHud);
+      return result;
+    };
+    wrapped.__evv77ZoomIcon=true;
+    window.toggleCanvasZoomView=wrapped;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v80: stable ratio-locked zoom HUD, joined clip-selection rails, persistent keyframes,
+     feature-aware text swatches, visible timeline playhead and final media animation sync. -->
+<style id="ethvelle-v80-final-fixes-css">
+  /* Keep the playback/scrub/zoom cluster in the lower-left of the canvas area in both views. */
+  #evcaInlineZoomHud{position:absolute!important;inset:0!important;z-index:100030!important;pointer-events:none!important;}
+  #evcaInlineZoomHud .evca-zoom-control-bar{
+    left:10px!important;right:auto!important;bottom:10px!important;top:auto!important;
+    width:min(460px,calc(100% - 20px))!important;max-width:calc(100% - 20px)!important;
+    height:48px!important;box-sizing:border-box!important;
+  }
+  #screen-editor .canvas-wrap.evca-inline-zoom #evcaInlineZoomHud .evca-zoom-control-bar{
+    position:absolute!important;left:10px!important;right:auto!important;bottom:calc(10px + env(safe-area-inset-bottom))!important;
+    width:min(520px,calc(100vw - 20px))!important;max-width:calc(100vw - 20px)!important;
+  }
+  #screen-editor .canvas-wrap.evca-inline-zoom.evca-inline-zoom-landscape #canvasStage,
+  #screen-editor .canvas-wrap.evca-inline-zoom.evca-inline-zoom-landscape #selBoxLayer{transform:none!important;}
+  #screen-editor .canvas-wrap.evca-inline-zoom #canvasStage{transform:none!important;}
+
+  /* Join the four clip-selection edges. The horizontal rails extend through the external
+     white trim tabs, so there is no open notch at any of the four corners. */
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-bottom,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-bottom{
+    left:-21px!important;right:-21px!important;width:auto!important;z-index:46!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-right,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-right{
+    z-index:45!important;overflow:hidden!important;
+  }
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-left::after,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-left::after,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-left::after,
+  html body #screen-editor #timelineInner .anim-clip.selected .sel-edge-right::after,
+  html body #screen-editor #timelineInner .track-clip.selected .sel-edge-right::after,
+  html body #screen-editor #timelineInner .overlay-clip.selected .sel-edge-right::after{
+    content:""!important;display:block!important;position:absolute!important;left:50%!important;top:50%!important;
+    width:1.5px!important;height:68%!important;min-height:12px!important;max-height:none!important;
+    margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    transform:translate(-50%,-50%)!important;background:#92949D!important;opacity:.95!important;
+    box-shadow:none!important;pointer-events:none!important;
+  }
+
+  /* The text feature swatch selection is conditional on its corresponding enable switch. */
+  #ethvelleTextStylePanel:has(#evts-strokeEnabled:not(:checked)) [data-swatch-key="strokeColor"] .evts-swatch.active,
+  #ethvelleTextStylePanel:has(#evts-shadowEnabled:not(:checked)) [data-swatch-key="shadowColor"] .evts-swatch.active,
+  #ethvelleTextStylePanel:has(#evts-textBackgroundEnabled:not(:checked)) [data-swatch-key="textBackgroundColor"] .evts-swatch.active{
+    border-color:transparent!important;outline:none!important;box-shadow:none!important;filter:none!important;
+  }
+
+  /* The center playhead is pinned to the visible timeline viewport and forced above its clips. */
+  #screen-editor #timelineScroll{position:relative!important;}
+  #screen-editor #timelineScroll>.playhead-wrap{
+    position:sticky!important;top:0!important;left:50%!important;width:0!important;height:0!important;
+    min-height:0!important;float:left!important;overflow:visible!important;z-index:100!important;
+    pointer-events:none!important;visibility:visible!important;opacity:1!important;
+  }
+  #screen-editor #timelineScroll #playhead{
+    position:sticky!important;top:0!important;left:0!important;display:block!important;visibility:visible!important;
+    opacity:1!important;width:2px!important;min-width:2px!important;max-width:2px!important;
+    background:#2F5CE8!important;z-index:100!important;pointer-events:none!important;
+  }
+
+  /* Do not let the lower-left resize/move control blink out while a text layer is dragged. */
+  #selBoxLayer.evv80-text-dragging{display:block!important;visibility:visible!important;opacity:1!important;}
+  #selBoxLayer.evv80-text-dragging #sbScale,
+  #selBoxLayer.evv80-text-dragging #sbTextMove{
+    display:flex!important;visibility:visible!important;opacity:1!important;transition:none!important;
+    animation:none!important;pointer-events:auto!important;
+  }
+</style>
+<script id="ethvelle-v80-final-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const getSelectedId=()=>String(typeof selectedClip==='undefined'||selectedClip==null?'':selectedClip);
+  const getOverlay=id=>{try{const list=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:(Array.isArray(window.overlays)?window.overlays:[]);return list.find(o=>o&&String(o.id)===String(id))||null;}catch(_e){return null;}};
+  const getObjectClip=id=>typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;
+
+  // Recalculate the two swatch systems after a toggle or color change.
+  window.ethvelleRefreshTextSwatches=function(){
+    const root=$('ethvelleTextStylePanel');if(!root)return;
+    const id=getSelectedId(),model=getOverlay(id);if(!model)return;
+    const enabled={strokeColor:Number(model.strokeWidth)>0,shadowColor:!!model.shadowEnabled,textBackgroundColor:!!model.textBackgroundEnabled};
+    root.querySelectorAll('.evts-swatches[data-swatch-key]').forEach(group=>{
+      const key=group.dataset.swatchKey,allow=enabled[key]!==false,value=String(model[key]||'').toLowerCase();
+      group.querySelectorAll('.evts-swatch[data-color]').forEach(btn=>btn.classList.toggle('active',allow&&String(btn.dataset.color||'').toLowerCase()===value));
+    });
+  };
+  const oldStyleChanged=window.ethvelleTextStyleChanged;
+  if(typeof oldStyleChanged==='function'&&!oldStyleChanged.__evv80Swatches){
+    const wrapped=function(){const r=oldStyleChanged.apply(this,arguments);requestAnimationFrame(()=>{try{window.ethvelleRefreshTextSwatches();if(window.ethvelleRefreshDockSwatches)window.ethvelleRefreshDockSwatches();}catch(_e){}});return r;};
+    wrapped.__evv80Swatches=true;window.ethvelleTextStyleChanged=wrapped;
+  }
+  const oldStylePanel=window.openEthvelleTextStylePanel;
+  if(typeof oldStylePanel==='function'&&!oldStylePanel.__evv80Swatches){
+    const wrapped=function(){const r=oldStylePanel.apply(this,arguments);requestAnimationFrame(()=>window.ethvelleRefreshTextSwatches());return r;};
+    wrapped.__evv80Swatches=true;window.openEthvelleTextStylePanel=wrapped;
+  }
+
+  // Restore the object Key button for all keyframe-capable clips, including text.
+  function setDisplayStable(el,value){
+    if(!el)return;
+    if(el.style.getPropertyValue('display')!==value||el.style.getPropertyPriority('display')!=='important')el.style.setProperty('display',value,'important');
+  }
+  function stabilizeBottomTools(){
+    const screen=$('screen-editor'),clipRow=$('bottomToolsClip'),defaultRow=$('bottomToolsDefault'),keyRow=$('bottomToolsKeyframe');
+    if(!screen||!clipRow||!defaultRow||!keyRow)return;
+    const id=getSelectedId(),kfSelected=typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null;
+    if(kfSelected){setDisplayStable(defaultRow,'none');setDisplayStable(clipRow,'none');setDisplayStable(keyRow,'flex');return;}
+    setDisplayStable(keyRow,'none');
+    if(!id){setDisplayStable(clipRow,'none');setDisplayStable(defaultRow,'flex');return;}
+    setDisplayStable(defaultRow,'none');setDisplayStable(clipRow,'flex');
+    const ov=getOverlay(id),bg=Array.isArray(window.backgrounds)?window.backgrounds.find(b=>b&&String(b.id)===id):null;
+    const obj=getObjectClip(id),isChar=id==='main'||/^seg\d+$/.test(id),isText=!!ov&&ov.type==='text';
+    const key=$('clipKeyTool');setDisplayStable(key,(isChar||!!obj)?'flex':'none');
+    const anim=$('clipOverlayAnimationTool');setDisplayStable(anim,((!!ov&&['image','video','text'].includes(ov.type))||isChar)?'flex':'none');
+    const filter=$('clipOverlayFilterTool');setDisplayStable(filter,(!!ov&&['image','video','text'].includes(ov.type))||!!bg?'flex':'none');
+    ['clipMirrorTool','clipMaskTool','clipEffectsTool'].forEach(toolId=>setDisplayStable($(toolId),(!!ov&&['image','video','text'].includes(ov.type))||!!bg||isChar?'flex':'none'));
+    if(isText){
+      // Selecting a text clip must behave like selecting any other object layer: keep the
+      // shared Key button and object Clip Animations tool, but do not inject six extra text
+      // styling actions into the normal bottom row. Text editing opens only from its own entry.
+      setDisplayStable($('clipTextEditTool'),'flex');
+      ['clipTextFontTool','clipTextStrokeTool','clipTextShadowTool','clipTextColorTool','clipTextBackgroundTool'].forEach(toolId=>setDisplayStable($(toolId),'none'));
+      setDisplayStable(key,'flex');
+      setDisplayStable(anim,'flex');
+    }
+  }
+  const oldSync=window.syncBottomToolsMode;
+  if(typeof oldSync==='function'&&!oldSync.__evv80Toolbar){
+    const wrapped=function(){const r=oldSync.apply(this,arguments);stabilizeBottomTools();return r;};
+    wrapped.__evv80Toolbar=true;window.syncBottomToolsMode=wrapped;
+  }
+  const oldSelect=window.selectClipForChrome;
+  if(typeof oldSelect==='function'&&!oldSelect.__evv80Toolbar){
+    const wrapped=function(){const r=oldSelect.apply(this,arguments);scheduleToolbarStabilize();return r;};
+    wrapped.__evv80Toolbar=true;window.selectClipForChrome=wrapped;
+  }
+  const oldDeselect=window.deselectAllClips;
+  if(typeof oldDeselect==='function'&&!oldDeselect.__evv80Toolbar){
+    const wrapped=function(){const r=oldDeselect.apply(this,arguments);scheduleToolbarStabilize();return r;};
+    wrapped.__evv80Toolbar=true;window.deselectAllClips=wrapped;
+  }
+  // V80 is the sole bottom-toolbar visibility owner. Other text/audio helpers may still
+  // change individual tool styles, so reconcile those changes through one coalesced RAF.
+  // setDisplayStable() above is idempotent: this observer's own writes settle immediately
+  // instead of fighting another writer or scheduling a frame-by-frame style ping-pong.
+  let toolbarStabilizeRaf=0;
+  function scheduleToolbarStabilize(){
+    if(toolbarStabilizeRaf)return;
+    toolbarStabilizeRaf=requestAnimationFrame(()=>{toolbarStabilizeRaf=0;stabilizeBottomTools();});
+  }
+  const clipToolbar=$('bottomToolsClip');
+  if(clipToolbar&&typeof MutationObserver==='function'){
+    const toolbarObserver=new MutationObserver(scheduleToolbarStabilize);
+    toolbarObserver.observe(clipToolbar,{attributes:true,subtree:true,attributeFilter:['style','class']});
+  }
+
+  // Pin the thin blue playhead over the complete visible timeline height.
+  function restoreTimelinePlayhead(){
+    const scroller=$('timelineScroll'),wrap=scroller&&scroller.querySelector(':scope > .playhead-wrap'),line=$('playhead');
+    if(!scroller||!line)return;
+    if(wrap){wrap.style.setProperty('visibility','visible','important');wrap.style.setProperty('opacity','1','important');}
+    line.style.setProperty('display','block','important');line.style.setProperty('visibility','visible','important');
+    line.style.setProperty('opacity','1','important');line.style.setProperty('width','2px','important');
+    line.style.setProperty('height',Math.max(1,scroller.clientHeight)+'px','important');
+    line.style.setProperty('background','#2F5CE8','important');
+  }
+  const oldSyncPlayhead=window.syncPlayheadHeight;
+  if(typeof oldSyncPlayhead==='function'&&!oldSyncPlayhead.__evv80){
+    const wrapped=function(){const r=oldSyncPlayhead.apply(this,arguments);restoreTimelinePlayhead();return r;};
+    wrapped.__evv80=true;window.syncPlayheadHeight=wrapped;
+  }
+  if(typeof ResizeObserver==='function'){
+    const scroller=$('timelineScroll');if(scroller){const ro=new ResizeObserver(restoreTimelinePlayhead);ro.observe(scroller);}
+  }
+  if(typeof MutationObserver==='function'){
+    const inner=$('timelineInner');if(inner){const mo=new MutationObserver(()=>requestAnimationFrame(restoreTimelinePlayhead));mo.observe(inner,{childList:true,subtree:true});}
+  }
+  window.addEventListener('resize',restoreTimelinePlayhead,{passive:true});
+
+  // During pointer-drag of a text object, keep the black lower-left resize handle on the
+  // selection frame visible and re-anchor it after the editor's own per-frame box update.
+  let textPointer=null,dragRaf=0,textPointerClipId=null;
+  function scheduleTextHandleRepair(){
+    /* v231: the active drag painter already updates its own selection box. */
+    if(window.__evTextDragActive)return;
+    if(dragRaf)return;
+    dragRaf=requestAnimationFrame(()=>{
+      dragRaf=0;if(textPointer===null)return;
+      // During a timeline scrub, the playhead can briefly pass outside the selected text
+      // clip's active time. The editor then hides its selection overlay for that frame;
+      // hold the last valid frame's handles in place until the pointer is released.
+      const id=textPointerClipId||getSelectedId(),ov=getOverlay(id);if(!ov||ov.type!=='text')return;
+      const layer=$('selBoxLayer');if(!layer)return;
+      layer.classList.add('evv80-text-dragging');
+      layer.style.setProperty('display','block','important');
+      const scale=$('sbScale'),move=$('sbTextMove');
+      if(scale)scale.style.setProperty('display','flex','important');
+      if(typeof window.__ethvelleRepairLayoutCorners==='function')window.__ethvelleRepairLayoutCorners();
+      else if(typeof window.updateSelBox==='function')window.updateSelBox();
+    });
+  }
+  document.addEventListener('pointerdown',e=>{
+    // Only canvas text-object gestures need the selection-handle repair. A touch that starts
+    // on a timeline text clip is a scrub/clip gesture; running updateSelBox + corner repair
+    // during every move there caused the multi-layer text-row lag on Android.
+    const stageTextTarget=e.target&&e.target.closest&&e.target.closest('#overlayMediaLayer .ethvelle-overlay-text-content,#sbTextMove,#sbScale');
+    if(!stageTextTarget)return;
+    const textId=getSelectedId();
+    const model=getOverlay(textId);
+    if(model&&model.type==='text'){
+      textPointer=e.pointerId;textPointerClipId=textId;scheduleTextHandleRepair();
+    }
+  },true);
+  document.addEventListener('pointermove',e=>{if(textPointer===e.pointerId)scheduleTextHandleRepair();},true);
+  function endTextPointer(e){if(textPointer!==e.pointerId)return;textPointer=null;textPointerClipId=null;const layer=$('selBoxLayer');if(layer)layer.classList.remove('evv80-text-dragging');requestAnimationFrame(()=>{if(typeof window.__ethvelleRepairLayoutCorners==='function')window.__ethvelleRepairLayoutCorners();});}
+  document.addEventListener('pointerup',endTextPointer,true);
+  document.addEventListener('pointercancel',endTextPointer,true);
+
+  // Initial and subsequent syncs. renderFrame keeps the HUD time/play state current while
+  // the same compact cluster remains visible in the normal preview and in zoom.
+  requestAnimationFrame(()=>{stabilizeBottomTools();restoreTimelinePlayhead();window.ethvelleRefreshTextSwatches();if(window.ethvelleRefreshDockSwatches)window.ethvelleRefreshDockSwatches();});
+})();
+</script>
+
+<!-- Ethvelle v81: zoom HUD confined to zoomed canvas only, rotation auto-fullscreen,
+     and tidied selection-rail chrome (no outer shadow lines, slightly thicker center tick). -->
+<style id="ethvelle-v81-final-fixes-css">
+  /* The play/pause/scrub HUD belongs to the zoomed canvas only. Without this guard the HUD
+     element (a sibling appended once into .canvas-wrap and then left in the DOM) stayed
+     visible and interactive on top of the NORMAL canvas after exiting zoom, duplicating the
+     transport-row's own play/pause/slider. Hide it whenever .canvas-wrap isn't zoomed. */
+  #screen-editor .canvas-wrap:not(.evca-inline-zoom) #evcaInlineZoomHud{
+    display:none!important;visibility:hidden!important;opacity:0!important;pointer-events:none!important;
+  }
+  /* Prevent browser scroll anchoring from shifting the editor when a first clip/row is
+     selected or its live markup is rebuilt. Scroll position is managed by the editor. */
+  html body #screen-editor #timelineScroll,
+  html body #screen-editor #timelineInner,
+  html body #screen-editor #characterRows,
+  html body #screen-editor #overlayRows,
+  html body #screen-editor .layer-row,
+  html body #screen-editor .layer-track{overflow-anchor:none!important;}
+</style>
+<script id="ethvelle-v81-final-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  // Rotating the phone to landscape while working on the canvas should behave like a video
+  // player going fullscreen: automatically enter the existing inline-zoom canvas view (which
+  // already fills the viewport edge-to-edge and hides the timeline/transport/bottom tools),
+  // and automatically leave it again on rotating back to portrait. Previously rotation only
+  // re-fit the SAME small canvas within the still-visible normal editor chrome, leaving large
+  // black bars instead of filling the rotated screen.
+  let autoRotateZoomArmed=false; // true only once the device is confirmed in landscape
+  function editorIsActive(){
+    const screen=$('screen-editor');
+    return !!(screen&&screen.classList.contains('active'));
+  }
+  function deviceIsLandscape(){
+    if(window.matchMedia){
+      try{return window.matchMedia('(orientation: landscape)').matches;}catch(_e){}
+    }
+    return window.innerWidth>window.innerHeight;
+  }
+  function handleAutoRotateZoom(){
+    if(!editorIsActive())return;
+    // Orientation is a viewport change, not a command to enter or exit zoom.
+    // Keep the user's explicit zoom state exactly as-is. The dedicated viewport-fit
+    // observer below recomputes the 16:9 stage size while this class remains attached.
+    // Preserve the user's explicit zoom state. The v82 viewport observer below already
+    // refits the canvas on resize/orientationchange; do not trigger a second canvas rebuild.
+    autoRotateZoomArmed=!!document.querySelector('#screen-editor .canvas-wrap.evca-inline-zoom');
+  }
+  let autoRotateRaf=0;
+  function scheduleAutoRotateZoom(){
+    if(autoRotateRaf)return;
+    autoRotateRaf=requestAnimationFrame(()=>{autoRotateRaf=0;handleAutoRotateZoom();});
+  }
+  window.addEventListener('resize',scheduleAutoRotateZoom,{passive:true});
+  window.addEventListener('orientationchange',scheduleAutoRotateZoom,{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',scheduleAutoRotateZoom,{passive:true});
+  // Also check once on load in case the editor is opened while already in landscape.
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>setTimeout(scheduleAutoRotateZoom,50),{once:true});
+  else setTimeout(scheduleAutoRotateZoom,50);
+})();
+</script>
+
+
+
+<!-- Ethvelle v82: background-row selection cleanup, panel-over-playhead stacking,
+     and orientation-safe aspect-ratio fitting. -->
+<style id="ethvelle-v82-layout-and-selection-css">
+  /* Background keeps the same connected white selection frame as every other clip row.
+     The previous v82 override hid all four real edge bars, which removed the border itself.
+     Any duplicate outline/shadow is suppressed; the four shared .sel-edge elements remain
+     the only selection frame, exactly as on Character, Media, Text and Audio clips. */
+  html body #screen-editor #timelineInner #track-background .track-clip.selected {
+    outline:0!important;
+    box-shadow:none!important;
+    border-color:transparent!important;
+  }
+  
+
+  /* The center playhead has z-index:100. Keep the panel and its click-catcher above it,
+     so the blue line is fully occluded by every open bottom tool panel. */
+  #screen-editor #panelBackdrop.tool-panel-backdrop {
+    z-index:100100!important;
+  }
+  #screen-editor #toolPanel.tool-panel {
+    z-index:100101!important;
+  }
+
+  /* A canvas frame is a fixed-ratio flex item in both normal and zoomed views. */
+  #screen-editor .canvas-wrap #canvasStage {
+    flex:0 0 auto!important;
+    min-width:0!important;
+    min-height:0!important;
+  }
+</style>
+<script id="ethvelle-v82-viewport-fit-js">
+(function(){
+  'use strict';
+  const screen=document.getElementById('screen-editor');
+  const wrap=screen&&screen.querySelector('.canvas-wrap');
+  const stage=document.getElementById('canvasStage');
+  if(!screen||!wrap||!stage)return;
+
+  let fitRaf=0;
+  function activeRatio(){
+    try{
+      const value=(typeof currentProject!=='undefined'&&currentProject&&currentProject.ratio)||'16:9';
+      const match=String(value).match(/^\s*(\d+(?:\.\d+)?)\s*:\s*(\d+(?:\.\d+)?)\s*$/);
+      return match&&Number(match[1])>0&&Number(match[2])>0 ? `${Number(match[1])}:${Number(match[2])}` : '16:9';
+    }catch(_e){return '16:9';}
+  }
+  function refit(){
+    fitRaf=0;
+    if(!screen.classList.contains('active'))return;
+    const ratio=activeRatio();
+    const parts=ratio.split(':').map(Number);
+    const rw=parts[0],rh=parts[1];
+    if(!(rw>0&&rh>0))return;
+
+    // Set the non-shrinking flex behaviour before measuring/re-sizing. setupCanvasStage
+    // computes the largest frame that fits both available dimensions while preserving ratio.
+    stage.style.flex='0 0 auto';
+    stage.style.aspectRatio=rw+' / '+rh;
+    if(typeof setupCanvasStage==='function')setupCanvasStage(ratio);
+
+    // Wait for the WebView to commit the final post-rotation layout before repainting.
+    requestAnimationFrame(()=>{
+      if(!screen.classList.contains('active'))return;
+      // renderFrame already invokes drawStick, so avoid drawing the stage twice on rotation.
+      try{if(typeof renderFrame==='function')renderFrame();}catch(_e){}
+      try{if(typeof updateSelBox==='function')updateSelBox();}catch(_e){}
+    });
+  }
+  function scheduleRefit(){
+    if(fitRaf)return;
+    // Two frames let Android/WebView finish applying the new visual viewport dimensions.
+    fitRaf=requestAnimationFrame(()=>{
+      fitRaf=requestAnimationFrame(refit);
+    });
+  }
+
+  // The observer catches the actual editor preview-area resize, including address-bar and
+  // orientation changes that do not always arrive as a reliable window.resize event.
+  if(typeof ResizeObserver==='function'){
+    const observer=new ResizeObserver(scheduleRefit);
+    observer.observe(wrap);
+  }
+  window.addEventListener('resize',scheduleRefit,{passive:true});
+  window.addEventListener('orientationchange',scheduleRefit,{passive:true});
+  if(window.visualViewport)window.visualViewport.addEventListener('resize',scheduleRefit,{passive:true});
+
+  // Re-fit after the editor becomes visible; the initial observer notification can occur
+  // while its parent screen is display:none.
+  const editorObserver=new MutationObserver(()=>{
+    if(screen.classList.contains('active'))scheduleRefit();
+  });
+  editorObserver.observe(screen,{attributes:true,attributeFilter:['class']});
+  scheduleRefit();
+})();
+</script>
+
+
+
+<!-- Ethvelle v83: restore standard Background selection border; responsive low-latency clip dragging. -->
+<style id="ethvelle-v83-background-selection-css">
+  /* Same four-piece white frame as every other selected clip. Only the duplicate native
+     outline/shadow is removed; the actual selection border is preserved. */
+  html body #screen-editor #timelineInner #track-background .track-clip.selected{
+    position:absolute!important;box-sizing:border-box!important;overflow:visible!important;
+    border:1px solid transparent!important;outline:0!important;box-shadow:none!important;
+    filter:none!important;transform:none!important;z-index:60!important;
+  }
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-top,
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-bottom{
+    display:block!important;visibility:visible!important;opacity:1!important;position:absolute!important;
+    left:-21px!important;right:-21px!important;width:auto!important;height:3px!important;
+    min-height:3px!important;max-height:3px!important;top:auto!important;bottom:auto!important;
+    padding:0!important;margin:0!important;border:0!important;border-radius:0!important;
+    background:#fff!important;box-shadow:none!important;z-index:46!important;pointer-events:none!important;
+  }
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-top{top:0!important;bottom:auto!important;}
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-bottom{bottom:0!important;top:auto!important;}
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-left,
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-right{
+    display:block!important;visibility:visible!important;opacity:1!important;position:absolute!important;
+    top:0!important;bottom:0!important;height:100%!important;min-height:100%!important;
+    max-height:none!important;width:20px!important;min-width:20px!important;max-width:20px!important;
+    padding:0!important;margin:0!important;border:0!important;border-radius:0!important;overflow:hidden!important;
+    background:#fff!important;box-shadow:none!important;z-index:45!important;pointer-events:none!important;
+  }
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-left{left:-21px!important;right:auto!important;}
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-right{right:-21px!important;left:auto!important;}
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-left::after,
+  html body #screen-editor #timelineInner #track-background .track-clip.selected .sel-edge-right::after{
+    content:""!important;display:block!important;position:absolute!important;left:50%!important;top:50%!important;
+    width:1.5px!important;height:68%!important;min-height:12px!important;max-height:none!important;
+    margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    transform:translate(-50%,-50%)!important;background:#92949D!important;opacity:.95!important;
+    box-shadow:none!important;pointer-events:none!important;
+  }
+  /* Hide the old trim-grip pseudo marks only while the selected white tabs are visible. */
+  html body #screen-editor #timelineInner #track-background .track-clip.selected > .anim-clip-handle::before,
+  html body #screen-editor #timelineInner #track-background .track-clip.selected > .anim-clip-handle::after{
+    content:none!important;display:none!important;
+  }
+  
+  
+</style>
+
+
+
+<!-- Ethvelle v84: lower-cost zoom preview, centered transport, matching scrub rail,
+     transform/keyframe editing repair, and immediate timeline gesture recovery. -->
+<style id="ethvelle-v84-zoom-transport-css">
+  #evcaInlineZoomHud .evca-zoom-control-bar{
+    position:absolute!important;left:10px!important;right:10px!important;
+    bottom:calc(9px + env(safe-area-inset-bottom))!important;
+    height:62px!important;min-height:62px!important;
+    display:grid!important;grid-template-columns:minmax(0,1fr) 42px minmax(0,1fr)!important;
+    grid-template-rows:25px 20px!important;align-items:center!important;
+    column-gap:8px!important;row-gap:2px!important;padding:5px 42px!important;
+    box-sizing:border-box!important;border:1px solid rgba(255,255,255,.24)!important;
+    border-radius:13px!important;background:rgba(8,10,17,.76)!important;
+    backdrop-filter:blur(9px)!important;-webkit-backdrop-filter:blur(9px)!important;
+  }
+  #evcaInlineZoomHud #evcaZoomCurrent{grid-column:1!important;grid-row:1!important;justify-self:start!important;align-self:center!important;min-width:42px!important;text-align:left!important;font-size:14px!important;line-height:1!important;font-weight:800!important;letter-spacing:.01em!important;}
+  #evcaInlineZoomHud .evca-zoom-play{grid-column:2!important;grid-row:1!important;justify-self:center!important;align-self:center!important;position:static!important;flex:none!important;width:36px!important;height:36px!important;min-width:36px!important;min-height:36px!important;border-radius:50%!important;background:rgba(47,92,232,.22)!important;border:1px solid rgba(255,255,255,.28)!important;color:#fff!important;display:grid!important;place-items:center!important;z-index:4!important;}
+  #evcaInlineZoomHud .evca-zoom-play svg{width:19px!important;height:19px!important;fill:currentColor!important;stroke:currentColor!important;}
+  #evcaInlineZoomHud #evcaZoomTotal{grid-column:3!important;grid-row:1!important;justify-self:end!important;align-self:center!important;min-width:42px!important;text-align:right!important;padding-right:0!important;font-size:14px!important;line-height:1!important;font-weight:800!important;letter-spacing:.01em!important;}
+  #evcaInlineZoomHud #evcaZoomTotal::before{content:"/"!important;display:inline-block!important;margin-right:6px!important;color:#B8BBC8!important;font-weight:600!important;}
+  #evcaInlineZoomHud .evca-zoom-out{position:absolute!important;right:6px!important;top:6px!important;left:auto!important;bottom:auto!important;width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;z-index:5!important;}
+  #evcaInlineZoomHud .evca-zoom-out svg{width:17px!important;height:17px!important;}
+  #evcaInlineZoomHud .evca-zoom-scrub-wrap{grid-column:1 / 4!important;grid-row:2!important;position:relative!important;left:auto!important;right:auto!important;top:auto!important;bottom:auto!important;width:100%!important;min-width:0!important;height:20px!important;min-height:20px!important;max-height:20px!important;display:flex!important;align-items:center!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;box-shadow:none!important;}
+  #evcaInlineZoomHud .evca-zoom-scrub-track{width:100%!important;height:20px!important;min-height:20px!important;display:flex!important;align-items:center!important;}
+  #evcaInlineZoomHud input[type=range]{
+    -webkit-appearance:none!important;appearance:none!important;accent-color:#2F5CE8!important;
+    display:block!important;width:100%!important;height:20px!important;min-height:20px!important;
+    margin:0!important;padding:0!important;background:transparent!important;outline:none!important;
+    touch-action:pan-x!important;cursor:ew-resize!important;
+  }
+  #evcaInlineZoomHud input[type=range]::-webkit-slider-runnable-track{
+    height:4px!important;border:0!important;border-radius:4px!important;
+    background:linear-gradient(to right,#2F5CE8 0%,#2F5CE8 var(--ev-range-progress,0%),#45495D var(--ev-range-progress,0%),#45495D 100%)!important;
+  }
+  #evcaInlineZoomHud input[type=range]::-moz-range-track{height:4px!important;border:0!important;border-radius:4px!important;background:#45495D!important;}
+  #evcaInlineZoomHud input[type=range]::-moz-range-progress{height:4px!important;border:0!important;border-radius:4px!important;background:#2F5CE8!important;}
+  #evcaInlineZoomHud input[type=range]::-webkit-slider-thumb{-webkit-appearance:none!important;appearance:none!important;width:14px!important;height:14px!important;margin-top:-5px!important;border:2px solid #fff!important;border-radius:50%!important;background:#2F5CE8!important;box-shadow:none!important;}
+  #evcaInlineZoomHud input[type=range]::-moz-range-thumb{width:10px!important;height:10px!important;border:2px solid #fff!important;border-radius:50%!important;background:#2F5CE8!important;box-shadow:none!important;}
+  @media(max-width:380px){
+    #evcaInlineZoomHud .evca-zoom-control-bar{left:6px!important;right:6px!important;column-gap:5px!important;padding-left:8px!important;padding-right:38px!important;}
+    #evcaInlineZoomHud #evcaZoomCurrent,#evcaInlineZoomHud #evcaZoomTotal{font-size:13px!important;min-width:38px!important;}
+    #evcaInlineZoomHud .evca-zoom-play{width:34px!important;height:34px!important;min-width:34px!important;min-height:34px!important;}
+  }
+  /* Exiting zoom must immediately restore touch scrolling to the existing timeline. */
+  #screen-editor:not(.evca-inline-zoom-active) .timeline-area,
+  #screen-editor:not(.evca-inline-zoom-active) #timelineScroll,
+  #screen-editor:not(.evca-inline-zoom-active) #timelineInner{transition:none!important;animation:none!important;}
+</style>
+<script id="ethvelle-v84-transform-and-timeline-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const own=(o,k)=>Object.prototype.hasOwnProperty.call(o||{},k);
+  const cloneTransform=v=>{const x=v||{};return {scale:Number(x.scale==null?1:x.scale),offsetX:Number(x.offsetX)||0,offsetY:Number(x.offsetY)||0,rotation:Number(x.rotation)||0};};
+  const selectedId=()=>{try{return typeof selectedClip!=='undefined'?selectedClip:null;}catch(_e){return null;}};
+  const objectClip=id=>{
+    if(id==null)return null;
+    if(typeof window.ethvelleObjectClipById==='function')return window.ethvelleObjectClipById(id);
+    const key=String(id);
+    const bgList=typeof backgrounds!=='undefined'?backgrounds:(window.backgrounds||[]);
+    const ovList=typeof overlays!=='undefined'?overlays:(window.overlays||[]);
+    return (Array.isArray(bgList)?bgList.find(x=>String(x.id)===key):null)
+      ||(Array.isArray(ovList)?ovList.find(x=>String(x.id)===key):null);
+  };
+  const nowTime=()=>typeof window.getCurrentAbsoluteTime==='function'?Number(window.getCurrentAbsoluteTime()):Number(window.currentAbsoluteTimeSec)||0;
+  const currentTransform=(clip,t)=>{
+    if(!clip)return {scale:1,offsetX:0,offsetY:0,rotation:0};
+    const animated=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',t):null;
+    return cloneTransform(animated||clip.transform||{});
+  };
+  // Resolve an EXISTING transform key only when the playhead is on its diamond.
+  // Editing elsewhere never creates a keyframe implicitly.
+  function transformKeyAtPlayhead(clip,t){
+    const keys=Array.isArray(clip&&clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+    const tolerance=Math.max(0.001,typeof window.ethvelleObjectKeyframeContactWindow==='function'?Number(window.ethvelleObjectKeyframeContactWindow()):0.05);
+    const chosen=window.__ethvelleSelectedObjectKeyframe;
+    if(chosen&&String(chosen.id)===String(clip&&clip.id)&&Number.isInteger(Number(chosen.index))){
+      const candidate=keys[Number(chosen.index)];
+      if(candidate&&candidate.property==='transform'&&Math.abs(Number(candidate.t)-Number(t))<=tolerance)return candidate;
+    }
+    return keys.reduce((best,item)=>item&&item.property==='transform'&&Number.isFinite(Number(item.t))&&Math.abs(Number(item.t)-Number(t))<=tolerance&&(!best||Math.abs(Number(item.t)-Number(t))<Math.abs(Number(best.t)-Number(t)))?item:best,null);
+  }
+  function editableTransform(clip,t){
+    if(!clip)return null;
+    if(!clip.transform)clip.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+    const property=typeof window.ethvelleObjectKeyframeProperty==='function'?window.ethvelleObjectKeyframeProperty(clip):'transform';
+    if(property!=='transform')return clip.transform;
+    const key=transformKeyAtPlayhead(clip,t);
+    if(key){
+      const idx=(clip.ethvelleMediaKeyframes||[]).indexOf(key);
+      if(idx>=0)window.__ethvelleSelectedObjectKeyframe={id:String(clip.id),index:idx,source:'playhead'};
+      if(!key.value||typeof key.value!=='object')key.value=cloneTransform(clip.transform);
+      return key.value;
+    }
+    return clip.transform;
+  }
+  // Apply an edit without inserting a new marker. On a keyframe, only that existing key is
+  // changed. Between keyframes, apply the requested transform delta to the entire authored
+  // path and base value, preserving the animation curve and the original key count.
+  function applyTransformEdit(clip,t,desired){
+    if(!clip)return null;
+    if(!clip.transform)clip.transform={scale:1,offsetX:0,offsetY:0,rotation:0};
+    const wanted=cloneTransform(desired),key=transformKeyAtPlayhead(clip,t);
+    if(key){
+      key.value=wanted;
+      const idx=(clip.ethvelleMediaKeyframes||[]).indexOf(key);
+      if(idx>=0)window.__ethvelleSelectedObjectKeyframe={id:String(clip.id),index:idx,source:'playhead'};
+      return key.value;
+    }
+    const keys=Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+    const transformKeys=keys.filter(k=>k&&k.property==='transform'&&k.value&&typeof k.value==='object');
+    if(transformKeys.length){
+      const before=currentTransform(clip,t);
+      const ratio=Math.max(.0001,wanted.scale)/Math.max(.0001,before.scale);
+      const dx=wanted.offsetX-before.offsetX,dy=wanted.offsetY-before.offsetY;
+      const dr=((wanted.rotation-before.rotation+540)%360)-180;
+      const shift=value=>{
+        const v=cloneTransform(value);
+        v.scale=Math.max(.0001,v.scale*ratio);v.offsetX+=dx;v.offsetY+=dy;v.rotation+=dr;
+        return v;
+      };
+      transformKeys.forEach(k=>{k.value=shift(k.value);});
+      clip.transform=shift(clip.transform);
+      if(clip.ethvelleMediaKeyframeBase&&clip.ethvelleMediaKeyframeBase.transform&&typeof clip.ethvelleMediaKeyframeBase.transform==='object'){
+        clip.ethvelleMediaKeyframeBase.transform=shift(clip.ethvelleMediaKeyframeBase.transform);
+      }
+      return currentTransform(clip,t);
+    }
+    clip.transform=wanted;
+    return clip.transform;
+  }
+  function refreshObjectMarkers(clip){
+    if(!clip)return;
+    try{if(typeof window.ethvelleRefreshObjectKeyframeTracks==='function')window.ethvelleRefreshObjectKeyframeTracks(clip.id);}catch(_e){}
+    try{if(typeof window.updateKeyButtonState==='function')window.updateKeyButtonState();}catch(_e){}
+  }
+  function applyObjectTransform(clip,kind){
+    const t=nowTime();
+    if(kind==='background'){
+      try{if(typeof window.refreshCurrentBgFromPlayhead==='function')window.refreshCurrentBgFromPlayhead();}catch(_e){}
+      try{if(typeof window.applyBgTransform==='function')window.applyBgTransform();}catch(_e){}
+    }else{
+      try{if(typeof window.renderOverlayMedia==='function')window.renderOverlayMedia(t);}catch(_e){}
+      try{if(typeof window.updateSelBox==='function')window.updateSelBox();}catch(_e){}
+    }
+  }
+
+  // The base Transform panel used to write clip.transform even when animated transform
+  // keyframes override that base. Make its values reflect and edit the live playhead value.
+  const originalSync=window.syncTransformSliders;
+  window.syncTransformSliders=function(){
+    let target=null;try{target=typeof window.transformTarget==='function'?window.transformTarget():null;}catch(_e){}
+    if(!target||!['background','overlay'].includes(target.kind)){
+      if(typeof originalSync==='function')return originalSync.apply(this,arguments);
+      return;
+    }
+    const clip=target.kind==='background'?(target.bgClip||objectClip(selectedId())):(target.ov||objectClip(selectedId()));
+    if(!clip){if(typeof originalSync==='function')return originalSync.apply(this,arguments);return;}
+    const v=currentTransform(clip,nowTime());
+    const size=$('sizeSlider'),px=$('posXSlider'),py=$('posYSlider'),rot=$('rotSlider');
+    if(!size||!px||!py||!rot)return;
+    size.value=Math.max(Number(size.min)||10,Math.min(Number(size.max)||400,Math.round(v.scale*100)));
+    px.value=Math.round((v.offsetX/(Math.max(1,(typeof stageW!=='undefined'?Number(stageW):1)||1)*0.75))*100)||0;
+    py.value=Math.round((v.offsetY/(Math.max(1,(typeof stageH!=='undefined'?Number(stageH):1)||1)*0.75))*100)||0;
+    rot.value=Math.round(v.rotation||0);
+    if($('sizeVal'))$('sizeVal').textContent=size.value+'%';
+    if($('posXVal'))$('posXVal').textContent=px.value;
+    if($('posYVal'))$('posYVal').textContent=py.value;
+    if($('rotVal'))$('rotVal').textContent=rot.value+'°';
+  };
+
+  const originalUpdate=window.updateTransform;
+  window.updateTransform=function(){
+    let target=null;try{target=typeof window.transformTarget==='function'?window.transformTarget():null;}catch(_e){}
+    if(!target||!['background','overlay'].includes(target.kind)){
+      if(typeof originalUpdate==='function')return originalUpdate.apply(this,arguments);
+      return;
+    }
+    const clip=target.kind==='background'?(target.bgClip||objectClip(selectedId())):(target.ov||objectClip(selectedId()));
+    if(!clip){if(typeof originalUpdate==='function')return originalUpdate.apply(this,arguments);return;}
+    const size=Number($('sizeSlider')&&$('sizeSlider').value)||100;
+    const px=Number($('posXSlider')&&$('posXSlider').value)||0;
+    const py=Number($('posYSlider')&&$('posYSlider').value)||0;
+    const rot=Number($('rotSlider')&&$('rotSlider').value)||0;
+    const desired={scale:size/100,offsetX:(px/100)*(Math.max(1,(typeof stageW!=='undefined'?Number(stageW):1)||1)*0.75),offsetY:(py/100)*(Math.max(1,(typeof stageH!=='undefined'?Number(stageH):1)||1)*0.75),rotation:rot};
+    applyTransformEdit(clip,nowTime(),desired);
+    if($('sizeVal'))$('sizeVal').textContent=size+'%';
+    if($('posXVal'))$('posXVal').textContent=px;
+    if($('posYVal'))$('posYVal').textContent=py;
+    if($('rotVal'))$('rotVal').textContent=rot+'°';
+    applyObjectTransform(clip,target.kind);
+    if(typeof window.debouncedPersist==='function')window.debouncedPersist();
+    // Refresh the keyframe marker after the current input frame, not on every layout step.
+    if(!clip.__evv84MarkerQueued){clip.__evv84MarkerQueued=true;requestAnimationFrame(()=>{clip.__evv84MarkerQueued=false;refreshObjectMarkers(clip);});}

@@ -43,7 +43,7 @@ jobs:
         working-directory: android-app
         run: npm install --no-audit --no-fund
 
-      - name: Assemble the single v398 HTML source and bundle native bridge
+      - name: Assemble the integrity-checked v404 HTML source and bundle native bridge
         working-directory: android-app
         run: npm run build:native
 
@@ -101,7 +101,7 @@ jobs:
           tag_name: ethvelle-v399-build-${{ github.run_number }}
           name: Ethvelle v399 Android build #${{ github.run_number }}
           body: |
-            Installable debug-signed Ethvelle Android APK built from the v398 single-HTML source.
+            Installable debug-signed Ethvelle Android APK built from the v404 single-HTML source.
             Package: com.ethvelle.app
             Min SDK: 24 · Target SDK: 35
             This build uses the Android debug signing key because release keystore secrets have not yet been configured.
@@ -113,4 +113,4 @@ jobs:
       - name: Explain signing fallback
         if: always()
         run: |
-          echo "This workflow uses Android's debug signing identity. A permanent release keystore must be generated and configured by the repository owner before production distribution."
+          echo "This workflow uses Android's debug signing identity. A permanent release keystore must be generated and configured by the repository owner."

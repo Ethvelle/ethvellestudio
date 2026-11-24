@@ -1,0 +1,1000 @@
+    const actionText = String(b.actionText || b.buttonText || b.buttonLabel || b.ctaText || b.actionLabel || 'Explore').trim() || 'Explore';
+    if(img){
+      const actionAttrs = attrs;
+      const actionButton = showAction ? `<button type="button" class="home-banner-image-action"${actionAttrs} aria-label="${escapeHtml(actionText)}">
+            <span>${escapeHtml(actionText)}</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </button>` : '';
+      return `<div class="home-banner-slide">
+        <div class="home-banner has-image">
+          <img src="${escapeHtml(img)}" alt="${escapeHtml(b.title||'Banner')}" decoding="async"
+               onload="bannerImgLoaded(this)" onerror="bannerImgFailed(this)">
+          <div class="home-banner-fail"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="9" cy="9" r="2"/><path d="M21 15l-5-5L5 21"/></svg></div>
+          ${actionButton}
+        </div>
+      </div>`;
+    }
+    return `<div class="home-banner-slide"${attrs}>
+      <div class="home-banner">
+        <div class="home-banner-tag">${escapeHtml(b.tag||'')}</div>
+        <h2>${escapeHtml(b.title||'')}</h2>
+        <p>${escapeHtml(b.desc||'')}</p>
+        <button class="home-banner-btn"${attrs}>
+          View
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#0A0A0C" stroke-width="2.6" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+        </button>
+      </div>
+    </div>`;
+  }).join('');
+  dotsWrap.innerHTML = banners.map((_,i)=>`<span${i===0?' class="active"':''} data-i="${i}"></span>`).join('');
+  scroller.scrollLeft = 0;
+
+  // Pictures that finished (or failed) before their onload/onerror could run  -  e.g. served
+  // straight from cache  -  would otherwise stay invisible, so settle them explicitly.
+  scroller.querySelectorAll('.home-banner.has-image img').forEach(img=>{
+    if(img.complete){ (img.naturalWidth > 0) ? bannerImgLoaded(img) : bannerImgFailed(img); }
+  });
+  wireBannerDots();
+}
+
+/* ---------------- RENDER: "WHAT WOULD YOU CREATE" TILES ----------------
+   Higgsfield-style tilted photo tiles with a deep-blue neon 3D border when the admin has
+   uploaded an image; falls back to the original flat icon tile when no image is set, so an
+   admin who only renames a tile (no photo) keeps the old clean look instead of an empty box. */
+const TILE_ICONS = {
+  character: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg>',
+  video: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>',
+  templates: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>',
+  keyframe: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>',
+  tutorial: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg>',
+  spark: '<svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 2v6M12 16v6M2 12h6M16 12h6M5 5l4 4M15 15l4 4M19 5l-4 4M9 15l-4 4"/></svg>'
+};
+let _tilesSig = null;
+
+/* ---- Tile image persistence ----
+   BUGFIX (tile pictures vanished after a few hours / never loaded): a tile's picture was only
+   ever kept as a plain imgBB URL. The cache above stores that URL, not the picture itself, so
+   any slow connection, a CDN hiccup or a link that later stops working left a blank tile. Two
+   things were wrong:
+     1) the failure fallback was an inline onerror="…innerHTML=${JSON.stringify(svg)}"  -  JSON
+        output is full of double quotes, which end a double-quoted HTML attribute early, so
+        that handler was a syntax error and NEVER ran: a failed picture left an empty box
+        instead of the icon (exactly the blank "Templates" tile);
+     2) nothing retried or remembered the picture.
+   Now: every tile picture is fetched once, shrunk to a small JPEG/PNG data URL and kept in
+   localStorage keyed by its URL, so it keeps showing even if imgBB is slow, blocked or the
+   link has expired. The live URL is still tried first (it may be newer), with one retry, and
+   the icon fallback is attached with a real listener instead of an inline attribute. */
+const TILE_IMG_CACHE_KEY = 'riggy.tileImg.cache.v2'; // bumped: v1 entries were cached before high-quality smoothing was added
+const TILE_IMG_MAX_ENTRIES = 12;
+const TILE_IMG_MAX_DIM = 320; // tiles are ~80-100 css px square; 320 keeps them sharp on 3x screens
+let tileImgCache = {};
+try{ tileImgCache = JSON.parse(localStorage.getItem(TILE_IMG_CACHE_KEY) || '{}') || {}; }catch(e){ tileImgCache = {}; }
+function saveTileImgCache(){
+  try{
+    localStorage.setItem(TILE_IMG_CACHE_KEY, JSON.stringify(tileImgCache));
+  }catch(e){
+    // Storage full: drop the oldest half and try once more, never throw into the UI.
+    try{
+      const keys = Object.keys(tileImgCache);
+      keys.slice(0, Math.ceil(keys.length/2)).forEach(k=>delete tileImgCache[k]);
+      localStorage.setItem(TILE_IMG_CACHE_KEY, JSON.stringify(tileImgCache));
+    }catch(e2){}
+  }
+}
+// Downloads the picture, shrinks it on a canvas and stores it as a data URL. Best-effort:
+// a cross-origin host that doesn't send CORS headers simply can't be snapshotted (canvas
+// would be tainted)  -  in that case nothing is stored and the live URL keeps being used.
+function cacheTileImage(url){
+  if(!/^https?:/i.test(url) || tileImgCache[url] || cacheTileImage._busy[url]) return;
+  cacheTileImage._busy[url] = true;
+  const probe = new Image();
+  probe.crossOrigin = 'anonymous';
+  probe.onload = ()=>{
+    try{
+      const scale = Math.min(1, TILE_IMG_MAX_DIM / Math.max(probe.naturalWidth, probe.naturalHeight));
+      const w = Math.max(1, Math.round(probe.naturalWidth * scale));
+      const h = Math.max(1, Math.round(probe.naturalHeight * scale));
+      const cv = document.createElement('canvas'); cv.width = w; cv.height = h;
+      const tctx = cv.getContext('2d');
+      tctx.imageSmoothingEnabled = true;
+      tctx.imageSmoothingQuality = 'high';
+      tctx.drawImage(probe, 0, 0, w, h);
+      // PNG keeps transparency for cut-out tile art; fall back to JPEG if it's huge.
+      let data = cv.toDataURL('image/png');
+      if(data.length > 90000) data = cv.toDataURL('image/jpeg', 0.82);
+      if(data.length <= 140000){
+        const keys = Object.keys(tileImgCache);
+        if(keys.length >= TILE_IMG_MAX_ENTRIES) delete tileImgCache[keys[0]];
+        tileImgCache[url] = data;
+        saveTileImgCache();
+      }
+    }catch(e){ /* tainted canvas / quota  -  live URL still works */ }
+    delete cacheTileImage._busy[url];
+  };
+  probe.onerror = ()=>{ delete cacheTileImage._busy[url]; };
+  probe.src = url;
+}
+cacheTileImage._busy = {};
+
+function tileShowFallback(thumb, iconKey){
+  if(!thumb) return;
+  thumb.classList.remove('tile-photo');
+  thumb.innerHTML = TILE_ICONS[iconKey] || TILE_ICONS.spark;
+}
+// Wires load/error handling onto one tile <img>. Order tried on failure:
+//   live URL -> live URL once more (cache-busted) -> locally saved copy -> icon fallback.
+function wireTileImage(img, url, iconKey){
+  const thumb = img.closest('.home-tile-thumb');
+  let stage = 0;
+  img.addEventListener('load', ()=>{
+    img.classList.add('loaded');
+    if(img.src === url || img.dataset.live === '1') cacheTileImage(url);
+  });
+  img.addEventListener('error', ()=>{
+    stage++;
+    if(stage === 1 && /^https?:/i.test(url)){
+      setTimeout(()=>{ img.dataset.live = '1'; img.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'r=' + Date.now(); }, 1500);
+    } else if(stage <= 2 && tileImgCache[url]){
+      stage = 3; img.dataset.live = '0'; img.src = tileImgCache[url];
+    } else {
+      tileShowFallback(thumb, iconKey);
+    }
+  });
+  img.dataset.live = '1';
+  // Paint the saved copy instantly when we have one (no blank flash on a cold/slow network),
+  // then let the live URL replace it if it loads.
+  if(tileImgCache[url]){
+    img.src = tileImgCache[url];
+    img.dataset.live = '0';
+    const live = new Image();
+    live.onload = ()=>{ img.dataset.live = '1'; img.src = url; };
+    live.onerror = ()=>{ /* keep the saved copy showing */ };
+    if(/^https?:/i.test(url)) live.src = url;
+  } else {
+    img.src = url;
+  }
+  // A picture that already finished (or failed) before the listeners existed would otherwise
+  // sit invisible  -  settle it explicitly.
+  if(img.complete){
+    if(img.naturalWidth > 0) img.classList.add('loaded');
+    else img.dispatchEvent(new Event('error'));
+  }
+}
+function renderHomeTiles(){
+  const wrap = document.getElementById('homeTileRow');
+  if(!wrap) return;
+  const tiles = getTiles();
+  const sig = JSON.stringify(tiles);
+  if(sig === _tilesSig) return;
+  _tilesSig = sig;
+  wrap.innerHTML = tiles.map((t, i)=>{
+    const img = safeImageUrl(t.image);
+    const isPromptTile = String(t.actionValue||'') === 'keyframeInfo' || String(t.label||'').trim().toLowerCase() === 'keyframe';
+    const tileLabel = isPromptTile ? 'Prompts' : (t.label||'');
+    const tileIcon = isPromptTile ? 'templates' : (t.icon||'spark');
+    const attrs = ` data-atype="${escapeHtml(t.actionType||'ratio')}" data-avalue="${escapeHtml(t.actionValue||'')}"`;
+    const thumb = img
+      ? `<div class="home-tile-thumb tile-photo" data-tile-i="${i}"><div class="home-tile-photo-card">
+           <img alt="${escapeHtml(tileLabel)}" decoding="async">
+         </div></div>`
+      : `<div class="home-tile-thumb">${TILE_ICONS[tileIcon] || TILE_ICONS.spark}</div>`;
+    return `<div class="home-tile"${attrs}>${thumb}<span>${escapeHtml(tileLabel)}</span></div>`;
+  }).join('');
+  // Attach picture handling AFTER the markup exists (no inline handlers, so no quoting traps).
+  tiles.forEach((t, i)=>{
+    const img = safeImageUrl(t.image);
+    if(!img) return;
+    const el = wrap.querySelector('.home-tile-thumb[data-tile-i="'+i+'"] img');
+    if(el) wireTileImage(el, img, t.icon);
+  });
+}
+
+/* ---------------- RENDER: EXAMPLE ANIMATIONS ----------------
+   Example clips (GIFs, or videos if the admin supplied one) do NOT autoplay on page load.
+   - A clip starts playing only once it has been scrolled into view, and only ONE clip plays
+     at a time (the others sit on a still frame).
+   - Tapping a clip plays it (and stops whichever clip was playing) or pauses it. There is no
+     on-screen play / pause button. A clip the visitor paused by hand stays paused until they
+     tap it again or scroll it away and back.
+   A GIF cannot be paused, so a paused GIF is shown as a still frame drawn on a canvas and the
+   animated <img> is emptied; playing puts the GIF back (it restarts from its first frame). */
+const HV = { obs:null, preObs:null, ratios:new Map(), cards:[], current:null, lock:null };
+// The clip the visitor paused by tapping it. Only that clip shows the centred pause icon; it is
+// cleared as soon as the clip plays again or is scrolled away.
+function hvSetLock(card){
+  if(HV.lock && HV.lock !== card) HV.lock.classList.remove('hv-user-paused');
+  HV.lock = card || null;
+  if(card) card.classList.add('hv-user-paused');
+}
+
+function hvDrawStill(card, srcImg){
+  // Draw srcImg (a loaded <img>) onto the card's still-frame canvas, creating it if needed.
+  const w = srcImg.naturalWidth || srcImg.clientWidth, h = srcImg.naturalHeight || srcImg.clientHeight;
+  if(!w || !h) return;
+  let cv = card.querySelector('canvas.home-gif-freeze');
+  if(!cv){
+    cv = document.createElement('canvas');
+    cv.className = 'home-video-img home-gif-freeze';
+    card.querySelector('img.home-gif').after(cv);
+  }
+  cv.width = w; cv.height = h;
+  try{ cv.getContext('2d').drawImage(srcImg, 0, 0, w, h); }catch(_e){}
+  cv.classList.remove('hv-hide');
+}
+function hvLoadStill(card){
+  // Loads the GIF once (only when the card is close to the screen) just to paint its first frame.
+  if(card.__hvStill) return;
+  card.__hvStill = true;
+  const img = card.querySelector('img.home-gif');
+  if(!img) return;
+  const url = img.dataset.gifSrc || '';
+  if(!url) return;
+  const probe = new Image();
+  probe.decoding = 'async';
+  probe.onload = ()=>{ if(!card.classList.contains('is-playing')) hvDrawStill(card, probe); };
+  probe.src = url;
+}
+function hvSetPlaying(card, on){
+  const vid = card.querySelector('video.home-video-img');
+  const img = card.querySelector('img.home-gif');
+  if(vid){
+    if(on){ const p = vid.play(); if(p && p.catch) p.catch(()=>{}); } else { vid.pause(); }
+  } else if(img){
+    if(on){
+      if(!img.getAttribute('src')){
+        img.addEventListener('load', ()=>{
+          // hide the still only after the animated frame has really been painted (no flicker)
+          requestAnimationFrame(()=>requestAnimationFrame(()=>{
+            const cv = card.querySelector('canvas.home-gif-freeze');
+            if(cv && card.classList.contains('is-playing')) cv.classList.add('hv-hide');
+          }));
+        }, {once:true});
+        img.src = img.dataset.gifSrc || '';
+      }
+    } else if(img.getAttribute('src')){
+      if(img.complete && img.naturalWidth) hvDrawStill(card, img);   // freeze the frame showing now
+      const cv = card.querySelector('canvas.home-gif-freeze'); if(cv) cv.classList.remove('hv-hide');
+      img.removeAttribute('src');
+    }
+  }
+  card.classList.toggle('is-playing', on);
+  card.classList.toggle('is-paused', !on);
+  card.setAttribute('aria-pressed', on ? 'true' : 'false');
+}
+function hvPlay(card){
+  if(HV.current && HV.current !== card) hvSetPlaying(HV.current, false);
+  HV.current = card;
+  hvSetPlaying(card, true);
+}
+function hvToggle(card){
+  if(card.classList.contains('is-playing')){
+    HV.current = null; hvSetLock(card);       // paused by hand: nothing else auto-starts while it stays on screen
+    hvSetPlaying(card, false);
+  } else {
+    hvSetLock(null);
+    hvPlay(card);
+  }
+}
+function hvRatio(c){ return HV.ratios.get(c) || 0; }
+function hvEvaluate(){
+  if(document.hidden){
+    if(HV.current){ hvSetPlaying(HV.current, false); HV.current = null; }
+    return;
+  }
+  if(HV.lock && hvRatio(HV.lock) < 0.15) hvSetLock(null);                      // scrolled away: released
+  if(HV.current && hvRatio(HV.current) < 0.25){ hvSetPlaying(HV.current, false); HV.current = null; }
+  if(HV.current || HV.lock) return;
+  if(window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;   // tap-only
+  const next = HV.cards.find(c=>hvRatio(c) >= 0.6);
+  if(next) hvPlay(next);
+}
+function hvTeardown(){
+  if(HV.obs){ HV.obs.disconnect(); HV.obs = null; }
+  if(HV.preObs){ HV.preObs.disconnect(); HV.preObs = null; }
+  HV.ratios.clear(); HV.cards = []; HV.current = null; HV.lock = null;
+}
+function hvInit(wrap){
+  hvTeardown();
+  HV.cards = Array.from(wrap.querySelectorAll('.home-video-card[data-hv-media]'));
+  if(!HV.cards.length) return;
+  if(!('IntersectionObserver' in window)){ HV.cards.forEach(hvLoadStill); return; }   // tap-only fallback
+  HV.obs = new IntersectionObserver(es=>{
+    es.forEach(e=>HV.ratios.set(e.target, e.intersectionRatio));
+    hvEvaluate();
+  }, {threshold:[0,0.1,0.25,0.4,0.5,0.6,0.75,0.9,1]});
+  HV.preObs = new IntersectionObserver(es=>{
+    es.forEach(e=>{ if(e.isIntersecting){ hvLoadStill(e.target); HV.preObs && HV.preObs.unobserve(e.target); } });
+  }, {rootMargin:'300px 0px'});
+  HV.cards.forEach(c=>{ HV.obs.observe(c); HV.preObs.observe(c); });
+}
+
+function renderHomeAnimations(){
+  const wrap = document.getElementById('homeVideoScroll');
+  if(!wrap) return;
+  const anims = getAnimations();
+  const sig = JSON.stringify(anims);
+  if(sig === _animSig) return;
+  _animSig = sig;
+
+  const stage = '<div class="home-video-stage"><svg viewBox="0 0 24 24" fill="none" stroke="#4E7CFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg></div>';
+  const aspectMap = { '9:16':'9 / 16', '16:9':'16 / 9', '1:1':'1 / 1', '4:3':'4 / 3', '9/16':'9 / 16', '16/9':'16 / 9', '1/1':'1 / 1', '4/3':'4 / 3' };
+  wrap.innerHTML = anims.map(a=>{
+    const img = safeImageUrl(a.image);
+    const video = (!img && typeof (a.video || a.videoUrl) === 'string' && /^https?:\/\//i.test(a.video || a.videoUrl)) ? (a.video || a.videoUrl) : '';
+    const aspect = aspectMap[a.aspectRatio] || '9 / 16';
+    const rawLabel = a.label || 'Example animation';
+    const label = escapeHtml(rawLabel);
+    // No autoplay and no src on the GIF: hvInit()/hvSetPlaying() decide when it loads and plays.
+    const media = video
+      ? `<video class="home-video-img home-video-preview" src="${escapeHtml(video + (video.indexOf('#') > -1 ? '' : '#t=0.1'))}" muted loop playsinline preload="metadata" aria-hidden="true" onerror="this.style.display='none'"></video>`
+      : (img ? `<img class="home-video-img home-gif" data-gif-src="${escapeHtml(img)}" alt="" decoding="async" onerror="this.style.display='none'">` : '');
+    const pauseBadge = media ? '<div class="hv-pause-badge" aria-hidden="true"><svg viewBox="0 0 24 24"><path d="M7 5h4v14H7zM13 5h4v14h-4z"/></svg></div>' : '';
+    const thumb = media ? `${stage}${media}${pauseBadge}` : stage;
+    const mediaAttrs = media ? ` data-hv-media="${video ? 'video' : 'gif'}" role="button" tabindex="0" aria-pressed="false" aria-label="${label}  -  tap to play or pause"` : '';
+    return `
+      <div class="home-video-card" style="aspect-ratio:${aspect};" data-atype="${escapeHtml(a.actionType||'screen')}" data-avalue="${escapeHtml(a.actionValue||'')}"${mediaAttrs}>
+        <div class="home-video-glow"></div>
+        ${thumb}
+        <div class="home-video-label">${escapeHtml(a.label||'')}</div>
+      </div>`;
+  }).join('');
+  if(!wrap.dataset.hvWired){
+    wrap.dataset.hvWired = '1';
+    // Capture phase: a tap on a clip toggles play / pause instead of the generic "open screen/link" tap.
+    wrap.addEventListener('click', e=>{
+      const card = e.target.closest && e.target.closest('.home-video-card[data-hv-media]');
+      if(!card || !wrap.contains(card)) return;
+      e.stopPropagation(); e.preventDefault();
+      hvToggle(card);
+    }, true);
+    wrap.addEventListener('keydown', e=>{
+      if(e.key !== 'Enter' && e.key !== ' ') return;
+      const card = e.target.closest && e.target.closest('.home-video-card[data-hv-media]');
+      if(!card) return;
+      e.preventDefault(); hvToggle(card);
+    });
+    document.addEventListener('visibilitychange', hvEvaluate);
+  }
+  hvInit(wrap);
+}
+
+/* ---------------- RENDER: TUTORIALS (YouTube-style grid) ----------------
+   Admin-managed via the admin panel's Tutorials page (title + video link + thumbnail), fed
+   through the same siteContent/main Firestore doc as banners/tiles/animations. Each card
+   opens its video link in a new tab via the same runAdminAction('link', …) every other piece
+   of admin content already uses  -  no separate player needed. */
+const TUTORIAL_PLACEHOLDER_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="#4E7CFF" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="#4E7CFF" stroke="none"/></svg>';
+let tutorialSearchQuery = '';
+// Typing re-filters the already-loaded list client-side (no extra Firestore reads)  -  fine at
+// this scale, and keeps results instant as you type, like YouTube's own search-as-you-type feel.
+function onTutorialSearchInput(value){
+  tutorialSearchQuery = (value || '').trim();
+  const bar = document.getElementById('tutorialSearchBar');
+  if(bar) bar.classList.toggle('has-query', tutorialSearchQuery.length > 0);
+  _tutorialsSig = null; // force a re-render even though the underlying data hasn't changed
+  renderTutorialsGrid();
+}
+function clearTutorialSearch(){
+  const input = document.getElementById('tutorialSearchInput');
+  if(input) input.value = '';
+  onTutorialSearchInput('');
+  if(input) input.focus();
+}
+function renderTutorialsGrid(){
+  const wrap = document.getElementById('tutorialGrid');
+  if(!wrap) return;
+  const allTutorials = getTutorials();
+  const q = tutorialSearchQuery.toLowerCase();
+  const tutorials = q ? allTutorials.filter(t=>(t.title||'').toLowerCase().includes(q)) : allTutorials;
+  const sig = JSON.stringify(tutorials) + '|' + q;
+  if(sig === _tutorialsSig) return;
+  _tutorialsSig = sig;
+  if(!allTutorials.length){
+    wrap.innerHTML = `<div class="tutorial-empty">No tutorials yet  -  check back soon.</div>`;
+    return;
+  }
+  if(!tutorials.length){
+    wrap.innerHTML = `<div class="tutorial-empty">No tutorials match “${escapeHtml(tutorialSearchQuery)}”.</div>`;
+    return;
+  }
+  wrap.innerHTML = tutorials.map(t=>{
+    const img = safeImageUrl(t.image);
+    const thumb = img
+      ? `<img src="${escapeHtml(img)}" alt="${escapeHtml(t.title||'')}" decoding="async" loading="lazy" onerror="this.closest('.tutorial-thumb-wrap').classList.add('failed'); this.style.display='none';">`
+      : `<div class="tutorial-thumb-fallback">${TUTORIAL_PLACEHOLDER_SVG}</div>`;
+    return `
+      <div class="tutorial-card" data-atype="link" data-avalue="${escapeHtml(t.videoUrl||'')}">
+        <div class="tutorial-thumb-wrap">
+          ${thumb}
+          <div class="tutorial-play-badge"><svg viewBox="0 0 68 48"><path d="M66.5 7.7c-.8-2.9-2.6-5.1-5.3-5.8C56.5 0.5 34 0.5 34 0.5s-22.5 0-27.2 1.4C4.1 2.6 2.3 4.8 1.5 7.7 0.1 12.5 0.1 24 0.1 24s0 11.5 1.4 16.3c.8 2.9 2.6 5.1 5.3 5.8C11.5 47.5 34 47.5 34 47.5s22.5 0 27.2-1.4c2.7-.7 4.5-2.9 5.3-5.8C67.9 35.5 67.9 24 67.9 24s0-11.5-1.4-16.3z" fill="#FF0000" opacity="0.92"/><path d="M27 34l18-10-18-10v20z" fill="#fff"/></svg></div>
+        </div>
+        <div class="tutorial-meta">
+          <div>
+            <p class="tutorial-title">${escapeHtml(t.title||'Untitled')}</p>
+            <p class="tutorial-sub">Ethvelle</p>
+          </div>
+        </div>
+      </div>`;
+  }).join('');
+}
+
+/* ---------------- RENDER: PAYMENT PLANS ---------------- */
+/* ================= PLAN PRICING (admin discount + first-purchase offer + promo popup) =====
+   A configured promo-popup discount has priority over plan-level and first-purchase discounts
+   for its target plan. A popup may target one plan or all paid plans (__all_paid__). If no promo
+   applies to a plan, the best applicable regular discount is used as before.
+   Returns { finalPrice, originalPrice, off, label } or null if no discount applies. */
+function computePlanDiscount(plan){
+  const price = Number(plan.price) || 0;
+  if(price <= 0) return null;
+  function offFor(d){
+    if(!d || !d.on) return 0;
+    const v = Number(d.value) || 0;
+    return d.type === 'amount' ? v : Math.round(price * v / 100);
+  }
+  const pd = window.activePromoDiscount;
+  const promoTargetsPlan = pd && (pd.applyToAll === true || pd.planId === '__all_paid__' || pd.planId === plan.id);
+  if(promoTargetsPlan){
+    const value = Number(pd.value) || 0;
+    const promoOff = pd.type === 'amount' ? value : Math.round(price * value / 100);
+    if(promoOff > 0){
+      const off = Math.min(promoOff, price); // never discount below ৳0
+      return { finalPrice: price - off, originalPrice: price, off, label: pd.label || 'Promo discount', isPromo:true };
+    }
+  }
+  const candidates = [];
+  if(plan.discount && plan.discount.on){
+    const off = offFor(plan.discount);
+    if(off > 0) candidates.push({ off, label: plan.discount.label || 'Discount' });
+  }
+  if(plan.firstPurchaseOffer && plan.firstPurchaseOffer.on && currentUser && !myHasEverOrdered){
+    const off = offFor(plan.firstPurchaseOffer);
+    if(off > 0) candidates.push({ off, label: plan.firstPurchaseOffer.label || 'First purchase offer' });
+  }
+  if(!candidates.length) return null;
+  candidates.sort((a,b)=>b.off - a.off);
+  const best = candidates[0];
+  const off = Math.min(best.off, price); // never discount below ৳0
+  return { finalPrice: price - off, originalPrice: price, off, label: best.label };
+}
+function renderPaymentPlans(){
+  const scroll = document.querySelector('#screen-payment .demo-scroll');
+  if(!scroll) return;
+  const plans = getPlans();
+  // Whether the signed-in user currently holds ANY paid (non-free) plan  -  once true, the
+  // Free card is no longer shown at all, the same way most subscription apps stop offering
+  // you the free tier once you're already a paying customer. Signed-out visitors and
+  // Free-tier users still see every card, Free included.
+  const hasActivePaidPlan = !!(currentUser && myActivePlanId && myActivePlanId !== 'free');
+  const orderSig = myLatestOrderInfo ? [myLatestOrderInfo.id,myLatestOrderInfo.planId,myLatestOrderInfo.status].join(':') : '';
+  const planOrderSig = JSON.stringify(Object.keys(myPlanOrderStates).sort().map(k=>[k,myPlanOrderStates[k].id,myPlanOrderStates[k].status]));
+  const sig = JSON.stringify(plans) + '|' + myActivePlanId + '|' + (currentUser?'in':'out') + '|' + myHasEverOrdered + '|' + orderSig + '|' + planOrderSig + '|' + JSON.stringify(window.activePromoDiscount||null);
+  if(sig === _plansSig) return;
+  _plansSig = sig;
+  // The user's own plan always sorts to the very top of the list, ahead of every other
+  // card, so they see "this is what I have" first rather than having to scroll to find it.
+  const ordered = plans.slice().sort((a,b)=>{
+    const aMine = currentUser && a.id === myActivePlanId;
+    const bMine = currentUser && b.id === myActivePlanId;
+    if(aMine && !bMine) return -1;
+    if(bMine && !aMine) return 1;
+    return 0;
+  });
+  const cardsHtml = ordered.filter(p=>{
+    const isFree = Number(p.price) === 0;
+    // Drop the Free card once the user already has a paid plan active.
+    if(isFree && hasActivePaidPlan) return false;
+    return true;
+  }).map(p=>{
+    const isFree = Number(p.price) === 0;
+    const disc = computePlanDiscount(p);
+    // priceHtml shows the struck-through original price next to the discounted one when a
+    // discount applies; otherwise just the plain price, same as before.
+    const priceHtml = isFree
+      ? '৳0<span>/month</span>'
+      : disc
+        ? `<span class="plan-price-strike">৳${disc.originalPrice}</span> ৳${disc.finalPrice}<span>/month</span>`
+        : `৳${p.price}<span>/month</span>`;
+    const featuresHtml = (p.features||[]).map(f=>`<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>${escapeHtml(f)}</div>`).join('');
+    const planCreditGrant = getPlanCreditGrant(p);
+    const creditsHtml = planCreditGrant > 0 ? `<div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M12 2v20M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6"/></svg>${planCreditGrant.toLocaleString()} credits per approved payment</div>` : '';
+    // Every individual plan with an admin-approved order is marked Current. The active-plan
+    // id remains a fallback for accounts without a matching order record; this supports
+    // accounts that hold more than one approved plan at the same time.
+    const isMine = currentUser ? (p.id === myActivePlanId || String((myPlanOrderStates[String(p.id)] || {}).status || '').toLowerCase() === 'approved') : isFree;
+    // A submitted pending order replaces the Upgrade button on that exact plan card.
+    // Normalize ids/status because admin-published plan ids may not use the built-in names.
+    const orderForPlan = currentUser ? (myPlanOrderStates[String(p.id)] || (myLatestOrderInfo && String(myLatestOrderInfo.planId) === String(p.id) ? myLatestOrderInfo : null)) : null;
+    const orderStatusForPlan = String(orderForPlan && orderForPlan.status || '').toLowerCase();
+    const hasPendingOrder = !!orderForPlan && orderStatusForPlan === 'pending';
+    const ctaHtml = (isMine || hasPendingOrder) ? '' : `<button class="plan-cta" onclick="event.stopPropagation(); confirmPlan('${p.id}')">Upgrade to ${escapeHtml(p.name)}</button>`;
+    // Badge: "Current" always wins (shows what the user actually owns). Otherwise, a discount
+    // badge takes priority over the plain custom badge, since "33% off" is more useful to see
+    // at a glance than "Popular"  -  but a plan can still carry both a badgeText AND a discount;
+    // only one badge chip is shown at a time to avoid crowding the card.
+    let badgeHtml = '';
+    if(isMine){
+      badgeHtml = '<div class="plan-badge plan-badge-current">Current</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'pending'){
+      badgeHtml = '<div class="plan-badge plan-badge-order pending">Order pending</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'rejected'){
+      badgeHtml = '<div class="plan-badge plan-badge-order rejected">Order rejected</div>';
+    } else if(orderForPlan && orderStatusForPlan === 'approved'){
+      badgeHtml = '<div class="plan-badge plan-badge-order approved">Order approved</div>';
+    } else if(disc){
+      const pct = Math.round(disc.off / disc.originalPrice * 100);
+      badgeHtml = disc.isPromo
+        ? `<div class="plan-badge plan-badge-discount"><span class="promo-discount-p" title="Promo discount">P</span>${pct}% off</div>`
+        : `<div class="plan-badge plan-badge-discount">${escapeHtml(disc.label)} \u2014 ${pct}% off</div>`;
+    } else if(p.popular && p.badgeText){
+      badgeHtml = `<div class="plan-badge">${escapeHtml(p.badgeText)}</div>`;
+    }
+    return `
+      <div class="plan-card${p.popular?' featured':''}${isMine?' current-plan':''}" data-plan="${p.id}" data-name="${escapeHtml(p.name)}" onclick="selectPlan(this, true)">
+        <div class="plan-card-top">
+          ${badgeHtml}
+          <div class="plan-radio"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+        </div>
+        <div class="plan-name">${escapeHtml(p.name)}</div>
+        <p class="plan-price">${priceHtml}</p>
+        <p class="plan-desc">${escapeHtml(p.desc||'')}</p>
+        <div class="plan-feature-list">${featuresHtml}${creditsHtml}</div>
+        ${ctaHtml}
+      </div>`;
+  }).join('');
+  scroll.innerHTML = cardsHtml;
+  // No plan is highlighted merely because it is the current/default plan.
+  // A border and checked radio appear only after the visitor explicitly taps a card.
+  scroll.querySelectorAll('.plan-card.selected').forEach(card=>card.classList.remove('selected'));
+  selectedPlan = null;
+}
+
+// Populate the Home screen and Payment screen once immediately (from cache/defaults so
+// there's never a blank flash), then again as soon as a live Firestore read comes back.
+wireContentTaps();
+(function wireCreateSectionTracking(){
+  const home = document.getElementById('screen-home');
+  if(!home || home.dataset.createTrackingWired) return;
+  home.dataset.createTrackingWired = '1';
+  home.addEventListener('click', function(event){
+    const tile = event.target && event.target.closest ? event.target.closest('.home-tile') : null;
+    const createButton = event.target && event.target.closest ? event.target.closest('.home-nav-create-btn') : null;
+    if(!tile && !createButton) return;
+    const labelEl = tile ? tile.querySelector('span') : null;
+    trackEvent('create_section_click', {
+      source:tile ? 'what_would_you_create_tile' : 'home_create_button',
+      itemLabel:labelEl ? labelEl.textContent.trim().slice(0,70) : 'Create button',
+      screen:'home'
+    });
+  });
+})();
+renderHomeTiles();
+renderHomeBanners();
+renderHomeAnimations();
+renderPaymentPlans();
+renderTutorialsGrid();
+renderPromptLibrary();
+applyCustomAnimPresets(); // from cached siteContent, if any  -  re-applied again once Firestore responds below
+wirePromoPopups(); // schedules from cached/default popups immediately; re-checked again once Firestore responds below
+
+if(firebaseReady && fbDb){
+  fbDb.collection('siteContent').doc('main').onSnapshot({ includeMetadataChanges:true }, function(doc){
+    const fromCache=!!(doc.metadata&&doc.metadata.fromCache);
+    if(doc.exists){
+      const data=doc.data()||{};
+      siteContent={
+        banners:data.banners||null,animations:data.animations||null,plans:data.plans||null,tiles:data.tiles||null,
+        tutorials:data.tutorials||null,contactInfo:data.contactInfo||null,
+        creditSettings:data.creditSettings||siteContent.creditSettings||defaultCreditSettings(),
+        promoPopups:(splitSiteContentLoaded.promoPopups&&splitSiteContentExists.promoPopups)?(siteContent.promoPopups||[]):(data.promoPopups||null),
+        customAnimPresets:data.customAnimPresets||null,
+        prompts:(splitSiteContentLoaded.prompts&&splitSiteContentExists.prompts)?(siteContent.prompts||[]):(data.prompts||[]),
+        assets:(splitSiteContentLoaded.assets&&splitSiteContentExists.assets)?(siteContent.assets||[]):(data.assets||[]),
+        models:(splitSiteContentLoaded.models&&splitSiteContentExists.models)?(siteContent.models||[]):(data.models||[]),
+        animationAccess:(splitSiteContentLoaded.animationAccess&&splitSiteContentExists.animationAccess)?(siteContent.animationAccess||{}):(data.animationAccess||{})
+      };
+      publishedModelAssets = evPublishedModelsFromSite();
+      try{localStorage.setItem(SITE_CONTENT_CACHE_KEY,JSON.stringify(siteContent));}catch(e){}
+      if(typeof renderModelsTab==='function' && document.getElementById('modelsGrid')) renderModelsTab();
+      if(typeof renderModelLibraryList==='function' && document.getElementById('modelAssetListBody')) renderModelLibraryList();
+      renderHomeTiles();renderHomeBanners();renderHomeAnimations();renderPaymentPlans();renderTutorialsGrid();renderPromptLibrary();applyCustomAnimPresets();
+      if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+      if(typeof renderExportCreditEstimate==='function')renderExportCreditEstimate();
+      if(typeof renderAnimList==='function'&&document.getElementById('animListBody'))renderAnimList();
+      if(document.getElementById('editorAssetLibrary'))renderAssetsPanel();
+      if(document.getElementById('screen-help')&&document.getElementById('screen-help').classList.contains('active'))renderHelpContactCards();
+    }
+    if(!fromCache){promoPopupContentServerConfirmed=true;wirePromoPopups(true);}
+    else wirePromoPopups();
+  },function(err){
+    console.warn('Ethvelle: could not read siteContent from Firestore, using cached/default content',err);
+    promoPopupContentServerConfirmed=true;wirePromoPopups(true);
+  });
+  // New, smaller documents are authoritative for prompts, assets, popup targeting, and animation access.
+  // If a split document does not exist yet, the legacy value read from siteContent/main is retained.
+  SPLIT_SITE_CONTENT_KEYS.forEach(key=>{
+    const unsub=fbDb.collection('siteContent').doc(key).onSnapshot({includeMetadataChanges:true},function(doc){
+      splitSiteContentLoaded[key]=true; splitSiteContentExists[key]=!!doc.exists;
+      if(doc.exists){
+        const data=doc.data()||{};
+        if(Object.prototype.hasOwnProperty.call(data,key))siteContent[key]=data[key];
+      }
+      try{localStorage.setItem(SITE_CONTENT_CACHE_KEY,JSON.stringify(siteContent));}catch(e){}
+      if(key==='prompts')renderPromptLibrary();
+      if(key==='assets'&&document.getElementById('editorAssetLibrary'))renderAssetsPanel();
+      if(key==='models'){publishedModelAssets=evPublishedModelsFromSite();if(typeof renderModelsTab==='function')renderModelsTab();if(typeof renderModelLibraryList==='function')renderModelLibraryList();}
+      if(key==='animationAccess'&&typeof renderAnimList==='function'&&document.getElementById('animListBody'))renderAnimList();
+      if(key==='promoPopups'){
+        if(doc.metadata&&!doc.metadata.fromCache){promoPopupContentServerConfirmed=true;wirePromoPopups(true);}
+        else wirePromoPopups();
+      }
+    },function(err){console.warn('Ethvelle: could not read siteContent/'+key,err);});
+    splitSiteContentUnsubs.push(unsub);
+  });
+}
+</script>
+
+
+
+<script>
+/* ============================================================================
+   ETHVELLE CHARACTER QUALITY UPDATE
+   - Optional Gemini landmark detection (body, face, palm, thumb and 5 fingers)
+   - Blink / talk facial overlays
+   - Hand-pose clips, plus a hardened mesh deformation path above
+   ----------------------------------------------------------------------------
+   SECURITY: this HTML placeholder is client-side. For a public production site,
+   proxy Gemini requests through your server and keep the API key there.
+   ============================================================================ */
+window.ETHVELLE_GEMINI_CONFIG = window.ETHVELLE_GEMINI_CONFIG || {
+  apiKey: 'PASTE_YOUR_GEMINI_API_KEY_HERE', // <-- add your Google AI Studio API key here for local testing
+  model: 'gemini-3.5-flash'                // requested model ID; currently auto-routed by Google to 3.6 Flash
+};
+var faceAnimationTimeOverride = null;
+
+function ethvelleHasGeminiKey(){
+  const k=String(window.ETHVELLE_GEMINI_CONFIG?.apiKey||'').trim();
+  return !!k && k!=='PASTE_YOUR_GEMINI_API_KEY_HERE' && k!=='YOUR_GEMINI_API_KEY';
+}
+function ethvelleSafePoint(p){
+  if(!p || typeof p!=='object') return null;
+  const x=Number(p.x), y=Number(p.y);
+  if(!Number.isFinite(x)||!Number.isFinite(y)||x<0||x>1||y<0||y>1) return null;
+  return {x,y};
+}
+function ethvelleCopyPoints(src){
+  const out={};
+  Object.keys(src||{}).forEach(k=>{const p=ethvelleSafePoint(src[k]);if(p)out[k]=p;});
+  return out;
+}
+function ethvelleEstimateFace(srcCanvas,joints){
+  if(!srcCanvas||!joints||!joints.headTop||!joints.neck) return null;
+  const top=joints.headTop, neck=joints.neck;
+  const headH=Math.max(0.025,neck.y-top.y);
+  const shoulderSpan=Math.abs((joints.shoulderR?.x??(top.x+0.12))-(joints.shoulderL?.x??(top.x-0.12)));
+  const headW=Math.max(0.045,Math.min(0.34,shoulderSpan*0.65||headH*0.75));
+  const cx=neck.x;
+  const face={
+    leftEye:{x:Math.max(0.005,cx-headW*0.19),y:Math.min(.99,top.y+headH*.49),w:headW*.18,h:headH*.075},
+    rightEye:{x:Math.min(.995,cx+headW*0.19),y:Math.min(.99,top.y+headH*.49),w:headW*.18,h:headH*.075},
+    mouth:{x:cx,y:Math.min(.995,top.y+headH*.88),w:headW*.24,h:headH*.095},
+    source:'estimated'
+  };
+  try{
+    const ctx=srcCanvas.getContext('2d',{willReadFrequently:true});
+    const px=Math.round(Math.max(0,Math.min(srcCanvas.width-1,cx*srcCanvas.width)));
+    const py=Math.round(Math.max(0,Math.min(srcCanvas.height-1,(top.y+headH*.66)*srcCanvas.height)));
+    const r=Math.max(2,Math.round(Math.min(srcCanvas.width,srcCanvas.height)*.006));
+    const d=ctx.getImageData(Math.max(0,px-r),Math.max(0,py-r),Math.min(srcCanvas.width-px+r,r*2+1),Math.min(srcCanvas.height-py+r,r*2+1)).data;
+    let R=0,G=0,B=0,n=0;
+    for(let i=0;i<d.length;i+=4){
+      if(d[i+3]<120)continue;
+      const lum=.2126*d[i]+.7152*d[i+1]+.0722*d[i+2];
+      if(lum<38||lum>246)continue;
+      R+=d[i];G+=d[i+1];B+=d[i+2];n++;
+    }
+    if(n) face.skinColor='#'+[R/n,G/n,B/n].map(v=>Math.round(v).toString(16).padStart(2,'0')).join('');
+  }catch(e){}
+  face.skinColor=face.skinColor||'#dba982';
+  return face;
+}
+function ethvelleNormalizeFace(raw,srcCanvas,joints){
+  const fallback=ethvelleEstimateFace(srcCanvas,joints);
+  if(!raw||typeof raw!=='object') return fallback;
+  const out={...(fallback||{}),source:'gemini'};
+  ['leftEye','rightEye','mouth'].forEach(k=>{
+    const p=raw[k];
+    const pos=ethvelleSafePoint(p);
+    if(!pos)return;
+    const w=Number(p.w),h=Number(p.h);
+    if(!Number.isFinite(w)||!Number.isFinite(h)||w<=0||h<=0)return;
+    out[k]={x:pos.x,y:pos.y,w:Math.min(.4,w),h:Math.min(.3,h)};
+  });
+  if(/^#[0-9a-f]{6}$/i.test(String(raw.skinColor||'')))out.skinColor=raw.skinColor;
+  return out;
+}
+async function analyzeAutoRigWithGemini(silent){
+  if(!autoRigState||!autoRigState.srcCanvas||!autoRigState.joints){showToast('Upload a character first',{icon:toastIcons.info,duration:1800});return;}
+  if(!ethvelleHasGeminiKey()){
+    const status=document.getElementById('autoRigGeminiStatus');
+    if(status)status.textContent='Add your API key to ETHVELLE_GEMINI_CONFIG.apiKey near the end of this file, then try again.';
+    if(!silent)showToast('Gemini key missing  -  see ETHVELLE_GEMINI_CONFIG at the end of the HTML file.',{icon:toastIcons.info,duration:3000});
+    return;
+  }
+  const btn=document.getElementById('autoRigGeminiBtn'),status=document.getElementById('autoRigGeminiStatus');
+  if(btn){btn.disabled=true;btn.textContent='Analyzing body, fingers and face…';}
+  if(status)status.textContent='Gemini is estimating normalized joint positions. You can still correct points afterward.';
+  try{
+    const dataUrl=autoRigState.srcCanvas.toDataURL('image/png');
+    const m=dataUrl.match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,(.+)$/);
+    if(!m)throw new Error('Could not encode image for Gemini.');
+    const prompt=`Analyze this single full-body 2D cartoon character image for a 2D puppet rig. Return ONLY JSON. Coordinates x,y are normalized to the whole image from 0 to 1, origin top-left. Use image-left as L and image-right as R to match the editor. Body joints needed: headTop (top of skull), neck, shoulderL, shoulderR (shoulder anchors close to the torso centerline), elbowL, wristL, elbowR, wristR, hip center, kneeL, ankleL, kneeR, ankleR. For each visible hand, estimate palmL/palmR and thumbBase/Mid/Tip, indexBase/Mid/Tip, middleBase/Mid/Tip, ringBase/Mid/Tip, pinkyBase/Mid/Tip, with the side suffix L or R (e.g. indexBaseL). Omit or set null any point hidden or too small to locate confidently; do not invent precise tiny fingertips if they are not visible. Also return face leftEye, rightEye and mouth objects as {x,y,w,h}, where x,y are the feature center and w,h are normalized feature width and height. Estimate skinColor as a 6-digit hex color near the eyes/mouth, not the hair or clothes. Keep joints on the actual drawn anatomy, avoid background pixels and keep headTop above neck, neck above hip, and ankles below knees. JSON shape: {"joints":{"headTop":{"x":0.5,"y":0.1},...},"face":{"leftEye":{"x":0.46,"y":0.18,"w":0.03,"h":0.01},"rightEye":...,"mouth":...,"skinColor":"#dba982"},"confidence":0.8,"warnings":[]}.`;
+    const url='https://generativelanguage.googleapis.com/v1beta/models/'+encodeURIComponent(window.ETHVELLE_GEMINI_CONFIG.model||'gemini-3.5-flash')+':generateContent?key='+encodeURIComponent(window.ETHVELLE_GEMINI_CONFIG.apiKey.trim());
+    const res=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt},{inline_data:{mime_type:m[1],data:m[2]}}]}],generationConfig:{temperature:0.1,responseMimeType:'application/json'}})});
+    const payload=await res.json().catch(()=>({}));
+    if(!res.ok)throw new Error(payload?.error?.message||('Gemini request failed ('+res.status+').'));
+    const textOut=(payload.candidates?.[0]?.content?.parts||[]).map(p=>p.text||'').join('').trim();
+    const jsonText=textOut.replace(/^```(?:json)?\s*/i,'').replace(/\s*```$/,'');
+    const parsed=JSON.parse(jsonText);
+    const detected=ethvelleCopyPoints(parsed.joints||{});
+    const required=['headTop','neck','shoulderL','shoulderR','elbowL','elbowR','wristL','wristR','hip','kneeL','kneeR','ankleL','ankleR'];
+    const merged={...autoRigState.joints};
+    required.forEach(k=>{if(detected[k])merged[k]=detected[k];});
+    // Keep Gemini's lateral shoulder positions; buildRigOverrideFromJoints converts them to
+    // torso-local attachment offsets so the shoulder pivots stay on the drawn silhouette.
+    const validOrder=merged.headTop.y<merged.neck.y&&merged.neck.y<merged.hip.y&&merged.kneeL.y>merged.hip.y&&merged.kneeR.y>merged.hip.y&&merged.ankleL.y>merged.kneeL.y&&merged.ankleR.y>merged.kneeR.y;
+    if(!validOrder)throw new Error('Gemini returned inconsistent body-joint order. Use the local rig and adjust the dots manually.');
+    Object.keys(detected).forEach(k=>{if(!required.includes(k))merged[k]=detected[k];});
+    autoRigState.joints=merged;
+    autoRigState.originalJoints=JSON.parse(JSON.stringify(merged));
+    autoRigState.attachAt={armL:Math.max(0.2,Math.min(0.98,(merged.hip.y-merged.shoulderL.y)/Math.max(.01,merged.hip.y-merged.neck.y))),armR:Math.max(0.2,Math.min(.98,(merged.hip.y-merged.shoulderR.y)/Math.max(.01,merged.hip.y-merged.neck.y)))};
+    autoRigState.face=ethvelleNormalizeFace(parsed.face,autoRigState.srcCanvas,merged);
+    autoRigState.aiProvider='Gemini';
+    autoRigState.aiConfidence=Number(parsed.confidence)||null;
+    autoRigState.handRig=!!(merged.palmL&&merged.palmR&&['L','R'].some(side=>['thumb','index','middle','ring','pinky'].some(f=>merged[f+'Base'+side]&&merged[f+'Mid'+side]&&merged[f+'Tip'+side])));
+    autoRigState.warnings=Array.isArray(parsed.warnings)?parsed.warnings.filter(x=>typeof x==='string').slice(0,5):[];
+    renderAutoRigWarnings();renderAutoRigOverlay();
+    if(status)status.textContent='Gemini analysis complete. Check the points before creating the rig; missing fingertips may still need manual correction.';
+    if(!silent)showToast('Gemini detected the body and face landmarks',{icon:toastIcons.check,duration:1800});
+  }catch(err){
+    console.warn('Ethvelle Gemini rig analysis failed:',err);
+    if(status)status.textContent='Gemini analysis failed: '+(err.message||'unknown error')+' Local detection is still available.';
+    if(!silent)showToast('Gemini analysis failed  -  local rig is unchanged.',{icon:toastIcons.info,duration:2600});
+  }finally{
+    if(btn){btn.disabled=false;btn.textContent='Analyze with Gemini · hands + face';}
+  }
+}
+
+// Gemini finger points are also draggable in the upload preview; small gold dots distinguish them.
+(function installDetailedRigOverlay(){
+  if(typeof renderAutoRigOverlay!=='function')return;
+  const original=renderAutoRigOverlay;
+  renderAutoRigOverlay=function(){
+    original();
+    if(!autoRigState||!autoRigState.joints)return;
+    const layer=document.getElementById('autoRigJointLayer');
+    if(!layer)return;
+    const existingKeys=new Set(AUTORIG_JOINT_KEYS);
+    const extra=Object.keys(autoRigState.joints).filter(k=>!existingKeys.has(k)&&/^(palm[LR]|(thumb|index|middle|ring|pinky)(Base|Mid|Tip)[LR])$/.test(k));
+    const pairs=[];
+    ['L','R'].forEach(side=>{
+      if(autoRigState.joints['wrist'+side]&&autoRigState.joints['palm'+side])pairs.push(['wrist'+side,'palm'+side]);
+      ['thumb','index','middle','ring','pinky'].forEach(f=>{
+        const a=f+'Base'+side,b=f+'Mid'+side,c=f+'Tip'+side;
+        if(autoRigState.joints[a]&&autoRigState.joints[b])pairs.push([a,b]);
+        if(autoRigState.joints[b]&&autoRigState.joints[c])pairs.push([b,c]);
+      });
+    });
+    if(!layer.__evv109FingerBoneNodes)layer.__evv109FingerBoneNodes=[];
+    if(!layer.__evv109FingerDotNodes)layer.__evv109FingerDotNodes=new Map();
+    const boneNodes=layer.__evv109FingerBoneNodes;
+    const dotNodes=layer.__evv109FingerDotNodes;
+    // Paint existing finger bones in place; no remove/insert churn during a drag.
+    pairs.forEach(([a,b],index)=>{
+      const pa=autoRigState.joints[a],pb=autoRigState.joints[b];if(!pa||!pb)return;
+      const p0=autoRigImgFracToPx(pa.x,pa.y),p1=autoRigImgFracToPx(pb.x,pb.y),dx=p1.x-p0.x,dy=p1.y-p0.y;
+      let el=boneNodes[index];
+      if(!el){el=document.createElement('div');el.className='autorig-bone-line-el';el.dataset.extraBone='1';el.style.background='#F5B942';el.style.height='2px';layer.appendChild(el);boneNodes[index]=el;}
+      el.style.display='block';el.style.left=p0.x+'px';el.style.top=p0.y+'px';el.style.width=Math.hypot(dx,dy)+'px';
+      el.style.transform='translateY(-50%) rotate('+Math.atan2(dy,dx)+'rad)';
+    });
+    for(let i=pairs.length;i<boneNodes.length;i++)boneNodes[i].style.display='none';
+    const active=new Set(extra);
+    extra.forEach(key=>{
+      const pt=autoRigState.joints[key],p=autoRigImgFracToPx(pt.x,pt.y);
+      let dot=dotNodes.get(key);
+      if(!dot||!dot.isConnected){dot=document.createElement('div');dot.className='autorig-joint-dot finger-joint';dot.dataset.joint=key;setupAutoRigJointDrag(dot,key);layer.appendChild(dot);dotNodes.set(key,dot);}
+      dot.style.display='block';dot.style.left=p.x+'px';dot.style.top=p.y+'px';
+    });
+    dotNodes.forEach((dot,key)=>{if(!active.has(key))dot.style.display='none';});
+  };
+})();
+
+// Save face/finger metadata alongside the original image. This wrapper keeps existing save/load behavior intact.
+(function preserveAIDataOnFinalize(){
+  if(typeof finalizeAutoRiggedCharacter!=='function')return;
+  const original=finalizeAutoRiggedCharacter;
+  finalizeAutoRiggedCharacter=function(){
+    if(autoRigState&&autoRigState.srcCanvas&&autoRigState.joints){
+      autoRigState.face=ethvelleNormalizeFace(autoRigState.face,autoRigState.srcCanvas,autoRigState.joints);
+      autoRigState.handRig=!!(autoRigState.joints.palmL&&autoRigState.joints.palmR&&['L','R'].some(side=>['thumb','index','middle','ring','pinky'].some(f=>autoRigState.joints[f+'Base'+side]&&autoRigState.joints[f+'Mid'+side]&&autoRigState.joints[f+'Tip'+side])));
+    }
+    original();
+  };
+})();
+
+function ethvelleFaceTime(){
+  if(Number.isFinite(faceAnimationTimeOverride))return faceAnimationTimeOverride;
+  return Number.isFinite(window.currentAbsoluteTimeSec)?window.currentAbsoluteTimeSec:(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0);
+}
+function ethvelleMapFacePoint(char,point,bStart,bEnd){
+  const mesh=char.skinMesh,face=char.autoRig?.face;
+  if(!mesh||!mesh.restBones?.head||!point)return null;
+  const rest=mesh.restBones.head,s=bStart('head'),e=bEnd('head');
+  const angle=Math.atan2(e.y-s.y,e.x-s.x),len=Math.max(1e-5,Math.hypot(e.x-s.x,e.y-s.y));
+  const x=point.x*mesh.srcW,y=point.y*mesh.srcH,dx=x-rest.ax,dy=y-rest.ay;
+  const ca=Math.cos(-rest.angle),sa=Math.sin(-rest.angle),lx=dx*ca-dy*sa,ly=dx*sa+dy*ca;
+  const scale=Math.max(.92,Math.min(1.08,len/rest.len)),rot=Math.cos(angle),sin=Math.sin(angle),delta=angle-rest.angle;
+  return {x:s.x+(lx*scale*Math.cos(angle)-ly*scale*Math.sin(angle)),y:s.y+(lx*scale*Math.sin(angle)+ly*scale*Math.cos(angle)),angle:delta,scale};
+}
+function drawEthvelleFaceMotion(targetCtx,char,bStart,bEnd){
+  const face=char.autoRig?.face,mesh=char.skinMesh;
+  if(!face||!mesh||!mesh.restBones?.head)return;
+  const t=ethvelleFaceTime();
+  const hash=String(char.id||'c').split('').reduce((a,c)=>a+c.charCodeAt(0),0)%37/37;
+  const phase=((t+hash*1.7+0.8)%3.7+3.7)%3.7;
+  const blink=phase<0.105 || (phase>3.48&&phase<3.58);
+  const clipKey=(char.id===activeCharacter()?.id&&activeClip)?activeClip.animKey:(char.clip?.animKey||null);
+  const talking=(clipKey==='talk'||clipKey==='talkBlink') || char.faceMotion?.talking===true;
+  const skin= /^#[0-9a-f]{6}$/i.test(face.skinColor||'')?face.skinColor:'#dba982';
+  function drawFeature(name,mode){
+    const f=face[name];if(!f)return;
+    if(mode==='eye'&&!blink)return;
+    if(mode==='mouth'&&!talking)return;
+    const center=ethvelleMapFacePoint(char,f,bStart,bEnd);if(!center)return;
+    const w=Math.max(1,Number(f.w||.02)*mesh.srcW*center.scale),h=Math.max(1,Number(f.h||.01)*mesh.srcH*center.scale);
+    targetCtx.save();targetCtx.translate(center.x,center.y);targetCtx.rotate(center.angle);
+    targetCtx.fillStyle=skin;targetCtx.beginPath();targetCtx.ellipse(0,0,w*.72,h*.9,0,0,Math.PI*2);targetCtx.fill();
+    targetCtx.lineCap='round';targetCtx.lineJoin='round';
+    if(mode==='eye'){
+      if(blink){targetCtx.strokeStyle='#392922';targetCtx.lineWidth=Math.max(1,w*.10);targetCtx.beginPath();targetCtx.moveTo(-w*.48,h*.05);targetCtx.quadraticCurveTo(0,h*.34,w*.48,h*.05);targetCtx.stroke();}
+    }else if(mode==='mouth'&&(talking)){
+      const open=.10+.5*(.5+.5*Math.sin(t*16.5+hash*3));
+      targetCtx.fillStyle='#3e1720';targetCtx.strokeStyle='#3e1720';targetCtx.lineWidth=Math.max(1,w*.055);
+      targetCtx.beginPath();targetCtx.ellipse(0,0,w*.47,Math.max(h*.12,h*open),0,0,Math.PI*2);targetCtx.fill();targetCtx.stroke();
+      if(open>.34){targetCtx.fillStyle='#e9788a';targetCtx.beginPath();targetCtx.ellipse(0,h*open*.43,w*.22,h*.10,0,0,Math.PI*2);targetCtx.fill();}
+    }
+    targetCtx.restore();
+  }
+  drawFeature('leftEye','eye');drawFeature('rightEye','eye');drawFeature('mouth','mouth');
+}
+
+// Add the facial pass after skin drawing for both the live canvas and export context.
+(function attachFacePass(){
+  if(typeof drawCustomCharacterOnContext!=='function')return;
+  const original=drawCustomCharacterOnContext;
+  drawCustomCharacterOnContext=function(targetCtx,char,boneStartFn,boneEndFn){
+    original(targetCtx,char,boneStartFn,boneEndFn);
+    try{drawEthvelleFaceMotion(targetCtx,char,boneStartFn||getBoneStart,boneEndFn||getBoneEnd);}catch(e){console.debug('Ethvelle face pass skipped',e);}
+  };
+})();
+
+// Additional animation clips: talk drives the mouth overlay; gesture poses bend detected finger bones.
+Object.assign(animPresets,{
+  talk:{name:'Talk + blink',duration:2.4,keyframes:[
+    {t:0,pose:{head:0,spine:0,armL:0,armR:0,gestureFist:0,gesturePoint:0,gesturePeace:0,gestureThumbsUp:0}},
+    {t:.25,pose:{head:-4*D,spine:1.5*D,armL:-3*D,armR:3*D,gestureFist:0}},
+    {t:.5,pose:{head:2*D,spine:-1.5*D,armL:2*D,armR:-2*D,gestureFist:0}},
+    {t:.75,pose:{head:-2*D,spine:1*D,armL:-2*D,armR:2*D,gestureFist:0}},
+    {t:1,pose:{head:0,spine:0,armL:0,armR:0,gestureFist:0}}
+  ]},
+  fist:{name:'Fist pose',duration:1,keyframes:[{t:0,pose:{gestureFist:1}},{t:1,pose:{gestureFist:1}}]},
+  point:{name:'Point pose',duration:1,keyframes:[{t:0,pose:{gesturePoint:1}},{t:1,pose:{gesturePoint:1}}]},
+  peace:{name:'Peace sign',duration:1,keyframes:[{t:0,pose:{gesturePeace:1}},{t:1,pose:{gesturePeace:1}}]},
+  thumbsUp:{name:'Thumbs up',duration:1,keyframes:[{t:0,pose:{gestureThumbsUp:1}},{t:1,pose:{gestureThumbsUp:1}}]}
+});
+
+// Drive facial motion from the same absolute timeline time used by the editor and the exported frames.
+(function trackExportFaceTime(){
+  // Patch the export loop's absolute timestamp without changing any media-export behavior.
+  const scripts=[...document.scripts];
+  const last=scripts[scripts.length-1];
+  // drawEthvelleFaceMotion reads faceAnimationTimeOverride; global rendering sets currentAbsoluteTimeSec.
+  // The export loop below uses a local clipAbsoluteT, which is assigned in the hook if the optional callback exists.
+  window.ethvelleSetFaceTime=t=>{faceAnimationTimeOverride=Number.isFinite(t)?t:null;};
+})();
+</script>
+
+
+
+<script id="ethvelle-model-lab-integration">
+const SHEET_KEYS_12 = ['head','torso','armL_upper','armL_lower','handL','armR_upper','armR_lower','handR','legL_upper','legL_lower','legR_upper','legR_lower'];
+const SHEET_KEYS_17 = [...SHEET_KEYS_12, 'head_blink','mouth_closed','mouth_open','handL_fist','handR_fist'];
+const SHEET_KEYS_27 = [...SHEET_KEYS_12, 'head_blink','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_fist','handR_fist','handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm'];
+// Fourteen structural pieces shared by new humanoid, animal and bird sheets. The parser uses anatomy-position detection for these pieces; they are not required to sit in a grid.
+const SHEET_KEYS_14 = ['head','torso','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR',
+  'legL_upper','legR_upper','legL_lower','legR_lower','shoeL','shoeR'];
+// Mythic humanoids use the familiar head/torso/arms, with no human legs: the lower body is a smooth 3-link tail.
+const MYTHIC_MODEL_TYPES = ['mermaid','lamia','ghost'];
+const isMythicModelType = type => MYTHIC_MODEL_TYPES.includes(String(type||''));
+const WINGED_HUMANOID_MODEL_TYPES = ['fairy','devil'];
+const isWingedHumanoidType = type => WINGED_HUMANOID_MODEL_TYPES.includes(String(type||''));
+const SHEET_KEYS_WINGED_HUMANOID_16 = [...SHEET_KEYS_14,'wingL','wingR'];
+const SHEET_KEYS_MYTHIC_BASE = ['head','torso','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR','tail','tail_mid','tail_tip'];
+// New animal and bird base sheets add one independently articulated tail silhouette.
+// Existing 14-piece species sheets remain valid for backward compatibility.
+const SHEET_KEYS_SPECIES_15 = ['head','torso','tail',...SHEET_KEYS_14.slice(2)];
+// v344: new BEAST MAN base sheets are the 14 anatomy-position pieces + ONE independent tail = 15 pieces (same key order as species 15).
+const SHEET_KEYS_BEAST_15 = ['head','torso','tail',...SHEET_KEYS_14.slice(2)];
+// Current bird base sheet: 12 body parts (head, wing-less body, 6 wing pieces, 4 leg pieces where each lower leg
+// already includes its foot) + 1 independent tail = 13 pieces. No separate shoe/foot keys are used.
+const SHEET_KEYS_BIRD_13 = ['head','torso','tail','armL_upper','armR_upper','armL_lower','handL','armR_lower','handR','legL_upper','legR_upper','legL_lower','legR_lower'];
+// v319 compact bird base order: blank head, body, near default wing, tail, far default wing, near leg/foot, far leg/foot.
+const SHEET_KEYS_BIRD_7 = ['head','torso','armL_upper','tail','armR_upper','legL_upper','legR_upper'];
+// v321 bird face/flight kit: open eye, closed-eye lid, two beak states, one brow and two complete flight-wing swaps.
+// The previous six-part version remains supported for existing projects.
+const SHEET_KEYS_BIRD_VARIANTS_6 = ['bird_eye','beak_closed','beak_open','bird_brow','wingL_fly','wingR_fly'];
+const SHEET_KEYS_BIRD_VARIANTS_7 = ['bird_eye','bird_eye_closed','beak_closed','beak_open','bird_brow','wingL_fly','wingR_fly'];
+// v319 humanoid face/hand kit: five face assets plus four paired hand gesture types.
+const SHEET_KEYS_HUMANOID_VARIANTS_17 = ['eye_L','eye_R','brow_L','brow_R','head_sad','head_angry','head_shock','head_laugh','mouth_inner',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+// v328: the humanoid face kit gained two closed-eye parts (eye_closed_L/R) for real blink animation.
+// CORE = the original 17-part kit (still accepted); KEYS also lists the closed eyes so every "nested face part" check includes them.
+const SHEET_KEYS_HUMANOID_VARIANTS_19 = ['eye_L','eye_R','brow_L','brow_R','head_sad','head_angry','head_shock','head_laugh','mouth_inner','eye_closed_L','eye_closed_R',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+const SHEET_HUMANOID_FACE_KIT_CORE = ['mouth_inner','eye_L','eye_R','brow_L','brow_R'];
+const SHEET_HUMANOID_FACE_KIT_KEYS = ['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_BIRD_FACE_KIT_KEYS = ['bird_eye','beak_closed','beak_open','bird_brow'];
+// The new second-sheet workflow contains exactly 13 optional pieces. The fist pair remains
+// supported when importing the older full 27-part sheet, but is not required in this compact sheet.
+const SHEET_KEYS_VARIANTS_13 = ['head_blink','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm'];
+// Current supplemental sheet: 16 pieces, adding an explicit open-eye head and paired holding hands.
+// The 13-part list remains accepted for older saved sheets/projects.
+const SHEET_KEYS_VARIANTS_16 = ['head_blink','head_open','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh',
+  'handL_point','handR_point','handL_thumb','handR_thumb','handL_palm','handR_palm','handL_hold','handR_hold'];
+// Animal/bird second sheet: eye states, independent mouth/beak overlays, four full-head expressions, and a muzzle/beak grip pose.
+const SHEET_KEYS_SPECIES_VARIANTS = ['head_blink','head_open','mouth_closed','mouth_open','head_sad','head_angry','head_shock','head_laugh','mouth_hold'];
+// Animal face kit v318: four eye-free expression heads, one inner-mouth layer, two open eyes, two independent closed-eye lids and two independent eyebrows.
+const SHEET_KEYS_ANIMAL_VARIANTS = ['head_sad','head_angry','head_shock','head_laugh','mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_FACE_KIT_KEYS = ['mouth_inner','eye_L','eye_R','eye_closed_L','eye_closed_R','brow_L','brow_R'];
+const SHEET_KEYS = [...new Set([...SHEET_KEYS_27, ...SHEET_KEYS_ANIMAL_VARIANTS, ...SHEET_KEYS_HUMANOID_VARIANTS_17, ...SHEET_KEYS_HUMANOID_VARIANTS_19, ...SHEET_KEYS_BIRD_7, ...SHEET_KEYS_BIRD_VARIANTS_6, ...SHEET_KEYS_BIRD_VARIANTS_7, ...SHEET_KEYS_14, ...SHEET_KEYS_SPECIES_15, ...SHEET_KEYS_MYTHIC_BASE, ...SHEET_KEYS_WINGED_HUMANOID_16, ...SHEET_KEYS_VARIANTS_16, ...SHEET_KEYS_SPECIES_VARIANTS])];
+const SHEET_PARENT = { head:'torso', tail:'torso', tail_mid:'tail', tail_tip:'tail_mid', wingL:'torso', wingR:'torso', armL_upper:'torso', armR_upper:'torso', legL_upper:'torso', legR_upper:'torso',
+  armL_lower:'armL_upper', armR_lower:'armR_upper', handL:'armL_lower', handR:'armR_lower', legL_lower:'legL_upper', legR_lower:'legR_upper', shoeL:'legL_lower', shoeR:'legR_lower',
+  mouth_inner:'head', eye_L:'head', eye_R:'head', eye_closed_L:'head', eye_closed_R:'head', brow_L:'head', brow_R:'head',
+  bird_eye:'head', bird_eye_closed:'head', bird_brow:'head', beak_closed:'head', beak_open:'head', wingL_fly:'torso', wingR_fly:'torso',
+  head_blink:'torso', head_open:'torso', mouth_closed:'head', mouth_open:'head', mouth_hold:'head', handL_fist:'armL_lower', handR_fist:'armR_lower',
+  head_sad:'torso', head_angry:'torso', head_shock:'torso', head_laugh:'torso',
+  handL_point:'armL_lower', handL_thumb:'armL_lower', handL_palm:'armL_lower', handL_hold:'armL_lower',
+  handR_point:'armR_lower', handR_thumb:'armR_lower', handR_palm:'armR_lower', handR_hold:'armR_lower' };
+const SHEET_LABEL = { head:'Head', torso:'Body', tail:'Tail base', tail_mid:'Tail middle segment', tail_tip:'Tail tip / fin', armL_upper:'Left upper arm', armL_lower:'Left forearm', handL:'Left hand', armR_upper:'Right upper arm', armR_lower:'Right forearm', handR:'Right hand',
+  legL_upper:'Left thigh', legL_lower:'Left shin', shoeL:'Left shoe', legR_upper:'Right thigh', legR_lower:'Right shin', shoeR:'Right shoe', wingL:'Left back wing', wingR:'Right back wing',
+  mouth_inner:'Inner mouth', eye_L:'Open eye (left)', eye_R:'Open eye (right)', eye_closed_L:'Closed eye (left)', eye_closed_R:'Closed eye (right)', brow_L:'Eyebrow (left)', brow_R:'Eyebrow (right)',
+  bird_eye:'Bird eye (open)', bird_eye_closed:'Bird eye (closed)', bird_brow:'Bird eyebrow', beak_closed:'Closed beak', beak_open:'Open beak', wingL_fly:'Left flying wing', wingR_fly:'Right flying wing',
+  head_blink:'Eyes closed', head_open:'Eyes open', mouth_closed:'Mouth (closed)', mouth_open:'Mouth (open)', mouth_hold:'Mouth (holding grip)', handL_fist:'Left fist', handR_fist:'Right fist',
+  head_sad:'Head (sad)', head_angry:'Head (angry)', head_shock:'Head (shocked)', head_laugh:'Head (laughing)',
+  handL_point:'Left hand (point)', handR_point:'Right hand (point)', handL_thumb:'Left thumbs up', handR_thumb:'Right thumbs up',
+  handL_palm:'Left open palm', handR_palm:'Right open palm', handL_hold:'Left holding hand', handR_hold:'Right holding hand' };
+// handL/handR are a REAL wrist bone (['handL','handL']): the generic 21-bone rig already carries this bone
+// separately from forearmL/forearmR (see applyPoseToBones / the animPresets pose deltas), so giving it its
+// own piece here simply makes that existing bone visible and independently posable, instead of the old
+// trick of blending the forearm's and hand's angles into one rigid forearm+hand image.
+const SHEET_BONES = { head:['head','head'], torso:['pelvis','neck'], tail:['tail','tail'], tail_mid:['tail_mid','tail_mid'], tail_tip:['tail_tip','tail_tip'], wingL:['wingL','wingL'], wingR:['wingR','wingR'], armL_upper:['upperArmL','upperArmL'], armL_lower:['forearmL','forearmL'], handL:['handL','handL'],
+  armR_upper:['upperArmR','upperArmR'], armR_lower:['forearmR','forearmR'], handR:['handR','handR'], legL_upper:['thighL','thighL'], legL_lower:['shinL','footL'], shoeL:['footL','footL'],
+  legR_upper:['thighR','thighR'], legR_lower:['shinR','footR'], shoeR:['footR','footR'],
+  mouth_inner:['head','head'], eye_L:['head','head'], eye_R:['head','head'], eye_closed_L:['head','head'], eye_closed_R:['head','head'], brow_L:['head','head'], brow_R:['head','head'],
+  bird_eye:['head','head'], bird_eye_closed:['head','head'], bird_brow:['head','head'], beak_closed:['head','head'], beak_open:['head','head'], wingL_fly:['upperArmL','upperArmL'], wingR_fly:['upperArmR','upperArmR'],
+  head_blink:['head','head'], head_open:['head','head'], mouth_closed:['head','head'], mouth_open:['head','head'], mouth_hold:['head','head'], handL_fist:['handL','handL'], handR_fist:['handR','handR'],
+  head_sad:['head','head'], head_angry:['head','head'], head_shock:['head','head'], head_laugh:['head','head'],
+  handL_point:['handL','handL'], handL_thumb:['handL','handL'], handL_palm:['handL','handL'], handL_hold:['handL','handL'],
+  handR_point:['handR','handR'], handR_thumb:['handR','handR'], handR_palm:['handR','handR'], handR_hold:['handR','handR'] };
+// Z-order (back to front). Within each limb the most DISTAL piece is drawn first and the more PROXIMAL
+// piece after, so its joint end visually overlaps and hides the seam -- hand first, then forearm (whose
+// elbow end overlaps the hand's wrist), then upper arm last (whose cuff overlaps the forearm's elbow).
+const SHEET_DEFAULT_ORDER = ['tail','shoeR','shoeL','legR_lower','legL_lower','legR_upper','legL_upper',
+  'handL','handL_fist','handL_point','handL_thumb','handL_palm','handL_hold','armL_lower','armL_upper',
+  'torso','mouth_inner','head','head_blink','head_open','head_sad','head_angry','head_shock','head_laugh','mouth_closed','mouth_open','mouth_hold',
+  'handR','handR_fist','handR_point','handR_thumb','handR_palm','handR_hold','armR_lower','armR_upper'];
+// SIDE VIEW (pure profile, facing right): the R-side limbs are the FAR limbs and are drawn BEHIND the body,

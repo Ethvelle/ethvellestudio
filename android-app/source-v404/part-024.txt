@@ -1,0 +1,1000 @@
+      closePanel();
+      persistProjectState();
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that image", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+  } else if(uploadTarget==='overlay' || uploadTarget==='media'){
+    // BUGFIX ("the clips aren't saving after refreshing"  -  the actual saving bug): exactly
+    // the same root cause the Background branch above already fixed once, but never applied
+    // here. This used to hand addMediaOverlay a `URL.createObjectURL(file)` blob: URL as the
+    // clip's `src`, and persistProjectState() writes that string verbatim into the saved
+    // project. Blob URLs are only valid for the CURRENT page session  -  the instant the page
+    // is closed/refreshed and the project is reopened, that exact blob: address no longer
+    // resolves to anything. The clip's data (trimStart/trimEnd/name/thumbs) all survived in
+    // localStorage just fine, so the clip still visibly showed up on the timeline after a
+    // refresh  -  but its actual picture/video (src) was already dead, so it played back as a
+    // blank/broken layer, reading as if "the clip didn't save". FIX: read the file into a
+    // self-contained base64 data: URL first (identical technique to the Background fix
+    // above), and use THAT as both the thumbnail-generation source and the persisted `src`  - 
+    // nothing blob-based is ever stored. Video/audio can still be a large data: URL (same
+    // localStorage-quota tradeoff the Background image already accepted  -  see
+    // saveProjectsToStorage's own BUGFIX note), but a working clip that's occasionally too
+    // big to save is a a strict improvement over a small clip that ALWAYS silently breaks.
+    showToast(isVideo ? 'Loading video…' : 'Loading…', {icon: toastIcons.info, duration:1200});
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const dataUrl = reader.result;
+      if(isVideo){
+        generateVideoThumbnails(dataUrl, 24, 0, null).then(({duration,width,height})=>{
+          addMediaOverlay({ type:'video', src:dataUrl, name:file.name, duration, thumbs:[], sourceWidth:width, sourceHeight:height, appendAfterGroup:uploadAppendGroup });
+        });
+      } else {
+        // Image overlay: single thumbnail tiled across the clip body, like CapCut stickers/images.
+        addMediaOverlay({ type:'image', src:dataUrl, name:file.name, duration:3, thumbs:[dataUrl], appendAfterGroup:uploadAppendGroup });
+      }
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that file", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+    closePanel();
+  } else if(uploadTarget==='audio'){
+    showToast('Loading audio…', {icon: toastIcons.info, duration:1200});
+    // Same base64-instead-of-blob fix as the video/image branch above  -  see that BUGFIX note.
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const dataUrl = reader.result;
+      generateAudioWaveform(dataUrl).then(({peaks, duration})=>{
+        addMediaOverlay({ type:'audio', src:dataUrl, name:file.name, duration:duration||3, peaks, appendAfterGroup:uploadAppendGroup });
+      });
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that audio file", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+    closePanel();
+  } else if(uploadTarget==='replace-overlay'){
+    // Replace button (see replaceSelectedClip)  -  swaps the SRC/type/thumbnails of the
+    // already-selected media clip in place, keeping its id/trimStart/trimEnd/transform
+    // exactly where they were on the timeline. Unlike addMediaOverlay this never creates a
+    // new clip or changes its position  -  only its underlying picture/video/audio content.
+    const ov = overlays.find(o=>o.id===replaceTargetId);
+    if(!ov){ closePanel(); return; }
+    showToast(isVideo ? 'Loading video…' : isAudio ? 'Loading audio…' : 'Loading…', {icon: toastIcons.info, duration:1200});
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      const dataUrl = reader.result;
+      const finish = ({newType, thumbs, peaks, duration, sourceWidth, sourceHeight})=>{
+        ov.type = newType;
+        ov.src = dataUrl;
+        ov.name = file.name;
+        ov.sourceDuration = duration;
+        if(newType==='video'){ov.sourceWidth=Number(sourceWidth)||0;ov.sourceHeight=Number(sourceHeight)||0;}
+        ov.thumbs = newType==='video'?[]:(thumbs||[]);
+        ov.peaks = peaks||[];
+        // A shape/audio clip has no on-stage transform; an image/video does. Give it one if
+        // it's newly gaining a visual and didn't have one before, same shape addMediaOverlay uses.
+        if((newType==='video'||newType==='image') && !ov.transform) ov.transform = { scale:1, offsetX:0, offsetY:0, rotation:0 };
+        renderOverlayLayers();
+        renderOverlayListPanel();
+        renderFrame();
+        showToast('Replaced', {icon: toastIcons.check, duration:1200});
+        persistProjectState();
+      };
+      if(isVideo){
+        generateVideoThumbnails(dataUrl, 24, 0, null).then(({duration,width,height})=> finish({newType:'video', thumbs:[], duration, sourceWidth:width, sourceHeight:height}));
+      } else if(isAudio){
+        generateAudioWaveform(dataUrl).then(({peaks, duration})=> finish({newType:'audio', peaks, duration: duration||3}));
+      } else {
+        finish({newType:'image', thumbs:[dataUrl], duration: ov.sourceDuration||3});
+      }
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that file", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+    closePanel();
+    replaceTargetId = null;
+  } else {
+    showToast('Upload received  -  layer support coming next version');
+    closePanel();
+  }
+  uploadAppendGroup = null;
+  e.target.value='';
+});
+
+// Unified entry point for adding uploaded media (image/video/audio) into the shared
+// Clips or Audio group track. The current playhead decides the insertion point: before/left
+// of a clip in its first half, after/right in its second half, or before the next clip in a gap.
+// Every item in that track is then packed into one sequential lane.
+function addMediaOverlay({type, src, name, duration, thumbs, peaks, appendAfterGroup, deviceMediaKey, deviceMediaInfo, sourceDuration, sourceOffset, sourceWidth, sourceHeight, adjustments, chromaKey, enhanceAmount, filterPreset}){
+  const id = 'ov'+Date.now();
+  const color = OVERLAY_COLORS[overlays.length % OVERLAY_COLORS.length];
+  const clipLen = type==='video' ? Math.max(MIN_CLIP_SEC, Number(duration)||MIN_CLIP_SEC) : Math.max(MIN_CLIP_SEC,Math.min(Number(duration)||3,12)); // video clips keep their full source duration; only stills use the short default
+  let startT=0;
+  const groupKey = appendAfterGroup || (type==='audio' ? 'audio' : 'clips');
+  const groupClips = overlays.filter(o=> (o.type==='audio'?'audio':(o.type==='text'?'text':'clips')) === groupKey);
+  // Insert relative to the playhead, like a single-track editor: first half of the
+  // clip => before/left of it; second half => after/right of it; a playhead sitting in
+  // the gap before a clip => before that clip. Then repack the row sequentially.
+  const orderedGroupClips=[...groupClips].sort((a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0));
+  const groupClipLengths=new Map(orderedGroupClips.map(o=>[String(o.id),Math.max(MIN_CLIP_SEC,(Number(o.trimEnd)||0)-(Number(o.trimStart)||0))]));
+  let playheadTime=0;
+  try{playheadTime=Math.max(0,Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0))||0);}catch(_e){}
+  let insertIndex=orderedGroupClips.length;
+  for(let i=0;i<orderedGroupClips.length;i++){
+    const existing=orderedGroupClips[i];
+    const start=Number(existing.trimStart)||0;
+    const len=groupClipLengths.get(String(existing.id))||MIN_CLIP_SEC;
+    const end=start+len;
+    // A playhead exactly at / just before a clip's leading edge is treated as "before it".
+    if(playheadTime <= start+0.001){insertIndex=i;break;}
+    if(playheadTime < end-0.001){
+      insertIndex=playheadTime < start+len/2 ? i : i+1;
+      break;
+    }
+  }
+  startT=orderedGroupClips.slice(0,insertIndex).reduce((sum,o)=>sum+(groupClipLengths.get(String(o.id))||MIN_CLIP_SEC),0);
+  const newClip = {
+    id, name: name || (type==='video'?'Video':type==='audio'?'Audio':'Image'), color,
+    type, src, deviceMediaKey: deviceMediaKey || undefined,
+    deviceMediaName: deviceMediaInfo&&deviceMediaInfo.name || undefined,
+    deviceMediaSize: deviceMediaInfo&&Number(deviceMediaInfo.size)||undefined,
+    deviceMediaLastModified: deviceMediaInfo&&Number(deviceMediaInfo.lastModified)||undefined,
+    sourceDuration: Number(sourceDuration)>0?Number(sourceDuration):(Number(duration)||clipLen), sourceOffset: Math.max(0,Number(sourceOffset)||0),
+    sourceWidth: Number(sourceWidth)>0?Number(sourceWidth):0, sourceHeight: Number(sourceHeight)>0?Number(sourceHeight):0,
+    trimStart: startT, trimEnd: startT + clipLen,
+    adjustments: adjustments&&typeof adjustments==='object'?{...adjustments}:undefined,
+    chromaKey: chromaKey&&typeof chromaKey==='object'?{enabled:!!chromaKey.enabled,color:chromaKey.color||'#00ff00',tolerance:Number(chromaKey.tolerance)||75,softness:Number(chromaKey.softness)||24}:undefined,
+    enhanceAmount: Number(enhanceAmount)||0, filterPreset:filterPreset||'original',
+    thumbs: thumbs||[], peaks: peaks||[], speed: 1,
+    // FEATURE (volume control + audio extraction): every clip that can carry sound (video
+    // or audio) now has its own volume multiplier, 0 (silent) to 2 (2x boost), defaulting
+    // to 1 (unchanged)  -  see the Volume panel (renderVolumePanel/volumePanelSetVolume,
+    // mirrors the existing Speed panel) and its live application in renderOverlayMedia/
+    // renderAudioOverlayMedia below. An image/shape clip has nothing to carry volume on, so
+    // stays undefined there (same pattern transform already uses for audio).
+    volume: (type==='video'||type==='audio') ? 1 : undefined,
+    // Own independent size/position/rotation (image/video overlays only  -  audio/shape have
+    // no on-stage visual of their own to move). Lets the Transform panel adjust THIS clip's
+    // picture on the canvas the same way it already adjusts the stickman  -  see
+    // updateTransform's selectedClip-aware BUGFIX note.
+    transform: (type==='video'||type==='image') ? { scale:1, offsetX:0, offsetY:0, rotation:0 } : null
+  };
+  const orderedWithNew=[...orderedGroupClips.slice(0,insertIndex),newClip,...orderedGroupClips.slice(insertIndex)];
+  let groupCursor=0;
+  orderedWithNew.forEach(item=>{
+    const oldStart=Number(item.trimStart)||0;
+    const oldKeyframeTimes=Array.isArray(item.ethvelleMediaKeyframes)?item.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+    const len=item===newClip?clipLen:(groupClipLengths.get(String(item.id))||Math.max(MIN_CLIP_SEC,(Number(item.trimEnd)||0)-(Number(item.trimStart)||0)));
+    item.trimStart=groupCursor;
+    item.trimEnd=groupCursor+len;
+    const movedBy=item.trimStart-oldStart;
+    if(item!==newClip&&Math.abs(movedBy)>0.000001)shiftTimelineKeyframesOnce(item.ethvelleMediaKeyframes,oldKeyframeTimes,movedBy);
+    groupCursor=item.trimEnd;
+  });
+  startT=Number(newClip.trimStart)||0;
+  overlays.push(newClip);
+  timelineDuration = Math.max(Number(timelineDuration)||0, groupCursor, startT+clipLen);
+  renderOverlayLayers();
+  syncTimelineInnerWidth();
+  renderRuler();
+  onClipSelected(newClip,'add');
+  renderOverlayListPanel();
+  // Immediately redraw the current playhead frame after the timeline is rearranged, so
+  // the preview reflects the selected clip order without requiring a later play/scrub action.
+  renderFrame();
+  showToast((type==='video'?'Video':type==='audio'?'Audio':'Image')+(appendAfterGroup?' added to layer':' added'), {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+
+// Background clips use the same midpoint insertion rule as every other timeline row:
+// first half inserts before/left; second half inserts after/right; gaps insert before next.
+function addBackgroundClip(src){
+  const id='bg'+Date.now(),len=Math.max(MIN_CLIP_SEC,Number(BG_DEFAULT_DURATION)||3);
+  const ordered=[...backgrounds].sort((a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0));
+  let playhead=0;try{playhead=Math.max(0,Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0);}catch(_e){}
+  let at=ordered.length;
+  for(let i=0;i<ordered.length;i++){
+    const c=ordered[i],st=Number(c.trimStart)||0,l=Math.max(MIN_CLIP_SEC,(Number(c.trimEnd)||st+MIN_CLIP_SEC)-st),en=st+l;
+    if(playhead<=st+.001){at=i;break;}
+    if(playhead<en-.001){at=playhead<(st+en)/2?i:i+1;break;}
+  }
+  const clip={id,src,trimStart:0,trimEnd:len,transform:{scale:1,offsetX:0,offsetY:0,rotation:0}};
+  const arranged=[...ordered.slice(0,at),clip,...ordered.slice(at)];let cursor=0;
+  arranged.forEach(c=>{
+    const oldStart=Number(c.trimStart)||0;
+    const oldKeyframeTimes=Array.isArray(c.ethvelleMediaKeyframes)?c.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+    const l=c===clip?len:Math.max(MIN_CLIP_SEC,(Number(c.trimEnd)||0)-(Number(c.trimStart)||0));
+    c.trimStart=cursor;c.trimEnd=cursor+l;
+    const movedBy=c.trimStart-oldStart;
+    if(c!==clip&&Math.abs(movedBy)>0.000001)shiftTimelineKeyframesOnce(c.ethvelleMediaKeyframes,oldKeyframeTimes,movedBy);
+    cursor=c.trimEnd;
+  });
+  backgrounds.splice(0,backgrounds.length,...arranged);timelineDuration=Math.max(Number(timelineDuration)||0,cursor);
+  renderBackgroundTrack();syncTimelineInnerWidth();renderRuler();
+  onClipSelected(clip,'add');
+  refreshCurrentBgFromPlayhead();applyBackground();updateSelBox();persistProjectState();return clip;
+}
+
+window.addEventListener('resize', ()=>{
+  if(currentProject && document.getElementById('screen-editor').classList.contains('active')){
+    setupCanvasStage(currentProject.ratio);
+    renderFrame();
+    renderTimelineClip();
+    syncTimelineInnerWidth();
+    renderRuler();
+    syncPlayheadHeight();
+    movePlayhead();
+  }
+  // Keep the pivot dot glued to its correct fractional position on the part image if the
+  // pivot editor happens to be open across a resize/orientation change (its position is
+  // computed from the image's on-screen box, which resize invalidates).
+  if(document.getElementById('pivotEditorBackdrop').classList.contains('active')){
+    const part = customBuilderParts[customBuilderActiveSlot];
+    if(part){ positionPivotDot(part.pivotX, part.pivotY); positionContentBoxOutline(part); }
+  }
+});
+
+/* ================= ADMIN-PUBLISHED PROMPTS / ASSETS / ANIMATION ACCESS ================= */
+function getPromptLibrary(){return Array.isArray(siteContent.prompts)?siteContent.prompts.filter(p=>p&&p.builtin!==true&&p.adminOnly!==true&&p.source!=='builtin'):[];}
+function getEditorAssets(){return Array.isArray(siteContent.assets)?siteContent.assets:[];}
+// animationAccess[key] is a list of plan ids an admin checked for this animation (see the
+// admin panel's multi-select Animation access rules). Older data saved before multi-plan
+// support stored a single plan-id (or name, or 'free'/empty) as a bare string  -  normalized
+// here into a one-item array so both shapes read identically.
+function getAnimationAccessPlans(key){
+  const map=siteContent.animationAccess||{}; const raw=map[key];
+  const plans=typeof getPlans==='function'?getPlans():[];
+  const free=plans.find(p=>Number(p.price)===0)||{id:'p_free',name:'Free',price:0};
+  const ids=Array.isArray(raw)?raw.map(String).filter(Boolean):(raw==null||raw==='')?[]:[String(raw)];
+  if(!ids.length)return [free];
+  const resolved=ids.map(id=>{
+    const normalized=id.toLowerCase();
+    return plans.find(p=>String(p.id)===id) ||
+      plans.find(p=>String(p.name||'').toLowerCase()===normalized) ||
+      ((normalized==='free'||normalized==='p_free')?free:null);
+  }).filter(Boolean);
+  return resolved.length?resolved:[free];
+}
+// The badge/lock shown to a visitor is driven by the CHEAPEST plan an admin checked for this
+// animation  -  e.g. if both Pro and Studio are checked, a Pro subscriber should already be able
+// to use it rather than being told they need Studio.
+function getAnimationRequiredPlan(key){
+  const options=getAnimationAccessPlans(key);
+  return options.slice().sort((a,b)=>Number(a.price||0)-Number(b.price||0))[0];
+}
+function isAnimationLocked(key){
+  const required=getAnimationRequiredPlan(key);
+  if(!required||Number(required.price)<=0)return false;
+  const current=typeof getMyPlanData==='function'?getMyPlanData():{id:'p_free',name:'Free',price:0};
+  // Treat the plans as tiers by price, so a higher tier (or an exact plan match) can use the
+  // animation even if its id isn't literally in the checked list  -  the cheapest checked plan
+  // sets the floor price a user's current plan must meet.
+  const options=getAnimationAccessPlans(key);
+  const directMatch=!!current && options.some(p=>String(p.id)===String(current.id));
+  if(directMatch) return false;
+  return !current || Number(current.price||0) < Number(required.price||0);
+}
+function openAnimationUpgrade(planId){
+  goTo('payment');
+  const p=(getPlans()||[]).find(x=>x.id===planId);
+  if(p){const card=document.querySelector('#screen-payment .plan-card[data-plan="'+p.id+'"]');if(card&&typeof selectPlan==='function')selectPlan(card);}
+  showToast('Upgrade your plan to add this animation. You can still preview it.',{icon:toastIcons.info,duration:2400});
+}
+let editorAssetSearchQuery='';
+let editorAssetCategoryFilter='all';
+let pendingAdminFontFamily='';
+let ethvelleAudioLibraryQuery='';
+function openEthvelleAudioLibrary(){
+  const panel=document.getElementById('toolPanel');
+  const backdrop=document.getElementById('panelBackdrop');
+  if(!panel||!backdrop)return;
+  ethvelleAudioLibraryQuery='';
+  const title=document.getElementById('panelTitle');
+  const body=document.getElementById('panelBody');
+  if(title)title.textContent='Audio Library';
+  if(body){body.innerHTML='';renderEthvelleAudioLibrary();}
+  panel.classList.add('open');backdrop.classList.add('active');
+}
+function returnToAudioPanel(){openPanel('audio');}
+function filterEthvelleAudioLibrary(value){
+  ethvelleAudioLibraryQuery=String(value||'');
+  const wrap=document.getElementById('ethvelleAudioSearchWrap');
+  if(wrap)wrap.classList.toggle('has-query',!!ethvelleAudioLibraryQuery);
+  renderEthvelleAudioLibraryResults();
+}
+function clearEthvelleAudioLibrarySearch(){
+  const input=document.getElementById('ethvelleAudioLibrarySearch');
+  if(input){input.value='';filterEthvelleAudioLibrary('');try{input.focus({preventScroll:true});}catch(_e){input.focus();}}
+}
+function renderEthvelleAudioLibrary(){
+  const body=document.getElementById('panelBody');if(!body)return;
+  body.innerHTML=`
+    <div class="ethvelle-audio-library-head">
+      <button type="button" class="ethvelle-audio-library-back" onclick="returnToAudioPanel()" aria-label="Back to audio options"><svg viewBox="0 0 24 24"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <div class="ethvelle-audio-library-heading">Audio Library</div>
+    </div>
+    <div class="editor-asset-toolbar">
+      <div class="editor-asset-search-wrap" id="ethvelleAudioSearchWrap">
+        <svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+        <input class="editor-asset-search" id="ethvelleAudioLibrarySearch" type="search" aria-label="Search audio files" autocomplete="off" placeholder="Search audio files…" oninput="filterEthvelleAudioLibrary(this.value)">
+        <button type="button" class="editor-asset-search-clear" id="ethvelleAudioSearchClear" onclick="clearEthvelleAudioLibrarySearch()" aria-label="Clear audio search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+      </div>
+    </div>
+    <div id="ethvelleAudioLibraryResults" class="editor-asset-results"></div>`;
+  renderEthvelleAudioLibraryResults();
+}
+function renderEthvelleAudioLibraryResults(){
+  const host=document.getElementById('ethvelleAudioLibraryResults');if(!host)return;
+  const query=String(ethvelleAudioLibraryQuery||'').trim().toLocaleLowerCase();
+  const audioAssets=getEditorAssets().filter(asset=>editorAssetCategory(asset)==='audio'&&String(asset.src||'').trim());
+  const results=audioAssets.filter(asset=>{
+    const text=[asset.name,asset.description,asset.keywords,asset.tags,asset.category,'audio'].flat().join(' ').toLocaleLowerCase();
+    return !query||text.includes(query);
+  });
+  if(!results.length){
+    host.innerHTML=audioAssets.length
+      ? '<div class="ethvelle-audio-library-empty"><b>No matching audio files</b>Try another search keyword.</div>'
+      : '<div class="ethvelle-audio-library-empty"><b>No audio files published yet</b>Audio files published under Admin → Assets → Audio will appear here. You can still use Upload to add audio from your device.</div>';
+    return;
+  }
+  host.innerHTML=`<div class="ethvelle-audio-library-list">${results.map(asset=>{
+    const id=String(asset.id||'');
+    const src=String(asset.src||'');
+    const name=String(asset.name||'Audio');
+    const duration=Number(asset.duration)||0;
+    const meta=duration>0?`Audio file · ${Math.floor(duration/60)}:${String(Math.floor(duration%60)).padStart(2,'0')}`:'Audio file';
+    return `<article class="ethvelle-audio-library-card">
+      <div class="ethvelle-audio-library-icon" aria-hidden="true">♫</div>
+      <div class="ethvelle-audio-library-info">
+        <span class="ethvelle-audio-library-name">${escapeHtml(name)}</span>
+        <span class="ethvelle-audio-library-meta">${escapeHtml(meta)}</span>
+        <audio controls preload="none" src="${escapeHtml(src)}" aria-label="Preview ${escapeHtml(name)}"></audio>
+      </div>
+      <button type="button" class="ethvelle-audio-library-add" onclick="addAdminAssetToProject('${escapeHtml(id)}')">Add to timeline</button>
+    </article>`;
+  }).join('')}</div>`;
+}
+
+const EDITOR_ASSET_FILTERS=[
+  {id:'all',label:'All assets'},
+  {id:'image',label:'Image clips'},
+  {id:'video',label:'GIF clips'},
+  {id:'background-image',label:'Background images'},
+  {id:'sticker',label:'Stickers'}
+];
+function editorAssetCategory(asset){
+  const raw=String(asset?.category||asset?.type||'image').toLowerCase();
+  if(['background-image','background-video','audio','font','image','video','sticker'].includes(raw))return raw;
+  if(raw==='backgroundimage')return 'background-image';
+  if(raw==='backgroundvideo')return 'background-video';
+  return 'image';
+}
+function editorAssetLabel(asset){
+  const category=editorAssetCategory(asset);
+  return ({image:'Image clip / overlay',video:'Video clip', 'background-image':'Background image','background-video':'Background video',audio:'Audio clip',sticker:'Sticker'})[category]||'Asset';
+}
+function renderAssetsPanelBody(){
+  return `<div class="editor-asset-toolbar">
+      <div class="editor-asset-search-wrap${editorAssetSearchQuery?' has-query':''}">
+        <svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+        <input class="editor-asset-search" id="editorAssetSearch" type="search" aria-label="Search assets" autocomplete="off" placeholder="Search images, videos, backgrounds, stickers…" value="${escapeHtml(editorAssetSearchQuery)}" oninput="filterEditorAssets(this.value)">
+        <button type="button" class="editor-asset-search-clear" id="editorAssetSearchClear" onclick="clearEditorAssetSearch()" aria-label="Clear asset search"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+      </div>
+      <div class="editor-asset-filters" id="editorAssetFilters">${EDITOR_ASSET_FILTERS.map(f=>`<button type="button" class="editor-asset-filter ${editorAssetCategoryFilter===f.id?'active':''}" data-filter="${f.id}" onclick="setEditorAssetCategory('${f.id}')">${f.label}</button>`).join('')}</div>
+    </div>
+    <div class="editor-asset-results" id="editorAssetResults"></div>`;
+}
+function renderAssetsPanel(){
+  const el=document.getElementById('editorAssetLibrary');
+  if(el){el.innerHTML=renderAssetsPanelBody();renderFilteredEditorAssets();}
+}
+function syncEditorAssetSearchClear(value){
+  const wrap=document.querySelector('#screen-editor .editor-asset-search-wrap');
+  if(wrap)wrap.classList.toggle('has-query',!!String(value||'').length);
+}
+function clearEditorAssetSearch(){
+  const input=document.getElementById('editorAssetSearch');
+  if(!input)return;
+  input.value='';filterEditorAssets('');
+  try{input.focus({preventScroll:true});}catch(_e){input.focus();}
+}
+function filterEditorAssets(value){editorAssetSearchQuery=String(value||'');syncEditorAssetSearchClear(editorAssetSearchQuery);renderFilteredEditorAssets();}
+function setEditorAssetCategory(category){
+  editorAssetCategoryFilter=EDITOR_ASSET_FILTERS.some(f=>f.id===category)?category:'all';
+  document.querySelectorAll('#editorAssetFilters .editor-asset-filter').forEach(btn=>btn.classList.toggle('active',btn.dataset.filter===editorAssetCategoryFilter));
+  renderFilteredEditorAssets();
+}
+function renderFilteredEditorAssets(){
+  const host=document.getElementById('editorAssetResults');if(!host)return;
+  const all=getEditorAssets();
+  const q=editorAssetSearchQuery.trim().toLocaleLowerCase();
+  const assets=all.filter(a=>{
+    const category=editorAssetCategory(a);
+    if(editorAssetCategoryFilter!=='all'&&category!==editorAssetCategoryFilter)return false;
+    const searchable=[a.name,a.description,a.keywords,a.tags,a.fontFamily,category,editorAssetLabel(a)].flat().join(' ').toLocaleLowerCase();
+    return !q||searchable.includes(q);
+  });
+  if(!assets.length){
+    host.innerHTML=`<div class="editor-asset-empty">${all.length?'No matching assets found. Try another search or category.':'No admin assets published yet. Assets added in the Admin → Assets section will appear here.'}</div>`;
+    return;
+  }
+  host.innerHTML=`<div class="editor-assets-grid">${assets.map(a=>{
+    const category=editorAssetCategory(a),src=String(a.src||'');
+    let preview='';
+    if(category==='font'){ensureAdminFontLoaded(a);preview=`<div class="editor-asset-font-preview" style="font-family:${escapeHtml(a.fontFamily||a.name||'sans-serif')},sans-serif">Aa</div>`;}
+    else if(category==='image'||category==='background-image')preview=src?`<img src="${escapeHtml(src)}" alt="" loading="lazy">`:'IMAGE';
+    else if(category==='video'||category==='background-video')preview=`<div class="editor-asset-video">▶ VIDEO</div>`;
+    else if(category==='audio')preview=`<div class="editor-asset-font-preview">♫</div>`;
+    else preview='MEDIA';
+    return `<button type="button" class="editor-asset-card" onclick="addAdminAssetToProject('${escapeHtml(a.id)}')"><span class="editor-asset-thumb">${preview}</span><span class="editor-asset-name">${escapeHtml(a.name||'Asset')}</span><span class="editor-asset-category">${escapeHtml(editorAssetLabel(a))}</span></button>`;
+  }).join('')}</div>`;
+}
+function ensureAdminFontLoaded(assetOrFamily){
+  const asset=typeof assetOrFamily==='object'&&assetOrFamily?assetOrFamily:getEditorAssets().find(a=>editorAssetCategory(a)==='font'&&String(a.fontFamily||a.name||'').toLowerCase()===String(assetOrFamily||'').toLowerCase());
+  const family=String(asset?.fontFamily||asset?.name||assetOrFamily||'').trim();
+  if(!family)return;
+  const safeFamily=family.replace(/\\/g,'\\\\').replace(/"/g,'\\"');
+  if(asset?.src){
+    const src=String(asset.src);
+    const key='ethvelle-font-'+family.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+    if(document.getElementById(key))return;
+    if(/\.(woff2?|ttf|otf)(?:[?#].*)?$/i.test(src)){
+      const style=document.createElement('style');style.id=key;
+      style.textContent='@font-face{font-family:"'+safeFamily+'";src:url("'+src.replace(/"/g,'%22')+'");font-display:swap;}';
+      document.head.appendChild(style);
+    }else if(/^https:\/\//i.test(src)){
+      const link=document.createElement('link');link.id=key;link.rel='stylesheet';link.href=src;document.head.appendChild(link);
+    }
+  }else{
+    const key='ethvelle-font-'+family.toLowerCase().replace(/[^a-z0-9]+/g,'-');
+    if(!document.getElementById(key)){
+      const link=document.createElement('link');link.id=key;link.rel='stylesheet';
+      const bengaliStylesheet=ETHVELLE_BN_WEB_FONT_CSS[family];
+      link.href=bengaliStylesheet||('https://fonts.googleapis.com/css2?family='+encodeURIComponent(family).replace(/%20/g,'+')+'&display=swap');
+      document.head.appendChild(link);
+    }
+  }
+}
+function applyAdminFontAsset(asset){
+  const family=String(asset.fontFamily||asset.name||'').trim();if(!family)return;
+  ensureAdminFontLoaded(asset);
+  const textClip=selectedTextOverlay();
+  if(textClip){
+    textClip.fontFamily=family;
+    renderOverlayLayers();renderFrame();persistProjectState();
+    showToast('Font applied to selected text',{icon:toastIcons.check,duration:1400});
+    closePanel();
+  }else{
+    pendingAdminFontFamily=family;
+    openPanel('text');
+    showToast('Font selected  -  add text or apply it in the text editor',{icon:toastIcons.info,duration:1800});
+  }
+}
+function addAdminAssetToProject(id){
+  const asset=getEditorAssets().find(a=>a.id===id);if(!asset){showToast('This asset is unavailable',{icon:toastIcons.info});return;}
+  const category=editorAssetCategory(asset),src=String(asset.src||'');
+  const videoOptions={sourceDuration:Number(asset.sourceDuration)||Number(asset.duration)||5,sourceOffset:Number(asset.sourceTrimStart)||0,adjustments:asset.adjustments||null,chromaKey:asset.chromaKey||null};
+  const videoDuration=Math.max(MIN_CLIP_SEC,(Number(asset.sourceTrimEnd)||Number(asset.sourceDuration)||5)-(Number(asset.sourceTrimStart)||0));
+  if(category==='font'){applyAdminFontAsset(asset);return;}
+  if(!src){showToast('This asset has no media URL',{icon:toastIcons.info});return;}
+  if(!currentProject){showToast('Open a project first',{icon:toastIcons.info});return;}
+  if(category==='background-image'){
+    addBackgroundClip(src);closePanel();showToast('Background image added',{icon:toastIcons.check,duration:1300});return;
+  }
+  if(category==='background-video'){
+    addMediaOverlay({type:'video',src,name:asset.name||'Background video',duration:videoDuration,thumbs:[],peaks:[],...videoOptions});
+    const clip=overlays.slice().reverse().find(o=>o.type==='video'&&o.src===src&&(o.name===(asset.name||'Background video')));
+    if(clip){const idx=overlays.indexOf(clip);if(idx>0){overlays.splice(idx,1);overlays.unshift(clip);renderOverlayLayers();renderFrame();persistProjectState();}}
+    closePanel();showToast('Background video added behind other media',{icon:toastIcons.check,duration:1400});return;
+  }
+  if(category==='audio'){
+    addMediaOverlay({type:'audio',src,name:asset.name||'Audio',duration:Number(asset.duration)||5,thumbs:[],peaks:[]});
+    const addedAudio=[...overlays].reverse().find(o=>o.type==='audio'&&o.src===src&&(o.name===(asset.name||'Audio')));
+    if(addedAudio && typeof generateAudioWaveform==='function'){
+      generateAudioWaveform(src).then(({peaks})=>{
+        if(!overlays.includes(addedAudio))return;
+        addedAudio.peaks=Array.from(peaks||[]);
+        renderOverlayLayers();
+        persistProjectState({skipHistory:true});
+      }).catch(()=>{});
+    }
+    closePanel();return;
+  }
+  const type=(category==='video'||asset.type==='video')?'video':'image';
+  addMediaOverlay({type,src,name:asset.name||'Asset',duration:type==='video'?videoDuration:(Number(asset.duration)||5),thumbs:[],peaks:[],...(type==='video'?videoOptions:{})});
+  closePanel();
+}
+function renderPromptGrid(targetId,prompts){
+  const wrap=document.getElementById(targetId);if(!wrap)return;
+  if(!prompts.length){wrap.innerHTML='<div class="home-prompt-empty">No prompts published yet.</div>';return;}
+  wrap.innerHTML=prompts.map(p=>{
+    const image=p.templateImage||p.referenceImage;
+    const thumb=image?`<img src="${escapeHtml(image)}" alt="${escapeHtml(p.title||'Prompt')}" loading="lazy">`:'PROMPT';
+    const imageTypes=[p.referenceImage?'Reference image':'',p.templateImage?'Template image':''].filter(Boolean).join(' · ');
+    const desc=p.guidance||p.prompt||'Tap to view and copy this prompt.';
+    return `<button class="home-prompt-card" onclick="openPromptDetails('${escapeHtml(p.id)}')"><span class="home-prompt-thumb">${thumb}</span><span class="home-prompt-name">${escapeHtml(p.title||'Prompt')}</span>${imageTypes?`<span class="home-prompt-desc">${escapeHtml(imageTypes)}</span>`:''}<span class="home-prompt-desc">${escapeHtml(desc)}</span></button>`;
+  }).join('');
+}
+let promptSearchQuery='';
+function renderPromptLibrary(){
+  const allPrompts=getPromptLibrary();
+  const q=String(promptSearchQuery||'').trim().toLowerCase();
+  const prompts=q?allPrompts.filter(p=>[p.title,p.guidance,p.prompt,p.referenceImage?'Reference image':'',p.templateImage?'Template image':''].filter(Boolean).join(' ').toLowerCase().includes(q)):allPrompts;
+  const wrap=document.getElementById('keyframePromptGrid');
+  if(q && !prompts.length){if(wrap)wrap.innerHTML='<div class="home-prompt-empty">No prompts match your search. Try another keyword.</div>';return;}
+  renderPromptGrid('keyframePromptGrid',prompts);
+}
+function onPromptSearchInput(value){
+  promptSearchQuery=String(value||'').trim();
+  const box=document.getElementById('promptSearchBox');
+  if(box)box.classList.toggle('has-query',!!promptSearchQuery);
+  renderPromptLibrary();
+}
+function clearPromptSearch(){
+  promptSearchQuery='';
+  const input=document.getElementById('promptSearchInput');
+  if(input){input.value='';input.focus();}
+  const box=document.getElementById('promptSearchBox');
+  if(box)box.classList.remove('has-query');
+  renderPromptLibrary();
+}
+let currentPromptToCopy='';
+function openPromptDetails(id){
+  const p=getPromptLibrary().find(x=>x.id===id);if(!p)return;currentPromptToCopy=String(p.prompt||'');
+  document.getElementById('promptDetailTitle').textContent=p.title||'Prompt';
+  const html=[];
+  if(p.guidance)html.push(`<div class="prompt-detail-label">Guidance</div><div class="prompt-detail-copy prompt-guidance-copy">${escapeHtml(p.guidance)}</div>`);
+  html.push(`<div class="prompt-detail-label">Prompt</div><div class="prompt-detail-copy" id="promptBodyText">${escapeHtml(p.prompt||'')}</div>`);
+  const imageDownloadButton=(url,kind,title)=>`<button type="button" class="prompt-image-download" data-src="${escapeHtml(url)}" data-kind="${kind}" data-title="${escapeHtml(title||'Ethvelle') }" aria-label="Download ${kind} image" title="Download image" onclick="event.stopPropagation();downloadPromptImage(this)"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m-5-5 5 5 5-5M5 16v4h14v-4"/></svg></button>`;
+  if(p.referenceImage)html.push(`<div class="prompt-detail-label">Reference image</div><div class="prompt-detail-img-wrap"><img class="prompt-detail-img" src="${escapeHtml(p.referenceImage)}" alt="Reference image">${imageDownloadButton(p.referenceImage,'reference',p.title)}</div>`);
+  if(p.templateImage)html.push(`<div class="prompt-detail-label">Template image</div><div class="prompt-detail-img-wrap"><img class="prompt-detail-img" src="${escapeHtml(p.templateImage)}" alt="Template image">${imageDownloadButton(p.templateImage,'template',p.title)}</div>`);
+  document.getElementById('promptDetailBody').innerHTML=html.join('');document.getElementById('promptDetailBackdrop').classList.add('active');
+  // Make the Prompt block as tall as the Reference image block.
+  const refWrap=document.querySelector('#promptDetailBody .prompt-detail-img-wrap'),promptBox=document.getElementById('promptBodyText');
+  if(refWrap&&promptBox){
+    const syncPromptHeight=()=>{const h=refWrap.offsetHeight;if(h>60){promptBox.style.minHeight=h+'px';promptBox.style.maxHeight=h+'px';}};
+    const refImg=refWrap.querySelector('img');
+    if(refImg&&!refImg.complete)refImg.addEventListener('load',syncPromptHeight,{once:true});
+    syncPromptHeight();
+  }
+}
+async function downloadPromptImage(button){
+  if(!button||button.disabled)return;
+  const url=button.dataset.src||'';
+  if(!url){showToast('Image is unavailable',{icon:toastIcons.info});return;}
+  const kind=button.dataset.kind==='template'?'template':'reference';
+  const title=String(button.dataset.title||'Ethvelle').normalize('NFKD').replace(/[\u0300-\u036f]/g,'').replace(/[^a-zA-Z0-9_-]+/g,'-').replace(/^-+|-+$/g,'').slice(0,55)||'Ethvelle';
+  const baseName=`${title}-${kind}-image`;
+  const originalText=button.querySelector('span')?.textContent||'Download';
+  button.disabled=true;
+  if(button.querySelector('span'))button.querySelector('span').textContent='Downloading…';
+  try{
+    const response=await fetch(url,{mode:'cors',credentials:'omit'});
+    if(!response.ok)throw new Error('Image request failed');
+    const blob=await response.blob();
+    if(!blob.size)throw new Error('Empty image');
+    const mime=(blob.type||'').split(';')[0].toLowerCase();
+    const mimeExt={'image/jpeg':'jpg','image/jpg':'jpg','image/png':'png','image/webp':'webp','image/gif':'gif','image/avif':'avif','image/bmp':'bmp','image/svg+xml':'svg'};
+    let ext=mimeExt[mime]||'';
+    if(!ext){try{const path=new URL(url,location.href).pathname;const match=path.match(/\.([a-z0-9]{2,5})$/i);ext=match?match[1].toLowerCase():'jpg';}catch(e){ext='jpg';}}
+    const objectUrl=URL.createObjectURL(blob);
+    const link=document.createElement('a');link.href=objectUrl;link.download=`${baseName}.${ext}`;link.style.display='none';
+    document.body.appendChild(link);link.click();link.remove();
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),1500);
+    showToast('Image downloaded',{icon:toastIcons.check});
+  }catch(error){
+    // Some image hosts block cross-origin downloads. Open the source directly as a fallback.
+    const link=document.createElement('a');link.href=url;link.target='_blank';link.rel='noopener noreferrer';link.download=`${baseName}.jpg`;link.style.display='none';
+    document.body.appendChild(link);link.click();link.remove();
+    showToast('Opening image  -  use Save image if download does not start',{icon:toastIcons.info});
+  }finally{
+    button.disabled=false;
+    if(button.querySelector('span'))button.querySelector('span').textContent=originalText;
+  }
+}
+function closePromptDetails(){document.getElementById('promptDetailBackdrop').classList.remove('active');}
+function copyPromptText(){
+  const text=String(currentPromptToCopy||'');if(!text){showToast('No prompt text to copy',{icon:toastIcons.info});return;}
+  if(navigator.clipboard&&navigator.clipboard.writeText){navigator.clipboard.writeText(text).then(()=>showToast('Prompt copied',{icon:toastIcons.check})).catch(()=>fallbackCopyPrompt(text));}
+  else fallbackCopyPrompt(text);
+}
+function fallbackCopyPrompt(text){const ta=document.createElement('textarea');ta.value=text;ta.style.position='fixed';ta.style.opacity='0';document.body.appendChild(ta);ta.select();let ok=false;try{ok=document.execCommand('copy');}catch(e){}ta.remove();showToast(ok?'Prompt copied':'Select and copy the prompt manually',{icon:ok?toastIcons.check:toastIcons.info});}
+
+/* Location-based in-app notification popups. Existing inbox notifications remain available too. */
+let locationPopupNotificationId=null;
+function notifPopupSeenKey(uid){return 'riggy.notifPopupSeen.'+uid;}
+function getNotifPopupSeen(){return currentUser?readIdList(notifPopupSeenKey(currentUser.uid)):[];}
+function activeScreenId(){const s=document.querySelector('.screen.active');return s?(s.id||'').replace(/^screen-/,''):'';}
+function normalizeNotificationScreen(value){
+  const v=String(value==null?'':value).trim().toLowerCase().replace(/[^a-z]/g,'');
+  if(!v) return '';
+  if(v==='all'||v==='everywhere'||v==='allscreens') return 'all';
+  if(v.startsWith('home')||v.includes('homepage')||v.includes('homescreen')) return 'home';
+  if(v.startsWith('project')||v.includes('projectscreen')) return 'projects';
+  if(v.startsWith('profile')||v.includes('profilescreen')) return 'profile';
+  if(v.startsWith('payment')||v.includes('paymentscreen')) return 'payment';
+  return v.replace(/screen$/,'');
+}
+function notificationShowTargets(value){
+  if(Array.isArray(value)) return value.map(normalizeNotificationScreen).filter(Boolean);
+  if(typeof value==='string' && value.trim()) return value.split(/[;,|]/).map(normalizeNotificationScreen).filter(Boolean);
+  if(value && typeof value==='object') return Object.keys(value).filter(k=>value[k]===true || value[k]===1 || value[k]==='true').map(normalizeNotificationScreen).filter(Boolean);
+  return [];
+}
+function maybeShowLocationNotification(screenName){
+  if(!currentUser||!screenName||!Array.isArray(myNotifications))return;
+  const active=normalizeNotificationScreen(screenName);
+  if(active==='splash'||active==='login'||active==='landing')return; // wait: it will show once the user reaches an app screen
+  const backdrop=document.getElementById('notificationPopupBackdrop');if(!backdrop||backdrop.classList.contains('active'))return;
+  const titleEl=document.getElementById('notificationPopupTitle'), bodyEl=document.getElementById('notificationPopupBody');
+  if(!titleEl||!bodyEl)return;
+  const seen=getNotifPopupSeen();
+  const candidate=visibleNotifications().find(n=>{
+    if(seen.includes(n.id)) return false;
+    const rawTarget = n.showOn ?? n.showOnScreens ?? n.popupOn ?? n.displayOn ?? n.screen ?? n.location ?? n.showLocation ?? n.popupLocation ?? n.displayLocation;
+    const targets=notificationShowTargets(rawTarget);
+    // Older admin notifications omit their placement field; they are treated as Home notifications.
+    // "All screens" should be eligible everywhere, regardless of its original casing/spacing.
+    return targets.length ? (targets.includes('all') || targets.includes(active)) : active==='home';
+  });
+  if(!candidate)return;
+  locationPopupNotificationId=candidate.id;
+  titleEl.textContent=candidate.title||candidate.subject||'Notification';
+  bodyEl.textContent=candidate.body||candidate.message||candidate.description||'';
+  backdrop.classList.add('active');
+  seen.push(candidate.id);writeIdList(notifPopupSeenKey(currentUser.uid),seen);
+}
+function closeLocationNotification(){const el=document.getElementById('notificationPopupBackdrop');if(el)el.classList.remove('active');locationPopupNotificationId=null;setTimeout(()=>maybeShowLocationNotification(activeScreenId()),180);}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible')setTimeout(()=>maybeShowLocationNotification(activeScreenId()),220);});
+window.addEventListener('focus',()=>setTimeout(()=>maybeShowLocationNotification(activeScreenId()),180));
+
+/* ================= SITE CONTENT (read-only mirror of admin-published data) =================
+   Banners / example animations / subscription plans are managed from the separate admin
+   panel file (riggy-admin-panel.html), which writes them to Firestore under
+   siteContent/main. This app only ever READS that document  -  it has no admin login and
+   cannot edit this content. Falls back to localStorage (cached from the last successful
+   read) and finally to the built-in defaults below if Firestore isn't reachable, so the
+   Home/Payment screens always have something to show. */
+const SITE_CONTENT_CACHE_KEY = 'riggy.siteContent.cache.v1';
+const SPLIT_SITE_CONTENT_KEYS = ['promoPopups','prompts','assets','models','animationAccess'];
+const splitSiteContentLoaded = { promoPopups:false, prompts:false, assets:false, models:false, animationAccess:false };
+const splitSiteContentExists = { promoPopups:false, prompts:false, assets:false, models:false, animationAccess:false };
+let splitSiteContentUnsubs = [];
+// customAnimPresets: admin-authored entries in the SAME shape as the built-in animPresets
+// object below ({ name, duration, keyframes:[{t, pose:{...}}] }), keyed by a slug the admin
+// panel generates from the name. Kept as its own array of {key, preset} pairs in Firestore
+// (not merged into animPresets directly in storage) so the admin panel can list/edit/delete
+// them independently of the built-ins  -  applyCustomAnimPresets() below is what actually
+// merges them into the live animPresets object the Animate picker and playback read from.
+let siteContent = { banners:null, animations:null, plans:null, tiles:null, tutorials:null, contactInfo:null, creditSettings:null, promoPopups:null, customAnimPresets:null, prompts:[], assets:[], models:[], animationAccess:{} };
+try{
+  const raw = localStorage.getItem(SITE_CONTENT_CACHE_KEY);
+  if(raw) siteContent = JSON.parse(raw);
+}catch(e){}
+// The earlier app script initializes this list without touching siteContent. Hydrate it only
+// after siteContent has been declared and the local cache has been parsed safely.
+publishedModelAssets = evPublishedModelsFromSite();
+
+function defaultBanners(){ return []; }
+function defaultAnimations(){
+  return [
+    { id:'a_default_1', image:null, label:'Walk cycle', actionType:'screen', actionValue:'projects', builtin:true },
+    { id:'a_default_2', image:null, label:'Talking head', actionType:'screen', actionValue:'projects', builtin:true },
+    { id:'a_default_3', image:null, label:'Product ad', actionType:'screen', actionValue:'projects', builtin:true },
+    { id:'a_default_4', image:null, label:'Story panel', actionType:'screen', actionValue:'projects', builtin:true }
+  ];
+}
+function defaultPlans(){
+  // discount/firstPurchaseOffer included here too (matching the admin panel's own
+  // defaultPlans) so a freshly-loaded device that hasn't synced Firestore yet never hits a
+  // missing `plan.discount`  -  computePlanDiscount() always has a real object to read from.
+  return [
+    { id:'p_free', name:'Free', price:0, desc:'For trying Ethvelle out.', features:['3 projects','720p export'], popular:false, badgeText:'', discount:{on:false,type:'percent',value:0,label:''}, firstPurchaseOffer:{on:false,type:'percent',value:0,label:''}, maxQuality:720, unlimitedProjects:false, maxProjects:3, unlimitedExports:false, maxExports:null, creditsPerCycle:0 },
+    { id:'p_pro', name:'Pro', price:499, desc:'For creators who publish regularly.', features:['Unlimited projects','1080p export','No watermark'], popular:true, badgeText:'Popular', discount:{on:false,type:'percent',value:0,label:''}, firstPurchaseOffer:{on:false,type:'percent',value:0,label:''}, maxQuality:1080, unlimitedProjects:true, maxProjects:null, unlimitedExports:true, maxExports:null, creditsPerCycle:1000 },
+    { id:'p_studio', name:'Studio', price:1499, desc:'For teams and heavy production.', features:['Everything in Pro','4K export'], popular:false, badgeText:'', discount:{on:false,type:'percent',value:0,label:''}, firstPurchaseOffer:{on:false,type:'percent',value:0,label:''}, maxQuality:2160, unlimitedProjects:true, maxProjects:null, unlimitedExports:true, maxExports:null, creditsPerCycle:4000 }
+  ];
+}
+function defaultTiles(){
+  return [
+    { id:'t_default_1', image:null, label:'Character', icon:'character', actionType:'screen', actionValue:'models', builtin:true },
+    { id:'t_default_2', image:null, label:'Video', icon:'video', actionType:'ratio', actionValue:'', builtin:true },
+    { id:'t_default_3', image:null, label:'Tutorial', icon:'tutorial', actionType:'screen', actionValue:'tutorials', builtin:true },
+    { id:'t_default_4', image:null, label:'Prompts', icon:'templates', actionType:'screen', actionValue:'keyframeInfo', builtin:true }
+  ];
+}
+// Tutorials start empty (not a handful of placeholder cards like banners/tiles/animations
+// do)  -  until the admin adds real videos from the admin panel's Tutorials page, the screen
+// just shows its own empty state rather than fake-looking demo cards.
+function defaultTutorials(){ return []; }
+// Promo popups: empty by default, same reasoning as Tutorials above  -  nothing shows until
+// the admin actually configures one. See the admin panel's Promo popup page for the shape.
+function defaultPromoPopups(){ return []; }
+function getBanners(){ return siteContent.banners || defaultBanners(); }
+function getAnimations(){ return siteContent.animations || defaultAnimations(); }
+function getPlans(){
+  const source=Array.isArray(siteContent.plans)&&siteContent.plans.length?siteContent.plans:defaultPlans();
+  return source.map(plan=>{
+    if(!plan)return plan;
+    const isFree=Number(plan.price)===0||['free','p_free'].includes(String(plan.id||'').toLowerCase())||String(plan.name||'').trim().toLowerCase()==='free';
+    if(!isFree)return plan;
+    const otherFeatures=(Array.isArray(plan.features)?plan.features:[]).filter(feature=>!/(projects?|exports?|(?:480|720|1080|1440|2160)p|\b4k\b)/i.test(String(feature||'')));
+    return {...plan,features:['3 projects','720p export',...otherFeatures],maxQuality:720,unlimitedProjects:false,maxProjects:3,unlimitedExports:false};
+  });
+}
+function defaultCreditSettings(){ return { enabled:true, exportPerMinute:{480:20,720:40,1080:60,1440:80,2160:100} }; }
+function getCreditSettings(){
+  const defaults = defaultCreditSettings();
+  const saved = siteContent && siteContent.creditSettings || {};
+  return { enabled:saved.enabled !== false, exportPerMinute:{...defaults.exportPerMinute,...(saved.exportPerMinute||{})} };
+}
+function getPlanCreditGrant(plan){
+  if(!plan) return 0;
+  if(plan.creditsPerCycle != null && Number.isFinite(Number(plan.creditsPerCycle))) return Math.max(0,Math.floor(Number(plan.creditsPerCycle)));
+  if(String(plan.id)==='p_pro') return 1000;
+  if(String(plan.id)==='p_studio') return 4000;
+  return 0;
+}
+function getExportCreditRate(quality){ const settings=getCreditSettings(); return Math.max(0,Math.floor(Number(settings.exportPerMinute[String(quality)] ?? settings.exportPerMinute[quality])||0)); }
+function calculateExportCreditCost(quality,durationSeconds){
+  const settings=getCreditSettings();
+  if(!settings.enabled) return 0;
+  const seconds=Math.max(0,Number(durationSeconds)||0);
+  const rate=getExportCreditRate(quality);
+  if(seconds<=0 || rate<=0) return 0;
+  return Math.max(1,Math.ceil(seconds*rate/60));
+}
+function getPromoPopups(){ return siteContent.promoPopups || defaultPromoPopups(); }
+// FEATURE (admin-authored Custom Animations, published from the admin panel's new
+// "Custom animations" page): merges every admin-published preset into the live animPresets
+// object so they show up in the Animate picker exactly like idle/walk/wave/jump do, for
+// every user. Only ever ADDS/overwrites admin-authored keys (each one prefixed 'custom_' by
+// the admin panel when it creates them, so a custom preset can never collide with or
+// shadow a built-in key)  -  never deletes from animPresets, so removing a custom preset in
+// the admin panel just means its key stops being re-applied on the next sync; a project
+// that already has a clip using a deleted custom preset keeps working until the user picks
+// something else (same "orphaned animKey" tolerance evalPreset/animPresets[clip.animKey]
+// already has to handle anyway if a key is ever missing).
+function applyCustomAnimPresets(){
+  // Shape published by the admin panel's Custom Animations page: a flat array of
+  // { id, key, name, duration, keyframes }, one per preset  -  key is always 'custom_'-prefixed
+  // (see the admin panel's slugifyAnimName) and keyframes are already in radians (the admin
+  // panel converts from the degrees an admin types in before publishing).
+  const list = siteContent.customAnimPresets;
+  if(!Array.isArray(list)) return;
+  list.forEach(entry=>{
+    if(!entry || !entry.key || !entry.name) return;
+    if(!String(entry.key).startsWith('custom_')) return; // defensive: admin panel always sets this prefix
+    if(!Array.isArray(entry.keyframes) || !entry.keyframes.length) return; // malformed  -  skip, don't crash the picker
+    animPresets[entry.key] = { name:String(entry.name), duration: Number(entry.duration)>0 ? Number(entry.duration) : 1, keyframes: entry.keyframes };
+  });
+}
+function defaultContactInfo(){ return { email:'support@ethvelle.com', whatsapp:'' }; }
+function getContactInfo(){ return Object.assign({}, defaultContactInfo(), siteContent.contactInfo || {}); }
+// MIGRATION: the built-in Character/Keyframe tiles used to open the ratio picker
+// (actionType:'ratio') like Video does. They now have real destinations of their own (the
+// Models tab / the new Keyframe info screen  -  see defaultTiles). A site that saved tiles to
+// Firestore BEFORE this change (any edit to any tile re-saves the whole array  -  see saveTile
+// in the admin panel) would otherwise keep reopening the ratio picker forever, since
+// Firestore's stored copy wins over defaultTiles(). Patched here, once per read, rather than
+// in Firestore directly, so it self-heals on every device without a manual admin re-save.
+function migrateLegacyTiles(tiles){
+  if(!Array.isArray(tiles)) return tiles;
+  return tiles.map(t=>{
+    if(!t || !t.builtin || t.actionType !== 'ratio') return t;
+    if(t.id === 't_default_1') return { ...t, actionType:'screen', actionValue:'models' };
+    if(t.id === 't_default_4') return { ...t, actionType:'screen', actionValue:'keyframeInfo' };
+    return t;
+  });
+}
+function getTiles(){ return migrateLegacyTiles(siteContent.tiles) || defaultTiles(); }
+function getTutorials(){ return siteContent.tutorials || defaultTutorials(); }
+
+// Resolves a banner/animation/tile tap: either navigate in-app, open the new-project ratio
+// picker (the "create" tiles' original behavior), or open an external link.
+function runAdminAction(actionType, actionValue){
+  if(actionType === 'link' && actionValue){
+    window.open(actionValue, '_blank', 'noopener');
+  } else if(actionType === 'ratio'){
+    openRatioModal();
+  } else if(actionValue){
+    goTo(actionValue);
+  }
+}
+
+/* ================= PROMO POPUP =================
+   Shows at most one promo popup per app session (not per visit to Home  -  once dismissed or
+   acted on, it won't reappear until the page is fully reloaded), picked from whichever active
+   popups exist, after its own configured delay. If several are active, the one with the
+   shortest delay fires first; the rest are skipped for this session rather than queued, so the
+   person is never hit with a second popup right after closing the first.
+   window.activePromoDiscount is read by computePlanDiscount() (Payment screen) once a
+   "Give a discount" popup is tapped  -  { planId, type, value, label } or null. */
+window.activePromoDiscount = null;
+const ETHVELLE_PROMO_ATTRIBUTION_KEY = 'ethvelle.promoAttribution.v1';
+function setPromoAttribution(pp){
+  if(!pp || !pp.id) return;
+  try{ sessionStorage.setItem(ETHVELLE_PROMO_ATTRIBUTION_KEY, JSON.stringify({popupId:String(pp.id), clickedAt:Date.now()})); }catch(e){}
+}
+function getPromoAttribution(){
+  try{
+    const raw=sessionStorage.getItem(ETHVELLE_PROMO_ATTRIBUTION_KEY);
+    if(!raw) return null;
+    const data=JSON.parse(raw);
+    if(!data || !data.popupId) return null;
+    // Attribution is tab/session scoped and expires after four hours to avoid stale cross-journey credit.
+    if(data.clickedAt && Date.now()-Number(data.clickedAt)>4*60*60*1000){ sessionStorage.removeItem(ETHVELLE_PROMO_ATTRIBUTION_KEY); return null; }
+    return {popupId:String(data.popupId)};
+  }catch(e){ return null; }
+}
+function clearPromoAttribution(){ try{ sessionStorage.removeItem(ETHVELLE_PROMO_ATTRIBUTION_KEY); }catch(e){} }
+function withPromoAttribution(details){
+  const base=details && typeof details==='object' ? details : {};
+  const attribution=getPromoAttribution();
+  return attribution ? {...base, popupId:attribution.popupId, source:'promo_popup'} : base;
+}
+function trackPromoAttributedEvent(kind, details){
+  const attribution=getPromoAttribution();
+  if(!attribution) return;
+  trackEvent(kind, {...(details && typeof details==='object' ? details : {}), popupId:attribution.popupId, source:'promo_popup'});
+}
+let promoPopupShownThisSession = false;
+let promoPopupTimer = null;
+let promoPopupCurrent = null;
+// When Firestore is available, do not schedule a popup from the stale local cache. Wait for
+// the first server-confirmed snapshot, then schedule from the newest published data. This
+// prevents the old popup/offer appearing on the first visit after an admin update.
+let promoPopupContentServerConfirmed = !(firebaseReady && fbDb);
+function promoPopupVisibleOnScreen(pp,screenName){
+  const targets=Array.isArray(pp&&pp.showOn)?pp.showOn:(typeof (pp&&pp.showOn)==='string'?[pp.showOn]:['home']);
+  return targets.includes('all') || targets.includes(screenName);
+}
+// Audience scope is independent from the action/discount target. Legacy popups that predate
+// audiencePlans remain visible to everyone; newly configured popups can target guests, Free
+// users, or one/more paid plan IDs.
+function promoPopupVisibleToCurrentUser(pp){
+  const targets = Array.isArray(pp && pp.audiencePlans) ? pp.audiencePlans : ['__all__'];
+  if(targets.includes('__all__')) return true;
+  if(!currentUser) return targets.includes('guest');
+  const plans = getPlans();
+  const activePlan = plans.find(p=>p.id===myActivePlanId) || plans.find(p=>Number(p.price)===0);
+  if(!activePlan || Number(activePlan.price)<=0) return targets.includes('free');
+  return targets.includes(activePlan.id);
+}
+function wirePromoPopups(forceReschedule=false, screenOverride=null){
+  if(promoPopupShownThisSession || !promoPopupContentServerConfirmed) return;
+  if(promoPopupTimer){
+    if(!forceReschedule) return;
+    clearTimeout(promoPopupTimer); promoPopupTimer=null;
+  }
+  const screenName=screenOverride || activeScreenId() || 'home';
+  const eligible=getPromoPopups().filter(pp=>pp&&pp.active!==false&&safeImageUrl(pp.image)&&promoPopupVisibleOnScreen(pp,screenName)&&promoPopupVisibleToCurrentUser(pp));
+  if(!eligible.length)return;
+  const soonest=eligible.slice().sort((a,b)=>(Number(a.delaySeconds)||0)-(Number(b.delaySeconds)||0))[0];
+  promoPopupTimer=setTimeout(()=>{
+    promoPopupTimer=null;
+    if(promoPopupShownThisSession)return;
+    const currentScreen=activeScreenId();
+    const latest=getPromoPopups().filter(pp=>pp&&pp.active!==false&&safeImageUrl(pp.image)&&promoPopupVisibleOnScreen(pp,currentScreen)&&promoPopupVisibleToCurrentUser(pp))
+      .slice().sort((a,b)=>(Number(a.delaySeconds)||0)-(Number(b.delaySeconds)||0))[0];
+    if(latest) showPromoPopup(latest);
+    else wirePromoPopups(true,currentScreen); // audience/screen may have changed while the delay was running
+  },Math.max(0,Number(soonest.delaySeconds)||0)*1000);
+}
+function showPromoPopup(pp){
+  promoPopupCurrent = pp;
+  promoPopupShownThisSession = true;
+  trackEvent('promo_popup_shown', { popupId:pp && pp.id, screen:trackingActiveScreen() });
+  document.getElementById('promoPopupImg').src = safeImageUrl(pp.image);
+  document.getElementById('promoPopupBackdrop').classList.add('active');
+}
+function closePromoPopup(){
+  document.getElementById('promoPopupBackdrop').classList.remove('active');
+}
+function handlePromoPopupTap(){
+  const pp = promoPopupCurrent;
+  closePromoPopup();
+  if(!pp) return;
+  setPromoAttribution(pp);
+  trackEvent('promo_popup_click', { popupId:pp.id, screen:trackingActiveScreen(), source:'promo_popup' });
+  if(pp.actionType === 'discount' && pp.discountPlanId){
+    // A promo can target one paid plan or every paid plan (__all_paid__). The promo is
+    // intentionally kept for the rest of this page session so the prices stay consistent
+    // while the user browses the Payment screen and proceeds to checkout.
+    // Older saved popups predate discountScope; treat them as all-plan promos so a
+    // previously configured home popup no longer discounts only its legacy target plan.
+    const applyToAll = pp.discountPlanId === '__all_paid__' || pp.discountScope !== 'specific';
+    const selectionPlanId = pp.discountPlanId !== '__all_paid__' ? pp.discountPlanId : '';
+    window.activePromoDiscount = {
+      planId: applyToAll ? '__all_paid__' : pp.discountPlanId,
+      applyToAll,
+      type: pp.discountType || 'percent',
+      value: Number(pp.discountValue) || 0,
+      label: 'Promo discount'
+    };
+    _plansSig = null;
+    goTo('payment');
+    // Navigation alone does not redraw the plans; rebuild them now so the promo prices are
+    // visible immediately instead of waiting for an unrelated Firestore snapshot.
+    renderPaymentPlans();
+    if(selectionPlanId){
+      const card = document.querySelector('#screen-payment .plan-card[data-plan="'+selectionPlanId+'"]');
+      if(card) selectPlan(card);
+    }
+  } else {
+    runAdminAction(pp.actionType, pp.actionValue);
+  }
+}
+
+/* ---------------- SAFE HELPERS ---------------- */
+// Only ever put http(s) URLs or inline image data URLs into an <img src>.
+function safeImageUrl(u){
+  return (typeof u === 'string' && /^(https?:\/\/|data:image\/)/i.test(u)) ? u : '';
+}
+// Re-rendering replaces the whole strip, which snaps the swipe position back to slide 1 and
+// makes every picture flash. Firestore snapshots fire more often than the content actually
+// changes, so each renderer remembers what it last drew and skips identical data.
+let _bannerSig = null, _animSig = null, _plansSig = null, _tutorialsSig = null;
+
+// Banner / example-card taps go through ONE delegated listener reading data-* attributes.
+// (The old inline onclick="…runAdminAction('screen', "home")" put JSON's double quotes inside a
+// double-quoted attribute, which cut the attribute short  -  so taps never fired.)
+function wireContentTaps(){
+  ['homeBannerScroll','homeVideoScroll','homeTileRow','tutorialGrid'].forEach(id=>{
+    const el = document.getElementById(id);
+    if(!el || el.dataset.tapsWired) return;
+    el.dataset.tapsWired = '1';
+    el.addEventListener('click', e=>{
+      const hit = e.target.closest('[data-atype]');
+      if(!hit || !el.contains(hit)) return;
+      runAdminAction(hit.dataset.atype, hit.dataset.avalue || '');
+    });
+  });
+}
+
+// Image load / error handling for banner <img>s. A failed load is retried once (a CDN that is
+// briefly slow shouldn't leave a blank banner) before showing the fallback panel.
+function bannerImgLoaded(img){
+  const box = img.closest('.home-banner');
+  if(box){ box.classList.remove('failed'); box.classList.add('loaded'); }
+}
+function bannerImgFailed(img){
+  const box = img.closest('.home-banner');
+  const url = img.getAttribute('src') || '';
+  if(!img.dataset.retried && /^https?:/i.test(url)){
+    img.dataset.retried = '1';
+    setTimeout(()=>{ img.src = url + (url.indexOf('?') > -1 ? '&' : '?') + 'r=' + Date.now(); }, 2500);
+    return;
+  }
+  if(box){ box.classList.remove('loaded'); box.classList.add('failed'); }
+}
+
+/* ---------------- RENDER: HOME BANNER ---------------- */
+// Homepage banners are supplied by the admin panel; this HTML contains no built-in promotional banner.
+function renderHomeBanners(){
+  const scroller = document.getElementById('homeBannerScroll');
+  const dotsWrap = document.getElementById('homeBannerDots');
+  if(!scroller || !dotsWrap) return;
+  // Render only banners published from the admin panel. Do not inject a default hero or demo slides.
+  const banners = (getBanners() || []).filter(b=>b);
+  const sig = JSON.stringify(banners);
+  if(sig === _bannerSig) return;
+  _bannerSig = sig;
+  if(!banners.length){
+    scroller.innerHTML = '';
+    dotsWrap.innerHTML = '';
+    scroller.style.display = 'none';
+    dotsWrap.style.display = 'none';
+    return;
+  }
+  scroller.style.display = 'flex';
+  dotsWrap.style.display = banners.length > 1 ? 'flex' : 'none';
+
+  scroller.innerHTML = banners.map(b=>{
+    const img = safeImageUrl(b.image);
+    const attrs = ` data-atype="${escapeHtml(b.actionType||'screen')}" data-avalue="${escapeHtml(b.actionValue||'')}"`;
+    // The admin can switch the CTA off. Missing actionEnabled remains enabled for older banners.
+    const showAction = b.actionEnabled !== false && b.showAction !== false;

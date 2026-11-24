@@ -1,0 +1,1000 @@
+    const type=String(c.modelType||(c.sheet&&c.sheet.modelType)||'humanoid'),species=type==='animal'||type==='bird';
+    const back=ensureFaceBackdrop(),oldSheet=back.querySelector('.modal-sheet'),oldScroll=oldSheet?oldSheet.scrollTop:0;
+    const title=species?'Face &amp; mouth actions':'Model parts &amp; hands';
+    const moveNote=species?`<p class="evca-species-movement-note">${type==='bird'?'Wing flaps, hops and bird movement':'Walking, running and four-legged movement'} are controlled by the matching animation presets in the Animations section.</p>`:'';
+    const wingSection=(type==='bird'&&(p.wingL_fly||p.wingR_fly))?`<section class="evpa-section evpa-wings-section"><p class="evpa-section-title">Wings</p><div class="evpa-choice-grid">${wingChoiceGrid(c,a)}</div></section>`:'';
+    const handSections=species?'':`<section class="evpa-section"><p class="evpa-section-title">Left hand</p><div class="evpa-choice-grid">${handChoiceGrid(c,a,'L')}</div></section><section class="evpa-section"><p class="evpa-section-title">Right hand</p><div class="evpa-choice-grid">${handChoiceGrid(c,a,'R')}</div></section>`;
+    back.innerHTML=`<div class="modal-sheet evca-char-actions-sheet" role="dialog" aria-modal="true" aria-label="${species?'Face and mouth actions':'Model parts and hand gestures'}">
+      <div class="sheet-handle"></div><p class="sheet-title">${title}</p>
+      <section class="evpa-section"><p class="evpa-section-title">Face expression</p><div class="evpa-choice-grid">${faceChoiceGrid(c,a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Eyes</p><div class="evpa-choice-grid">${eyeChoiceGrid(c,a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Blink mode</p><div class="evpa-choice-grid">${blinkChoiceGrid(a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Mouth</p><div class="evpa-choice-grid">${mouthChoiceGrid(c,a)}</div></section>
+      ${mouthItemSection(c)}${handSections}${wingSection}
+      <button type="button" class="evpa-close-btn" onclick="closeClipCharacterActions()">Done</button>
+    </div>`;
+    back.classList.add('active');
+    if(oldScroll)requestAnimationFrame(()=>{const sheet=back.querySelector('.modal-sheet');if(sheet)sheet.scrollTop=oldScroll;});
+  };
+  window.closeClipCharacterActions=function(){const el=$('ethvelleClipFaceActionsBackdrop');if(el)el.classList.remove('active');};
+  window.updateClipFaceAction=function(field,value){
+    const clip=currentAnimClip(),c=currentChar();if(!clip||!c)return;
+    const a=normalizeActionsV128(clip.faceActions);
+    const allowed={expression:['none','sad','angry','shock','laugh'],mouth:['preset','talk','closed','hold'],blink:['auto','ambient','off'],eyes:['auto','open','closed'],wings:['natural','fly'],leftHand:['none','point','thumb','palm','fist','hold'],rightHand:['none','point','thumb','palm','fist','hold']};
+    if(!allowed[field]||!allowed[field].includes(value))return;
+    const partsNow=charParts(c),typeNow=typeOfChar(c);
+    const birdKitNow=typeNow==='bird'&&hasBirdKit(partsNow),humKitNow=typeNow==='humanoid'&&hasHumanoidKit(partsNow);
+    const animalKit=(typeNow==='animal'&&partsNow.eye_L&&partsNow.eye_R)||humKitNow;
+    if(field==='wings'&&(typeNow!=='bird'||(value==='fly'&&!(partsNow.wingL_fly||partsNow.wingR_fly))))return;
+    if(field==='expression'&&value!=='none'&&!(birdKitNow||partsNow['head_'+value]))return;
+    if(field==='eyes'&&value==='open'&&!(birdKitNow?partsNow.bird_eye:animalKit?(partsNow.eye_L&&partsNow.eye_R):partsNow.head_open))return;
+    if(field==='eyes'&&value==='closed'&&!(birdKitNow?partsNow.bird_eye:animalKit?(partsNow.eye_closed_L&&partsNow.eye_closed_R):partsNow.head_blink))return;
+    if((field==='leftHand'||field==='rightHand')&&value!=='none'){
+      const side=field==='leftHand'?'L':'R';if(!charParts(c)['hand'+side+'_'+value])return;
+    }
+    clip.faceActions={...a,[field]:value};
+    if(field==='mouth'&&(typeNow==='animal'||humKitNow)&&c.expr)c.expr.faceKitHideMouth=value==='closed';
+    if(typeof pausePlayback==='function')pausePlayback();
+    if(typeof persistProjectState==='function')persistProjectState();
+    if(typeof renderFrame==='function')renderFrame();else if(typeof drawStick==='function')drawStick();
+    window.openClipCharacterActions();
+  };
+
+  window.openSelectedCharacterModelEditor=function(){
+    const c=currentChar();if(!c){if(typeof showToast==='function')showToast('Select a character first',{icon:toastIcons.info});return;}
+    if(c.sheet&&typeof edOpenFromChar==='function'){edOpenFromChar(activeCharIdx);return;}
+    if(c.type==='custom'&&c.parts&&typeof openCustomCharBuilder==='function'){openCustomCharBuilder(true);return;}
+    if(typeof showToast==='function')showToast('This character has no editable image parts. Add a 14-part model first.',{icon:toastIcons.info,duration:2300});
+  };
+
+  let propSide='R';
+  function ensurePropsBackdrop(){
+    let el=$('ethvelleCharacterPropsBackdrop');
+    if(!el){const host=$('screen-editor')||document.body;el=document.createElement('div');el.id='ethvelleCharacterPropsBackdrop';el.className='modal-backdrop evca-char-actions-backdrop';host.appendChild(el);el.addEventListener('click',e=>{if(e.target===el)closeCharacterPropsPanel();});}
+    return el;
+  }
+  function ensurePropState(c){if(!c.handProps||typeof c.handProps!=='object')c.handProps={L:null,R:null};if(!('L'in c.handProps))c.handProps.L=null;if(!('R'in c.handProps))c.handProps.R=null;return c.handProps;}
+  function drawPropsPanelPreview(){
+    const target=$('evpaPropStagePreview'),source=$('stickCanvas');
+    if(!target||!source||!source.width||!source.height)return;
+    const ctx=target.getContext('2d');if(!ctx)return;
+    ctx.clearRect(0,0,target.width,target.height);
+    const ratio=Math.min(target.width/source.width,target.height/source.height);
+    const w=source.width*ratio,h=source.height*ratio;
+    try{ctx.drawImage(source,(target.width-w)/2,(target.height-h)/2,w,h);}catch(_e){}
+  }
+  function refreshPropsPreview(){requestAnimationFrame(drawPropsPanelPreview);}
+  function renderPropsPanel(){
+    const c=currentChar();if(!c)return;const props=ensurePropState(c),item=props[propSide];
+    const preview=item?`<img src="${safe(item.src)}" alt="Held object preview">`:`<span class="evpa-prop-empty">No object</span>`;
+    const n=(v,d)=>Number.isFinite(Number(v))?Number(v):d;
+    const scale=n(item&&item.scale,1),rotation=n(item&&item.rotation,0),x=n(item&&item.offsetX,0),y=n(item&&item.offsetY,0);
+    const back=ensurePropsBackdrop();
+    back.innerHTML=`<div class="modal-sheet evpa-props-sheet" role="dialog" aria-modal="true" aria-label="Held items">
+      <div class="sheet-handle"></div><p class="sheet-title">Held items</p>
+      <div class="evpa-action-side"><button type="button" class="${propSide==='L'?'active':''}" onclick="setCharacterPropSide('L')">Left hand</button><button type="button" class="${propSide==='R'?'active':''}" onclick="setCharacterPropSide('R')">Right hand</button></div>
+      <div class="evpa-prop-preview" id="evpaPropPreview">${preview}</div>
+      <input id="evpaPropFile" type="file" accept="image/png,image/webp,image/jpeg,image/*" hidden onchange="setCharacterHeldPropFile(this)">
+      <button type="button" class="evpa-prop-upload" onclick="document.getElementById('evpaPropFile').click()">＋ ${item?'Replace object':'Add object image'}</button>
+      <div class="evpa-prop-stage-wrap"><div class="evpa-prop-stage-title">On-character preview</div><canvas id="evpaPropStagePreview" width="270" height="480" aria-label="Character with held object preview"></canvas></div>
+      <div class="evpa-prop-controls" ${item?'':'style="opacity:.45;pointer-events:none"'}>
+        <div class="evpa-prop-field"><label>Size <output id="evpaPropScaleVal">${Math.round(scale*100)}%</output></label><input type="range" min="20" max="250" step="1" value="${Math.round(scale*100)}" oninput="setCharacterHeldPropValue('scale',Number(this.value)/100)"></div>
+        <div class="evpa-prop-field"><label>Rotate <output id="evpaPropRotationVal">${Math.round(rotation)}°</output></label><input type="range" min="-180" max="180" step="1" value="${Math.round(rotation)}" oninput="setCharacterHeldPropValue('rotation',Number(this.value))"></div>
+        <div class="evpa-prop-field"><label>Move X <output id="evpaPropXVal">${Math.round(x)}</output></label><input type="range" id="evpaPropXInput" min="-100" max="100" step="1" value="${Math.round(x)}" oninput="setCharacterHeldPropValue('offsetX',Number(this.value))"></div>
+        <div class="evpa-prop-field"><label>Move Y <output id="evpaPropYVal">${Math.round(y)}</output></label><input type="range" id="evpaPropYInput" min="-100" max="100" step="1" value="${Math.round(y)}" oninput="setCharacterHeldPropValue('offsetY',Number(this.value))"></div>
+      </div>
+      <div class="evpa-prop-toggle-row" ${item?'':'style="opacity:.45;pointer-events:none"'}><button type="button" class="${item&&item.flipX?'active':''}" onclick="toggleCharacterHeldProp('flipX')">Flip horizontal</button><button type="button" class="${item&&item.flipY?'active':''}" onclick="toggleCharacterHeldProp('flipY')">Flip vertical</button></div>
+      ${item?'<button type="button" class="evpa-prop-remove" onclick="removeCharacterHeldProp()">Remove object</button>':''}
+      <button type="button" class="evpa-close-btn" onclick="closeCharacterPropsPanel()">Done</button>
+    </div>`;
+    back.classList.add('active');
+    refreshPropsPreview();
+  }
+  window.openCharacterPropsPanel=function(){
+    const c=currentChar();if(!c){if(typeof showToast==='function')showToast('Select a character first',{icon:toastIcons.info});return;}
+    ensurePropState(c);propSide='R';renderPropsPanel();
+  };
+  window.closeCharacterPropsPanel=function(){const el=$('ethvelleCharacterPropsBackdrop');if(el)el.classList.remove('active');};
+  window.setCharacterPropSide=function(side){if(!['L','R'].includes(side))return;propSide=side;renderPropsPanel();};
+  window.setCharacterHeldPropValue=function(field,value){
+    const c=currentChar(),item=c&&ensurePropState(c)[propSide];if(!item)return;
+    if(!['scale','rotation','offsetX','offsetY'].includes(field)||!Number.isFinite(Number(value)))return;
+    item[field]=Number(value);
+    const output={scale:'evpaPropScaleVal',rotation:'evpaPropRotationVal',offsetX:'evpaPropXVal',offsetY:'evpaPropYVal'}[field];
+    const label=$(output);if(label)label.textContent=field==='scale'?Math.round(item.scale*100)+'%':(field==='rotation'?Math.round(item.rotation)+'°':Math.round(item[field]));
+    if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();refreshPropsPreview();
+  };
+  window.toggleCharacterHeldProp=function(field){
+    if(!['flipX','flipY'].includes(field))return;const c=currentChar(),item=c&&ensurePropState(c)[propSide];if(!item)return;
+    item[field]=!item[field];if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();renderPropsPanel();
+  };
+  window.removeCharacterHeldProp=function(){const c=currentChar();if(!c)return;ensurePropState(c)[propSide]=null;if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();renderPropsPanel();};
+  window.setCharacterHeldPropFile=function(input){
+    const file=input.files&&input.files[0];input.value='';if(!file)return;
+    const c=currentChar();if(!c)return;
+    const reader=new FileReader();reader.onerror=()=>{if(typeof showToast==='function')showToast('Could not read the object image',{icon:toastIcons.info});};
+    reader.onload=()=>{
+      const source=String(reader.result||'');const img=new Image();
+      img.onerror=()=>{if(typeof showToast==='function')showToast('Could not decode the object image',{icon:toastIcons.info});};
+      img.onload=()=>{
+        const max=640,ratio=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight));
+        const w=Math.max(1,Math.round(img.naturalWidth*ratio)),h=Math.max(1,Math.round(img.naturalHeight*ratio));
+        const canvas=document.createElement('canvas');canvas.width=w;canvas.height=h;
+        const cx=canvas.getContext('2d');if(!cx){if(typeof showToast==='function')showToast('Object image could not be prepared',{icon:toastIcons.info});return;}
+        cx.clearRect(0,0,w,h);cx.drawImage(img,0,0,w,h);
+        const data=canvas.toDataURL('image/png');
+        ensurePropState(c)[propSide]={src:data,name:file.name||'Object',scale:1,rotation:0,offsetX:0,offsetY:0,flipX:false,flipY:false};
+        const clip=currentAnimClip(),parts=charParts(c),field=propSide==='L'?'leftHand':'rightHand';
+        if(clip&&parts['hand'+propSide+'_hold']){const a=normalizeActionsV128(clip.faceActions);clip.faceActions={...a,[field]:'hold'};}
+        if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();renderPropsPanel();
+        if(typeof showToast==='function')showToast('Object attached to '+(propSide==='L'?'left':'right')+' hand',{icon:toastIcons.check,duration:1400});
+      };
+      img.src=source;
+    };
+    reader.readAsDataURL(file);
+  };
+
+  // Draw an uploaded object over its hand in the same local bone-space transform as the character.
+  // Because drawCharacterToContext calls this hook, the object is visible both on the editor stage and export frames.
+  window.ethvelleDrawCharacterProps=function(targetCtx,char,boneStart,boneEnd){
+    const props=char&&char.handProps;if(!props)return;
+    const cache=window.__ethvelleHeldPropImageCache||(window.__ethvelleHeldPropImageCache=new Map());
+    ['L','R'].forEach(side=>{
+      const item=props[side];if(!item||!item.src)return;
+      const key='hand'+side;let img=cache.get(item.src);
+      if(!img){img=new Image();img.onload=()=>{if(typeof drawStick==='function')drawStick();};img.onerror=()=>{};cache.set(item.src,img);img.src=item.src;}
+      if(!img.complete||!img.naturalWidth)return;
+      let start,end;try{start=boneStart(key);end=boneEnd(key);}catch(_e){return;}
+      if(!start||!end||![start.x,start.y,end.x,end.y].every(Number.isFinite))return;
+      const dx=end.x-start.x,dy=end.y-start.y,angle=Math.atan2(dy,dx)-Math.PI/2+(Number(item.rotation)||0)*Math.PI/180;
+      const handX=start.x+dx*.52,handY=start.y+dy*.52;
+      const bodyKeys=['spine_lower','spine_upper','chest','neck','thighL','shinL','thighR','shinR'];
+      const bodyLen=bodyKeys.reduce((sum,k)=>sum+Math.max(0,Number(char.bones&&char.bones[k]&&char.bones[k].length)||0),0)||Number(stageH)||420;
+      const h=Math.max(24,Math.min(190,bodyLen*.235*Math.max(.2,Math.min(2.5,Number(item.scale)||1))));
+      const aspect=img.naturalWidth/Math.max(1,img.naturalHeight),w=Math.max(16,Math.min(190,h*aspect));
+      targetCtx.save();targetCtx.translate(handX,handY);targetCtx.rotate(angle);
+      targetCtx.translate(Number(item.offsetX)||0,Number(item.offsetY)||0);
+      targetCtx.scale(item.flipX?-1:1,item.flipY?-1:1);
+      targetCtx.drawImage(img,-w*.5,-h*.55,w,h);
+      targetCtx.restore();
+    });
+  };
+
+  // Force the latest contextual toolbar state after every existing synchronizer (many versions wrap it).
+  const priorSync=window.syncBottomToolsMode;
+  if(typeof priorSync==='function'&&!priorSync.__ethvelleV128ModelProps){
+    const wrapped=function(){const r=priorSync.apply(this,arguments);const isStick=!!currentAnimClip();
+      const face=$('clipCharacterActionsTool'),model=$('clipModelPartsTool'),held=$('clipHeldItemsTool');
+      if(face)face.style.display=isStick?'flex':'none';if(model)model.style.display=isStick?'flex':'none';if(held)held.style.display=isStick?'flex':'none';return r;};
+    wrapped.__ethvelleV128ModelProps=true;window.syncBottomToolsMode=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',()=>{if(window.syncBottomToolsMode)window.syncBottomToolsMode();},{once:true});
+  else if(window.syncBottomToolsMode)window.syncBottomToolsMode();
+})();
+</script>
+
+<style id="ethvelle-v129-canvas-eyedropper-css">
+  #ethvellePicsartTextDock .evpa-eye{display:none!important;}
+  .ev-eyedrop-button{
+    appearance:none!important;-webkit-appearance:none!important;
+    display:inline-flex!important;align-items:center!important;justify-content:center!important;
+    flex:0 0 44px!important;width:44px!important;min-width:44px!important;
+    height:44px!important;min-height:44px!important;max-height:44px!important;
+    margin:0!important;padding:0!important;border:0!important;border-radius:0!important;
+    background:transparent!important;color:#FFFFFF!important;box-shadow:none!important;
+    cursor:pointer!important;touch-action:manipulation!important;position:relative!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .ev-eyedrop-button svg{width:24px!important;height:24px!important;display:block!important;fill:none!important;
+    stroke:#FFFFFF!important;stroke-width:1.9!important;stroke-linecap:round!important;stroke-linejoin:round!important;}
+  #ethvellePicsartTextDock #evpaPalette .ev-eyedrop-button{appearance:none!important;-webkit-appearance:none!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;flex:0 0 44px!important;width:44px!important;min-width:44px!important;height:44px!important;min-height:44px!important;max-height:44px!important;margin:0!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:#FFFFFF!important;box-shadow:none!important;position:relative!important;}
+  .ev-eyedrop-button[aria-pressed="true"]{color:#FFFFFF!important;opacity:1!important;}
+  #evltChromaPalette .ev-eyedrop-button{
+    flex:0 0 31px!important;width:31px!important;min-width:31px!important;height:31px!important;min-height:31px!important;max-height:31px!important;
+    border:1px solid #D7DAE2!important;border-radius:50%!important;background:#E7E9EF!important;color:#292D38!important;
+    box-shadow:none!important;padding:0!important;
+  }
+  #evltChromaPalette .ev-eyedrop-button svg{width:17px!important;height:17px!important;stroke:#292D38!important;stroke-width:2!important;}
+  #evltChromaPalette .ev-eyedrop-button[aria-pressed="true"]{background:#FFFFFF!important;color:#20232C!important;}
+  #evltChromaPalette .evlt-chroma-custom{
+    position:relative!important;overflow:hidden!important;width:31px!important;height:31px!important;min-width:31px!important;min-height:31px!important;
+    flex:0 0 31px!important;background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;
+    border:0!important;border-radius:50%!important;box-shadow:0 0 0 1px rgba(255,255,255,.45)!important;
+  }
+  #ethvelleChromaColorPicker.evlt-chroma-picker-overlay{
+    position:fixed!important;left:0!important;right:0!important;top:0!important;bottom:auto!important;
+    width:100%!important;height:var(--evcp-vh,100dvh)!important;display:none!important;z-index:2147483002!important;
+    align-items:flex-end!important;justify-content:center!important;background:transparent!important;
+    padding:0!important;pointer-events:auto!important;overflow:hidden!important;
+  }
+  #ethvelleChromaColorPicker.evlt-chroma-picker-overlay.active{display:flex!important;}
+  #ethvelleChromaColorPicker.evlt-chroma-picker-overlay .evcp-sheet{
+    position:relative!important;inset:auto!important;width:100%!important;max-width:540px!important;height:auto!important;max-height:min(74dvh,620px)!important;
+    margin:0 auto!important;overflow-y:auto!important;border-radius:24px 24px 0 0!important;border:1px solid rgba(125,139,255,.3)!important;border-bottom:0!important;
+    padding:10px 18px calc(18px + env(safe-area-inset-bottom,0px))!important;
+    box-shadow:0 -16px 46px rgba(0,0,0,.42)!important;background:linear-gradient(160deg,#202231,#13151E)!important;
+    animation:evltChromaSheetIn .22s cubic-bezier(.2,.8,.2,1) both;
+  }
+  #ethvelleChromaColorPicker.evlt-chroma-picker-overlay .evcp-grabber{display:block!important;}
+  #ethvelleChromaColorPicker.evlt-chroma-picker-overlay .evcp-wheel{background:radial-gradient(circle at center,#fff 0%,rgba(255,255,255,0) 74%),conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;}
+  @keyframes evltChromaSheetIn{from{transform:translateY(24px);opacity:.8}to{transform:translateY(0);opacity:1}}
+  #evEyedropLoupe{
+    --ev-eyedrop-color:#777777;
+    position:fixed;left:0;top:0;width:clamp(144px,44vw,176px);height:clamp(144px,44vw,176px);
+    box-sizing:border-box;border:2px solid #FFFFFF;border-radius:50%;
+    background:transparent!important;outline:1px solid rgba(0,0,0,.25);
+    pointer-events:none!important;z-index:2147483000;display:none;
+    transform:translate(-50%,-50%);overflow:visible;
+  }
+  #evEyedropLoupe::before{
+    content:"";position:absolute;inset:0;box-sizing:border-box;border-radius:50%;
+    border:14px solid var(--ev-eyedrop-color);pointer-events:none;
+  }
+  #evEyedropLoupe::after{
+    content:"";position:absolute;inset:14px;box-sizing:border-box;border-radius:50%;
+    border:2px solid #FFFFFF;pointer-events:none;
+  }
+  #evEyedropLoupe .ev-eyedrop-crosshair{position:absolute;left:50%;top:50%;width:24px;height:24px;
+    transform:translate(-50%,-50%);pointer-events:none;}
+  #evEyedropLoupe .ev-eyedrop-crosshair::before,
+  #evEyedropLoupe .ev-eyedrop-crosshair::after{content:"";position:absolute;left:50%;top:50%;
+    background:rgba(0,0,0,.5);transform:translate(-50%,-50%);}
+  #evEyedropLoupe .ev-eyedrop-crosshair::before{width:1.5px;height:24px;}
+  #evEyedropLoupe .ev-eyedrop-crosshair::after{width:24px;height:1.5px;}
+  html.ev-eyedrop-active,html.ev-eyedrop-active body,html.ev-eyedrop-active #canvasStage{
+    touch-action:none!important;overscroll-behavior:none!important;user-select:none!important;-webkit-user-select:none!important;
+  }
+  html.ev-eyedrop-active #selBoxLayer,
+  html.ev-eyedrop-active #selBoxLayer *,
+  html.ev-eyedrop-active .layer-badge,
+  html.ev-eyedrop-active #bgLayerBadge,
+  html.ev-eyedrop-active .sb-btn{visibility:hidden!important;pointer-events:none!important;}
+  html.ev-eyedrop-active #panelBackdrop{pointer-events:none!important;}
+</style>
+<script id="ethvelle-v129-canvas-eyedropper-js">
+(function(){
+  'use strict';
+  const EYEDROP_TOUCH_OFFSET_Y=0;
+  const STORE_KEY='ethvelleCustomTextColors';
+  const VALID_KEYS=new Set(['textColor','strokeColor','shadowColor','textBackgroundColor']);
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,v));
+  let session=null, dockObserver=null, chromaObserver=null, bodyObserver=null, uiRaf=0;
+  let observedDock=null, observedChroma=null, swallowClickUntil=0, swallowClickPoint=null, historyArmed=false, ignoreNextPop=false;
+  let loupe=null;
+
+  function toast(message){try{if(typeof window.showToast==='function')window.showToast(message);}catch(_e){}}
+  function normalizedHex(value){return /^#[0-9a-f]{6}$/i.test(String(value||''))?String(value).toUpperCase():null;}
+  function readSavedColors(){
+    try{
+      const raw=JSON.parse(localStorage.getItem(STORE_KEY)||'[]');if(!Array.isArray(raw))return [];
+      const seen=new Set(),out=[];
+      raw.forEach(v=>{const h=normalizedHex(v);if(h&&!seen.has(h)){seen.add(h);out.push(h);}});
+      return out.slice(0,30);
+    }catch(_e){return [];}
+  }
+  function saveColor(hex){
+    try{
+      const next=[...readSavedColors().filter(c=>c!==hex),hex].slice(-30);
+      localStorage.setItem(STORE_KEY,JSON.stringify(next));
+      return next;
+    }catch(_e){return readSavedColors();}
+  }
+  function eyeMarkup(){
+    return '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>';
+  }
+  function makeEye(mode){
+    const b=document.createElement('button');b.type='button';
+    b.className='ev-eyedrop-button ev-eyedrop-'+mode;b.dataset.evEyedropButton=mode;
+    b.setAttribute('aria-label','Pick color from canvas');b.setAttribute('aria-pressed','false');b.title='Pick color from canvas';
+    b.innerHTML=eyeMarkup();return b;
+  }
+  function makeTextSwatch(hex){
+    const b=document.createElement('button');b.type='button';b.className='evpa-swatch';b.dataset.color=hex;
+    b.style.backgroundColor=hex;b.title=hex;b.setAttribute('aria-label','Text colour '+hex);return b;
+  }
+  function ensureTextPalette(){
+    const dock=$('ethvellePicsartTextDock'),palette=$('evpaPalette');
+    if(!dock||!palette)return;
+    if(dock.classList.contains('evpa-in-composer')||$('ethvelleTextComposer')?.classList.contains('active')){
+      dock.querySelectorAll('.ev-eyedrop-text').forEach(b=>b.remove());return;
+    }
+    const wheels=[...palette.querySelectorAll('.evpa-color-wheel')];
+    if(!wheels.length)return;
+    dock.querySelectorAll('.evpa-eye').forEach(el=>el.remove());
+    const saved=readSavedColors();
+    const known=new Set([...palette.querySelectorAll('.evpa-swatch[data-color]')].map(b=>normalizedHex(b.dataset.color)).filter(Boolean));
+    wheels.forEach(wheel=>{
+      const parent=wheel.parentElement;if(!parent)return;
+      let eye=parent.querySelector(':scope > .ev-eyedrop-text');
+      if(!eye){eye=makeEye('text');parent.insertBefore(eye,wheel);}else if(eye.nextElementSibling!==wheel){parent.insertBefore(eye,wheel);}
+    });
+    // v219-fix: a saved (picked) colour that is missing from the row is inserted directly after Transparent
+    // (newest first), in the same container as Transparent, instead of at the far end of the row.
+    const clear=palette.querySelector('.evpa-transparent');
+    if(clear&&clear.parentElement){
+      let anchor=clear;
+      [...saved].reverse().forEach(color=>{
+        if(known.has(color))return;
+        const sw=makeTextSwatch(color);anchor.after(sw);anchor=sw;known.add(color);
+      });
+    }
+    if(typeof window.ethvelleRefreshDockSwatches==='function'){
+      try{window.ethvelleRefreshDockSwatches();}catch(_e){}
+    }
+  }
+  function ensureChromaPalette(){
+    const host=$('evltChromaPalette');if(!host)return;
+    const custom=host.querySelector('.evlt-chroma-custom');if(!custom)return;
+    let eye=host.querySelector(':scope > .ev-eyedrop-chroma');if(!eye)eye=makeEye('chroma');
+    const swatches=[...host.querySelectorAll('.evlt-chroma-swatch')];
+    const saved=readSavedColors(),savedNodes=[];
+    saved.forEach(color=>{
+      let matches=swatches.filter(b=>normalizedHex(b.dataset.color)===color);
+      if(matches[0])savedNodes.push(matches[0]);
+    });
+    const reserved=new Set([eye,custom,...savedNodes]);
+    const rest=[...host.children].filter(el=>!reserved.has(el));
+    const desired=[eye,custom,...savedNodes,...rest];
+    desired.forEach((el,index)=>{const at=host.children[index]||null;if(at!==el)host.insertBefore(el,at);});
+  }
+  window.__ev226EnsureChromaPalette=ensureChromaPalette;
+  function ensureUI(){
+    ensureTextPalette();ensureChromaPalette();
+    if(session){
+      const button=session.mode==='text'?document.querySelector('#ethvellePicsartTextDock .ev-eyedrop-text'):document.querySelector('#evltChromaPalette .ev-eyedrop-chroma');
+      if(button)button.setAttribute('aria-pressed','true');
+    }
+  }
+  function queueUI(){if(uiRaf)return;uiRaf=requestAnimationFrame(()=>{uiRaf=0;ensureUI();checkSessionContext();});}
+  function attachObservers(){
+    const dock=$('ethvellePicsartTextDock');
+    if(dock&&dock!==observedDock){if(dockObserver)dockObserver.disconnect();observedDock=dock;dockObserver=new MutationObserver(queueUI);dockObserver.observe(dock,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}
+    const chroma=$('chromaPanelBody');
+    if(chroma&&chroma!==observedChroma){if(chromaObserver)chromaObserver.disconnect();observedChroma=chroma;chromaObserver=new MutationObserver(queueUI);chromaObserver.observe(chroma,{childList:true,subtree:true,attributes:true,attributeFilter:['class','style']});}
+    queueUI();
+  }
+  function ensureLoupe(){
+    if(loupe&&loupe.isConnected)return loupe;
+    loupe=$('evEyedropLoupe');
+    if(!loupe){loupe=document.createElement('div');loupe.id='evEyedropLoupe';loupe.innerHTML='<span class="ev-eyedrop-crosshair" aria-hidden="true"></span>';document.body.appendChild(loupe);}
+    return loupe;
+  }
+  function isVisible(el){
+    if(!el||!el.isConnected)return false;
+    const r=el.getBoundingClientRect(),cs=getComputedStyle(el);
+    return cs.display!=='none'&&cs.visibility!=='hidden'&&r.width>0&&r.height>0;
+  }
+  function visibleCanvasRect(mode){
+    const stage=$('canvasStage');if(!stage||!isVisible(stage))return null;
+    const r=stage.getBoundingClientRect();let bottom=r.bottom;
+    const panel=mode==='text' ? $('ethvellePicsartTextDock') : $('chromaPanelBody');
+    if(isVisible(panel)){
+      const p=panel.getBoundingClientRect();
+      if(p.top<bottom&&p.bottom>r.top&&p.left<r.right&&p.right>r.left)bottom=Math.min(bottom,p.top);
+    }
+    const out={left:r.left,top:r.top,right:r.right,bottom,width:r.width,height:Math.max(0,bottom-r.top)};
+    return out.width>0&&out.height>0?out:null;
+  }
+  function insideRect(x,y,r){return !!r&&x>=r.left&&x<=r.right&&y>=r.top&&y<=r.bottom;}
+  function isCanvasPointerTarget(target){
+    const stage=$('canvasStage');if(!stage||!target||!(target===stage||stage.contains(target)))return false;
+    return !(target.closest&&target.closest('button,input,select,textarea,[role="button"],.evca-inline-zoom-hud,.evca-zoom-control-bar'));
+  }
+  function activeTab(){return $('evpaTabs')?.querySelector('.evpa-tab.active')?.dataset.tab||'';}
+  function textColorKey(){
+    let key='';try{key=typeof window.ethvellePicsartGetColorTarget==='function'?window.ethvellePicsartGetColorTarget():'';}catch(_e){}
+    if(VALID_KEYS.has(key))return key;
+    const tab=activeTab();return tab==='stroke'?'strokeColor':tab==='shadow'?'shadowColor':(tab==='highlight'||tab==='background')?'textBackgroundColor':'textColor';
+  }
+  function parseRgb(css){
+    const m=String(css||'').match(/rgba?\(\s*([\d.]+)[,\s]+([\d.]+)[,\s]+([\d.]+)(?:\s*[,/]\s*([\d.]+%?))?\s*\)/i);
+    if(!m)return [255,255,255,1];
+    const alpha=m[4]?(m[4].endsWith('%')?Number(m[4].slice(0,-1))/100:Number(m[4])):1;
+    return [Number(m[1]),Number(m[2]),Number(m[3])].map(v=>clamp(v,0,255)).concat(clamp(alpha,0,1));
+  }
+  function makeSnapshot(mode,clip){
+    if(typeof window.ethvelleFrameCanvas!=='function')throw new Error('Frame compositor is unavailable');
+    if(mode==='chroma'){
+      if(!clip)throw new Error('Select a video clip first');
+      if(!clip.chromaKey)clip.chromaKey={enabled:false,color:'#00FF00',tolerance:75,softness:24};
+    }
+    // Chroma mode samples the un-keyed picture, so keying is switched off only while the frame is captured.
+    const capture=opts=>{
+      if(mode!=='chroma')return window.ethvelleFrameCanvas(opts);
+      const previous=clip.chromaKey.enabled;
+      try{clip.chromaKey.enabled=false;return window.ethvelleFrameCanvas(opts);}
+      finally{clip.chromaKey.enabled=previous;}
+    };
+    const build=opts=>{
+      const frame=capture(opts);
+      if(!frame||!frame.width||!frame.height)throw new Error('Canvas frame is unavailable');
+      const copy=document.createElement('canvas');copy.width=frame.width;copy.height=frame.height;
+      const ctx=copy.getContext('2d',{willReadFrequently:true});if(!ctx)throw new Error('Pixel reader is unavailable');
+      ctx.drawImage(frame,0,0);
+      ctx.getImageData(0,0,1,1); // throws if any source tainted the canvas
+      return {canvas:copy,ctx};
+    };
+    let snap;
+    try{snap=build();}
+    catch(err){
+      // A remote image/video without CORS blocks pixel reads. Retry without those sources
+      // so the picker still samples the clips and layers it is allowed to read.
+      try{snap=build({safe:true});}
+      finally{if(typeof window.renderFrame==='function')try{window.renderFrame();}catch(_e){}}
+    }
+    if(typeof window.renderFrame==='function')window.renderFrame();
+    return snap;
+  }
+  function sampleAt(x,y){
+    const stage=$('canvasStage'),r=stage&&stage.getBoundingClientRect(),snap=session&&session.snapshot;
+    if(!r||!snap||!r.width||!r.height)throw new Error('Canvas is unavailable');
+    const px=clamp(Math.floor((x-r.left)/r.width*snap.canvas.width),0,snap.canvas.width-1);
+    const py=clamp(Math.floor((y-r.top)/r.height*snap.canvas.height),0,snap.canvas.height-1);
+    const data=snap.ctx.getImageData(px,py,1,1).data;
+    let rr=data[0],gg=data[1],bb=data[2],aa=data[3]/255;
+    if(aa<1){
+      const bg=parseRgb(getComputedStyle(stage).backgroundColor),ba=bg[3];
+      const br=bg[0]*ba+255*(1-ba),bgc=bg[1]*ba+255*(1-ba),bbg=bg[2]*ba+255*(1-ba);
+      rr=rr*aa+br*(1-aa);gg=gg*aa+bgc*(1-aa);bb=bb*aa+bbg*(1-aa);
+    }
+    return '#'+[rr,gg,bb].map(v=>Math.round(clamp(v,0,255)).toString(16).padStart(2,'0')).join('').toUpperCase();
+  }
+  function moveLoupe(x,y){
+    const r=visibleCanvasRect(session.mode);if(!r)return false;
+    const px=clamp(x,r.left,r.right),py=clamp(y+EYEDROP_TOUCH_OFFSET_Y,r.top,r.bottom);
+    const color=sampleAt(px,py),el=ensureLoupe();
+    el.style.setProperty('--ev-eyedrop-color',color);el.style.left=px+'px';el.style.top=py+'px';el.style.display='block';
+    session.point={x:px,y:py};session.color=color;return true;
+  }
+  function textOpacityKey(key){return key==='textColor'?'textOpacity':key==='strokeColor'?'strokeOpacity':key==='shadowColor'?'shadowOpacity':'textBackgroundOpacity';}
+  function applyTextColor(hex,key){
+    const target=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+    if(!target){toast('Select a text layer first');return;}
+    const opacityKey=textOpacityKey(key),wasTransparent=Number(target[opacityKey])===0;
+    if(typeof window.ethvellePicsartSetColorTarget==='function')window.ethvellePicsartSetColorTarget(key);
+    if(typeof window.ethvellePicsartSetColor==='function')window.ethvellePicsartSetColor(key,hex);
+    if(wasTransparent&&typeof window.ethvellePicsartSetValue==='function')window.ethvellePicsartSetValue(opacityKey,100);
+    saveColor(hex);
+    if(typeof window.renderFrame==='function')window.renderFrame();
+    if(typeof window.ethvelleRefreshDockSwatches==='function')window.ethvelleRefreshDockSwatches();
+    ensureTextPalette();
+    const palette=$('evpaPalette');
+    palette?.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',normalizedHex(b.dataset.color)===hex));
+    try{const on=palette&&palette.querySelector('.evpa-swatch.active[data-color]');if(on&&on.scrollIntoView)on.scrollIntoView({block:'nearest',inline:'nearest',behavior:'auto'});}catch(_e){}
+  }
+  function applyChromaColor(hex,clip){
+    const current=typeof window.getSelectedVideoOverlay==='function'?window.getSelectedVideoOverlay():null;
+    if(!current||String(current.id)!==String(clip&&clip.id)){toast('Select a video clip first');return;}
+    saveColor(hex);
+    if(typeof window.ethvelleSetChromaPaletteColor==='function')window.ethvelleSetChromaPaletteColor(hex,null);
+    else if(typeof window.updateChromaSetting==='function')window.updateChromaSetting('color',hex);
+    if(typeof window.renderChromaKeyPanel==='function')window.renderChromaKeyPanel();
+    const preview=$('evltChromaCurrent');if(preview)preview.style.background=hex;
+    ensureChromaPalette();
+    $('evltChromaPalette')?.querySelectorAll('.evlt-chroma-swatch').forEach(b=>b.classList.toggle('active',normalizedHex(b.dataset.color)===hex));
+  }
+  function removeActiveListeners(){
+    if(session&&session.moveRaf)cancelAnimationFrame(session.moveRaf);
+    window.removeEventListener('pointerdown',onPointerDown,true);
+    window.removeEventListener('pointermove',onPointerMove,true);
+    window.removeEventListener('pointerup',onPointerUp,true);
+    window.removeEventListener('pointercancel',onPointerCancel,true);
+    window.removeEventListener('keydown',onKeyDown,true);
+  }
+  function clearHistoryEntry(){
+    if(historyArmed){historyArmed=false;ignoreNextPop=true;try{history.back();}catch(_e){ignoreNextPop=false;}}
+  }
+  function cleanup(callCancel,fromPop){
+    if(!session)return;
+    const old=session;if(old.moveRaf)cancelAnimationFrame(old.moveRaf);session=null;removeActiveListeners();
+    document.documentElement.classList.remove('ev-eyedrop-active');
+    if(loupe)loupe.style.display='none';
+    document.querySelectorAll('.ev-eyedrop-button').forEach(b=>b.setAttribute('aria-pressed','false'));
+    if(!fromPop)clearHistoryEntry();
+    if(callCancel&&typeof old.onCancel==='function'){try{old.onCancel();}catch(_e){}}
+  }
+  function cancel(){cleanup(true,false);}
+  function failRead(){toast('This frame cannot be read for color picking');cleanup(true,false);}
+  function finish(){
+    if(!session)return;
+    const old=session,hex=old.color;
+    cleanup(false,false);
+    armSwallowClick(old.point&&old.point.x,old.point&&old.point.y);
+    if(hex&&typeof old.onPick==='function'){try{old.onPick(hex);}catch(err){console.error('Ethvelle eyedropper apply failed',err);}}
+  }
+  function checkSessionContext(){
+    if(!session)return;
+    if(session.mode==='text'){
+      const dock=$('ethvellePicsartTextDock');
+      if(!isVisible(dock)||dock.classList.contains('evpa-in-composer')||$('ethvelleTextComposer')?.classList.contains('active')||activeTab()!==session.tab){cancel();return;}
+    }else{
+      const panel=$('chromaPanelBody');
+      const clip=typeof window.getSelectedVideoOverlay==='function'?window.getSelectedVideoOverlay():null;
+      if(!isVisible(panel)||!clip||String(clip.id)!==String(session.clip.id)){cancel();return;}
+    }
+  }
+  function start(options){
+    options=options||{};const mode=options.mode==='chroma'?'chroma':'text';
+    if(session)cancel();
+    const stage=$('canvasStage'),rect=visibleCanvasRect(mode);
+    if(!stage||!rect){toast('Canvas is not available');return false;}
+    let clip=null,key=null;
+    if(mode==='text'&&($('ethvellePicsartTextDock')?.classList.contains('evpa-in-composer')||$('ethvelleTextComposer')?.classList.contains('active')))return false;
+    if(mode==='chroma'){
+      clip=typeof window.getSelectedVideoOverlay==='function'?window.getSelectedVideoOverlay():null;
+      if(!clip){toast('Select a video clip first');return false;}
+    }else{
+      key=textColorKey();
+      if(typeof window.ethvellePicsartGetTarget==='function'&&!window.ethvellePicsartGetTarget()){toast('Select a text layer first');return false;}
+    }
+    try{if(typeof window.pausePlayback==='function')window.pausePlayback();}catch(_e){}
+    session={mode,clip,key,tab:activeTab(),onPick:options.onPick,onCancel:options.onCancel,pointerId:null,point:null,color:'#777777',snapshot:null};
+    try{
+      session.snapshot=makeSnapshot(mode,clip);
+      document.documentElement.classList.add('ev-eyedrop-active');
+      const x=(rect.left+rect.right)/2,y=(rect.top+rect.bottom)/2;
+      moveLoupe(x,y);
+      ensureLoupe().style.display='block';
+      window.addEventListener('pointerdown',onPointerDown,{capture:true,passive:false});
+      window.addEventListener('pointermove',onPointerMove,{capture:true,passive:false});
+      window.addEventListener('pointerup',onPointerUp,{capture:true,passive:false});
+      window.addEventListener('pointercancel',onPointerCancel,{capture:true,passive:false});
+      window.addEventListener('keydown',onKeyDown,true);
+      try{history.pushState(Object.assign({},history.state||{},{evEyedropperActive:true}),document.title,location.href);historyArmed=true;}catch(_e){}
+      ensureUI();return true;
+    }catch(err){
+      if(err&&(/security|taint|read|pixel/i.test(String(err.name||'')+' '+String(err.message||''))))toast('This frame cannot be read for color picking');
+      else toast('This frame cannot be read for color picking');
+      cleanup(true,false);return false;
+    }
+  }
+  function swallow(e){if(e.cancelable)e.preventDefault();e.stopPropagation();e.stopImmediatePropagation();}
+  function armSwallowClick(x,y){swallowClickUntil=performance.now()+450;swallowClickPoint=Number.isFinite(Number(x))&&Number.isFinite(Number(y))?{x:Number(x),y:Number(y)}:null;}
+  function consumeSwallowClick(e){
+    if(!swallowClickUntil)return false;
+    const near=swallowClickPoint&&Math.hypot((Number(e.clientX)||0)-swallowClickPoint.x,(Number(e.clientY)||0)-swallowClickPoint.y)<=32;
+    if(performance.now()<=swallowClickUntil&&near){swallowClickUntil=0;swallowClickPoint=null;swallow(e);return true;}
+    if(performance.now()>swallowClickUntil){swallowClickUntil=0;swallowClickPoint=null;}
+    return false;
+  }
+  function onPointerDown(e){
+    if(!session)return;
+    if(e.target?.closest?.('.ev-eyedrop-button')){armSwallowClick(e.clientX,e.clientY);cancel();return;}
+    if(session.pointerId!==null){swallow(e);return;}
+    const rect=visibleCanvasRect(session.mode);
+    if(!insideRect(e.clientX,e.clientY,rect)||!isCanvasPointerTarget(e.target)){cancel();return;}
+    swallow(e);session.pointerId=e.pointerId;
+    try{if(!moveLoupe(e.clientX,e.clientY))cancel();}catch(_e){failRead();}
+  }
+  function onPointerMove(e){
+    if(!session||session.pointerId!==e.pointerId)return;
+    swallow(e);
+    session.pendingPoint={x:e.clientX,y:e.clientY};
+    if(!session.moveRaf)session.moveRaf=requestAnimationFrame(()=>{
+      if(!session)return;const point=session.pendingPoint;session.moveRaf=0;session.pendingPoint=null;
+      if(!point)return;try{if(!moveLoupe(point.x,point.y))cancel();}catch(_e){failRead();}
+    });
+  }
+  function onPointerUp(e){
+    if(!session||session.pointerId!==e.pointerId)return;
+    swallow(e);
+    const rect=visibleCanvasRect(session.mode);
+    if(session.moveRaf){cancelAnimationFrame(session.moveRaf);session.moveRaf=0;session.pendingPoint=null;}
+    if(!insideRect(e.clientX,e.clientY,rect)){cancel();return;}
+    try{if(!moveLoupe(e.clientX,e.clientY)){cancel();return;}finish();}catch(_e){failRead();}
+  }
+  function onPointerCancel(e){if(session&&session.pointerId===e.pointerId){swallow(e);cancel();}}
+  function onKeyDown(e){if(e.key==='Escape'||e.key==='BrowserBack'){swallow(e);cancel();}}
+  function onPopState(){if(ignoreNextPop){ignoreNextPop=false;return;}if(session){historyArmed=false;cleanup(true,true);}}
+  function startText(){
+    const key=textColorKey();
+    return start({mode:'text',onPick:hex=>applyTextColor(hex,key)});
+  }
+  function startChroma(){
+    const clip=typeof window.getSelectedVideoOverlay==='function'?window.getSelectedVideoOverlay():null;
+    if(!clip){toast('Select a video clip first');return false;}
+    return start({mode:'chroma',onPick:hex=>applyChromaColor(hex,clip)});
+  }
+  window.ethvelleCanvasEyedropper={start,cancel,isActive:()=>!!session};
+  window.ethvellePicsartSampleColor=startText;
+  window.ethvelleStartStageColorSample=startText;
+
+  window.addEventListener('click',function(e){
+    const eye=e.target?.closest?.('.ev-eyedrop-text,.ev-eyedrop-chroma');
+    if(consumeSwallowClick(e))return;
+    if(!eye)return;
+    swallow(e);
+    if(session){cancel();return;}
+    if(eye.classList.contains('ev-eyedrop-chroma'))startChroma();else startText();
+  },true);
+  ensureLoupe();
+  window.addEventListener('popstate',onPopState,true);
+  if(typeof MutationObserver==='function'&&document.body){
+    bodyObserver=new MutationObserver(()=>attachObservers());
+    bodyObserver.observe(document.body,{childList:true,subtree:true});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',attachObservers,{once:true});
+  else attachObservers();
+})();
+</script>
+<style id="ethvelle-v130-timeline-trim-hitareas">
+  /* Keep visible blue trim markers close to the outer left/right clip edges. */
+  #screen-editor #timelineInner .anim-clip:not(.selected) > .anim-clip-handle.left::after,
+  #screen-editor #timelineInner .overlay-clip:not(.selected) > .anim-clip-handle.left::after,
+  #screen-editor #timelineInner .track-clip:not(.selected) > .anim-clip-handle.left::after {
+    left:8px!important;right:auto!important;transform:translate(-50%,-50%)!important;
+  }
+  #screen-editor #timelineInner .anim-clip:not(.selected) > .anim-clip-handle.right::after,
+  #screen-editor #timelineInner .overlay-clip:not(.selected) > .anim-clip-handle.right::after,
+  #screen-editor #timelineInner .track-clip:not(.selected) > .anim-clip-handle.right::after {
+    left:auto!important;right:8px!important;transform:translate(50%,-50%)!important;
+  }
+  /* The broad white side selection tabs are the actual trim hit areas, not dead decoration. */
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle.left,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle.left,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle.left {
+    left:-21px!important;right:auto!important;width:42px!important;min-width:42px!important;max-width:42px!important;
+    top:0!important;bottom:0!important;height:auto!important;z-index:90!important;
+    opacity:0!important;pointer-events:auto!important;touch-action:none!important;
+  }
+  #screen-editor #timelineInner .anim-clip.selected > .anim-clip-handle.right,
+  #screen-editor #timelineInner .overlay-clip.selected > .anim-clip-handle.right,
+  #screen-editor #timelineInner .track-clip.selected > .anim-clip-handle.right {
+    right:-21px!important;left:auto!important;width:42px!important;min-width:42px!important;max-width:42px!important;
+    top:0!important;bottom:0!important;height:auto!important;z-index:90!important;
+    opacity:0!important;pointer-events:auto!important;touch-action:none!important;
+  }
+</style>
+<script id="ethvelle-v130-timeline-edge-autoscroll">
+  // One shared auto-scroll controller for clip moves on Character, Background, Clips,
+  // Text and Audio rows. The scroll delta is folded into the drag delta, keeping the
+  // dragged clip directly under the finger while the timeline content moves underneath.
+  let timelineEdgeAutoScrollRaf = 0;
+  let timelineEdgeAutoScrollState = null;
+
+  function timelineDragDeltaPixels(dragState, clientX){
+    if(!dragState)return 0;
+    const scroller=document.getElementById('timelineScroll');
+    const startX=Number(dragState.startX)||0;
+    const startScroll=Number.isFinite(Number(dragState.startScrollLeft))?Number(dragState.startScrollLeft):(scroller?Number(scroller.scrollLeft)||0:0);
+    const currentScroll=scroller?Number(scroller.scrollLeft)||0:startScroll;
+    return (Number(clientX)-startX)+(currentScroll-startScroll);
+  }
+
+  function ensureTimelineRoomForDraggedClip(clip){
+    if(!clip)return;
+    const end=Number(clip.trimEnd);
+    if(!Number.isFinite(end))return;
+    const currentMax=Math.max(Number(timelineDuration)||2,(typeof totalProjectDuration==='function'?Number(totalProjectDuration())||0:0));
+    if(end<currentMax-1.5)return;
+    const nextDuration=Math.max(Number(timelineDuration)||2,Math.ceil(end+5));
+    if(nextDuration<=(Number(timelineDuration)||0)+0.001)return;
+    timelineDuration=nextDuration;
+    if(typeof syncTimelineInnerWidth==='function')syncTimelineInnerWidth();
+    if(typeof renderRuler==='function')renderRuler();
+    if(typeof updateTimeReadout==='function')updateTimeReadout();
+  }
+
+  function stopTimelineEdgeAutoScroll(pointerId){
+    const state=timelineEdgeAutoScrollState;
+    if(state&&pointerId!==undefined&&pointerId!==null&&state.pointerId!==pointerId)return;
+    timelineEdgeAutoScrollState=null;
+    if(timelineEdgeAutoScrollRaf){cancelAnimationFrame(timelineEdgeAutoScrollRaf);timelineEdgeAutoScrollRaf=0;}
+  }
+
+  function runTimelineEdgeAutoScroll(){
+    timelineEdgeAutoScrollRaf=0;
+    const state=timelineEdgeAutoScrollState;
+    const scroller=document.getElementById('timelineScroll');
+    if(!state||!state.enabled||!scroller||!scroller.isConnected)return;
+    const rect=scroller.getBoundingClientRect();
+    const zone=Math.min(76,Math.max(42,rect.width*0.13));
+    let step=0;
+    if(state.clientX>rect.right-zone){
+      const strength=Math.max(0,Math.min(1,(state.clientX-(rect.right-zone))/zone));
+      step=Math.ceil(1+7*strength);
+    }else if(state.clientX<rect.left+zone){
+      const strength=Math.max(0,Math.min(1,((rect.left+zone)-state.clientX)/zone));
+      step=-Math.ceil(1+7*strength);
+    }
+    if(step){
+      const maxScroll=Math.max(0,scroller.scrollWidth-scroller.clientWidth);
+      const before=Number(scroller.scrollLeft)||0;
+      const after=Math.max(0,Math.min(maxScroll,before+step));
+      if(Math.abs(after-before)>0.25){
+        // The auto-scroll is part of moving the clip, not a playhead scrub gesture.
+        if(typeof timelineScrollOwner!=='undefined')timelineScrollOwner='programmatic';
+        scroller.scrollLeft=after;
+        try{if(typeof state.update==='function')state.update();}catch(err){console.warn('Ethvelle timeline auto-scroll update failed',err);}
+      }
+    }
+    if(timelineEdgeAutoScrollState===state)timelineEdgeAutoScrollRaf=requestAnimationFrame(runTimelineEdgeAutoScroll);
+  }
+
+  function startTimelineEdgeAutoScroll(pointerId,clientX,update){
+    stopTimelineEdgeAutoScroll();
+    timelineEdgeAutoScrollState={pointerId,clientX:Number(clientX)||0,update,enabled:false};
+  }
+
+  function updateTimelineEdgeAutoScroll(pointerId,clientX,update){
+    const state=timelineEdgeAutoScrollState;
+    if(!state||state.pointerId!==pointerId)return;
+    state.clientX=Number(clientX)||0;
+    if(typeof update==='function')state.update=update;
+    state.enabled=true;
+    if(!timelineEdgeAutoScrollRaf)timelineEdgeAutoScrollRaf=requestAnimationFrame(runTimelineEdgeAutoScroll);
+  }
+</script>
+
+<style id="ethvelle-v130-character-object-ui-css">
+  /* Hand picker: default state is text-only inside one dark shared container;
+     the selected side becomes the only visible blue button. */
+  #screen-editor .evpa-action-side{display:flex;align-items:stretch;gap:0;margin:8px 0 13px;padding:3px;border:1px solid #30313B;border-radius:12px;background:#101116;overflow:hidden;}
+  #screen-editor .evpa-action-side button{appearance:none;-webkit-appearance:none;flex:1 1 50%;min-width:0;min-height:39px;padding:0 10px;border:1px solid transparent;border-radius:9px;background:transparent;color:#F5F5F7;font-size:12px;font-weight:800;letter-spacing:.01em;box-shadow:none;outline:0;-webkit-tap-highlight-color:transparent;}
+  #screen-editor .evpa-action-side button.active{background:#173CA9;border-color:#315FDE;color:#fff;box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);}
+  #screen-editor .evpa-action-side button:focus,#screen-editor .evpa-action-side button:focus-visible{outline:0!important;box-shadow:none;}
+  #screen-editor .evpa-action-side button.active:focus,#screen-editor .evpa-action-side button.active:focus-visible{box-shadow:inset 0 0 0 1px rgba(255,255,255,.08);}
+  #screen-editor .evpa-prop-stage-wrap{padding:9px;margin:10px 0 14px;border-color:#353849;background:radial-gradient(circle at 50% 35%,#252A3C,#111217 78%);}
+  #screen-editor .evpa-prop-stage-title{color:#fff!important;font-size:12px;letter-spacing:.035em;margin:0 0 3px;}
+  /* Taller 5:7 view: enough room for the entire selected character, rendered at 2x resolution. */
+  #screen-editor #evpaPropStagePreview{display:block;width:100%;height:auto;aspect-ratio:5/7;max-height:440px;object-fit:contain;border-radius:9px;touch-action:none;cursor:grab;background:#111218;}
+  #screen-editor #evpaPropStagePreview:active{cursor:grabbing;}
+  #screen-editor .evpa-prop-drag-hint{font-size:10.5px;color:#A8ADBC;text-align:center;margin:5px 0 0;}
+  #screen-editor .evpa-prop-controls{gap:13px 12px;margin:13px 0;}
+  #screen-editor .evpa-prop-field{gap:4px;}
+  #screen-editor .evpa-prop-field .evpa-range{display:block;margin:0;color:#D7DBF1;font-size:11px;font-weight:700;}
+  #screen-editor .evpa-prop-field .evpa-range>span{display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:4px;}
+  #screen-editor .evpa-prop-field .evpa-range output{color:#AAB3FF;font-size:11px;font-variant-numeric:tabular-nums;}
+  #screen-editor .evpa-prop-field .evpa-range input[type=range]{display:block;width:100%;height:17px;margin:0;padding:0;accent-color:#6F68FF;touch-action:pan-x;background:transparent;}
+  #screen-editor .evpa-prop-field .evpa-range input[type=range]::-webkit-slider-runnable-track{height:4px;border-radius:99px;background:linear-gradient(90deg,#5A58D9,#7772FF);}
+  #screen-editor .evpa-prop-field .evpa-range input[type=range]::-webkit-slider-thumb{-webkit-appearance:none;width:14px;height:14px;margin-top:-5px;border-radius:50%;background:#F4F5FF;border:2px solid #7772FF;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+  #screen-editor .evpa-prop-field .evpa-range input[type=range]::-moz-range-track{height:4px;border-radius:99px;background:linear-gradient(90deg,#5A58D9,#7772FF);}
+  #screen-editor .evpa-prop-field .evpa-range input[type=range]::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:#F4F5FF;border:2px solid #7772FF;box-shadow:0 1px 4px rgba(0,0,0,.35);}
+  #screen-editor .evpa-props-sheet>.sheet-title{display:none!important;}
+  #screen-editor .evca-char-actions-sheet>.sheet-title{display:none!important;}
+  #screen-editor .evpa-section-heading{display:flex;align-items:center;justify-content:space-between;gap:10px;margin:14px 0 9px;}
+  #screen-editor .evpa-section-heading .evpa-section-title{margin:0!important;color:#fff!important;font-size:12px;letter-spacing:.045em;}
+  #screen-editor .evpa-section-add{width:29px;height:29px;flex:0 0 29px;border-radius:8px;background:#2F5CE8;border:1px solid #6B8DFF;color:#fff;display:grid;place-items:center;font-size:21px;font-weight:500;line-height:1;padding:0;}
+  #screen-editor .evpa-section-add:active{background:#4A73F1;transform:scale(.95);}
+  /* Custom upload is a normal fifth-column part tile. Only its thumbnail artwork differs. */
+  #sheetEd .ed-chip.ed-chip-custom{flex:0 0 calc((100% - 32px)/5);width:calc((100% - 32px)/5);min-width:0;display:flex;flex-direction:column;align-items:center;justify-content:flex-start;gap:3px;padding:4px 2px 5px;border:1.5px solid transparent;border-radius:12px;cursor:pointer;}
+  #sheetEd .ed-chip.ed-chip-custom .th{width:100%;max-width:44px;height:38px;border-radius:8px;display:grid;place-items:center;}
+  #sheetEd .ed-chip-custom-icon{width:27px;height:27px;border-radius:50%;display:grid;place-items:center;background:#2149C4;border:1px solid #7597FF;color:#fff;font-size:21px;font-weight:500;line-height:1;box-shadow:0 2px 6px rgba(0,0,0,.28);}
+  #sheetEd .ed-chip-custom:active .ed-chip-custom-icon{background:#3159D5;transform:scale(.94);}
+  #sheetEd .ed-chip-custom .n{max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+  /* Match the other in-app search bars, with a stronger rounded focus ring and no native square input frame. */
+  #screen-editor .evca-anim-search-wrap{padding:0 0 12px;margin:0;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-bar{height:42px;border:1px solid var(--line);border-radius:100px;box-shadow:none;outline:0;overflow:hidden;-webkit-tap-highlight-color:transparent;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-bar:focus-within{border:2px solid #4E7CFF;box-shadow:none!important;outline:0!important;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input,
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input[type=search]{appearance:none;-webkit-appearance:none;border:0!important;outline:0!important;box-shadow:none!important;background:transparent!important;border-radius:0!important;color:#F5F5F7;padding:0;min-width:0;-webkit-tap-highlight-color:transparent;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input:focus,
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input:focus-visible,
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input[type=search]:focus,
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input[type=search]:focus-visible{border:0!important;outline:0!important;box-shadow:none!important;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input::placeholder{color:#B8B8C2!important;opacity:1;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input::-webkit-search-decoration,
+  #screen-editor .evca-anim-search-wrap .tutorial-search-input::-webkit-search-cancel-button{-webkit-appearance:none;appearance:none;display:none;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-clear{display:none;}
+  #screen-editor .evca-anim-search-wrap .tutorial-search-bar.has-query .tutorial-search-clear{display:flex;}
+  #screen-editor .evca-anim-empty{padding:22px 12px;border:1px dashed #353849;border-radius:12px;color:#A8ADBC;text-align:center;font-size:12px;line-height:1.45;}
+</style>
+
+
+<script id="ethvelle-v130-character-object-ui-runtime">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const safe=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const activeChar=()=>typeof activeCharacter==='function'?activeCharacter():null;
+  const propState=c=>{
+    if(!c.handProps||typeof c.handProps!=='object')c.handProps={L:null,R:null};
+    if(!('L'in c.handProps))c.handProps.L=null;
+    if(!('R'in c.handProps))c.handProps.R=null;
+    return c.handProps;
+  };
+  let propSide='R';
+  let propSideTouched=false;
+  let heldPreviewView=null;
+  let heldPreviewDrag=null;
+  let heldPreviewRaf=0;
+  let heldPreviewOffscreen=null;
+
+  function heldBackdrop(){
+    let el=$('ethvelleCharacterPropsBackdrop');
+    if(!el){
+      const host=$('screen-editor')||document.body;
+      el=document.createElement('div');el.id='ethvelleCharacterPropsBackdrop';el.className='modal-backdrop evca-char-actions-backdrop';host.appendChild(el);
+      el.addEventListener('click',e=>{if(e.target===el)window.closeCharacterPropsPanel();});
+    }
+    return el;
+  }
+  function heldBoneGeometry(c){
+    const bones=c&&c.bones||{};const starts=Object.create(null),ends=Object.create(null);
+    function start(k){
+      if(starts[k])return starts[k];const b=bones[k];if(!b)return null;
+      if(!b.parent)return starts[k]={x:Number(b.x)||0,y:Number(b.y)||0};
+      const pe=end(b.parent);if(!pe)return null;
+      if(b.attachAt!==undefined){const ps=start(b.parent);return starts[k]={x:ps.x+(pe.x-ps.x)*b.attachAt,y:ps.y+(pe.y-ps.y)*b.attachAt};}
+      return starts[k]=pe;
+    }
+    function end(k){
+      if(ends[k])return ends[k];const b=bones[k];if(!b)return null;
+      if(!b.parent)return ends[k]={x:Number(b.x)||0,y:Number(b.y)||0};
+      const pe=end(b.parent);if(!pe)return null;let sx=pe.x,sy=pe.y;
+      if(b.attachAt!==undefined){const ps=start(b.parent);sx=ps.x+(pe.x-ps.x)*b.attachAt;sy=ps.y+(pe.y-ps.y)*b.attachAt;}
+      return ends[k]={x:sx+Math.cos(Number(b.angle)||0)*(Number(b.length)||0),y:sy+Math.sin(Number(b.angle)||0)*(Number(b.length)||0)};
+    }
+    return {start,end};
+  }
+  function heldTransformPoint(p,c){
+    const b=c.bones,mt=c.modelTransform||{},anchor=b.hip||{x:0,y:0};
+    const mx=c.mirrorX?-1:1,my=c.mirrorY?-1:1,scale=Number(mt.scale)||1,rot=(Number(mt.rotation)||0)*Math.PI/180;
+    const x=(p.x-anchor.x)*mx*scale,y=(p.y-anchor.y)*my*scale;
+    return {x:anchor.x+(Number(mt.offsetX)||0)+x*Math.cos(rot)-y*Math.sin(rot),y:anchor.y+(Number(mt.offsetY)||0)+x*Math.sin(rot)+y*Math.cos(rot)};
+  }
+  function drawHeldCharacterPreview(){
+    const target=$('evpaPropStagePreview'),c=activeChar();
+    if(!target||!c||!c.bones||typeof drawCharacterToContext!=='function')return;
+    const ctx=target.getContext('2d');if(!ctx)return;
+    const W=Number(typeof stageW!=='undefined'?stageW:660)||660,H=Number(typeof stageH!=='undefined'?stageH:1170)||1170;
+    /* Render once into the final high-density preview canvas. Drawing directly avoids
+       an intermediate bitmap resize, which was softening small character-part details. */
+
+    /* Include every bone, including both legs and feet: the old upper-body-only crop hid the full model. */
+    const geo=heldBoneGeometry(c),pts=[];
+    Object.keys(c.bones).forEach(k=>{
+      const a=geo.start(k),b=geo.end(k);
+      if(a&&Number.isFinite(a.x)&&Number.isFinite(a.y))pts.push(heldTransformPoint(a,c));
+      if(b&&Number.isFinite(b.x)&&Number.isFinite(b.y))pts.push(heldTransformPoint(b,c));
+    });
+    if(!pts.length){const a=c.bones.hip||{x:W/2,y:H/2};pts.push(heldTransformPoint(a,c));}
+    /* Animals and birds: the head, tail, paws and wings extend beyond the bone endpoints, so frame the real artwork bounds. */
+    let speciesBounds=null;
+    try{const api=window.__ethvelleV264SpeciesBoundsApi;speciesBounds=api&&typeof api.measure==='function'?api.measure(c):null;}catch(_e){}
+    if(speciesBounds)[[speciesBounds.minX,speciesBounds.minY],[speciesBounds.maxX,speciesBounds.minY],[speciesBounds.maxX,speciesBounds.maxY],[speciesBounds.minX,speciesBounds.maxY]].forEach(q=>pts.push(heldTransformPoint({x:q[0],y:q[1]},c)));
+    let x0=Math.min(...pts.map(p=>p.x)),x1=Math.max(...pts.map(p=>p.x)),y0=Math.min(...pts.map(p=>p.y)),y1=Math.max(...pts.map(p=>p.y));
+    const bh=Math.max(100,y1-y0),bw=Math.max(80,x1-x0);
+    /* Tight but safe padding makes the full-body character substantially larger in the frame. */
+    const padX=Math.max(34,bw*.18,bh*.05),padY=Math.max(48,bh*.17);
+    let sx=speciesBounds?x0-padX:Math.max(0,x0-padX),sy=speciesBounds?y0-padY:Math.max(0,y0-padY),ex=speciesBounds?x1+padX:Math.min(W,x1+padX),ey=speciesBounds?y1+padY:Math.min(H,y1+padY);
+    if(ex-sx<20){sx=Math.max(0,x0-90);ex=Math.min(W,x1+90);}if(ey-sy<20){sy=Math.max(0,y0-100);ey=Math.min(H,y1+100);}
+    const sw=Math.max(1,ex-sx),sh=Math.max(1,ey-sy),cw=target.width,ch=target.height;
+    /* zoom is output-canvas pixels per stage pixel; use the same transform for hit testing. */
+    const zoom=Math.min((cw-22)/sw,(ch-22)/sh),dw=sw*zoom,dh=sh*zoom,dx=(cw-dw)/2,dy=(ch-dh)/2;
+    const bg=ctx.createLinearGradient(0,0,0,ch);bg.addColorStop(0,'#1A1D29');bg.addColorStop(1,'#111218');
+    ctx.setTransform(1,0,0,1,0,0);ctx.clearRect(0,0,cw,ch);ctx.fillStyle=bg;ctx.fillRect(0,0,cw,ch);
+    ctx.imageSmoothingEnabled=true;ctx.imageSmoothingQuality='high';
+    try{
+      ctx.save();ctx.translate(dx,dy);ctx.scale(zoom,zoom);ctx.translate(-sx,-sy);
+      drawCharacterToContext(ctx,c);
+      ctx.restore();
+    }catch(err){try{ctx.restore();}catch(_e){}console.warn('Held-item preview render failed',err);}
+    /* Character-sheet images can finish decoding after the first preview paint. Redraw
+       this canvas on their load so the preview never stays on a soft/unfinished first frame. */
+    const hookPreviewImages=cache=>{
+      if(!cache||typeof cache!=='object')return;
+      Object.keys(cache).forEach(key=>{
+        const img=cache[key];
+        if(img&&typeof img.addEventListener==='function'&&!img.complete&&!img.__evHeldPreviewSharpHook){
+          img.__evHeldPreviewSharpHook=true;
+          img.addEventListener('load',refreshHeldPreview,{once:true});
+        }
+      });
+    };
+    hookPreviewImages(ctx.__sheetImg);hookPreviewImages(ctx.__skinImgCache);
+
+    /* Keep a generous hit target centred on the visible held object, not on the whole canvas. */
+    const item=propState(c)[propSide];let objectHit=null;
+    if(item&&item.src){
+      const hs=geo.start('hand'+propSide),he=geo.end('hand'+propSide);
+      if(hs&&he){
+        const hx=hs.x+(he.x-hs.x)*.5,hy=hs.y+(he.y-hs.y)*.5;
+        const angle=Math.atan2(he.y-hs.y,he.x-hs.x)-Math.PI/2+(Number(item.rotation)||0)*Math.PI/180;
+        const ox=Number(item.offsetX)||0,oy=Number(item.offsetY)||0;
+        const center=heldTransformPoint({x:hx+Math.cos(angle)*ox-Math.sin(angle)*oy,y:hy+Math.sin(angle)*ox+Math.cos(angle)*oy},c);
+        const cx=dx+(center.x-sx)*zoom,cy=dy+(center.y-sy)*zoom;
+        let aspect=1;try{const cached=window.__ethvelleHeldPropImageCache&&window.__ethvelleHeldPropImageCache.get(item.src);if(cached&&cached.naturalWidth&&cached.naturalHeight)aspect=cached.naturalWidth/cached.naturalHeight;}catch(_e){}
+        const size=heldPropDimensions(c,item,aspect),imageH=size.h;
+        const modelScale=Math.max(.05,Math.abs(Number(c.modelTransform&&c.modelTransform.scale)||1));
+        const radius=Math.max(48,Math.min(110,Math.hypot(imageH*aspect,imageH)*.58*modelScale*zoom));
+        objectHit={x:cx,y:cy,radius};
+      }
+    }
+    heldPreviewView={zoom,sx,sy,sw,sh,dx,dy,dw,dh,charId:c.id,side:propSide,objectHit};
+  }
+  function refreshHeldPreview(){if(heldPreviewRaf)return;heldPreviewRaf=requestAnimationFrame(()=>{heldPreviewRaf=0;drawHeldCharacterPreview();});}
+  function heldPropDimensions(char,item,aspect){
+    const bodyKeys=['spine_lower','spine_upper','chest','neck','thighL','shinL','thighR','shinR'];
+    const bodyLen=bodyKeys.reduce((sum,k)=>sum+Math.max(0,Number(char&&char.bones&&char.bones[k]&&char.bones[k].length)||0),0)||Number(typeof stageH!=='undefined'?stageH:420)||420;
+    const scale=Math.max(.2,Math.min(2.5,Number(item&&item.scale)||1));
+    const ratio=Number.isFinite(Number(aspect))&&Number(aspect)>0?Number(aspect):1;
+    const rawH=Math.max(.5,bodyLen*.235*scale),rawW=Math.max(.5,rawH*ratio);
+    /* Preserve aspect ratio and monotonic slider response; cap only the overall footprint. */
+    const fit=Math.min(1,320/Math.max(rawH,rawW));
+    return {w:Math.max(.5,rawW*fit),h:Math.max(.5,rawH*fit)};
+  }
+  function heldFlipLabel(item){
+    if(!item||(!item.flipX&&!item.flipY))return 'Flip: Off';
+    if(item.flipX&&item.flipY)return 'Flip: Both';
+    return item.flipX?'Flip: Horizontal':'Flip: Vertical';
+  }
+  function heldRemoveButtonMarkup(){
+    return '<button type="button" class="evpa-prop-remove-icon" aria-label="Remove held object" title="Remove object" onclick="removeCharacterHeldProp()"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16M9 7V4h6v3m-9 0 1 13h10l1-13M10 11v5m4-5v5"/></svg></button>';
+  }
+  function syncHeldPropsSideUI(){
+    const c=activeChar();if(!c)return;
+    const back=heldBackdrop(),item=propState(c)[propSide];
+    const sides=back.querySelectorAll('.evpa-action-side button');
+    sides.forEach((button,index)=>{
+      const side=index===0?'L':'R',active=propSideTouched&&propSide===side;
+      button.classList.toggle('active',active);button.setAttribute('aria-pressed',active?'true':'false');
+    });
+    const preview=back.querySelector('#evpaPropPreview');
+    if(preview)preview.innerHTML=item?`<img src="${safe(item.src)}" alt="Object image">${heldRemoveButtonMarkup()}`:'<span class="evpa-prop-empty">No object added</span>';
+    const upload=back.querySelector('.evpa-prop-upload');
+    if(upload)upload.textContent='＋ '+(item?'Replace object':'Add object image');
+    const controls=back.querySelector('.evpa-prop-controls');
+    if(controls){controls.style.opacity=item?'1':'.45';controls.style.pointerEvents=item?'auto':'none';}
+    const values=[item?Number(item.scale||1)*100:100,item?Number(item.rotation)||0:0,item?Number(item.offsetX)||0:0,item?Number(item.offsetY)||0:0];
+    const outs=['evpaPropScaleVal','evpaPropRotationVal','evpaPropXVal','evpaPropYVal'];
+    const ranges=controls?controls.querySelectorAll('input[type=range]'):[];
+    ranges.forEach((range,index)=>{if(index<values.length)range.value=String(values[index]);});
+    outs.forEach((id,index)=>{const out=$(id);if(out)out.textContent=index===0?Math.round(values[index])+'%':index===1?Math.round(values[index])+'°':String(Math.round(values[index]));});
+    const flip=back.querySelector('#evpaPropFlipButton');
+    if(flip){flip.textContent=heldFlipLabel(item);flip.classList.toggle('active',!!(item&&(item.flipX||item.flipY)));flip.setAttribute('aria-pressed',item&&(item.flipX||item.flipY)?'true':'false');}
+    refreshHeldPreview();
+  }
+  function renderHeldPropsPanel(){
+    const c=activeChar();if(!c)return;const props=propState(c),item=props[propSide];
+    const val=(v,d)=>Number.isFinite(Number(v))?Number(v):d;
+    const scale=val(item&&item.scale,1),rotation=val(item&&item.rotation,0),x=val(item&&item.offsetX,0),y=val(item&&item.offsetY,0);
+    const preview=item?`<img src="${safe(item.src)}" alt="Object image">${heldRemoveButtonMarkup()}`:`<span class="evpa-prop-empty">No object added</span>`;
+    const back=heldBackdrop();
+    back.innerHTML=`<div class="modal-sheet evpa-props-sheet" role="dialog" aria-modal="true" aria-label="Character held object">
+      <div class="sheet-handle"></div>
+      <div class="evpa-action-side"><button type="button" class="${propSideTouched&&propSide==='L'?'active':''}" aria-pressed="${propSideTouched&&propSide==='L'}" onclick="setCharacterPropSide('L')">Left Hand</button><button type="button" class="${propSideTouched&&propSide==='R'?'active':''}" aria-pressed="${propSideTouched&&propSide==='R'}" onclick="setCharacterPropSide('R')">Right Hand</button></div>
+      <div class="evpa-prop-preview" id="evpaPropPreview">${preview}</div>
+      <input id="evpaPropFile" type="file" accept="image/png,image/webp,image/jpeg,image/*" hidden onchange="setCharacterHeldPropFile(this)">
+      <button type="button" class="evpa-prop-upload" onclick="document.getElementById('evpaPropFile').click()">＋ ${item?'Replace object':'Add object image'}</button>
+      <div class="evpa-prop-stage-wrap"><div class="evpa-prop-stage-title">Character Preview</div><canvas id="evpaPropStagePreview" width="1080" height="1512" aria-label="Full-body selected character with held object"></canvas><p class="evpa-prop-drag-hint">Drag the object in the preview to adjust its position</p></div>
+      <div class="evpa-prop-controls" ${item?'':'style="opacity:.45;pointer-events:none"'}>
+        <div class="evpa-prop-field"><label class="evpa-range"><span>Size <output id="evpaPropScaleVal">${Math.round(scale*100)}%</output></span><input type="range" min="20" max="250" step="1" value="${Math.round(scale*100)}" oninput="setCharacterHeldPropValue('scale',Number(this.value)/100)"></label></div>
+        <div class="evpa-prop-field"><label class="evpa-range"><span>Rotate <output id="evpaPropRotationVal">${Math.round(rotation)}°</output></span><input type="range" min="-180" max="180" step="1" value="${Math.round(rotation)}" oninput="setCharacterHeldPropValue('rotation',Number(this.value))"></label></div>
+        <div class="evpa-prop-field"><label class="evpa-range"><span>Move X <output id="evpaPropXVal">${Math.round(x)}</output></span><input type="range" id="evpaPropXInput" min="-100" max="100" step="1" value="${Math.round(x)}" oninput="setCharacterHeldPropValue('offsetX',Number(this.value))"></label></div>
+        <div class="evpa-prop-field"><label class="evpa-range"><span>Move Y <output id="evpaPropYVal">${Math.round(y)}</output></span><input type="range" id="evpaPropYInput" min="-100" max="100" step="1" value="${Math.round(y)}" oninput="setCharacterHeldPropValue('offsetY',Number(this.value))"></label></div>
+        <div class="evpa-prop-field evpa-prop-flip-field"><label class="evpa-range"><span>Flip</span></label><button type="button" id="evpaPropFlipButton" class="evpa-prop-flip-button ${item&&(item.flipX||item.flipY)?'active':''}" aria-pressed="${item&&(item.flipX||item.flipY)?'true':'false'}" onclick="toggleCharacterHeldProp('flip')">${heldFlipLabel(item)}</button></div>
+      </div>
+      <button type="button" class="evpa-close-btn" onclick="closeCharacterPropsPanel()">Done</button>
+    </div>`;
+    back.classList.add('active');
+    const canvas=$('evpaPropStagePreview');
+    if(canvas&&!canvas.dataset.dragReady){
+      canvas.dataset.dragReady='1';
+      canvas.addEventListener('pointerdown',e=>{
+        const cc=activeChar(),it=cc&&propState(cc)[propSide],view=heldPreviewView;
+        if(!it||!view||view.charId!==cc.id||view.side!==propSide||!view.objectHit)return;
+        const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return;
+        const px=(e.clientX-rect.left)*(canvas.width/rect.width),py=(e.clientY-rect.top)*(canvas.height/rect.height);
+        const hit=view.objectHit,dist=Math.hypot(px-hit.x,py-hit.y);
+        /* Start a drag only on/very near the held object; tapping elsewhere will not move it. */
+        if(dist>hit.radius+12)return;
+        heldPreviewDrag={pointerId:e.pointerId,startX:e.clientX,startY:e.clientY,offsetX:Number(it.offsetX)||0,offsetY:Number(it.offsetY)||0,viewZoom:view.zoom,charId:cc.id,side:propSide};
+        canvas.style.cursor='grabbing';try{canvas.setPointerCapture(e.pointerId);}catch(_e){}e.preventDefault();e.stopPropagation();
+      });
+      canvas.addEventListener('pointermove',e=>{
+        const d=heldPreviewDrag;if(!d||d.pointerId!==e.pointerId)return;
+        const cc=activeChar(),it=cc&&propState(cc)[d.side];if(!cc||cc.id!==d.charId||!it)return;
+        const rect=canvas.getBoundingClientRect();if(!rect.width||!rect.height)return;
+        const dx=(e.clientX-d.startX)*(canvas.width/rect.width),dy=(e.clientY-d.startY)*(canvas.height/rect.height);
+        const mt=cc.modelTransform||{},cr=-(Number(mt.rotation)||0)*Math.PI/180,cs=Math.cos(cr),sn=Math.sin(cr);
+        const unzoomX=dx/Math.max(.0001,d.viewZoom),unzoomY=dy/Math.max(.0001,d.viewZoom);
+        const rotatedX=unzoomX*cs-unzoomY*sn,rotatedY=unzoomX*sn+unzoomY*cs;
+        const modelScale=Math.max(.05,Math.abs(Number(mt.scale)||1));
+        const localX=rotatedX/(modelScale*(cc.mirrorX?-1:1)),localY=rotatedY/(modelScale*(cc.mirrorY?-1:1));
+        const geo=heldBoneGeometry(cc),hand='hand'+d.side,hs=geo.start(hand),he=geo.end(hand);
+        const handAngle=hs&&he?Math.atan2(he.y-hs.y,he.x-hs.x)-Math.PI/2+(Number(it.rotation)||0)*Math.PI/180:0;
+        const hc=Math.cos(handAngle),hn=Math.sin(handAngle);
+        it.offsetX=Math.max(-100,Math.min(100,d.offsetX+localX*hc+localY*hn));
+        it.offsetY=Math.max(-100,Math.min(100,d.offsetY-localX*hn+localY*hc));
+        const ox=$('evpaPropXVal'),oy=$('evpaPropYVal'),xi=$('evpaPropXInput'),yi=$('evpaPropYInput');if(ox)ox.textContent=Math.round(it.offsetX);if(oy)oy.textContent=Math.round(it.offsetY);if(xi)xi.value=Math.round(it.offsetX);if(yi)yi.value=Math.round(it.offsetY);
