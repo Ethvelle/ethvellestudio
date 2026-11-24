@@ -1,0 +1,1000 @@
+  #bottomToolsClip .evca-toolbar-tool span{font-size:10px;line-height:1.12;white-space:normal;text-align:center;max-width:100%;}
+  .evca-panel{display:flex;flex-direction:column;gap:14px;padding-bottom:8px;}
+  .evca-panel-note{font-size:11px;line-height:1.45;color:var(--text-dim);margin:0;}
+  .evca-tabs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:7px;}
+  .evca-tab{min-width:0;padding:10px 5px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text-dim);font-size:11px;font-weight:700;line-height:1.2;}
+  .evca-tab.active{color:#fff;background:rgba(47,92,232,.2);border-color:var(--accent);box-shadow:inset 0 0 0 1px rgba(47,92,232,.15);}
+  .evca-section-title{font-size:12px;font-weight:800;color:var(--text);margin:0 0 8px;}
+  .evca-preset-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  .evca-preset{min-width:0;min-height:64px;padding:9px 4px;border-radius:10px;border:1px solid var(--line);background:var(--panel);color:var(--text-dim);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;font-size:10.5px;font-weight:700;line-height:1.15;}
+  .evca-preset:before{content:'';width:28px;height:28px;border-radius:8px;background:linear-gradient(135deg,#697bff,#212b57);box-shadow:inset 0 0 0 1px rgba(255,255,255,.12);}
+  .evca-preset[data-preset="fade"]:before{background:linear-gradient(135deg,transparent,#aabaff);}
+  .evca-preset[data-preset^="slide"]:before{background:linear-gradient(90deg,#252b4d,#8197ff);}
+  .evca-preset[data-preset^="zoom"]:before{background:radial-gradient(circle,#dce4ff 0 20%,#697bff 23% 55%,#252b4d 58%);}
+  .evca-preset[data-preset="none"]:before{background:linear-gradient(135deg,#262630,#424250);}
+  .evca-preset.active{border-color:var(--accent);color:#fff;background:rgba(47,92,232,.15);box-shadow:inset 0 0 0 1px rgba(47,92,232,.14);}
+  .evca-duration{border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:12px;display:flex;flex-direction:column;gap:8px;}
+  .evca-duration-top,.evca-filter-head{display:flex;align-items:center;justify-content:space-between;gap:10px;font-size:12px;font-weight:700;color:var(--text);}
+  .evca-duration output,.evca-filter-head output{color:#9db4ff;font-size:12px;font-variant-numeric:tabular-nums;}
+  .evca-panel input[type="range"]{display:block;width:100%;margin:0;accent-color:var(--accent);touch-action:pan-y;}
+  .evca-filter-presets{display:flex;gap:8px;overflow-x:auto;padding:3px 2px 7px;scrollbar-width:none;}
+  .evca-filter-presets::-webkit-scrollbar{display:none;}
+  .evca-filter-preset{flex:0 0 68px;display:flex;flex-direction:column;align-items:center;gap:6px;color:var(--text-dim);font-size:10px;font-weight:700;}
+  .evca-filter-swatch{width:54px;height:46px;display:block;border:2px solid transparent;border-radius:9px;background:linear-gradient(135deg,#7d8ba7,#e3b4a2 48%,#213454);}
+  .evca-filter-preset.active .evca-filter-swatch{border-color:#fff;box-shadow:0 0 0 2px var(--accent);}
+  .evca-filter-swatch.warm{filter:sepia(.34) saturate(1.24);}.evca-filter-swatch.cool{filter:hue-rotate(24deg) saturate(1.1);}
+  .evca-filter-swatch.vivid{filter:saturate(1.65) contrast(1.12);}.evca-filter-swatch.bw{filter:grayscale(1);}
+  .evca-filter-swatch.sepia{filter:sepia(.75);}.evca-filter-swatch.dramatic{filter:contrast(1.4) saturate(.8);}
+  .evca-filter-field{display:flex;flex-direction:column;gap:7px;padding:10px 0;border-bottom:1px solid rgba(255,255,255,.06);}
+  .evca-filter-reset{min-height:42px;border:1px solid var(--line);border-radius:10px;background:var(--elevated);color:var(--text);font-size:12px;font-weight:700;}
+  @media(max-width:360px){.evca-preset-grid{gap:6px;}.evca-preset{min-height:58px;}.evca-tabs{gap:5px;}.evca-tab{font-size:10px;}}
+</style>
+<script id="ethvelle-v30-clip-animations-and-filters">
+(function(){
+  'use strict';
+  const defaults = {brightness:100,contrast:100,saturation:100,hue:0,blur:0,grayscale:0,sepia:0};
+  let animCategory = 'in';
+  let panelPersistTimer = 0;
+  let previewRenderRaf = 0;
+  const visualTypes = new Set(['image','video','text']);
+  const clamp = (v,min,max)=>Math.max(min,Math.min(max,Number.isFinite(Number(v))?Number(v):min));
+  const getOverlays = ()=>typeof overlays!=='undefined' && Array.isArray(overlays) ? overlays : [];
+  const getBackgrounds = ()=>typeof backgrounds!=='undefined' && Array.isArray(backgrounds) ? backgrounds : [];
+  const selectedId = ()=>String(typeof selectedClip==='undefined' || selectedClip==null ? '' : selectedClip);
+  const isCharClipId=id=>/^(main|seg\d+)$/.test(String(id||''));
+  function selectedCharClip(){const id=selectedId();if(!isCharClipId(id)||typeof getClipByRef!=='function')return null;try{return getClipByRef(id)||null;}catch(_e){return null;}}
+  // v299: a selected character animation clip is a valid Clip-animation target as well.
+  function isVisualModel(o){return !!o&&(visualTypes.has(o.type)||o===selectedCharClip());}
+  function overlayForSelected(){return getOverlays().find(o=>String(o.id)===selectedId())||selectedCharClip()||null;}
+  function backgroundForSelected(){return getBackgrounds().find(b=>String(b.id)===selectedId())||null;}
+  function currentVisualTarget(){
+    const ov=overlayForSelected();
+    if(ov && visualTypes.has(ov.type)) return {kind:'overlay',model:ov};
+    const bg=backgroundForSelected();
+    if(bg) return {kind:'background',model:bg};
+    return null;
+  }
+  function getAnimationConfig(ov){
+    if(!ov.clipAnimations || typeof ov.clipAnimations!=='object') ov.clipAnimations={};
+    const c=ov.clipAnimations;
+    c.in = c.in || 'none'; c.out = c.out || 'none'; c.overall = c.overall || 'none';
+    c.inDuration = clamp(c.inDuration==null?0.45:c.inDuration,0.1,2.5);
+    c.outDuration = clamp(c.outDuration==null?0.45:c.outDuration,0.1,2.5);
+    c.overallDuration = clamp(c.overallDuration==null?1.2:c.overallDuration,0.25,4);
+    return c;
+  }
+  const eased = p=>{p=clamp(p,0,1);return p*p*(3-2*p);};
+  /* v362: 16 extra In/Out presets. Each one only uses the five channels every renderer already
+     understands (opacity, scale, x, y, rotation), so canvas, timeline preview and export all match. */
+  const _eo3=u=>1-Math.pow(1-u,3), _ei3=u=>u*u*u;
+  const _eoBack=(u,k)=>{k=k==null?1.70158:k;const c=u-1;return 1+(k+1)*c*c*c+k*c*c;};
+  const _eoElastic=u=>u<=0?0:u>=1?1:Math.pow(2,-9*u)*Math.sin((u*10-0.75)*(2*Math.PI/3))+1;
+  const _eoBounce=u=>{const n=7.5625,d=2.75;if(u<1/d)return n*u*u;if(u<2/d){u-=1.5/d;return n*u*u+0.75;}if(u<2.5/d){u-=2.25/d;return n*u*u+0.9375;}u-=2.625/d;return n*u*u+0.984375;};
+  const _S=(o,s,x,y,r)=>({opacity:o,scale:s,x:x,y:y,rotation:r});
+  const _mirror=fn=>(u,c)=>fn(1-u,c);
+  const EXT_PRESETS={
+    'bounce':   {in:(u,c)=>_S(Math.min(1,u*5),1,0,-c.by*(1-_eoBounce(u)),0)},
+    'elastic':  {in:(u)=>_S(Math.min(1,u*6),Math.max(0.05,_eoElastic(u)),0,0,0)},
+    'spin':     {in:(u)=>{const e=_eo3(u);return _S(Math.min(1,u*4),0.15+0.85*e,0,0,-360*(1-e));}},
+    'swirl':    {in:(u)=>{const e=_eo3(u);return _S(Math.min(1,u*3),0.05+0.95*e,0,0,-540*(1-e));}},
+    'swing':    {in:(u,c)=>_S(Math.min(1,u*5),1,0,-c.dy*0.3*(1-_eo3(u)),38*Math.pow(1-u,1.3)*Math.cos(u*Math.PI*3.5))},
+    'wobble':   {in:(u,c)=>_S(Math.min(1,u*5),1,-c.dx*0.8*(1-_eo3(u)),0,14*(1-u)*Math.sin(u*Math.PI*5))},
+    'drop':     {in:(u,c)=>_S(Math.min(1,u*4),1,0,-c.by*(1-_eoBack(u,1.1)),0)},
+    'rise':     {in:(u,c)=>_S(Math.min(1,u*4),1,0,c.by*(1-_eoBack(u,1.1)),0)},
+    'fade-left':{in:(u,c)=>_S(u,1,-c.dx*0.7*(1-_eo3(u)),0,0)},
+    'fade-right':{in:(u,c)=>_S(u,1,c.dx*0.7*(1-_eo3(u)),0,0)},
+    'fade-up':  {in:(u,c)=>_S(u,1,0,c.dy*0.7*(1-_eo3(u)),0)},
+    'fade-down':{in:(u,c)=>_S(u,1,0,-c.dy*0.7*(1-_eo3(u)),0)},
+    'whip':     {in:(u,c)=>_S(Math.min(1,u*6),1,c.bx*(1-_eoBack(u,2.4)),0,7*(1-u))},
+    'grow':     {in:(u)=>_S(Math.min(1,u*3),0.05+0.95*(1-Math.pow(1-u,2)),0,0,0)},
+    'glitch':   {in:(u,c)=>{const q=1-u,j=Math.sin(u*47)*Math.sin(u*131);
+                   return _S(Math.min(1,u*3)*(u>=0.85?1:(Math.sin(u*83+1)>-0.25?1:0.15)),1+0.05*q*Math.sin(u*61),j*c.dx*0.35*q,Math.sin(u*97)*c.dy*0.08*q,j*3*q);}},
+    'flicker':  {in:(u)=>_S(u>=0.9?1:clamp(u*1.1+0.45*Math.sin(u*70),0,1),1,0,0,0)},
+    /* v364: 16 more In/Out presets (same five channels: opacity, scale, x, y, rotation). */
+    'zoom-fade':  {in:(u)=>{const e=_eo3(u);return _S(e,1.35-0.35*e,0,0,0);}},
+    'tilt-left':  {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*3),1,-c.dx*0.9*(1-e),0,-28*(1-e));}},
+    'tilt-right': {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*3),1,c.dx*0.9*(1-e),0,28*(1-e));}},
+    'roll-left':  {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*4),1,-c.bx*(1-e),0,-360*(1-e));}},
+    'roll-right': {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*4),1,c.bx*(1-e),0,360*(1-e));}},
+    'tada':       {in:(u)=>{const e=_eo3(u);return _S(Math.min(1,u*6),0.35+0.65*e+0.12*Math.sin(u*Math.PI)*u,0,0,7*(1-u)*Math.sin(u*Math.PI*7));}},
+    'rubber':     {in:(u)=>{const e=_eo3(u);return _S(Math.min(1,u*6),0.2+0.8*e+0.22*(1-u)*Math.sin(u*Math.PI*6),0,0,0);}},
+    'zoom-spin':  {in:(u)=>{const e=_eo3(u);return _S(e,2.4-1.4*e,0,0,200*(1-e));}},
+    'slam':       {in:(u,c)=>_S(Math.min(1,u*8),1+1.7*Math.pow(1-u,3),Math.sin(u*80)*c.dx*0.05*Math.pow(1-u,2),0,0)},
+    'zoom-bounce':{in:(u)=>_S(Math.min(1,u*5),Math.max(0.05,_eoBack(u,2.6)),0,0,0)},
+    'tumble':     {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*5),1,0,-c.by*(1-_eoBounce(u)),270*(1-e));}},
+    'zigzag':     {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*4),1,c.dx*0.9*(1-u)*Math.sin(u*Math.PI*6),-c.by*(1-e),0);}},
+    'launch':     {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*5),0.75+0.25*e,0,c.by*2.2*(1-_eoBack(u,1.2)),8*(1-e));}},
+    'shiver':     {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*4),0.9+0.1*e,Math.sin(u*Math.PI*14)*c.dx*0.22*Math.pow(1-u,2),0,Math.sin(u*Math.PI*11)*4*(1-u));}},
+    'diagonal':   {in:(u,c)=>{const e=_eo3(u);return _S(Math.min(1,u*3),1,-c.dx*1.1*(1-e),-c.dy*1.1*(1-e),0);}},
+    'orbit':      {in:(u,c)=>{const e=_eo3(u),a=(1-e)*Math.PI*2.2,r=1-e;return _S(Math.min(1,u*4),0.4+0.6*e,c.dx*1.4*r*Math.cos(a),c.dy*1.4*r*Math.sin(a),0);}}
+  };
+  function extPhaseState(name,phase,progress,w,h){
+    const def=EXT_PRESETS[name];if(!def)return null;
+    const u=clamp(progress,0,1);
+    const ctx={dx:Math.max(36,w*0.18),dy:Math.max(36,h*0.18),bx:Math.max(80,w*0.45),by:Math.max(80,h*0.3)};
+    const fn=phase==='in'?def.in:(def.out||_mirror(def.in));
+    return fn(u,ctx);
+  }
+  function phaseState(name,phase,progress,w,h){
+    const p=eased(progress), out={opacity:1,scale:1,x:0,y:0,rotation:0};
+    if(!name||name==='none') return out;
+    const extState=extPhaseState(name,phase,progress,w,h);if(extState)return extState;
+    // v363: Out is the exact reverse of In (q runs 0->1 for In, 1->0 for Out).
+    const q=phase==='in'?p:1-p;
+    if(name==='fade'){out.opacity=q;return out;}
+    if(name==='zoom-in'){out.scale=0.58+0.42*q;return out;}
+    if(name==='zoom-out'){out.scale=1.32-0.32*q;return out;}
+    if(name==='pop'){out.scale=0.22+0.78*q;out.opacity=0.45+0.55*q;return out;}
+    if(name==='rotate'){out.rotation=-150*(1-q);out.scale=0.86+0.14*q;return out;}
+    const dx=Math.max(36,w*0.18),dy=Math.max(36,h*0.18);
+    if(name==='slide-left') out.x=phase==='in'?-dx*(1-p):-dx*p;
+    else if(name==='slide-right') out.x=phase==='in'?dx*(1-p):dx*p;
+    else if(name==='slide-up') out.y=dy*(1-q);
+    else if(name==='slide-down') out.y=-dy*(1-q);
+    return out;
+  }
+  window.getEthvelleClipAnimationState = function(ov,tSec){
+    const neutral={opacity:1,scale:1,x:0,y:0,rotation:0};
+    if(!ov || !ov.clipAnimations || typeof ov.clipAnimations!=='object') return neutral;
+    const c=ov.clipAnimations;
+    const start=Number(ov.trimStart)||0;
+    const end=Number.isFinite(Number(ov.trimEnd))?Number(ov.trimEnd):start;
+    const t=Number.isFinite(Number(tSec))?Number(tSec):start;
+    const len=Math.max(0.05,end-start);
+    const w=Math.max(120,Number(typeof stageW!=='undefined'?stageW:0)||360);
+    const h=Math.max(120,Number(typeof stageH!=='undefined'?stageH:0)||640);
+    const result={...neutral};
+    const add=(v)=>{result.opacity*=v.opacity;result.scale*=v.scale;result.x+=v.x;result.y+=v.y;result.rotation+=v.rotation;};
+    const inName=c.in||'none',outName=c.out||'none';
+    const inDur=Math.min(len,clamp(c.inDuration==null?0.45:c.inDuration,0.1,2.5));
+    const outDur=Math.min(len,clamp(c.outDuration==null?0.45:c.outDuration,0.1,2.5));
+    if(inName!=='none' && t<start+inDur) add(phaseState(inName,'in',(t-start)/Math.max(0.001,inDur),w,h));
+    if(outName!=='none' && t>=end-outDur) add(phaseState(outName,'out',(t-(end-outDur))/Math.max(0.001,outDur),w,h));
+    const overall=c.overall||'none';
+    if(overall!=='none' && t>=start && t<end){
+      const period=clamp(c.overallDuration==null?1.2:c.overallDuration,0.25,4);
+      const phase=((Math.max(0,t-start)%period)/period)*Math.PI*2;
+      if(overall==='pulse') result.scale*=1+0.055*(0.5+0.5*Math.sin(phase));
+      else if(overall==='zoom') result.scale*=1+0.075*(0.5+0.5*Math.sin(phase));
+      else if(overall==='float') result.y+=Math.sin(phase)*Math.min(12,h*0.025);
+      else if(overall==='shake') result.x+=Math.sin(phase*3)*Math.min(5,w*0.012);
+      else if(overall==='rotate') result.rotation+=Math.sin(phase)*4;
+      else if(overall==='heartbeat'){const f=(Math.max(0,t-start)%period)/period;const beat=Math.exp(-Math.pow((f-0.12)/0.06,2))+0.75*Math.exp(-Math.pow((f-0.3)/0.07,2));result.scale*=1+0.09*beat;}
+      else if(overall==='sway'){result.rotation+=Math.sin(phase)*6;result.x+=Math.sin(phase)*Math.min(8,w*0.02);}
+      else if(overall==='jelly'){result.scale*=1+0.07*Math.sin(phase*2);result.rotation+=Math.sin(phase*2+1)*2.2;}
+      else if(overall==='spin-loop'){result.rotation+=((Math.max(0,t-start)%period)/period)*360;}
+      else if(overall==='wiggle'){result.rotation+=Math.sin(phase*4)*3.5;result.x+=Math.sin(phase*4+0.5)*Math.min(3,w*0.008);}
+      else if(overall==='bob'){result.y-=Math.abs(Math.sin(phase/2))*Math.min(14,h*0.03);}
+      else if(overall==='breathe'){result.scale*=1+0.035*(0.5-0.5*Math.cos(phase));result.y+=Math.sin(phase)*Math.min(4,h*0.008);}
+      else if(overall==='flash'){result.opacity*=0.35+0.65*(0.5+0.5*Math.cos(phase*2));}
+    }
+    result.opacity=clamp(result.opacity,0,1);result.scale=clamp(result.scale,0.05,3);
+    return result;
+  };
+  function schedulePreview(){
+    if(previewRenderRaf) return;
+    previewRenderRaf=requestAnimationFrame(()=>{
+      previewRenderRaf=0;
+      try{if(typeof renderTimelineScrubPreview==='function')renderTimelineScrubPreview();else if(typeof renderFrame==='function')renderFrame();}catch(e){console.warn('Ethvelle preview update:',e);}
+    });
+  }
+  let clipAnimationPreviewRaf = 0;
+  let clipAnimationPreviewToken = 0;
+  function renderClipAnimationPreviewFrame(){
+    try{if(typeof renderTimelineScrubPreview==='function')renderTimelineScrubPreview();else if(typeof renderFrame==='function')renderFrame();}
+    catch(e){console.warn('Ethvelle clip preview frame:',e);}
+  }
+  function previewClipAnimationWindow(ov, category){
+    // This preview belongs to an image/video/text clip, not to the character rig. A
+    // media-only project therefore uses the same clock and compositor without a character.
+    if(!ov || !isVisualModel(ov)) return;
+    const c=getAnimationConfig(ov);
+    const start=Math.max(0,Number(ov.trimStart)||0);
+    const end=Number.isFinite(Number(ov.trimEnd))?Number(ov.trimEnd):start;
+    const len=Math.max(0,end-start);
+    if(len<0.05) return;
+
+    let from=start, to=end;
+    if(category==='in'){
+      // In: preview exactly from the clip's first frame for the chosen In duration.
+      const span=Math.min(len,clamp(c.inDuration==null?0.45:c.inDuration,0.1,2.5));
+      from=start;
+      to=start+span;
+    }else if(category==='out'){
+      // Out: preview the final part of the clip. Example: a 5s clip / 1s Out = 4s to 5s.
+      // v362: play the TAIL of the clip once: ~1s of normal playback, then the Out animation to the last frame.
+      const span=Math.min(len,clamp(c.outDuration==null?0.45:c.outDuration,0.1,2.5));
+      const lead=Math.min(1.0,Math.max(0,len-span));
+      from=end-span-lead;
+      to=end;
+    }else{
+      const cycle=clamp(c.overallDuration==null?1.2:c.overallDuration,0.25,4);
+      to=Math.min(end,start+Math.max(0.65,cycle));
+    }
+    from=Math.max(start,Math.min(end-0.04,from));
+    to=Math.max(from+0.04,Math.min(end,to));
+    const stopAt=Math.max(from,to-0.001);
+
+    // Keep the shared timeline long enough even in projects with no character at all.
+    if(typeof timelineDuration!=='undefined') timelineDuration=Math.max(Number(timelineDuration)||0,end);
+
+    // Stop a previous preview, but keep the current media clip selected in the timeline.
+    if(isPlaying) pausePlayback();
+    if(clipAnimationPreviewRaf) cancelAnimationFrame(clipAnimationPreviewRaf);
+    clipAnimationPreviewRaf=0;
+    const token=++clipAnimationPreviewToken;
+
+    seekAbsoluteTimelineSeconds(from);
+    isPlaying=true;
+    playbackStartedAtMs=performance.now();
+    playbackStartTimeSec=from;
+    const icon=document.getElementById('playIcon');
+    if(icon) icon.innerHTML='<path d="M6 5h4v14H6zM14 5h4v14h-4z"/>';
+
+    const tick=(timestamp)=>{
+      if(token!==clipAnimationPreviewToken || !isPlaying) return;
+      const t=playbackStartTimeSec+(timestamp-playbackStartedAtMs)/1000;
+      if(t>=to){
+        // Out ends on an empty/hidden clip, so park the playhead where the tail started (clip visible).
+        setCurrentAbsoluteTime(category==='out'?from:stopAt);
+        isPlaying=false;
+        clipAnimationPreviewRaf=0;
+        playbackRaf=null;
+        const playIcon=document.getElementById('playIcon');
+        if(playIcon) playIcon.innerHTML='<path d="M8 5v14l11-7z"/>';
+        renderClipAnimationPreviewFrame();
+        return;
+      }
+      setCurrentAbsoluteTime(t);
+      renderClipAnimationPreviewFrame();
+      clipAnimationPreviewRaf=requestAnimationFrame(tick);
+      playbackRaf=clipAnimationPreviewRaf;
+    };
+    clipAnimationPreviewRaf=requestAnimationFrame(tick);
+    playbackRaf=clipAnimationPreviewRaf;
+  }
+
+  function updateClipPanelRangeProgress(input){
+    if(!input || input.type!=='range') return;
+    const min=Number(input.min)||0;
+    const max=Number(input.max)||100;
+    const value=Number(input.value)||0;
+    const pct=max<=min?0:Math.max(0,Math.min(100,(value-min)/(max-min)*100));
+    input.style.setProperty('--ev-range-progress',pct+'%');
+  }
+  function initClipPanelRanges(root){
+    if(!root) return;
+    root.querySelectorAll('.evca-panel input[type="range"]').forEach(updateClipPanelRangeProgress);
+  }
+  document.addEventListener('input',function(e){
+    if(e.target && e.target.matches && e.target.matches('.evca-panel input[type="range"]')) updateClipPanelRangeProgress(e.target);
+  },true);
+
+  function schedulePersist(){
+    clearTimeout(panelPersistTimer);
+    panelPersistTimer=setTimeout(()=>{
+      try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(e){console.warn('Ethvelle filter/animation save:',e);}
+    },220);
+  }
+  function commitModelChange(model){
+    try{if(typeof persistProjectState==='function')persistProjectState();}catch(e){console.warn('Ethvelle save:',e);}
+  }
+  const animationOptions={
+    in:[['none','None'],['fade','Fade'],['zoom-in','Zoom in'],['zoom-out','Zoom out'],['slide-left','Slide left'],['slide-right','Slide right'],['slide-up','Slide up'],['slide-down','Slide down'],['pop','Pop'],['rotate','Rotate'],['bounce','Bounce'],['elastic','Elastic'],['spin','Spin'],['swirl','Swirl'],['swing','Swing'],['wobble','Wobble'],['drop','Drop'],['rise','Rise'],['fade-left','Fade left'],['fade-right','Fade right'],['fade-up','Fade up'],['fade-down','Fade down'],['whip','Whip'],['grow','Grow'],['glitch','Glitch'],['flicker','Flicker'],['zoom-fade','Zoom fade'],['tilt-left','Tilt left'],['tilt-right','Tilt right'],['roll-left','Roll left'],['roll-right','Roll right'],['tada','Ta-da'],['rubber','Rubber band'],['zoom-spin','Zoom spin'],['slam','Slam'],['zoom-bounce','Zoom bounce'],['tumble','Tumble'],['zigzag','Zigzag'],['launch','Launch'],['shiver','Shiver'],['diagonal','Diagonal'],['orbit','Orbit']],
+    out:[['none','None'],['fade','Fade out'],['zoom-in','Zoom out'],['zoom-out','Zoom in'],['slide-left','Slide right'],['slide-right','Slide left'],['slide-up','Slide down'],['slide-down','Slide up'],['pop','Pop out'],['rotate','Rotate out'],['bounce','Bounce out'],['elastic','Elastic out'],['spin','Spin out'],['swirl','Swirl out'],['swing','Swing out'],['wobble','Wobble out'],['drop','Rise'],['rise','Drop'],['fade-left','Fade right'],['fade-right','Fade left'],['fade-up','Fade down'],['fade-down','Fade up'],['whip','Whip out'],['grow','Shrink'],['glitch','Glitch out'],['flicker','Flicker out'],['zoom-fade','Zoom fade out'],['tilt-left','Tilt left out'],['tilt-right','Tilt right out'],['roll-left','Roll left out'],['roll-right','Roll right out'],['tada','Ta-da out'],['rubber','Rubber band out'],['zoom-spin','Zoom spin out'],['slam','Slam out'],['zoom-bounce','Zoom bounce out'],['tumble','Tumble out'],['zigzag','Zigzag out'],['launch','Launch out'],['shiver','Shiver out'],['diagonal','Diagonal out'],['orbit','Orbit out']],
+    overall:[['none','None'],['pulse','Pulse'],['float','Float'],['shake','Shake'],['zoom','Zoom'],['rotate','Rotate'],['heartbeat','Heartbeat'],['sway','Sway'],['jelly','Jelly'],['spin-loop','Spin loop'],['wiggle','Wiggle'],['bob','Bob'],['breathe','Breathe'],['flash','Flash']]
+  };
+  window.ethvelleSetClipAnimationCategory=function(cat){
+    if(!animationOptions[cat])return;
+    if(isPlaying) pausePlayback();
+    animCategory=cat;
+    renderClipAnimationPanel();
+    const root=document.getElementById('clipAnimSettingsBody');
+    const activeTab=root&&root.querySelector('.evca-tab.active');
+    if(activeTab){
+      activeTab.classList.add('evca-flash-selected');
+      setTimeout(()=>{if(activeTab.isConnected)activeTab.classList.remove('evca-flash-selected');},500);
+    }
+  };
+  window.ethvelleSetClipAnimationPreset=function(preset){
+    const ov=overlayForSelected();if(!ov||!isVisualModel(ov))return;
+    const c=getAnimationConfig(ov);c[animCategory]=preset;
+    if(animCategory==='in' && c.in!=='none' && c.inDuration==null)c.inDuration=0.45;
+    commitModelChange(ov);
+    renderClipAnimationPanel();
+    if(preset!=='none'){
+      try{previewClipAnimationWindow(ov,animCategory);}
+      catch(e){console.warn('Ethvelle animation playback preview:',e);}
+    }else{
+      try{if(isPlaying)pausePlayback();seekAbsoluteTimelineSeconds(Math.max(0,Number(ov.trimStart)||0));}
+      catch(e){console.warn('Ethvelle animation reset preview:',e);}
+    }
+  };
+  window.ethvelleSetClipAnimationDuration=function(value){
+    const ov=overlayForSelected();if(!ov||!isVisualModel(ov))return;
+    const c=getAnimationConfig(ov);const key=animCategory==='overall'?'overallDuration':animCategory+'Duration';
+    c[key]=clamp(value,animCategory==='overall'?0.25:0.1,animCategory==='overall'?4:2.5);
+    const output=document.getElementById('evca-duration-value');if(output)output.textContent=Number(c[key]).toFixed(2)+'s';
+    schedulePersist();
+  };
+  function clipPresetPreviewMarkup(key){
+    // Use the supplied Ethvelle animation artwork in every preset tile. The outer sprite
+    // still receives each preset's own CSS motion so the previews remain individually distinct.
+    return `<span class="evca-preview-scene" aria-hidden="true"><span class="evca-preview-sprite"><img src="https://i.postimg.cc/sgnfkvT3/Gemini-Generated-Image-ld9tt5ld9tt5ld9t.jpg" alt="" draggable="false" loading="eager" decoding="async"></span></span>`;
+  }
+  let clipAnimationSearchQuery='';
+  window.filterClipAnimationPresets=function(value){
+    clipAnimationSearchQuery=String(value||'').trim().toLowerCase();
+    const wrap=document.getElementById('clipAnimationSearchWrap');if(wrap)wrap.classList.toggle('has-query',!!clipAnimationSearchQuery);
+    const root=document.getElementById('clipAnimSettingsBody');if(!root)return;
+    let visible=0;root.querySelectorAll('.evca-preset').forEach(btn=>{const label=String(btn.querySelector('.evca-preset-label')?.textContent||'').toLowerCase(),key=String(btn.dataset.preset||'').toLowerCase(),show=!clipAnimationSearchQuery||label.includes(clipAnimationSearchQuery)||key.includes(clipAnimationSearchQuery);btn.hidden=!show;if(show)visible++;});
+    const empty=root.querySelector('#evca-animation-no-results');if(empty)empty.hidden=visible>0;
+  };
+  window.clearClipAnimationPresetSearch=function(){const input=document.getElementById('clipAnimationSearchInput');if(input)input.value='';window.filterClipAnimationPresets('');if(input)input.focus();};
+  function renderClipAnimationPanel(){
+    const root=document.getElementById('clipAnimSettingsBody');if(!root)return;
+    const ov=overlayForSelected();
+    if(!ov||!isVisualModel(ov)){
+      root.innerHTML='<p class="evca-panel-note">Select an image, video, or text clip on the timeline to add clip animations.</p>';return;
+    }
+    const c=getAnimationConfig(ov);const options=animationOptions[animCategory];const chosen=c[animCategory]||'none';
+    const durationKey=animCategory==='overall'?'overallDuration':animCategory+'Duration';
+    const duration=c[durationKey] == null ? (animCategory==='overall'?1.2:0.45) : c[durationKey];
+    const categoryLabel=animCategory==='in'?'In animation':animCategory==='out'?'Out animation':'Overall animation';
+    const shownOptions=options.filter(([key,label])=>!clipAnimationSearchQuery||key.toLowerCase().includes(clipAnimationSearchQuery)||label.toLowerCase().includes(clipAnimationSearchQuery));
+    root.innerHTML=`<div class="evca-panel">
+      <div class="evca-tabs">
+        <button type="button" class="evca-tab ${animCategory==='in'?'active':''}" onclick="window.ethvelleSetClipAnimationCategory('in')">In animation</button>
+        <button type="button" class="evca-tab ${animCategory==='out'?'active':''}" onclick="window.ethvelleSetClipAnimationCategory('out')">Out animation</button>
+        <button type="button" class="evca-tab ${animCategory==='overall'?'active':''}" onclick="window.ethvelleSetClipAnimationCategory('overall')">Overall animation</button>
+      </div>
+      <div class="editor-asset-search-wrap evca-search-wrap${clipAnimationSearchQuery?' has-query':''}" id="clipAnimationSearchWrap">
+        <svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+        <input class="editor-asset-search" id="clipAnimationSearchInput" type="search" aria-label="Search clip animations" autocomplete="off" placeholder="Search animations…" value="${escapeHtml(clipAnimationSearchQuery)}" oninput="window.filterClipAnimationPresets(this.value)">
+        <button type="button" class="editor-asset-search-clear" aria-label="Clear animation search" onclick="window.clearClipAnimationPresetSearch()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+      </div>
+      <div><div class="evca-section-title">${categoryLabel}</div><div class="evca-preset-grid">${shownOptions.map(([key,label])=>`<button type="button" class="evca-preset ${chosen===key?'active':''}" data-preset="${key}" data-animation-category="${animCategory}" aria-pressed="${chosen===key?'true':'false'}" onclick="window.ethvelleSetClipAnimationPreset('${key}')">${clipPresetPreviewMarkup(key)}<span class="evca-preset-label">${label}</span></button>`).join('')}</div><p class="evca-panel-note" id="evca-animation-no-results" ${shownOptions.length?'hidden':''}>No animations found. Try another search.</p></div>
+      <label class="evpa-range evca-range-control"><span>${animCategory==='overall'?'Cycle duration':'Duration'}<output id="evca-duration-value">${Number(duration).toFixed(2)}s</output></span><input type="range" min="${animCategory==='overall'?'0.25':'0.1'}" max="${animCategory==='overall'?'4':'2.5'}" step="0.05" value="${duration}" oninput="window.ethvelleSetClipAnimationDuration(this.value)" onchange="window.ethvellePreviewSelectedClipAnimation()"></label>
+    </div>`;
+    initClipPanelRanges(root);
+  }
+  window.ethvellePreviewSelectedClipAnimation=function(){
+    const ov=overlayForSelected();
+    if(!ov||!isVisualModel(ov))return;
+    try{previewClipAnimationWindow(ov,animCategory);}catch(e){console.warn('Ethvelle animation duration preview:',e);}
+  };
+
+  let clipFilterSearchQuery='';
+  window.filterClipFilterPresets=function(value){
+    clipFilterSearchQuery=String(value||'').trim().toLowerCase();
+    const wrap=document.getElementById('clipFilterSearchWrap');if(wrap)wrap.classList.toggle('has-query',!!clipFilterSearchQuery);
+    const root=document.getElementById('clipFilterSettingsBody');if(!root)return;
+    let visible=0;root.querySelectorAll('.evca-filter-preset').forEach(btn=>{const text=String(btn.textContent||'').toLowerCase();const show=!clipFilterSearchQuery||text.includes(clipFilterSearchQuery);btn.hidden=!show;if(show)visible++;});
+    const empty=root.querySelector('#evca-filter-no-results');if(empty)empty.hidden=visible>0;
+  };
+  window.clearClipFilterPresetSearch=function(){const input=document.getElementById('clipFilterSearchInput');if(input)input.value='';window.filterClipFilterPresets('');if(input)input.focus();};
+  const filterPresets={
+    original:{label:'Original',adjustments:{...defaults}},
+    vivid:{label:'Vivid',adjustments:{brightness:103,contrast:112,saturation:142,hue:0,blur:0,grayscale:0,sepia:0}},
+    warm:{label:'Warm',adjustments:{brightness:103,contrast:104,saturation:115,hue:-9,blur:0,grayscale:0,sepia:18}},
+    cool:{label:'Cool',adjustments:{brightness:102,contrast:108,saturation:108,hue:18,blur:0,grayscale:0,sepia:0}},
+    bw:{label:'B&W',adjustments:{brightness:100,contrast:112,saturation:100,hue:0,blur:0,grayscale:100,sepia:0}},
+    sepia:{label:'Sepia',adjustments:{brightness:101,contrast:105,saturation:82,hue:0,blur:0,grayscale:0,sepia:72}},
+    dramatic:{label:'Dramatic',adjustments:{brightness:96,contrast:132,saturation:88,hue:0,blur:0,grayscale:0,sepia:0}}
+  };
+  function normalizeAdjustments(obj){return Object.assign({},defaults,obj||{});}
+  function applySelectedFilterPreview(target){
+    if(!target||!target.model)return;
+    const model=target.model;
+    const filter=window.ethvelleAdjustmentFilter?window.ethvelleAdjustmentFilter(model.adjustments,model.enhanceAmount||0):'none';
+    if(target.kind==='overlay'){
+      const id=String(model.id);
+      const base=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[id]:null;
+      const keyed=model.type==='video'&&model.chromaKey&&model.chromaKey.enabled&&typeof overlayChromaCanvases!=='undefined'?overlayChromaCanvases[id]:null;
+      const el=keyed||base;
+      if(el&&el.style.filter!==filter)el.style.filter=filter;
+    }else{
+      const img=document.getElementById('bgImgLayer');
+      const video=document.getElementById('bgVideoLayer');
+      if(img&&img.style.filter!==filter)img.style.filter=filter;
+      if(video&&video.style.filter!==filter)video.style.filter=filter;
+    }
+  }
+  window.ethvelleSetClipFilterPreset=function(key){
+    const target=currentVisualTarget();if(!target)return;
+    const preset=filterPresets[key];if(!preset)return;
+    target.model.adjustments={...preset.adjustments};target.model.filterPreset=key;
+    target.model.enhanceAmount=0;target.model.__evltEnhanceUserSet=true;
+    applySelectedFilterPreview(target);
+    try{if(typeof persistProjectState==='function')persistProjectState();}catch(e){console.warn('Ethvelle filter save:',e);}
+    renderClipFilterPanel();
+  };
+  window.ethvelleSetClipFilterValue=function(key,value,rangeEl){
+    const target=currentVisualTarget();if(!target||!Object.prototype.hasOwnProperty.call(defaults,key))return;
+    const limits={brightness:[0,200],contrast:[0,200],saturation:[0,200],hue:[-180,180],blur:[0,12],grayscale:[0,100],sepia:[0,100]};
+    if(!target.model.adjustments)target.model.adjustments={...defaults};
+    target.model.adjustments[key]=clamp(value,limits[key][0],limits[key][1]);target.model.filterPreset='custom';target.model.enhanceAmount=0;target.model.__evltEnhanceUserSet=true;
+    const out=document.getElementById('evf-value-'+key);if(out)out.textContent=String(target.model.adjustments[key])+(key==='hue'?'°':key==='blur'?'px':'%');
+    if(rangeEl)rangeEl.setAttribute('aria-valuenow',String(target.model.adjustments[key]));
+    applySelectedFilterPreview(target);schedulePersist();
+  };
+  function renderClipFilterPanel(){
+    const root=document.getElementById('clipFilterSettingsBody');if(!root)return;
+    const target=currentVisualTarget();
+    if(!target){root.innerHTML='<p class="evca-panel-note">Select an image, video, text, or Background clip to apply a filter.</p>';return;}
+    const model=target.model;const adj=normalizeAdjustments(model.adjustments);const active=model.filterPreset||'original';
+    const sliderDefs=[
+      ['brightness','Brightness',0,200,1,'%'],['contrast','Contrast',0,200,1,'%'],['saturation','Saturation',0,200,1,'%'],
+      ['hue','Hue',-180,180,1,'°'],['blur','Blur',0,12,0.5,'px'],['grayscale','B&W',0,100,1,'%'],['sepia','Sepia',0,100,1,'%']
+    ];
+    const shownFilters=Object.entries(filterPresets).filter(([key,p])=>!clipFilterSearchQuery||key.toLowerCase().includes(clipFilterSearchQuery)||p.label.toLowerCase().includes(clipFilterSearchQuery));
+    root.innerHTML=`<div class="evca-panel">
+      <div><div class="evca-section-title">Presets</div>
+        <div class="editor-asset-search-wrap evca-search-wrap${clipFilterSearchQuery?' has-query':''}" id="clipFilterSearchWrap">
+          <svg class="editor-asset-search-icon" viewBox="0 0 24 24" aria-hidden="true"><circle cx="10.8" cy="10.8" r="6.8"></circle><path d="m16 16 4.2 4.2"></path></svg>
+          <input class="editor-asset-search" id="clipFilterSearchInput" type="search" aria-label="Search filters" autocomplete="off" placeholder="Search filters…" value="${escapeHtml(clipFilterSearchQuery)}" oninput="window.filterClipFilterPresets(this.value)">
+          <button type="button" class="editor-asset-search-clear" aria-label="Clear filter search" onclick="window.clearClipFilterPresetSearch()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M7 7l10 10M17 7L7 17"/></svg></button>
+        </div>
+        <div class="evca-filter-presets">${shownFilters.map(([key,p])=>`<button type="button" class="evca-filter-preset ${active===key?'active':''}" onclick="window.ethvelleSetClipFilterPreset('${key}')"><span class="evca-filter-swatch ${key==='original'?'':key}"></span><span>${p.label}</span></button>`).join('')}</div>
+        <p class="evca-panel-note" id="evca-filter-no-results" ${shownFilters.length?'hidden':''}>No filters found. Try another search.</p>
+      </div>
+      <div>${sliderDefs.map(([key,label,min,max,step,suffix])=>`<label class="evpa-range evca-range-control"><span>${label}<output id="evf-value-${key}">${Number(adj[key])}${suffix}</output></span><input id="evf-range-${key}" type="range" min="${min}" max="${max}" step="${step}" value="${Number(adj[key])}" oninput="window.ethvelleSetClipFilterValue('${key}',this.value,this)"></label>`).join('')}</div>
+      <button class="evca-filter-reset" type="button" onclick="window.ethvelleSetClipFilterPreset('original')">Reset filter</button>
+    </div>`;
+    initClipPanelRanges(root);
+  }
+
+  // Extension panels use the editor's established slide-up panel rather than adding a
+  // second modal or replacing the existing panel-routing logic.
+  try{
+    if(typeof panelContent!=='undefined'){
+      panelContent.clipAnimations={title:'Clip animations',body:'<div id="clipAnimSettingsBody"></div>'};
+      panelContent.clipFilter={title:'Filter',body:'<div id="clipFilterSettingsBody"></div>'};
+    }
+  }catch(e){console.warn('Ethvelle panel registration:',e);}
+  const oldOpenPanel=window.openPanel;
+  if(typeof oldOpenPanel==='function'&&!oldOpenPanel.__ethvelleV30Panels){
+    const wrappedOpenPanel=function(key){
+      const result=oldOpenPanel.apply(this,arguments);
+      if(key==='clipAnimations')renderClipAnimationPanel();
+      if(key==='clipFilter')renderClipFilterPanel();
+      return result;
+    };
+    wrappedOpenPanel.__ethvelleV30Panels=true;window.openPanel=wrappedOpenPanel;
+  }
+
+  function addToolbarTool(id,label,svg,handler){
+    const row=document.getElementById('bottomToolsClip');if(!row||document.getElementById(id))return;
+    const tool=document.createElement('div');tool.className='tool-item evca-toolbar-tool';tool.id=id;tool.setAttribute('role','button');tool.setAttribute('tabindex','0');tool.setAttribute('aria-label',label);tool.style.display='none';
+    tool.innerHTML=svg+'<span>'+label+'</span>';
+    tool.addEventListener('click',handler);tool.addEventListener('keydown',e=>{if(e.key==='Enter'||e.key===' '){e.preventDefault();handler();}});
+    const before=document.getElementById('clipTrimTool')||document.getElementById('clipForwardTool');if(before&&before.parentNode===row)row.insertBefore(tool,before);else row.appendChild(tool);
+  }
+  function bootToolbar(){
+    const animSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 16.5 8.5 12 4 7.5"/><path d="M20 7.5 15.5 12 20 16.5"/><path d="M9 5h6M9 19h6"/><path d="M12 5v14"/></svg>';
+    const filterSvg='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16M7 12h10M10 19h4"/><circle cx="8" cy="5" r="2" fill="currentColor" stroke="none"/><circle cx="15" cy="12" r="2" fill="currentColor" stroke="none"/><circle cx="12" cy="19" r="2" fill="currentColor" stroke="none"/></svg>';
+    addToolbarTool('clipOverlayAnimationTool','Clip animations',animSvg,()=>window.openPanel('clipAnimations'));
+    addToolbarTool('clipOverlayFilterTool','Filter',filterSvg,()=>window.openPanel('clipFilter'));
+    const oldSync=window.syncBottomToolsMode;
+    if(typeof oldSync==='function'&&!oldSync.__ethvelleV30Toolbar){
+      const wrappedSync=function(){
+        const r=oldSync.apply(this,arguments);
+        const a=document.getElementById('clipOverlayAnimationTool'),f=document.getElementById('clipOverlayFilterTool');
+        const ov=overlayForSelected(),bg=backgroundForSelected();
+        const canAnimate=!!ov&&isVisualModel(ov);
+        const canFilter=(!!ov&&visualTypes.has(ov.type))||!!bg;
+        if(a)a.style.display=canAnimate?'flex':'none';
+        if(f)f.style.display=canFilter?'flex':'none';
+        return r;
+      };
+      wrappedSync.__ethvelleV30Toolbar=true;window.syncBottomToolsMode=wrappedSync;
+    }
+    try{if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();}catch(e){}
+  }
+
+  // Apply the chosen animation + filter after the base renderer has updated its DOM elements.
+  // This keeps animation state independent of clip selection and avoids rewriting the core
+  // compositor, while the export path below uses the same state function for frame parity.
+  const oldRenderOverlayMedia=window.renderOverlayMedia;
+  if(typeof oldRenderOverlayMedia==='function'&&!oldRenderOverlayMedia.__ethvelleV30Animations){
+    const wrappedRenderOverlayMedia=function(tSecAbsolute){
+      const result=oldRenderOverlayMedia.apply(this,arguments);
+      try{
+        const t=Number.isFinite(Number(tSecAbsolute))?Number(tSecAbsolute):(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0);
+        getOverlays().forEach(ov=>{
+          if(!ov||!visualTypes.has(ov.type))return;
+          let el=(typeof overlayMediaEls!=='undefined'&&overlayMediaEls)?overlayMediaEls[ov.id]:null;
+          if(!el)return;
+          const keyCanvas=ov.type==='video'&&ov.chromaKey&&ov.chromaKey.enabled&&typeof overlayChromaCanvases!=='undefined'?overlayChromaCanvases[ov.id]:null;
+          const target=keyCanvas||el;
+          const tr=window.ethvelleGetTrackedOverlayTransform?window.ethvelleGetTrackedOverlayTransform(ov):(ov.transform||{});const a=window.getEthvelleClipAnimationState(ov,t);
+          const transform=`translate(${(Number(tr.offsetX)||0)+a.x}px, ${(Number(tr.offsetY)||0)+a.y}px) rotate(${(Number(tr.rotation)||0)+a.rotation}deg) scale(${(Number(tr.scale)||1)*a.scale})`+(window.ethvellePerspectiveSuffix?window.ethvellePerspectiveSuffix(ov):'');
+          if(target.style.transform!==transform)target.style.transform=transform;
+          const rawAnimationOpacity=Number(a.opacity==null?1:a.opacity);
+          const animationOpacity=Number.isFinite(rawAnimationOpacity)?Math.max(0,Math.min(1,rawAnimationOpacity)):1;
+          const rawTextOpacity=Number(ov.textOverallOpacity==null?100:ov.textOverallOpacity);
+          const textOpacityMultiplier=ov.type==='text'?(Number.isFinite(rawTextOpacity)?Math.max(0,Math.min(100,rawTextOpacity))/100:1):1;
+          const combinedOpacity=animationOpacity*textOpacityMultiplier;
+          if(target.style.opacity!==String(combinedOpacity))target.style.opacity=String(combinedOpacity);
+          const filter=window.ethvelleAdjustmentFilter?window.ethvelleAdjustmentFilter(ov.adjustments,ov.enhanceAmount||0):'none';
+          if(target.style.filter!==filter)target.style.filter=filter;
+          if(keyCanvas&&el.style.opacity!=='0')el.style.opacity='0';
+        });
+      }catch(e){console.warn('Ethvelle clip animation preview:',e);}
+      return result;
+    };
+    wrappedRenderOverlayMedia.__ethvelleV30Animations=true;window.renderOverlayMedia=wrappedRenderOverlayMedia;
+  }
+  const oldApplyBackground=window.applyBackground;
+  if(typeof oldApplyBackground==='function'&&!oldApplyBackground.__ethvelleV30Filters){
+    const wrappedApplyBackground=function(){
+      const result=oldApplyBackground.apply(this,arguments);
+      try{
+        const bg=typeof currentBackgroundClip==='function'?currentBackgroundClip(typeof currentAbsoluteTimeSec==='number'?currentAbsoluteTimeSec:0):backgroundForSelected();
+        const img=document.getElementById('bgImgLayer');
+        if(bg&&img){const filter=window.ethvelleAdjustmentFilter?window.ethvelleAdjustmentFilter(bg.adjustments,bg.enhanceAmount||0):'none';if(img.style.filter!==filter)img.style.filter=filter;}
+      }catch(e){}
+      return result;
+    };
+    wrappedApplyBackground.__ethvelleV30Filters=true;window.applyBackground=wrappedApplyBackground;
+  }
+  try{bootToolbar();}catch(e){console.warn('Ethvelle clip toolbar setup:',e);}
+})();
+</script>
+
+
+
+<!-- Ethvelle v31: restore external CapCut selection tabs, align lane badges/grips, square overlay corners. -->
+<style id="ethvelle-v31-selection-edge-overhang-fixes">
+  /* A selected row stays its own stacking context, but must not crop the side tabs that sit
+     outside the clip. The tabs are constrained to the selected clip's height, so they do not
+     enlarge the compact track or spill down into neighboring rows. */
+  
+  
+
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    
+    z-index: 30 !important;
+    box-sizing: border-box !important;
+    
+    
+  }
+  #timelineInner .anim-clip.selected {height:31px!important;min-height:31px!important;max-height:31px!important;}
+  #timelineInner .overlay-clip.selected {height:30px!important;min-height:30px!important;max-height:30px!important;}
+/* Raise specificity over the earlier text/audio radius rules: all overlay clip corners are square. */
+  #timelineInner .layer-row .overlay-clip:not([data-group="audio"]),
+  #timelineInner .layer-row .overlay-clip:not([data-group="audio"]) *,
+  #timelineInner .layer-row .overlay-clip[data-group="audio"],
+  #timelineInner .layer-row .overlay-clip[data-group="audio"] * {
+    border-radius: 0 !important;
+  }
+
+  /* Make overlay clip edges genuinely square (including text and ordinary image/video overlays).
+     Their clip content is already sized to the lane; square edges avoid rounded-looking lower-left
+     corners while the selection tabs remain free to overhang horizontally. */
+  #timelineInner .overlay-clip,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .overlay-clip::before,
+  #timelineInner .overlay-clip::after,
+  #timelineInner .overlay-clip *{
+    border-radius: 0 !important;
+  }
+
+  /* Center all visible blue trim-grip bars in compact clips. Keep the same 3px blue grip,
+     but position it geometrically at the middle instead of relying only on flex centering. */
+  #timelineInner .anim-clip .anim-clip-handle,
+  #timelineInner .overlay-clip .anim-clip-handle,
+  #timelineInner .track-clip .anim-clip-handle {
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    transform: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::before,
+  #timelineInner .overlay-clip .anim-clip-handle::before,
+  #timelineInner .track-clip .anim-clip-handle::before {
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 3px !important;
+    height: 16px !important;
+    min-height: 12px !important;
+    max-height: 16px !important;
+    margin: 0 !important;
+    transform: translate(-50%,-50%) !important;
+  }
+</style>
+
+
+
+<!-- Ethvelle v32: reliable project/media restoration, square compact overlay clips, readable names, and scrub performance. -->
+<style id="ethvelle-v32-timeline-and-media-fixes">
+  /* The layer-track's rounded clipping mask was rounding the bottom-left of clips even when
+     the clip itself had border-radius:0. Keep overlay lanes square; selected rows still allow
+     the external white trim tabs to overhang horizontally. */
+  #timelineInner .overlay-track-row .layer-track{
+    border-radius:0!important;
+  }
+  
+  #timelineInner .overlay-track-row .overlay-clip,
+  #timelineInner .overlay-track-row .overlay-clip.selected,
+  #timelineInner .overlay-track-row .overlay-clip .clip-thumb-strip,
+  #timelineInner .overlay-track-row .overlay-clip .clip-waveform,
+  #timelineInner .overlay-track-row .overlay-clip .clip-media-label,
+  #timelineInner .overlay-track-row .overlay-clip .overlay-clip-label{
+    border-radius:0!important;
+  }
+  /* Force the actual filename layer on image/video clips to remain legible in white. The source
+     clip markup already emits this label; these rules make its paint order and contrast explicit. */
+  #timelineInner .overlay-clip[data-group="clips"] .clip-media-label,
+  #timelineInner .overlay-clip[data-group="audio"] .clip-media-label-audio{
+    display:block!important;visibility:visible!important;opacity:1!important;
+    color:#fff!important;text-shadow:0 1px 3px rgba(0,0,0,.96)!important;
+    font-weight:700!important;z-index:14!important;pointer-events:none!important;
+  }
+  #timelineInner .overlay-clip[data-group="clips"] .clip-media-label{
+    left:50%!important;top:50%!important;transform:translate(-50%,-50%)!important;
+    max-width:calc(100% - 44px)!important;white-space:nowrap!important;
+    overflow:hidden!important;text-overflow:ellipsis!important;
+  }
+  #timelineInner .overlay-clip[data-group="audio"] .clip-media-label-audio{
+    left:20px!important;right:20px!important;top:50%!important;transform:translateY(-50%)!important;
+    max-width:none!important;text-align:center!important;white-space:nowrap!important;
+  }
+  /* The blue 3px grip is drawn as a centered background on the whole-height handle rather than
+     as a pseudo-element whose baseline could be shifted by inherited line-height/flex rules. */
+  #timelineInner .overlay-clip .anim-clip-handle{
+    position:absolute!important;top:0!important;bottom:0!important;height:auto!important;
+    width:20px!important;display:block!important;padding:0!important;margin:0!important;
+    transform:none!important;background:linear-gradient(var(--accent),var(--accent)) center center/3px 16px no-repeat!important;
+  }
+  #timelineInner .overlay-clip .anim-clip-handle::before{
+    content:none!important;display:none!important;
+  }
+  #timelineInner .overlay-clip .anim-clip-handle.left{left:0!important;right:auto!important;}
+  #timelineInner .overlay-clip .anim-clip-handle.right{right:0!important;left:auto!important;}
+</style>
+<script id="ethvelle-v32-project-open-restore-guard">
+(function(){
+  'use strict';
+  const original=window.openEditor;
+  if(typeof original!=='function'||original.__evV32RestoreGuard)return;
+  function latestProject(project){
+    if(!project||project.id==null)return project;
+    try{
+      const list=(typeof projects!=='undefined'&&Array.isArray(projects))?projects:[];
+      const latest=list.find(item=>String(item&&item.id)===String(project.id));
+      if(latest && !(latest.__evIndexOnly && !project.__evIndexOnly))return latest;
+      if(latest && project.__evIndexOnly)return latest;
+    }catch(_e){}
+    return project;
+  }
+  const wrapped=function(project){
+    const args=Array.from(arguments),ctx=this;
+    const restore=window.__ethvelleProjectsRestorePromise;
+    const openNow=()=>{args[0]=latestProject(args[0]);return original.apply(ctx,args);};
+    if(restore && !window.__ethvelleProjectsRestoreReady){
+      // Never open an early localStorage index entry while the full savedState/media refs are
+      // still being restored from IndexedDB. Otherwise the editor starts with an empty overlays[].
+      return restore.then(openNow,openNow);
+    }
+    return openNow();
+  };
+  wrapped.__evV32RestoreGuard=true;
+  window.openEditor=wrapped;
+})();
+</script>
+
+
+<!-- Ethvelle v33: recover legacy uploaded overlays, square compact edges, centered grips, and lower-latency scrubbing. -->
+<style id="ethvelle-v33-timeline-edge-and-label-fix">
+  /* The track itself must not round or crop the clip's bottom-left edge or its external tabs. */
+  #timelineInner .layer-row.overlay-track-row .layer-track{
+    border-radius:0!important;
+    
+    clip-path:none!important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip.selected{
+    border-radius:0!important;
+    clip-path:none!important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip.selected{
+    
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-thumb-strip,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-waveform,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-media-label,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .overlay-clip-label{
+    border-radius:0!important;
+  }
+  #timelineInner .overlay-clip[data-group="clips"] .clip-media-label,
+  #timelineInner .overlay-clip[data-group="audio"] .clip-media-label-audio{
+    display:block!important;visibility:visible!important;opacity:1!important;
+    color:#fff!important;text-shadow:0 1px 3px rgba(0,0,0,.98)!important;
+    font-weight:700!important;pointer-events:none!important;z-index:14!important;
+  }
+  /* Blue trim grips are 3px bars centered within the full 30px clip height. */
+  #timelineInner .overlay-clip .anim-clip-handle{
+    top:0!important;bottom:0!important;height:auto!important;width:20px!important;
+    display:block!important;margin:0!important;padding:0!important;transform:none!important;
+    background:linear-gradient(var(--accent),var(--accent)) center center/3px 16px no-repeat!important;
+  }
+  #timelineInner .overlay-clip .anim-clip-handle::before{content:none!important;display:none!important;}
+  #timelineInner .overlay-clip .anim-clip-handle.left{left:0!important;right:auto!important;}
+  #timelineInner .overlay-clip .anim-clip-handle.right{right:0!important;left:auto!important;}
+</style>
+
+<!-- Ethvelle v34: final compact timeline details  -  shorter selection tabs, centered grip marks, clean clip labels, full-frame thumbnails. -->
+<style id="ethvelle-v34-compact-clip-polish">
+
+  /* Draw the blue edge-grip as a dedicated absolute mark at the exact geometric center of
+     each compact clip. Avoid background-position and inherited flex/line-height differences,
+     which can make the mark appear a few pixels too low on Android WebView. Preserve the full
+     20px handle hit-area for touch trimming; only its visible mark changes. */
+  #timelineInner .anim-clip .anim-clip-handle,
+  #timelineInner .overlay-clip .anim-clip-handle,
+  #timelineInner .track-clip .anim-clip-handle {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: min(40px,33.333333%) !important;
+    min-width: min(40px,33.333333%) !important;
+    max-width: min(40px,33.333333%) !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+    transform: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::before,
+  #timelineInner .overlay-clip .anim-clip-handle::before,
+  #timelineInner .track-clip .anim-clip-handle::before {
+    content: none !important;
+    display: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::after,
+  #timelineInner .overlay-clip .anim-clip-handle::after,
+  #timelineInner .track-clip .anim-clip-handle::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 3px !important;
+    height: 16px !important;
+    min-height: 12px !important;
+    max-height: 16px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 1.5px !important;
+    background: var(--accent, #2F5CE8) !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+  }
+
+  /* The media filename is useful in project data, not painted over a short timeline strip.
+     Hide only source-file labels inside overlay clips. Keep the Background watermark and the
+     intentional text-layer label (e.g. “T · Hi”) visible. */
+  #timelineInner .overlay-clip .clip-media-label,
+  #timelineInner .overlay-clip .clip-media-label-audio {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+
+  /* Video preview aspect and tile placement are owned by .ev-video-thumbs. */
+</style>
+
+
+
+<!-- Ethvelle v35: final precedence-safe fixes for compact timeline selection, grip centering, filenames, and full-frame thumbnails. -->
+<style id="ethvelle-v35-compact-timeline-final-fixes">
+
+  /* Keep each trim hit-area full height, but draw only its small blue grip mark at the
+     exact center of the actual clip box (not the lane, label, or selected border). */
+  #timelineInner .anim-clip .anim-clip-handle,
+  #timelineInner .overlay-clip .anim-clip-handle,
+  #timelineInner .track-clip .anim-clip-handle {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: min(40px,33.333333%) !important;
+    min-width: min(40px,33.333333%) !important;
+    max-width: min(40px,33.333333%) !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: none !important;
+    transform: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::before,
+  #timelineInner .overlay-clip .anim-clip-handle::before,
+  #timelineInner .track-clip .anim-clip-handle::before {
+    content: none !important;
+    display: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::after,
+  #timelineInner .overlay-clip .anim-clip-handle::after,
+  #timelineInner .track-clip .anim-clip-handle::after {
+    content: "" !important;
+    display: block !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 3px !important;
+    height: 15px !important;
+    min-height: 12px !important;
+    max-height: 15px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 1.5px !important;
+    background: var(--accent, #2F5CE8) !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: none !important;
+    pointer-events: none !important;
+  }
+
+  /* File names are stored with the source clip but are not displayed over the thin strip.
+     These selectors deliberately match/beat older, more-specific `display:block` rules. */
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="clips"] .clip-media-label,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="audio"] .clip-media-label-audio,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-media-label,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-media-label-audio {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    color: transparent !important;
+    text-shadow: none !important;
+  }
+
+  /* A thin row must not crop the source frame inside each thumbnail cell. Fit each image/video
+     frame completely inside its cell and center the letterboxed image vertically and horizontally. */
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-thumb-strip img,
+  #timelineInner .track-clip .clip-thumb-strip img {
+    object-fit: contain !important;
+    object-position: center center !important;
+    background-color: #303038 !important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-thumb-strip,
+  #timelineInner .track-clip .clip-thumb-strip {
+    overflow: hidden !important;
+    background-position: center center !important;
+  }
+  /* Preserve the original aspect ratio for a single image used as a CSS background. */
+  #timelineInner .layer-row.overlay-track-row .overlay-clip .clip-thumb-strip[style*="background-image"] {
+    background-size: auto 100% !important;
+    background-repeat: repeat-x !important;
+  }
+</style>
+
+
+<!-- Ethvelle v36: centered visible blue trim marks, external non-overlapping selection tabs, plain filename watermarks. -->
+<style id="ethvelle-v36-clip-grips-and-watermark-final">
+  /* Let the short side tabs live completely outside the clip without being clipped by its row.
+     The top/bottom white lines remain 2px thick; tabs start/end at those lines, matching v32. */
+  
+  
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    
+    z-index: 60 !important;
+    isolation: isolate !important;
+  }
+
+  /* The blue trim marks are real visible pseudo-elements on the full-height handle. Explicitly
+     center them on the handle box for selected AND unselected clips; do not rely on line-height,
+     inherited flex alignment, or the older ::before mark. */
+  #timelineInner .anim-clip .anim-clip-handle,
+  #timelineInner .overlay-clip .anim-clip-handle,
+  #timelineInner .track-clip .anim-clip-handle {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: min(40px,33.333333%) !important;
+    min-width: min(40px,33.333333%) !important;
+    max-width: min(40px,33.333333%) !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    transform: none !important;
+    background: none !important;
+    z-index: 12 !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle.left,
+  #timelineInner .overlay-clip .anim-clip-handle.left,
+  #timelineInner .track-clip .anim-clip-handle.left { left: 0 !important; right: auto !important; }
+  #timelineInner .anim-clip .anim-clip-handle.right,
+  #timelineInner .overlay-clip .anim-clip-handle.right,
+  #timelineInner .track-clip .anim-clip-handle.right { right: 0 !important; left: auto !important; }
+  #timelineInner .anim-clip .anim-clip-handle::before,
+  #timelineInner .overlay-clip .anim-clip-handle::before,
+  #timelineInner .track-clip .anim-clip-handle::before {
+    content: none !important;
+    display: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::after,
+  #timelineInner .overlay-clip .anim-clip-handle::after,
+  #timelineInner .track-clip .anim-clip-handle::after {
+    content: "" !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 3px !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 1.5px !important;
+    background: #2F5CE8 !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: none !important;
+    filter: none !important;
+    pointer-events: none !important;
+    z-index: 13 !important;
+  }
+
+  /* Show source filenames as simple watermark labels on visual/audio overlay clips. Plain white,
+     centered, slightly translucent; explicitly no shadow, outline, filter, glow, or badge. */
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="clips"] .clip-media-label,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="audio"] .clip-media-label-audio {
+    display: block !important;
+    visibility: visible !important;
+    opacity: .76 !important;
+    color: #fff !important;
+    font-size: 9px !important;
+    font-weight: 600 !important;
+    line-height: 1.15 !important;
+    text-align: center !important;
+    text-shadow: none !important;
+    -webkit-text-stroke: 0 !important;
+    filter: none !important;
+    box-shadow: none !important;
+    background: transparent !important;
+    pointer-events: none !important;
+    z-index: 14 !important;
+    max-width: calc(100% - 44px) !important;
+    white-space: nowrap !important;
+    overflow: hidden !important;
+    text-overflow: ellipsis !important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="clips"] .clip-media-label {
+    left: 50% !important;
+    top: 50% !important;
+    right: auto !important;
+    transform: translate(-50%, -50%) !important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip[data-group="audio"] .clip-media-label-audio {
+    left: 20px !important;
+    right: 20px !important;
+    top: 50% !important;

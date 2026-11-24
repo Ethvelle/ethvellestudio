@@ -1,0 +1,1000 @@
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+})();
+</script>
+
+
+
+<!-- Ethvelle editor UX update: full-screen export flow, import progress, crisp filmstrips, track-follow selection. -->
+<style id="ethvelle-export-import-v10-css">
+  /* Full-screen export settings page; keep the existing plan/credit gates intact. */
+  #exportModalBackdrop.evlt-export-fullscreen.active{position:fixed!important;inset:0!important;padding:0!important;align-items:stretch!important;justify-content:stretch!important;background:rgba(4,5,9,.97)!important;backdrop-filter:blur(16px)!important;z-index:100050!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .modal-sheet{width:100%!important;max-width:none!important;height:100%!important;max-height:100dvh!important;min-height:100dvh!important;border-radius:0!important;margin:0!important;padding:calc(18px + env(safe-area-inset-top)) 18px calc(20px + env(safe-area-inset-bottom))!important;overflow-y:auto!important;overscroll-behavior:contain!important;background:radial-gradient(ellipse at 90% 0%,rgba(47,92,232,.20),transparent 42%),#0F0F12!important;border:0!important;box-shadow:none!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .sheet-handle,#exportModalBackdrop.evlt-export-fullscreen .sheet-title,#exportModalBackdrop.evlt-export-fullscreen .sheet-sub{display:none!important;}
+  .evlt-export-head{display:flex;align-items:center;gap:13px;padding:4px 0 24px;border-bottom:1px solid rgba(255,255,255,.08);margin-bottom:22px;}
+  .evlt-export-back{width:42px;height:42px;flex:0 0 42px;border-radius:13px;display:grid;place-items:center;background:#202027;border:1px solid #353541;color:#F5F5F7;}
+  .evlt-export-back svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .evlt-export-brand{font-size:10px;letter-spacing:.18em;font-weight:800;color:#86A5FF;margin-bottom:4px;}
+  .evlt-export-head h1{font-size:23px;line-height:1.15;font-weight:800;letter-spacing:-.035em;margin:0 0 4px;color:#F5F5F7;}
+  .evlt-export-head p{font-size:12.5px;line-height:1.4;margin:0;color:#A0A0AD;}
+  #exportModalBackdrop.evlt-export-fullscreen .field-label{font-size:13px!important;font-weight:800!important;letter-spacing:.02em!important;color:#F5F5F7!important;margin:0 0 12px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid{display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;gap:9px!important;margin-bottom:8px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid .ratio-opt{min-height:94px!important;border-radius:14px!important;background:#17171C!important;border:1px solid #343440!important;position:relative!important;gap:9px!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid .ratio-opt.selected{background:linear-gradient(150deg,rgba(47,92,232,.22),#17171C)!important;border-color:#5E81FF!important;box-shadow:inset 0 0 0 1px rgba(94,129,255,.22)!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid .ratio-opt.locked{opacity:.43!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportQualityGrid .quality-shape{border-color:#697CA9!important;background:linear-gradient(145deg,#30374A,#191B25)!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .ratio-label{font-size:13px!important;font-weight:800!important;color:#F5F5F7!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .quality-plan-hint{color:#A7B5D8!important;font-size:12px!important;line-height:1.45!important;}
+  .evlt-export-settings{margin-top:24px;}
+  .evlt-export-section-title{font-size:13px;font-weight:800;color:#F5F5F7;margin:0 0 12px;}
+  .evlt-export-controls{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+  .evlt-export-field{min-width:0;background:#17171C;border:1px solid #30303A;border-radius:13px;padding:11px 12px;}
+  .evlt-export-field label{display:block;color:#A7A7B4;font-size:11px;font-weight:700;margin-bottom:8px;}
+  .evlt-export-field select{width:100%;min-height:37px;max-width:100%;border:1px solid #393946;border-radius:9px;background:#22222B;color:#F5F5F7;font-size:13px;font-weight:700;padding:0 9px;outline:none;}
+  .evlt-export-info-card{margin-top:16px;padding:15px;background:linear-gradient(145deg,#1B1B24,#141419);border:1px solid #30303A;border-radius:16px;}
+  .evlt-export-info-title{display:flex;align-items:center;justify-content:space-between;gap:12px;font-size:13px;font-weight:800;margin-bottom:12px;color:#F5F5F7;}
+  .evlt-export-info-title span{font-size:10px;letter-spacing:.08em;color:#8EAFFF;font-weight:800;text-transform:uppercase;}
+  .evlt-export-info-grid{display:grid;grid-template-columns:1fr 1fr;gap:13px 12px;}
+  .evlt-export-info-item{min-width:0;}
+  .evlt-export-info-item span{display:block;font-size:10.5px;color:#9292A0;margin-bottom:4px;}
+  .evlt-export-info-item strong{display:block;font-size:13px;line-height:1.3;color:#F4F5FC;font-weight:800;overflow-wrap:anywhere;}
+  .evlt-export-info-item strong.evlt-info-accent{color:#A7BEFF;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportCreditEstimate{display:none!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn{position:sticky;bottom:0;z-index:3;margin-top:22px!important;min-height:52px!important;border-radius:14px!important;background:linear-gradient(110deg,#4776FF,#2F5CE8 60%,#2446B6)!important;box-shadow:0 9px 24px rgba(47,92,232,.24)!important;}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn:disabled{filter:grayscale(.3);box-shadow:none!important;}
+  @media(max-width:360px){#exportModalBackdrop.evlt-export-fullscreen .modal-sheet{padding-left:13px!important;padding-right:13px!important}.evlt-export-controls{grid-template-columns:1fr 1fr;gap:7px}.evlt-export-field{padding:9px}.evlt-export-info-card{padding:12px}}
+
+  /* Dedicated full-screen export renderer inspired by familiar mobile editor workflows. */
+  #evltExportProgressScreen{position:fixed;inset:0;z-index:100200;display:none;flex-direction:column;align-items:center;justify-content:space-between;padding:calc(24px + env(safe-area-inset-top)) 22px calc(24px + env(safe-area-inset-bottom));overflow-y:auto;color:#F5F5F7;background:radial-gradient(ellipse at 50% 38%,rgba(47,92,232,.18),transparent 45%),radial-gradient(ellipse at 100% 0%,rgba(76,110,244,.12),transparent 38%),#08090D;}
+  #evltExportProgressScreen.active{display:flex;animation:evltExportFadeIn .22s ease-out both;}
+  @keyframes evltExportFadeIn{from{opacity:0}to{opacity:1}}
+  .evlt-export-progress-top{width:100%;display:flex;align-items:center;justify-content:space-between;gap:12px;}
+  .evlt-export-progress-brand{font-size:11px;letter-spacing:.2em;color:#9DB5FF;font-weight:900;}
+  .evlt-export-live-pill{display:flex;align-items:center;gap:7px;color:#B4B8C8;background:#171821;border:1px solid #2A2C3B;padding:7px 10px;border-radius:99px;font-size:10px;font-weight:800;letter-spacing:.08em;}
+  .evlt-export-live-dot{width:6px;height:6px;border-radius:50%;background:#6F95FF;box-shadow:0 0 12px #6F95FF;animation:evltLiveBlink 1.2s infinite;}
+  @keyframes evltLiveBlink{50%{opacity:.25;transform:scale(.7)}}
+  .evlt-export-center{width:100%;max-width:390px;margin:auto;display:flex;flex-direction:column;align-items:center;text-align:center;padding:28px 0 34px;}
+  .evlt-render-art{width:190px;height:190px;position:relative;display:grid;place-items:center;margin-bottom:30px;}
+  .evlt-render-ring{position:absolute;inset:8px;border:1px solid rgba(117,148,255,.34);border-radius:50%;animation:evltOrbit 8s linear infinite;}
+  .evlt-render-ring::before{content:'';position:absolute;top:10px;left:33px;width:9px;height:9px;border-radius:50%;background:#93ACFF;box-shadow:0 0 18px rgba(91,130,255,.9);}
+  .evlt-render-ring.r2{inset:24px;border-style:dashed;border-color:rgba(110,140,255,.28);animation-direction:reverse;animation-duration:12s;}
+  .evlt-render-ring.r2::before{top:auto;left:auto;bottom:16px;right:9px;width:6px;height:6px;background:#7C5CFF;}
+  @keyframes evltOrbit{to{transform:rotate(360deg)}}
+  .evlt-render-core{width:104px;height:104px;border-radius:30px;display:grid;place-items:center;background:linear-gradient(145deg,#243A79,#111725 75%);border:1px solid rgba(133,159,255,.56);box-shadow:0 0 0 8px rgba(47,92,232,.06),0 0 46px rgba(47,92,232,.24),inset 0 1px 0 rgba(255,255,255,.16);animation:evltCorePulse 2.4s ease-in-out infinite;}
+  .evlt-render-core svg{width:42px;height:42px;stroke:#D8E2FF;fill:none;stroke-width:1.7;stroke-linecap:round;stroke-linejoin:round;}
+  @keyframes evltCorePulse{0%,100%{transform:scale(.96);filter:brightness(.95)}50%{transform:scale(1.035);filter:brightness(1.18)}}
+  .evlt-render-particles{position:absolute;inset:0;pointer-events:none;}
+  .evlt-render-particles i{position:absolute;width:4px;height:4px;border-radius:50%;background:#7F9DFF;box-shadow:0 0 12px #6486FF;animation:evltParticle 2.8s ease-in-out infinite;}
+  .evlt-render-particles i:nth-child(1){left:18%;top:35%;animation-delay:-.8s}.evlt-render-particles i:nth-child(2){right:14%;top:27%;animation-delay:-1.6s}.evlt-render-particles i:nth-child(3){right:23%;bottom:14%;animation-delay:-.3s}.evlt-render-particles i:nth-child(4){left:26%;bottom:18%;animation-delay:-2s}
+  @keyframes evltParticle{0%,100%{opacity:.25;transform:translateY(5px) scale(.7)}50%{opacity:1;transform:translateY(-7px) scale(1.3)}}
+  .evlt-export-complete-icon{display:none;width:104px;height:104px;border-radius:30px;place-items:center;background:linear-gradient(145deg,#0E6B4E,#14362E);border:1px solid rgba(74,222,170,.5);box-shadow:0 0 42px rgba(52,211,153,.16);}
+  .evlt-export-complete-icon svg{width:42px;height:42px;stroke:#8EF4CD;fill:none;stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;}
+  #evltExportProgressScreen.done .evlt-render-ring,#evltExportProgressScreen.done .evlt-render-particles{display:none}
+  #evltExportProgressScreen.done .evlt-render-core{display:none}
+  #evltExportProgressScreen.done .evlt-export-complete-icon{display:grid;animation:evltCorePulse 1.4s ease-in-out infinite;}
+  .evlt-render-overline{font-size:10px;letter-spacing:.2em;color:#849BD6;font-weight:900;margin-bottom:11px;}
+  #evltExportProgressTitle{font-size:25px;line-height:1.16;letter-spacing:-.04em;margin:0 0 10px;font-weight:900;}
+  #evltExportProgressSubtitle{max-width:29ch;font-size:13px;line-height:1.55;color:#A5A8B8;margin:0 auto;}
+  .evlt-export-progress-card{width:100%;max-width:420px;background:rgba(19,20,28,.9);border:1px solid #2B2D3B;border-radius:19px;padding:18px 17px 15px;box-shadow:0 14px 45px rgba(0,0,0,.24);}
+  .evlt-export-progress-row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:12px;}
+  #evltExportProgressPhase{font-size:12px;font-weight:700;color:#B2B5C6;}
+  #evltExportProgressPercent{font-size:20px;font-weight:900;letter-spacing:-.04em;color:#E8EDFF;font-variant-numeric:tabular-nums;}
+  .evlt-export-progress-track{height:7px;border-radius:20px;background:#282A37;overflow:hidden;position:relative;}
+  #evltExportProgressFill{height:100%;width:0%;border-radius:inherit;background:linear-gradient(90deg,#2F5CE8,#83A0FF);box-shadow:0 0 16px rgba(67,112,255,.4);transition:width .2s ease;position:relative;overflow:hidden;}
+  #evltExportProgressFill::after{content:'';position:absolute;inset:0;background:linear-gradient(100deg,transparent,rgba(255,255,255,.55),transparent);transform:translateX(-100%);animation:evltProgressShimmer 1.5s linear infinite;}
+  @keyframes evltProgressShimmer{to{transform:translateX(100%)}}
+  .evlt-export-specs{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;}
+  .evlt-export-specs span{background:#20222D;border:1px solid #303342;color:#AEB8DA;border-radius:9px;padding:7px 9px;font-size:10px;font-weight:800;}
+  .evlt-export-bottom{font-size:11px;line-height:1.5;text-align:center;color:#767B8E;max-width:32ch;margin-top:20px;}
+
+  /* Darkened import backdrop with visible percentage for long device videos. */
+  #evltImportProgressBackdrop{position:fixed;inset:0;z-index:100150;display:none;align-items:center;justify-content:center;padding:24px;background:rgba(3,4,8,.86);backdrop-filter:blur(13px);-webkit-backdrop-filter:blur(13px);}
+  #evltImportProgressBackdrop.active{display:flex;animation:evltExportFadeIn .16s ease-out both;}
+  .evlt-import-card{width:min(100%,330px);padding:25px 22px 22px;text-align:center;border-radius:23px;background:linear-gradient(155deg,#1B1D28,#111217 75%);border:1px solid rgba(133,150,210,.26);box-shadow:0 24px 80px rgba(0,0,0,.5);}
+  .evlt-import-spinner{width:74px;height:74px;border-radius:50%;margin:0 auto 19px;display:grid;place-items:center;position:relative;background:conic-gradient(from 0deg,#7294FF 0%,#2F5CE8 var(--evlt-import-deg,0deg),#292B38 var(--evlt-import-deg,0deg),#292B38 100%);}
+  .evlt-import-spinner::before{content:'';position:absolute;inset:5px;border-radius:50%;background:#151721;}
+  .evlt-import-spinner::after{content:'';position:absolute;inset:-4px;border-radius:50%;border:2px solid transparent;border-top-color:#9CB4FF;border-right-color:#547AFF;animation:evltOrbit 1.05s linear infinite;}
+  .evlt-import-spinner svg{width:28px;height:28px;position:relative;z-index:1;stroke:#B7C7FF;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;}
+  #evltImportPercent{font-size:29px;font-weight:900;letter-spacing:-.05em;font-variant-numeric:tabular-nums;margin:0 0 7px;color:#F1F4FF;}
+  #evltImportTitle{font-size:16px;font-weight:800;margin:0 0 7px;line-height:1.3;}
+  #evltImportPhase{font-size:12px;line-height:1.5;color:#A6AABD;margin:0 auto 16px;overflow-wrap:anywhere;}
+  .evlt-import-bar{height:5px;width:100%;border-radius:20px;background:#292B38;overflow:hidden;}
+  #evltImportFill{height:100%;width:0%;border-radius:inherit;background:linear-gradient(90deg,#2F5CE8,#92A8FF);transition:width .18s ease;}
+  #evltImportFileName{margin-top:13px;color:#74798C;font-size:10.5px;overflow-wrap:anywhere;line-height:1.4;}
+  /* Higher-resolution contact-sheet frames, rendered without added blur or filters. */
+</style>
+<script id="ethvelle-export-import-v10-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const backdrop=$('exportModalBackdrop');
+  const sheet=backdrop&&backdrop.querySelector('.modal-sheet');
+  if(backdrop&&sheet){
+    backdrop.classList.add('evlt-export-fullscreen');
+    if(!sheet.querySelector('.evlt-export-head')){
+      const head=document.createElement('div');head.className='evlt-export-head';
+      head.innerHTML='<button type="button" class="evlt-export-back" aria-label="Back" onclick="closeExportSheet()"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 18l-6-6 6-6"/></svg></button><div><div class="evlt-export-brand">ETHVELLE STUDIO</div><h1>Export video</h1></div>';
+      sheet.insertBefore(head,sheet.firstChild);
+      const settings=document.createElement('section');settings.className='evlt-export-settings';settings.id='evltExportAdvancedSettings';
+      settings.innerHTML='<h3 class="evlt-export-section-title">Output settings</h3><div class="evlt-export-controls"><div class="evlt-export-field"><label for="evltExportFrameRate">Frame rate</label><select id="evltExportFrameRate"><option value="24">24 fps · Cinematic</option><option value="30" selected>30 fps · Standard</option><option value="60">60 fps · Smooth</option></select></div><div class="evlt-export-field"><label for="evltExportBitrate">Bitrate</label><select id="evltExportBitrate"><option value="recommended" selected>Recommended</option><option value="high">High quality</option></select></div></div>'+
+        '<div class="evlt-export-info-card"><div class="evlt-export-info-title">Video details <span>Output estimate</span></div><div class="evlt-export-info-grid"><div class="evlt-export-info-item"><span>Resolution</span><strong id="evltExportResolution">720 × 1280</strong></div><div class="evlt-export-info-item"><span>Duration</span><strong id="evltExportDuration">0:00</strong></div><div class="evlt-export-info-item"><span>Frame rate</span><strong id="evltExportFrameRateReadout">30 fps</strong></div><div class="evlt-export-info-item"><span>Estimated file size</span><strong id="evltExportSize"> - </strong></div></div></div>'+
+        '<div class="evlt-export-info-card"><div class="evlt-export-info-title">Credits & plan <span>Account</span></div><div class="evlt-export-info-grid"><div class="evlt-export-info-item"><span>Current plan</span><strong id="evltExportPlan">Free</strong></div><div class="evlt-export-info-item"><span>Available credits</span><strong id="evltExportBalance"> - </strong></div><div class="evlt-export-info-item"><span>Estimated export cost</span><strong class="evlt-info-accent" id="evltExportCost"> - </strong></div><div class="evlt-export-info-item"><span>Monthly exports</span><strong id="evltExportMonthly"> - </strong></div><div class="evlt-export-info-item"><span>Maximum quality on plan</span><strong id="evltExportMaxQuality">720p</strong></div><div class="evlt-export-info-item"><span>Encoding</span><strong id="evltExportFormat">WebM video</strong></div></div></div>';
+      const confirm=$('exportConfirmBtn');if(confirm&&confirm.parentNode)confirm.parentNode.insertBefore(settings,confirm);
+      const fps=$('evltExportFrameRate');if(fps)fps.addEventListener('change',()=>{window.exportFrameRate=Number(fps.value)||30;refreshExportInfo();});
+      const bitrate=$('evltExportBitrate');if(bitrate)bitrate.addEventListener('change',()=>{window.exportBitrateMode=bitrate.value||'recommended';refreshExportInfo();});
+    }
+  }
+
+  // Keep output controls scrollable while the primary Export button stays attached to
+  // a full-width bottom action bar (not floating over the settings content).
+  if(sheet&&$('exportConfirmBtn')&&!sheet.querySelector('.evlt-export-body')){
+    const body=document.createElement('div');body.className='evlt-export-body';
+    const footer=document.createElement('div');footer.className='evlt-export-footer';
+    const confirm=$('exportConfirmBtn');
+    const protectedNodes=new Set([sheet.querySelector('.evlt-export-head'),confirm,...Array.from(sheet.querySelectorAll('.sheet-handle,.sheet-title,.sheet-sub'))].filter(Boolean));
+    Array.from(sheet.children).forEach(child=>{if(!protectedNodes.has(child))body.appendChild(child);});
+    footer.appendChild(confirm);sheet.appendChild(body);sheet.appendChild(footer);
+  }
+
+  function clamp(v,a,b){return Math.max(a,Math.min(b,Number(v)||0));}
+  function fmtTime(seconds){seconds=Math.max(0,Math.round(Number(seconds)||0));const m=Math.floor(seconds/60),s=seconds%60;return m+':'+String(s).padStart(2,'0');}
+  function effectiveBitrate(){const custom=Number(window.exportBitrateMbps);if(custom>0)return Math.round(custom*1000000);const q=Number(typeof exportQuality!=='undefined'?exportQuality:720);const base=q>=2160?16000000:q>=1440?12000000:q>=1080?8000000:q>=720?5000000:2500000;return Math.round(base*(window.exportBitrateMode==='high'?1.4:1)*(Math.max(24,Math.min(60,Number(window.exportFrameRate)||30))/30));}
+  function refreshExportInfo(){
+    try{
+      const duration=typeof getExportContentDurationSec==='function'?getExportContentDurationSec():0.1;
+      const q=Number(typeof exportQuality!=='undefined'?exportQuality:720),fps=Math.max(24,Math.min(60,Number(window.exportFrameRate)||30));
+      let dims={w:q,h:Math.round(q*16/9)};try{if(typeof qualityToHeight==='function')dims=qualityToHeight(q);}catch(_e){}
+      const set=(id,value)=>{const el=$(id);if(el)el.textContent=value;};
+      set('evltExportResolution',`${dims.w} × ${dims.h}`);set('evltExportDuration',fmtTime(duration));set('evltExportFrameRateReadout',fps+' fps');
+      const mb=effectiveBitrate()*duration/8/1024/1024;set('evltExportSize',mb>=1024?(mb/1024).toFixed(2)+' GB':Math.max(.1,mb).toFixed(1)+' MB');
+      const plan=typeof getMyPlanData==='function'?getMyPlanData():{name:'Free',maxQuality:720};
+      const cost=typeof calculateExportCreditCost==='function'?calculateExportCreditCost(q,duration):0;
+      const enabled=typeof getCreditSettings==='function'?getCreditSettings().enabled:true;
+      set('evltExportPlan',String(plan.name||((typeof getMyActivePlanName==='function'&&getMyActivePlanName())||'Free')));
+      set('evltExportBalance',typeof currentUser!=='undefined'&&currentUser?Number(typeof myCreditsBalance!=='undefined'?myCreditsBalance:0).toLocaleString()+' credits':'Sign in required');
+      set('evltExportCost',enabled?Number(cost).toLocaleString()+' credits':'Credits disabled');
+      const used=typeof getExportsUsedThisMonth==='function'?getExportsUsedThisMonth():0;
+      const cap=plan.maxExports;
+      set('evltExportMonthly',plan.unlimitedExports?'Unlimited · '+used+' used':(cap==null?'No monthly cap · '+used+' used':Math.max(0,Number(cap)-used)+' left · '+used+'/'+cap));
+      set('evltExportMaxQuality',(Number(plan.maxQuality)||720)+'p');
+      set('evltExportFormat','WebM · '+(window.exportBitrateMode==='high'?'High bitrate':'Recommended bitrate'));
+    }catch(err){console.warn('Ethvelle export details:',err);}
+  }
+  const prevEstimate=window.renderExportCreditEstimate;
+  if(typeof prevEstimate==='function'&&!prevEstimate.__evltInfoWrapped){
+    const wrapped=function(){const out=prevEstimate.apply(this,arguments);refreshExportInfo();return out;};wrapped.__evltInfoWrapped=true;window.renderExportCreditEstimate=wrapped;
+  }
+  const prevOpen=window.openExportSheet;
+  if(typeof prevOpen==='function'&&!prevOpen.__evltFullPage){
+    const wrapped=function(){const out=prevOpen.apply(this,arguments);refreshExportInfo();return out;};wrapped.__evltFullPage=true;window.openExportSheet=wrapped;
+  }
+  const prevQuality=window.selectExportQuality;
+  if(typeof prevQuality==='function'&&!prevQuality.__evltInfoWrapped){
+    const wrapped=function(){const out=prevQuality.apply(this,arguments);refreshExportInfo();return out;};wrapped.__evltInfoWrapped=true;window.selectExportQuality=wrapped;
+  }
+
+  // Create persistent dark overlays, not toast replacements, so progress stays visible on phones.
+  if(!$('evltImportProgressBackdrop')){
+    const el=document.createElement('div');el.id='evltImportProgressBackdrop';el.setAttribute('role','status');el.setAttribute('aria-live','polite');
+    el.innerHTML='<div class="evlt-import-card"><div class="evlt-import-spinner" id="evltImportSpinner"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/></svg></div><p id="evltImportPercent">0%</p><h2 id="evltImportTitle">Adding video</h2><div class="evlt-import-bar"><div id="evltImportFill"></div></div><div id="evltImportFileName" aria-live="polite"></div></div>';
+    document.body.appendChild(el);
+  }
+  window.__ethvelleImportBegin=function(fileName){const el=$('evltImportProgressBackdrop');if(!el)return;el.dataset.startedAt=String(Date.now());el.classList.add('active');el.style.display='flex';const title=$('evltImportTitle');if(title)title.textContent='Adding video to project';const nameEl=$('evltImportFileName');if(nameEl){nameEl.textContent=String(fileName||'').trim();nameEl.style.display=nameEl.textContent?'block':'none';}window.__ethvelleImportProgress(4,'');};
+  window.__ethvelleImportProgress=function(pct,phase){const val=clamp(pct,0,100),el=$('evltImportProgressBackdrop');if(!el)return;const percent=$('evltImportPercent'),fill=$('evltImportFill'),spinner=$('evltImportSpinner'),text=$('evltImportPhase');if(percent)percent.textContent=Math.round(val)+'%';if(fill)fill.style.width=val+'%';if(spinner)spinner.style.setProperty('--evlt-import-deg',(val*3.6)+'deg');if(text&&phase)text.textContent=phase;};
+  window.__ethvelleImportComplete=function(){window.__ethvelleImportProgress(100,'Clip added  -  finishing project update…');const el=$('evltImportProgressBackdrop');if(el){const title=$('evltImportTitle');if(title)title.textContent='Video added';setTimeout(()=>{el.classList.remove('active');el.style.display='none';},420);}};
+  window.__ethvelleImportFail=function(message){const el=$('evltImportProgressBackdrop');if(!el)return;const title=$('evltImportTitle'),phase=$('evltImportPhase');if(title)title.textContent='Could not add video';if(phase)phase.textContent=message||'Please try choosing the clip again.';setTimeout(()=>{el.classList.remove('active');el.style.display='none';},1200);};
+
+  if(!$('evltExportProgressScreen')){
+    const el=document.createElement('div');el.id='evltExportProgressScreen';el.setAttribute('role','status');el.setAttribute('aria-live','polite');
+    el.innerHTML='<div class="evlt-export-progress-top"><div class="evlt-export-progress-brand">ETHVELLE STUDIO</div><div class="evlt-export-live-pill"><i class="evlt-export-live-dot"></i><span>RENDERING</span></div></div><div class="evlt-export-center"><div class="evlt-render-art"><div class="evlt-render-ring"></div><div class="evlt-render-ring r2"></div><div class="evlt-render-particles"><i></i><i></i><i></i><i></i></div><div class="evlt-render-core"><svg viewBox="0 0 24 24"><rect x="3" y="5" width="13" height="14" rx="2"/><path d="M16 10l5-3v10l-5-3"/><path d="M7 9h5M7 12h3"/></svg></div><div class="evlt-export-complete-icon"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.4 4.4L19 7.5"/></svg></div></div><div class="evlt-render-overline">YOUR VIDEO IS BEING CREATED</div><h1 id="evltExportProgressTitle">Creating your video</h1><p id="evltExportProgressSubtitle">Keep Ethvelle open while your video is being rendered and saved.</p></div><div class="evlt-export-progress-card"><div class="evlt-export-progress-row"><span id="evltExportProgressPhase">Preparing your project…</span><strong id="evltExportProgressPercent">0%</strong></div><div class="evlt-export-progress-track"><div id="evltExportProgressFill"></div></div><div class="evlt-export-specs"><span id="evltProgressQuality">720p</span><span id="evltProgressFps">30 fps</span><span id="evltProgressDuration">00:00</span></div></div><div class="evlt-export-bottom" id="evltExportProgressBottom">Do not close this page until your video is ready.</div>';
+    document.body.appendChild(el);
+  }
+  window.showExportProgress=function(pct){
+    const val=clamp(pct,0,100),el=$('evltExportProgressScreen');if(!el)return;
+    el.classList.add('active');el.classList.remove('done');
+    const percent=$('evltExportProgressPercent'),fill=$('evltExportProgressFill');if(percent)percent.textContent=Math.round(val)+'%';if(fill)fill.style.width=val+'%';
+    const phase=$('evltExportProgressPhase'),title=$('evltExportProgressTitle'),subtitle=$('evltExportProgressSubtitle'),live=el.querySelector('.evlt-export-live-pill span'),bottom=$('evltExportProgressBottom');
+    let ph='Preparing project…',ti='Creating your video',su='Keep Ethvelle open while your video is being rendered and saved.',li='RENDERING',bo='Do not close this page until your video is ready.';
+    if(val>=1&&val<20){ph='Preparing layers and media…';ti='Preparing your video';}
+    else if(val>=20&&val<65){ph='Rendering video frames…';ti='Bringing your scenes together';}
+    else if(val>=65&&val<94){ph='Encoding the video…';ti='Almost there';}
+    else if(val>=94&&val<100){ph='Finalizing your video file…';ti='Finishing export';}
+    if(val>=100){ph='Export complete';ti='Your video is ready';su='Your video has been rendered and the download has started.';li='COMPLETE';bo='You can now return to your project.';el.classList.add('done');if(bottom)bottom.style.color='#8EE7C5';}
+    else if(bottom)bottom.style.color='';
+    if(phase)phase.textContent=ph;if(title)title.textContent=ti;if(subtitle)subtitle.textContent=su;if(live)live.textContent=li;if(bottom)bottom.textContent=bo;
+    const q=$('evltProgressQuality');if(q)q.textContent=(typeof exportQuality!=='undefined'?exportQuality:720)+'p';const fps=$('evltProgressFps');if(fps)fps.textContent=(Number(window.exportFrameRate)||30)+' fps';let dur=0;try{dur=typeof getExportContentDurationSec==='function'?getExportContentDurationSec():0.1;}catch(_e){}const d=$('evltProgressDuration');if(d)d.textContent=fmtTime(dur);
+  };
+  let exportProgressHideTimer=0;
+  window.hideExportProgress=function(){const el=$('evltExportProgressScreen');if(!el)return;clearTimeout(exportProgressHideTimer);if(el.classList.contains('done')){exportProgressHideTimer=setTimeout(()=>{el.classList.remove('active');el.classList.remove('done');},1000);}else{el.classList.remove('active');el.classList.remove('done');}};
+
+  // Scrubbing is seek-only. A clip is selected only by a direct tap, never by crossing it with the playhead.
+  // Refresh the summary after plan/credit listeners finish updating their values.
+  document.addEventListener('click',e=>{if(e.target&&e.target.closest&&e.target.closest('#exportQualityGrid'))setTimeout(refreshExportInfo,0);},true);
+  setTimeout(refreshExportInfo,0);
+})();
+</script>
+
+
+<style id="ethvelle-export-bottom-attached-css">
+  #exportModalBackdrop.evlt-export-fullscreen .modal-sheet{display:flex!important;flex-direction:column!important;overflow:hidden!important;padding:calc(18px + env(safe-area-inset-top)) 0 0!important;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-head{flex:0 0 auto;margin:0 18px 18px;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-body{flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;padding:0 18px 22px;-webkit-overflow-scrolling:touch;}
+  #exportModalBackdrop.evlt-export-fullscreen .evlt-export-footer{flex:0 0 auto;position:relative;width:100%;margin:0;padding:12px 18px calc(14px + env(safe-area-inset-bottom));background:rgba(13,14,20,.98);border-top:1px solid rgba(255,255,255,.09);box-shadow:0 -8px 24px rgba(0,0,0,.24);}
+  #exportModalBackdrop.evlt-export-fullscreen #exportConfirmBtn{position:static!important;display:flex!important;width:100%!important;margin:0!important;min-height:52px!important;border-radius:14px!important;box-shadow:none!important;}
+  @media(max-width:360px){#exportModalBackdrop.evlt-export-fullscreen .evlt-export-head{margin-left:13px;margin-right:13px}#exportModalBackdrop.evlt-export-fullscreen .evlt-export-body{padding-left:13px;padding-right:13px}#exportModalBackdrop.evlt-export-fullscreen .evlt-export-footer{padding-left:13px;padding-right:13px}}
+</style>
+
+\n<!-- Ethvelle text colour repair v20: single-pass text fills, reliable custom colours, stable aligned palette. -->
+<style id="ethvelle-text-color-repair-v20-css">
+  /* Selected colour always has a visible blue ring, including on white chips. */
+  #ethvellePicsartTextDock .evpa-swatch.active,
+  #ethvellePicsartTextDock .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock .evpa-font-color-row>.evpa-swatch.active {
+    border:2px solid #2F5CE8!important;outline:2px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 1px rgba(15,15,18,.9)!important;z-index:3!important;
+  }
+  /* Use a plain rainbow button. No black middle or decorative corner dots. */
+  #ethvellePicsartTextDock .evpa-color-wheel::after {content:none!important;display:none!important;}
+  #ethvellePicsartTextDock .evpa-color-wheel::before,
+  #ethvellePicsartTextDock .evpa-color-wheel::after,
+  #ethvelleTextComposer .evpa-color-wheel::before,
+  #ethvelleTextComposer .evpa-color-wheel::after,
+  .evtc-color-wheel::before,.evtc-color-wheel::after,
+  .evce-pop-custom::before,.evce-pop-custom::after {
+    content:none!important;display:none!important;border:0!important;box-shadow:none!important;background:none!important;
+  }
+  #ethvellePicsartTextDock .evpa-color-wheel {box-shadow:none!important;border:0!important;outline:0!important;}
+  #ethvellePicsartTextDock.evpa-font-palette-mode .evpa-color-wheel {background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode .evpa-color-title-actions .evpa-color-wheel {background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;}
+  #ethvelleColorPicker .evpa-picker-actions {grid-template-columns:minmax(0,1fr)!important;}
+  #ethvelleColorPicker .evpa-picker-head p {display:none!important;}
+  #evpaCustomEffectEditor .evce-head p {display:none!important;}
+  #evpaCustomEffectEditor .evce-close {display:flex!important;align-items:center!important;justify-content:center!important;line-height:1!important;padding:0!important;text-align:center!important;}
+
+  /* A true two-row Font palette: two controls, then one equal set of colours per row.
+     The lower row reserves the same two-control width so the first colours align vertically. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    overflow:visible!important;min-width:0!important;min-height:94px!important;max-height:none!important;
+    padding:4px 8px 9px!important;margin:0!important;box-sizing:border-box!important;background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches.evpa-v20-font-built {
+    display:flex!important;flex:0 0 auto!important;flex-direction:column!important;align-items:stretch!important;justify-content:flex-start!important;
+    gap:6px!important;width:100%!important;height:auto!important;min-height:0!important;max-height:none!important;
+    overflow:visible!important;overflow-x:visible!important;overflow-y:visible!important;padding:0!important;margin:0!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row {
+    display:flex!important;flex:0 0 40px!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;
+    gap:7px!important;width:100%!important;height:40px!important;min-height:40px!important;max-height:40px!important;
+    padding:3px 12px!important;margin:0!important;overflow-x:auto!important;overflow-y:hidden!important;
+    overscroll-behavior-x:contain!important;-webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;touch-action:pan-x!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools::-webkit-scrollbar,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row>.evpa-swatch {
+    display:block!important;position:relative!important;flex:0 0 32px!important;width:32px!important;min-width:32px!important;max-width:32px!important;
+    height:32px!important;min-height:32px!important;max-height:32px!important;margin:0!important;padding:0!important;border-radius:50%!important;
+    aspect-ratio:1/1!important;overflow:visible!important;box-sizing:border-box!important;touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-row-spacer {display:block!important;flex:0 0 77px!important;width:77px!important;min-width:77px!important;height:32px!important;}
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row>.evpa-swatch.active {z-index:4!important;}
+
+  /* Color tab keeps the tools visible beside the title and the swatch grid vertically scrollable. */
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-controls {
+    position:relative!important;z-index:25!important;order:0!important;display:flex!important;flex:0 0 36px!important;height:36px!important;min-height:36px!important;max-height:36px!important;
+    margin:0!important;padding:0 14px!important;overflow:visible!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-control-heading {position:relative!important;z-index:26!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) #evpaPalette {position:relative!important;z-index:1!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {display:none!important;flex:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-control-heading {
+    display:flex!important;flex:1 1 auto!important;align-items:center!important;justify-content:flex-start!important;gap:10px!important;
+    width:100%!important;margin:0!important;min-width:0!important;overflow:visible!important;
+  }
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-control-heading>b {display:block!important;flex:0 0 auto!important;min-width:max-content!important;margin:0!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-control-heading>span {display:none!important;}
+  #ethvellePicsartTextDock .evpa-color-title-actions {display:none;align-items:center;justify-content:flex-end;gap:8px;flex:0 0 auto!important;min-width:max-content!important;margin-left:auto!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions {position:relative!important;z-index:27!important;display:flex!important;visibility:visible!important;opacity:1!important;align-items:center!important;margin-left:auto!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions>button {
+    display:flex!important;flex:0 0 30px!important;width:30px!important;min-width:30px!important;max-width:30px!important;
+    height:30px!important;min-height:30px!important;max-height:30px!important;align-items:center!important;justify-content:center!important;
+    padding:0!important;margin:0!important;border-radius:50%!important;box-sizing:border-box!important;
+  }
+  /* The visible sheet title is a separate header layered above evpa-controls. Place controls there
+     rather than in the covered content row, and remove the now-empty duplicate controls row. */
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-sheet-head {
+    position:relative!important;z-index:100020!important;display:flex!important;align-items:center!important;justify-content:flex-start!important;
+    gap:10px!important;overflow:visible!important;isolation:isolate!important;
+  }
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-sheet-title {flex:0 0 auto!important;min-width:max-content!important;margin:0!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-controls {
+    display:none!important;flex:0 0 0!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions {
+    position:relative!important;z-index:100021!important;display:flex!important;align-items:center!important;justify-content:flex-end!important;
+    flex:0 0 auto!important;gap:8px!important;margin-left:auto!important;visibility:visible!important;opacity:1!important;
+  }
+
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions .evpa-color-wheel {background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions .evpa-color-wheel::after {content:none!important;}
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {display:none!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-controls {
+    order:0!important;display:flex!important;flex:0 0 36px!important;height:36px!important;min-height:36px!important;max-height:36px!important;
+    padding:0 14px!important;overflow:visible!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    flex:0 0 132px!important;height:132px!important;min-height:132px!important;max-height:132px!important;max-block-size:132px!important;
+    overflow-x:hidden!important;overflow-y:auto!important;touch-action:pan-y!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior-y:contain!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-color-title-actions {display:flex!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) .evpa-tabs {flex:0 0 auto!important;margin-top:0!important;}
+
+  /* Compact stop-colour popup; no decorative dots, and the close cross is centered. */
+  #evceStopColorPopover {position:fixed!important;z-index:100120!important;width:min(360px,calc(100vw - 24px))!important;max-width:calc(100vw - 24px)!important;
+    padding:12px!important;border-radius:16px!important;background:#1A1B25!important;border:1px solid #34374A!important;box-shadow:0 12px 36px rgba(0,0,0,.48)!important;}
+  #evceStopColorPopover .evce-pop-head {display:flex!important;align-items:center!important;justify-content:space-between!important;gap:10px!important;margin-bottom:10px!important;}
+  #evceStopColorPopover .evce-pop-title {font-size:14px!important;font-weight:800!important;color:#F5F5F7!important;}
+  #evceStopColorPopover .evce-pop-close {display:flex!important;align-items:center!important;justify-content:center!important;width:30px!important;height:30px!important;min-width:30px!important;padding:0!important;line-height:1!important;text-align:center!important;}
+  #evceStopColorPopover .evce-pop-hint {display:none!important;}
+  #evceStopColorPopover .evce-pop-row {display:flex!important;flex-flow:row nowrap!important;align-items:center!important;gap:6px!important;overflow-x:auto!important;overflow-y:hidden!important;padding:4px 3px 7px!important;scrollbar-width:none!important;touch-action:pan-x!important;-webkit-overflow-scrolling:touch!important;}
+  #evceStopColorPopover .evce-pop-row::-webkit-scrollbar {display:none!important;}
+  #evceStopColorPopover .evce-pop-swatch {flex:0 0 28px!important;width:28px!important;height:28px!important;min-width:28px!important;min-height:28px!important;border-radius:50%!important;position:relative!important;}
+  #evceStopColorPopover .evce-pop-custom::before,#evceStopColorPopover .evce-pop-custom::after {content:none!important;display:none!important;}
+  @media(max-width:420px){
+    #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools,
+    #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row {padding-left:12px!important;padding-right:12px!important;}
+  }
+</style>
+<script id="ethvelle-text-color-repair-v23-js">
+(function(){
+  'use strict';
+  window.__ETHVELLE_V15_LOCKED_PALETTE=true;
+  const $=id=>document.getElementById(id);
+  const BASE=['#FFFFFF','#F5F5F7','#D9D9E0','#A3A3A3','#70717A','#414141','#17171C','#000000','#FFD9E2','#FFC5CF','#FF8C9A','#FA847C','#FF4E57','#FF174D','#D70D20','#8B0000','#FFE0B2','#FFB74D','#FF7B24','#FFD43B','#FFF176','#C6E64D','#B5E53B','#66BB6A','#25C98A','#16D9D0','#80DEEA','#13A7FF','#2F5CE8','#605DFF','#875BFA','#D946EF'];
+  const norm=v=>/^#[0-9a-f]{6}$/i.test(String(v||''))?String(v).toUpperCase():'#FFFFFF';
+  const activeTab=dock=>dock?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';
+  const readSaved=()=>{
+    let stored=[];
+    try{const a=JSON.parse(localStorage.getItem('ethvelleCustomTextColors')||'[]');if(Array.isArray(a))stored=a.filter(c=>/^#[0-9a-f]{6}$/i.test(String(c||''))).map(norm);}catch(_e){}
+    const memory=Array.isArray(window.__ETHVELLE_V20_CUSTOM_COLORS)?window.__ETHVELLE_V20_CUSTOM_COLORS.filter(c=>/^#[0-9a-f]{6}$/i.test(String(c||''))).map(norm):[];
+    return [...new Set([...memory,...stored])].slice(0,12);
+  };
+  let buildingFont=false, paletteObserver=null, observedPalette=null, layoutQueued=false;
+
+  function setSelectedMarkers(color){
+    const c=norm(color),dock=$('ethvellePicsartTextDock');
+    dock?.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===c));
+  }
+  function makeSwatch(color,source){
+    const b=source?source.cloneNode(false):document.createElement('button');
+    /* Reused palette buttons can carry inline translate/offset/size styles from older layouts.
+       Copying those styles was clipping the first orange/white chips at the left edge. */
+    b.removeAttribute('style');
+    b.type='button';b.className='evpa-swatch';b.dataset.color=color;b.dataset.customColor=readSaved().includes(color)?'true':'false';
+    b.style.backgroundColor=color;b.title=color;b.setAttribute('aria-label','Text colour '+color);b.removeAttribute('data-evpaFontOrder');b.removeAttribute('data-evV33Order');
+    b.onclick=e=>{e.preventDefault();e.stopPropagation();if(typeof window.ethvellePicsartSetColor==='function')window.ethvellePicsartSetColor('textColor',color);};
+    return b;
+  }
+  function buildFontPalette(){
+    const dock=$('ethvellePicsartTextDock');if(!dock||dock.classList.contains('evpa-in-composer'))return;
+    const font=activeTab(dock)==='font';dock.classList.toggle('evpa-font-palette-mode',font);
+    if(!font)return;
+    const palette=$('evpaPalette'),swatches=palette?.querySelector('.evpa-swatches');if(!swatches||buildingFont)return;
+    const wheel=swatches.querySelector('.evpa-color-wheel')||dock.querySelector('.evpa-color-title-actions .evpa-color-wheel');
+    const transparent=swatches.querySelector('.evpa-transparent')||dock.querySelector('.evpa-color-title-actions .evpa-transparent');
+    const old=[...swatches.querySelectorAll('.evpa-swatch[data-color]')];
+    const sourceByColor=new Map();old.forEach(b=>{const c=norm(b.dataset.color);if(!sourceByColor.has(c))sourceByColor.set(c,b);});
+    // Preserve the existing palette order, including saved custom colours at the beginning.
+    const allColors=[...new Set([...BASE,...readSaved()])];
+    const colors=allColors;
+    const split=Math.ceil(colors.length/2),topColors=colors.slice(0,split),bottomColors=colors.slice(split);
+    const swatchSignature=colors.join('|');
+    if(swatches.dataset.evpaV20Built===swatchSignature&&swatches.classList.contains('evpa-v20-font-built')){
+      setSelectedMarkers(norm((window.ethvellePicsartGetTarget?.()||{}).textColor||'#FFFFFF'));return;
+    }
+    buildingFont=true;
+    try{
+      const tools=document.createElement('div');tools.className='evpa-font-color-tools';tools.setAttribute('aria-label','Custom color and first row of text colours');
+      const row=document.createElement('div');row.className='evpa-font-color-row';row.setAttribute('aria-label','Second row of text colours; swipe right-to-left to see more');
+      if(wheel){wheel.classList.add('evpa-color-wheel');wheel.setAttribute('aria-label','Custom color');tools.appendChild(wheel);}
+      if(transparent){transparent.classList.add('evpa-transparent');transparent.setAttribute('aria-label','Transparent');tools.appendChild(transparent);}
+      topColors.forEach(c=>tools.appendChild(makeSwatch(c,sourceByColor.get(c))));
+      // Start the lower row at column one. The custom and transparent buttons occupy the
+      // first two cells of row one only, so the first lower-row colour (often maroon) aligns
+      // under the custom-colour button rather than being shifted right by a blank spacer.
+      bottomColors.forEach(c=>row.appendChild(makeSwatch(c,sourceByColor.get(c))));
+      swatches.replaceChildren(tools,row);swatches.classList.add('evpa-v20-font-built');swatches.dataset.evpaV20Built=swatchSignature;
+      swatches.scrollLeft=0;
+      setSelectedMarkers(norm((window.ethvellePicsartGetTarget?.()||{}).textColor||'#FFFFFF'));
+    }finally{buildingFont=false;}
+  }
+  function layoutColorTitle(){
+    const dock=$('ethvellePicsartTextDock');if(!dock||dock.classList.contains('evpa-in-composer'))return;
+    const isColor=activeTab(dock)==='color';dock.classList.toggle('evpa-v20-color-title-mode',isColor);
+    if(!isColor)return;
+    const palette=$('evpaPalette'),head=dock.querySelector('.evpa-sheet-head');
+    const swatches=palette?.querySelector('.evpa-swatches');
+    if(!palette||!head||!swatches)return;
+    const utilities=swatches.querySelector(':scope > .evpa-color-utilities');
+    const grid=swatches.querySelector(':scope > .evpa-color-grid');
+    const group=head.querySelector(':scope > .evpa-color-title-actions');
+    // Do not put the wheel or transparent control in the title/header. They are normal
+    // palette items and belong in the first two cells of the Color grid.
+    const wheel=group?.querySelector('.evpa-color-wheel')||utilities?.querySelector('.evpa-color-wheel')||grid?.querySelector('.evpa-color-wheel')||swatches.querySelector('.evpa-color-wheel');
+    const transparent=group?.querySelector('.evpa-transparent')||utilities?.querySelector('.evpa-transparent')||grid?.querySelector('.evpa-transparent')||swatches.querySelector('.evpa-transparent');
+    if(grid){
+      if(wheel){wheel.replaceChildren();wheel.classList.remove('active');wheel.setAttribute('aria-label','Custom color');wheel.title='Custom color';wheel.style.setProperty('background','conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)','important');grid.prepend(wheel);}
+      if(transparent){transparent.replaceChildren();transparent.setAttribute('aria-label','Transparent');transparent.title='Transparent / none';grid.insertBefore(transparent,wheel?.nextSibling||grid.firstChild);}
+    }
+    group?.remove();
+    const t=window.ethvellePicsartGetTarget?.();if(transparent)transparent.classList.toggle('active',!!t&&Number(t.textOpacity)===0);
+  }
+  function restoreColorTitleClones(){
+    const dock=$('ethvellePicsartTextDock');if(!dock)return;
+    dock.classList.remove('evpa-v20-color-title-mode');
+    const group=dock.querySelector('.evpa-color-title-actions');if(!group)return;
+    const utilities=$('evpaPalette')?.querySelector('.evpa-color-utilities');
+    [...group.children].forEach(btn=>{if(utilities&&(btn.classList.contains('evpa-color-wheel')||btn.classList.contains('evpa-transparent'))){btn.replaceChildren();utilities.appendChild(btn);}});
+    group.replaceChildren();delete group.dataset.evpaV20Built;
+  }
+  function queueLayout(){attachPaletteObserver();/* v25 owns stable, signature-based layout; avoid the older competing reorder pass. */}
+  function attachPaletteObserver(){
+    const palette=$('evpaPalette');if(!palette||palette===observedPalette)return;
+    if(paletteObserver)paletteObserver.disconnect();observedPalette=palette;
+    paletteObserver=new MutationObserver(records=>{
+      if(buildingFont)return;
+      // Only respond to updateDockControls replacing the palette's direct child. Ignore
+      // our own internal row construction so opening the panel cannot trigger a repaint loop.
+      if(records.some(r=>r.target===palette&&r.type==='childList'))queueLayout();
+    });
+    paletteObserver.observe(palette,{childList:true});
+  }
+  function install(){
+    attachPaletteObserver();buildFontPalette();layoutColorTitle();
+  }
+  const oldSaveCustom=window.ethvellePicsartSaveCustomColor;
+  if(typeof oldSaveCustom==='function'&&!oldSaveCustom.__evV21MemoryFallback){
+    const wrappedSaveCustom=function(){
+      let chosen='';
+      const hexInput=$('evpaPickHex');
+      if(hexInput&&/^#[0-9a-f]{6}$/i.test(String(hexInput.value||'')))chosen=norm(hexInput.value);
+      if(!chosen){const preview=$('evpaPickPreview');const bg=preview?getComputedStyle(preview).backgroundColor:'';const m=bg.match(/rgba?\((\d+)[, ]+\s*(\d+)[, ]+\s*(\d+)/);if(m)chosen='#'+m.slice(1,4).map(v=>Number(v).toString(16).padStart(2,'0')).join('').toUpperCase();}
+      if(chosen){window.__ETHVELLE_V20_CUSTOM_COLORS=[...new Set([...readSaved(),chosen])].slice(-12);try{localStorage.setItem('ethvelleCustomTextColors',JSON.stringify(window.__ETHVELLE_V20_CUSTOM_COLORS));}catch(_e){}}
+      const result=oldSaveCustom.apply(this,arguments);
+      if(chosen)window.__ETHVELLE_V20_CUSTOM_COLORS=[...new Set([...readSaved(),chosen])].slice(-12);
+      queueLayout();
+      return result;
+    };
+    wrappedSaveCustom.__evV21MemoryFallback=true;window.ethvellePicsartSaveCustomColor=wrappedSaveCustom;
+  }
+
+  const oldSetTool=window.ethvellePicsartSetTool;
+  if(typeof oldSetTool==='function'&&!oldSetTool.__evV20CleanPalette){
+    const wrapped=function(tool){restoreColorTitleClones();const result=oldSetTool.apply(this,arguments);queueLayout();return result;};
+    wrapped.__evV20CleanPalette=true;window.ethvellePicsartSetTool=wrapped;
+  }
+  const oldSetColor=window.ethvellePicsartSetColor;
+  if(typeof oldSetColor==='function'&&!oldSetColor.__evV20Markers){
+    const wrapped=function(key,color){const result=oldSetColor.apply(this,arguments);if(key==='textColor')setSelectedMarkers(color);return result;};
+    wrapped.__evV20Markers=true;window.ethvellePicsartSetColor=wrapped;
+  }
+  const oldOpenStyle=window.openEthvelleTextStylePanel;
+  if(typeof oldOpenStyle==='function'&&!oldOpenStyle.__evV20Palette){
+    const wrapped=function(){const result=oldOpenStyle.apply(this,arguments);queueLayout();return result;};
+    wrapped.__evV20Palette=true;window.openEthvelleTextStylePanel=wrapped;
+  }
+  const oldOpenComposer=window.openEthvelleTextComposer;
+  if(typeof oldOpenComposer==='function'&&!oldOpenComposer.__evV20White){
+    const wrapped=function(){const result=oldOpenComposer.apply(this,arguments);const input=$('evtcStageText');const args=arguments;const isFresh=input&&!String(input.value||'').trim()&&(!args[0]||args[0]==='__ethvelle_new_text_layer__');if(isFresh){const t=window.ethvellePicsartGetTarget?.();if(t)t.textColor='#FFFFFF';if(input){input.style.setProperty('color','#FFFFFF','important');input.style.setProperty('-webkit-text-fill-color','#FFFFFF','important');}}queueLayout();return result;};
+    wrapped.__evV20White=true;window.openEthvelleTextComposer=wrapped;
+  }
+  // A compact stop-colour popover lives over the gradient editor and writes directly to the
+  // stop's native input. The existing full colour wheel remains available from its Custom button.
+  const nativeOpenStop=window.openEthvelleGradientStopColor;
+  const stopColors=()=>[...new Set([...BASE,...readSaved()])];
+  let stopPopover=null,stopButton=null,outsideHandler=null,escapeHandler=null;
+  function closeStopPopover(){
+    if(outsideHandler){document.removeEventListener('pointerdown',outsideHandler,true);outsideHandler=null;}
+    if(escapeHandler){document.removeEventListener('keydown',escapeHandler,true);escapeHandler=null;}
+    stopPopover?.remove();stopPopover=null;stopButton=null;
+  }
+  function dispatchStopColor(input,color){
+    if(!input||!input.isConnected)return;input.value=color;input.dispatchEvent(new Event('input',{bubbles:true}));input.dispatchEvent(new Event('change',{bubbles:true}));
+  }
+  function openStopPalette(button){
+    const input=button?.closest?.('.evce-stop')?.querySelector?.('[data-stop-color],input[type="color"]');if(!input)return;
+    closeStopPopover();stopButton=button;
+    const colors=stopColors(),split=Math.ceil(colors.length/2),rows=[colors.slice(0,split),colors.slice(split)];
+    const pop=document.createElement('div');pop.id='evceStopColorPopover';pop.setAttribute('role','dialog');pop.setAttribute('aria-label','Gradient stop color');
+    const head=document.createElement('div');head.className='evce-pop-head';const title=document.createElement('strong');title.className='evce-pop-title';title.textContent='Stop color';
+    const actions=document.createElement('div');actions.style.cssText='display:flex;align-items:center;gap:8px;';
+    const custom=document.createElement('button');custom.type='button';custom.className='evce-pop-custom';custom.setAttribute('aria-label','Custom color');custom.title='Custom color';custom.style.cssText='width:28px;height:28px;min-width:28px;border:0;border-radius:50%;background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744);';
+    custom.onclick=e=>{e.preventDefault();const chosen=stopButton;closeStopPopover();if(typeof nativeOpenStop==='function')nativeOpenStop(chosen);};
+    const close=document.createElement('button');close.type='button';close.className='evce-pop-close';close.setAttribute('aria-label','Close');close.textContent='×';close.style.cssText='width:30px;height:30px;min-width:30px;border:1px solid #44485d;border-radius:50%;background:#292c3d;color:#fff;font-size:23px;';close.onclick=closeStopPopover;
+    actions.append(custom,close);head.append(title,actions);pop.appendChild(head);
+    rows.forEach((rowColors,index)=>{const row=document.createElement('div');row.className='evce-pop-row';row.setAttribute('aria-label','Gradient colors row '+(index+1));rowColors.forEach(color=>{const sw=document.createElement('button');sw.type='button';sw.className='evce-pop-swatch';sw.style.backgroundColor=color;sw.title=color;sw.setAttribute('aria-label','Use '+color);sw.onclick=()=>{dispatchStopColor(input,color);closeStopPopover();};row.appendChild(sw);});pop.appendChild(row);});
+    document.body.appendChild(pop);stopPopover=pop;
+    const rect=button.getBoundingClientRect();const pr=pop.getBoundingClientRect();const left=Math.max(12,Math.min(window.innerWidth-pr.width-12,rect.left+rect.width/2-pr.width/2));
+    let top=rect.top-pr.height-10;if(top<8)top=Math.min(window.innerHeight-pr.height-8,rect.bottom+8);top=Math.max(8,top);
+    pop.style.left=Math.round(left)+'px';pop.style.top=Math.round(top)+'px';
+    outsideHandler=e=>{if(!pop.contains(e.target)&&e.target!==button&&!button.contains(e.target))closeStopPopover();};
+    escapeHandler=e=>{if(e.key==='Escape')closeStopPopover();};
+    setTimeout(()=>{if(stopPopover){document.addEventListener('pointerdown',outsideHandler,true);document.addEventListener('keydown',escapeHandler,true);}},0);
+  }
+  if(typeof nativeOpenStop==='function')window.openEthvelleGradientStopColor=openStopPalette;
+  // Re-run the panel simplification on each open. Keep the real Apply action; never re-label
+  // Save preset as Apply because that accidentally stores a preset on every tap.
+  function simplifyGradientActions(){
+    const editor=$('evpaCustomEffectEditor');if(!editor||!editor.querySelector('.evce-stops'))return;
+    const actions=editor.querySelector('.evce-actions');if(!actions)return;
+    const apply=actions.querySelector(':scope > [data-evce-action="apply"]');if(!apply)return;
+    [...actions.children].forEach(b=>{if(b!==apply)b.remove();});
+    apply.textContent='Apply';apply.classList.add('primary');apply.style.gridColumn='1';apply.style.display='flex';
+    actions.style.gridTemplateColumns='minmax(0,1fr)';
+  }
+  const oldOpenGradient=window.openEthvelleCustomGradientEditor;
+  if(typeof oldOpenGradient==='function'&&!oldOpenGradient.__evV20ApplyOnly){
+    const wrapped=function(){const out=oldOpenGradient.apply(this,arguments);simplifyGradientActions();requestAnimationFrame(simplifyGradientActions);return out;};
+    wrapped.__evV20ApplyOnly=true;window.openEthvelleCustomGradientEditor=wrapped;
+  }
+  document.addEventListener('click',e=>{
+    const tab=e.target?.closest?.('#ethvellePicsartTextDock #evpaTabs .evpa-tab');if(!tab)return;
+    if(tab.dataset.tab!=='color')restoreColorTitleClones();
+    queueLayout();
+  },true);
+  function boot(){install();queueLayout();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  // No body-wide MutationObserver: it caused repeated palette rebuilds and visible flicker.
+
+})();
+</script>
+
+
+<style id="ethvelle-text-color-palette-fix-v24-css">
+  /* FONT: one shared horizontal scroller for both rows. A single swipe moves both rows
+     together; the lower row starts in column one with no artificial leading spacer. */
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-palette,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette {
+    flex:0 0 auto!important;min-width:0!important;min-height:96px!important;max-height:none!important;
+    padding:3px 8px 8px!important;margin:0!important;overflow:visible!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches {
+    display:flex!important;flex:0 1 auto!important;flex-direction:column!important;align-items:flex-start!important;justify-content:flex-start!important;
+    gap:5px!important;width:100%!important;min-width:0!important;height:85px!important;min-height:85px!important;max-height:85px!important;
+    margin:0!important;padding:2px 0 3px!important;overflow-x:auto!important;overflow-y:hidden!important;
+    overscroll-behavior-x:contain!important;overscroll-behavior-y:none!important;touch-action:pan-x!important;
+    -webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;scroll-snap-type:none!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaPalette .evpa-swatches::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row {
+    display:flex!important;flex:0 0 38px!important;flex-flow:row nowrap!important;align-items:center!important;justify-content:flex-start!important;
+    gap:7px!important;width:max-content!important;min-width:100%!important;max-width:none!important;
+    height:38px!important;min-height:38px!important;max-height:38px!important;padding:2px 12px!important;margin:0!important;
+    overflow:visible!important;overscroll-behavior:initial!important;touch-action:pan-x!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>button,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row>.evpa-swatch {
+    display:block!important;position:relative!important;flex:0 0 32px!important;width:32px!important;min-width:32px!important;max-width:32px!important;
+    height:32px!important;min-height:32px!important;max-height:32px!important;margin:0!important;padding:0!important;border-radius:50%!important;
+    aspect-ratio:1/1!important;overflow:visible!important;box-sizing:border-box!important;touch-action:pan-x!important;
+  }
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-tools>.evpa-swatch.active,
+  #ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) .evpa-font-color-row>.evpa-swatch.active {z-index:4!important;}
+
+  /* COLOR: the rainbow custom picker and transparency checker are the first two swatches,
+     followed by regular colours in the same eight-column grid. Never place them in the title. */
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) {
+    height:min(72dvh,720px)!important;min-height:min(66dvh,660px)!important;max-height:min(88dvh,840px)!important;
+    display:flex!important;flex-direction:column!important;overflow:hidden!important;
+  }
+  #ethvellePicsartTextDock.evpa-v20-color-title-mode:not(.evpa-in-composer) .evpa-color-title-actions {display:none!important;visibility:hidden!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-utilities {display:none!important;height:0!important;min-height:0!important;max-height:0!important;margin:0!important;padding:0!important;overflow:hidden!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid {
+    display:grid!important;flex:1 1 auto!important;min-height:0!important;max-height:none!important;width:100%!important;height:auto!important;
+    grid-template-columns:repeat(8,minmax(0,1fr))!important;grid-auto-flow:row!important;grid-auto-rows:35px!important;
+    align-content:start!important;align-items:center!important;justify-items:center!important;gap:8px 4px!important;
+    padding:5px 4px 18px!important;margin:0!important;overflow-x:hidden!important;overflow-y:auto!important;
+    overscroll-behavior-y:contain!important;touch-action:pan-y!important;-webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-swatch,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-color-wheel,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-transparent {
+    display:flex!important;align-items:center!important;justify-content:center!important;flex:none!important;
+    width:min(35px,100%)!important;min-width:0!important;max-width:35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    margin:0!important;padding:0!important;border-radius:50%!important;aspect-ratio:1/1!important;box-sizing:border-box!important;justify-self:center!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-color-wheel {
+    background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-transparent {
+    background-color:#fff!important;background-image:linear-gradient(45deg,#a7a7a7 25%,transparent 25%),linear-gradient(-45deg,#a7a7a7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#a7a7a7 75%),linear-gradient(-45deg,transparent 75%,#a7a7a7 75%)!important;
+    background-size:8px 8px!important;background-position:0 0,0 4px,4px -4px,-4px 0!important;border:1px solid #aaa!important;
+  }
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-color-wheel::before,
+  #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer) #evpaPalette .evpa-color-grid>.evpa-color-wheel::after {content:none!important;display:none!important;}
+  @media(max-width:420px){
+    #ethvellePicsartTextDock.evpa-color-grid-mode:not(.evpa-in-composer){height:min(72dvh,720px)!important;min-height:min(66dvh,660px)!important;max-height:min(88dvh,840px)!important;}
+  }
+</style>
+
+
+
+<!-- Ethvelle text palette reliability repair v25: one controller for composer + editor palettes. -->
+<style id="ethvelle-text-color-palette-controller-v25-css">
+  /* This final palette mode intentionally applies inside AND outside the first-time composer.
+     The old versions styled only the regular editor and left the composer using a conflicting grid. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette,
+  #ethvellePicsartTextDock.evpa-v25-font-mode .evpa-palette {
+    flex:0 0 91px!important;width:100%!important;min-width:0!important;height:91px!important;
+    min-height:91px!important;max-height:91px!important;margin:0!important;padding:3px 8px 5px!important;
+    overflow:hidden!important;background:transparent!important;border:0!important;box-shadow:none!important;
+    box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built {
+    display:flex!important;flex:0 0 82px!important;flex-direction:column!important;align-items:flex-start!important;
+    justify-content:flex-start!important;gap:5px!important;width:100%!important;min-width:0!important;
+    height:82px!important;min-height:82px!important;max-height:82px!important;margin:0!important;padding:1px 0 2px!important;
+    overflow-x:auto!important;overflow-y:hidden!important;overscroll-behavior-x:contain!important;
+    overscroll-behavior-y:none!important;touch-action:none!important;-webkit-overflow-scrolling:touch!important;
+    scrollbar-width:none!important;scrollbar-behavior:auto!important;scroll-snap-type:none!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built > .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built > .evpa-font-color-row {
+    display:flex!important;flex:0 0 38px!important;flex-flow:row nowrap!important;align-items:center!important;
+    justify-content:flex-start!important;gap:7px!important;width:max-content!important;min-width:100%!important;
+    max-width:none!important;height:38px!important;min-height:38px!important;max-height:38px!important;
+    margin:0!important;padding:2px 8px!important;overflow:visible!important;touch-action:none!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools > button,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools > .evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row > .evpa-swatch,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row > button {
+    display:flex!important;position:relative!important;align-items:center!important;justify-content:center!important;
+    flex:0 0 32px!important;width:32px!important;min-width:32px!important;max-width:32px!important;
+    height:32px!important;min-height:32px!important;max-height:32px!important;margin:0!important;padding:0!important;
+    border-radius:50%!important;aspect-ratio:1/1!important;overflow:visible!important;pointer-events:auto!important;
+    box-sizing:border-box!important;touch-action:none!important;
+  }
+
+  /* Color uses one real vertical scroller. Four rows remain visible on a phone; later rows can scroll. */
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette,
+  #ethvellePicsartTextDock.evpa-v25-color-mode .evpa-palette {
+    display:flex!important;flex:1 1 auto!important;flex-direction:column!important;align-items:stretch!important;
+    min-width:0!important;min-height:0!important;height:auto!important;max-height:none!important;
+    margin:0!important;padding:4px 8px 8px!important;overflow:hidden!important;box-sizing:border-box!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-swatches.evpa-v25-color-built {
+    display:flex!important;flex:1 1 auto!important;flex-direction:column!important;align-items:stretch!important;
+    justify-content:flex-start!important;gap:0!important;width:100%!important;height:100%!important;
+    min-width:0!important;min-height:0!important;max-height:none!important;padding:0 2px!important;margin:0!important;
+    overflow:hidden!important;overscroll-behavior:none!important;touch-action:pan-y!important;
+    background:transparent!important;border:0!important;box-shadow:none!important;box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid {
+    display:grid!important;flex:0 1 auto!important;flex-shrink:1!important;flex-grow:0!important;
+    grid-template-columns:repeat(8,minmax(0,1fr))!important;grid-auto-flow:row!important;grid-auto-rows:35px!important;
+    align-content:start!important;align-items:center!important;justify-items:center!important;gap:8px 4px!important;
+    width:100%!important;min-width:0!important;height:min(22dvh,176px)!important;min-height:0!important;
+    max-height:min(22dvh,176px)!important;margin:0!important;padding:4px 2px 12px!important;
+    overflow-x:hidden!important;overflow-y:auto!important;overscroll-behavior-y:contain!important;
+    touch-action:pan-y!important;-webkit-overflow-scrolling:touch!important;scrollbar-width:none!important;
+    box-sizing:border-box!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid::-webkit-scrollbar {display:none!important;}
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid.evpa-v25-color-grid > button {
+    display:flex!important;align-items:center!important;justify-content:center!important;position:relative!important;
+    flex:none!important;justify-self:center!important;align-self:center!important;width:min(35px,100%)!important;
+    min-width:0!important;max-width:35px!important;height:35px!important;min-height:35px!important;max-height:35px!important;
+    margin:0!important;padding:0!important;border-radius:50%!important;aspect-ratio:1/1!important;
+    overflow:visible!important;pointer-events:auto!important;box-sizing:border-box!important;touch-action:pan-y!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid .evpa-color-wheel {
+    background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;
+    border:0!important;box-shadow:none!important;outline:none!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-grid .evpa-transparent {
+    background-color:#fff!important;
+    background-image:linear-gradient(45deg,#a7a7a7 25%,transparent 25%),linear-gradient(-45deg,#a7a7a7 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#a7a7a7 75%),linear-gradient(-45deg,transparent 75%,#a7a7a7 75%)!important;
+    background-size:8px 8px!important;background-position:0 0,0 4px,4px -4px,-4px 0!important;border:1px solid #aaa!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-color-wheel,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-wheel {
+    background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)!important;
+  }
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-color-wheel::before,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-color-wheel::after,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-wheel::before,
+  #ethvellePicsartTextDock.evpa-v25-color-mode #evpaPalette .evpa-color-wheel::after {content:none!important;display:none!important;}
+
+  /* Selected colour always gets a visible blue ring, including white/gray colours and Font-row clones. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools > .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row > .evpa-swatch.active {
+    border:2px solid #2F5CE8!important;outline:1px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 2px rgba(47,92,232,.55)!important;z-index:8!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-transparent.active {
+    border:2px solid #2F5CE8!important;outline:1px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 2px rgba(47,92,232,.55)!important;z-index:8!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-eye{pointer-events:auto!important;}
+  @media(max-width:420px){
+    #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-tools,
+    #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-font-color-row {padding-left:8px!important;padding-right:8px!important;}
+    #ethvellePicsartTextDock.evpa-v25-color-mode.evpa-in-composer #evpaPalette .evpa-color-grid.evpa-v25-color-grid {height:min(18dvh,140px)!important;max-height:min(18dvh,140px)!important;}
+  }
+</style>
+<script id="ethvelle-text-color-palette-controller-v25-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const BASE=['#FFFFFF','#F5F5F7','#D9D9E0','#A3A3A3','#70717A','#414141','#17171C','#000000','#FFD9E2','#FFC5CF','#FF8C9A','#FA847C','#FF4E57','#FF174D','#D70D20','#8B0000','#FFE0B2','#FFB74D','#FF7B24','#FFD43B','#FFF176','#C6E64D','#B5E53B','#66BB6A','#25C98A','#16D9D0','#80DEEA','#13A7FF','#2F5CE8','#605DFF','#875BFA','#D946EF'];
+  const norm=v=>/^#[0-9a-f]{6}$/i.test(String(v||''))?String(v).toUpperCase():null;
+  const dock=()=> $('ethvellePicsartTextDock');
+  const palette=()=> $('evpaPalette');
+  const currentTab=()=>dock()?.querySelector('#evpaTabs .evpa-tab.active')?.dataset.tab||'';
+  const currentTarget=()=>{try{return typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;}catch(_e){return null;}};
+  const keyForTab=()=>{const t=currentTab();return t==='stroke'?'strokeColor':t==='shadow'?'shadowColor':(t==='highlight'||t==='background')?'textBackgroundColor':'textColor';};
+  const savedColors=()=>{try{const a=JSON.parse(localStorage.getItem('ethvelleCustomTextColors')||'[]');return Array.isArray(a)?a.map(norm).filter(Boolean):[];}catch(_e){return [];}};
+  const getSwatches=()=>palette()?.querySelector('.evpa-swatches')||null;
+  const uniqueColors=nodes=>{const seen=new Set(),out=[];nodes.forEach(n=>{const c=norm(n?.dataset?.color);if(c&&!seen.has(c)){seen.add(c);out.push(c);}});return out;};
+  function findSpecial(cls,swatches){return swatches?.querySelector('.'+cls)||dock()?.querySelector('.evpa-color-title-actions .'+cls)||dock()?.querySelector('#evpaPalette .'+cls)||null;}
+  function makeSpecial(cls,label,title){const b=document.createElement('button');b.type='button';b.className=cls;b.setAttribute('aria-label',label);b.title=title;return b;}
+  function ensureSpecials(swatches){
+    // v219-fix: prefer the real canvas-eyedropper button (ev-eyedrop-text) so a rebuilt row already contains it.
+    let wheel=findSpecial('evpa-color-wheel',swatches),transparent=findSpecial('evpa-transparent',swatches),eye=findSpecial('ev-eyedrop-text',swatches)||findSpecial('evpa-eye',swatches);
+    if(!wheel)wheel=makeSpecial('evpa-color-wheel','Custom color','Custom color');
+    if(!transparent)transparent=makeSpecial('evpa-transparent','Transparent / none','Transparent / none');
+    if(!eye){
+      eye=makeSpecial('ev-eyedrop-button ev-eyedrop-text','Pick color from canvas','Pick color from canvas');
+      eye.dataset.evEyedropButton='text';eye.setAttribute('aria-pressed','false');
+      eye.innerHTML='<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m15 6 3.4-3.4a2.1 2.1 0 1 1 3 3L18 9l.4.4a2.1 2.1 0 1 1-3 3l-3.8-3.8a2.1 2.1 0 1 1 3-3l.4.4Z"/></svg>';
+    }
+    // Remove any legacy plus/save button whenever this palette is rebuilt.
+    swatches?.querySelectorAll('.evpa-save-swatch').forEach(b=>b.remove());
+    dock()?.querySelectorAll('#evpaPalette .evpa-save-swatch').forEach(b=>b.remove());
+    wheel.type='button';transparent.type='button';eye.type='button';
+    wheel.setAttribute('aria-label','Custom color');wheel.title='Custom color';
+    transparent.setAttribute('aria-label','Transparent');transparent.title='Transparent / none';
+    if(!eye.classList.contains('ev-eyedrop-text')){
+      eye.setAttribute('aria-label','Pick a color from the canvas');eye.title='Pick a color from the canvas';
+      eye.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m2 22 1-1h3l9-9"/><path d="M3 21v-3l9-9"/><path d="m14 5 5 5"/><path d="m14 5 3-3a2.12 2.12 0 0 1 3 3l-3 3"/><path d="m9 9 6 6"/></svg>';
+    }
+    wheel.style.setProperty('background','conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#8955ff,#d946ef,#ff1744)','important');
+    const group=dock()?.querySelector('.evpa-color-title-actions');
+    if(group)group.remove();
+    return {wheel,transparent,eye};
+  }
+  function makeColorSwatch(color,source){
+    const b=document.createElement('button');b.type='button';b.className='evpa-swatch';b.dataset.color=color;
+    b.style.backgroundColor=color;b.title=color;b.setAttribute('aria-label','Text colour '+color);
+    if(source?.dataset?.customColor)b.dataset.customColor=source.dataset.customColor;
+    return b;
+  }
+  function collectPaletteColors(swatches){
+    // v219-fix: project custom colors (picked from the canvas) sit right beside Transparent, newest first;
+    // the fixed base palette follows. A saved colour already in the base palette is not duplicated.
+    const front=[...new Set(savedColors().filter(c=>!BASE.includes(c)))].reverse();
+    return [...front,...BASE];
+  }
+  function syncMarkers(){
+    const d=dock();if(!d)return;
+    const t=currentTarget()||{};const key=keyForTab();
+    const value=norm(t[key]||t.textColor||'#FFFFFF')||'#FFFFFF';
+    const featureEnabled=key==='strokeColor'?(t.strokeEnabled===true||Number(t.strokeWidth)>0):key==='shadowColor'?!!t.shadowEnabled:key==='textBackgroundColor'?!!t.textBackgroundEnabled:true;
+    const opacity=key==='textColor'?t.textOpacity:key==='strokeColor'?t.strokeOpacity:key==='shadowColor'?t.shadowOpacity:key==='textBackgroundColor'?t.textBackgroundOpacity:100;
+    /* v225-fix: a chip the user just tapped stays marked even while Stroke/Shadow/Background is still switched off
+       (before, it flashed blue for one frame and then lost its border). Nothing is marked by default while the effect is off. */
+    const picked=(window.__ev224Picked||{})[String(t.id||'')+'|'+key];
+    const showSel=!!featureEnabled||picked!==undefined;
+    const transparentActive=showSel&&Number(opacity)===0&&(!!featureEnabled||picked==='__none__');
+    /* v223-fix: exactly ONE selected chip - Transparent excludes every colour swatch and vice versa. */
+    d.querySelectorAll('#evpaPalette .evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',showSel&&!transparentActive&&norm(b.dataset.color)===value&&(!!featureEnabled||picked===value)));
+    d.querySelectorAll('#evpaPalette .evpa-transparent').forEach(b=>b.classList.toggle('active',transparentActive));
+  }
+  window.ethvelleRefreshDockSwatches=syncMarkers;
+  function fontLayout(){
+    const d=dock(),swatches=getSwatches();if(!d||!swatches||currentTab()!=='font')return;
+    const colors=collectPaletteColors(swatches),signature=colors.join('|');
+    const existingTools=swatches.querySelector(':scope > .evpa-font-color-tools');
+    const existingRow=swatches.querySelector(':scope > .evpa-font-color-row');
+    if(existingTools&&existingRow&&swatches.classList.contains('evpa-v25-font-built')&&
+       swatches.dataset.evpaV25FontColors===signature&&existingTools.querySelector('.evpa-color-wheel')&&
+       existingTools.querySelector('.evpa-transparent')){syncMarkers();return;}
+    const oldScrollLeft=swatches.scrollLeft;
+    const special=ensureSpecials(swatches);
+    const priorColorButtons=[...swatches.querySelectorAll('.evpa-swatch[data-color]')];
+    const sourceMap=new Map();priorColorButtons.forEach(b=>{const c=norm(b.dataset.color);if(c&&!sourceMap.has(c))sourceMap.set(c,b);});
+    const maroonIndex=colors.indexOf('#8B0000');
+    const split=maroonIndex>0?maroonIndex:Math.ceil(colors.length/2);
+    const top=colors.slice(0,split),bottom=colors.slice(split);
+    const tools=document.createElement('div');tools.className='evpa-font-color-tools';tools.setAttribute('aria-label','Custom, transparent and first row of text colours');
+    const row=document.createElement('div');row.className='evpa-font-color-row';row.setAttribute('aria-label','Second row of text colours; swipe right-to-left to see more');
+    if(special.eye&&special.eye.classList.contains('ev-eyedrop-text'))tools.appendChild(special.eye);
+    tools.appendChild(special.wheel);tools.appendChild(special.transparent);
+    top.forEach(c=>tools.appendChild(makeColorSwatch(c,sourceMap.get(c))));
+    bottom.forEach(c=>row.appendChild(makeColorSwatch(c,sourceMap.get(c))));
+    swatches.replaceChildren(tools,row);
+    swatches.classList.add('evpa-v20-font-built','evpa-v25-font-built');
+    swatches.dataset.evpaV25FontBuilt='1';
+    swatches.dataset.evpaV25FontColors=signature;
+    swatches.dataset.evpaV20Built=signature;
+    const restore=()=>{if(swatches.isConnected)swatches.scrollLeft=Math.min(oldScrollLeft,Math.max(0,swatches.scrollWidth-swatches.clientWidth));};
+    restore();requestAnimationFrame(restore);
+    syncMarkers();
+  }
+  function colorLayout(){
+    const d=dock(),swatches=getSwatches();if(!d||!swatches||currentTab()!=='color')return;
+    const colors=collectPaletteColors(swatches),signature=colors.join('|');
+    const existingGrid=swatches.querySelector(':scope > .evpa-color-grid.evpa-v25-color-grid');
+    const existingWheel=existingGrid?.querySelector('.evpa-color-wheel');
+    const existingTransparent=existingGrid?.querySelector('.evpa-transparent');
+    if(existingGrid&&existingWheel&&existingTransparent&&existingGrid.dataset.evpaV25ColorColors===signature){
+      swatches.classList.add('evpa-v25-color-built');syncMarkers();return;
+    }
+    const oldScrollTop=existingGrid?existingGrid.scrollTop:0;
+    const special=ensureSpecials(swatches);
+    const sourceMap=new Map();[...swatches.querySelectorAll('.evpa-swatch[data-color]')].forEach(b=>{const c=norm(b.dataset.color);if(c&&!sourceMap.has(c))sourceMap.set(c,b);});
+    const grid=document.createElement('div');grid.className='evpa-color-grid evpa-v25-color-grid';grid.setAttribute('aria-label','Color palette; swipe up and down for more colours');
+    const realEye=!!(special.eye&&special.eye.classList.contains('ev-eyedrop-text'));
+    if(realEye)grid.appendChild(special.eye);
+    grid.appendChild(special.wheel);grid.appendChild(special.transparent);
+    colors.forEach(c=>grid.appendChild(makeColorSwatch(c,sourceMap.get(c))));
+    if(special.eye&&!realEye)grid.appendChild(special.eye);
+    grid.dataset.evpaV25ColorBuilt='1';
+    grid.dataset.evpaV25ColorColors=signature;
+    swatches.replaceChildren(grid);
+    swatches.classList.add('evpa-v25-color-built');
+    const restore=()=>{if(grid.isConnected)grid.scrollTop=Math.min(oldScrollTop,Math.max(0,grid.scrollHeight-grid.clientHeight));};
+    restore();requestAnimationFrame(restore);
+    syncMarkers();
+  }
+  function syncModes(){
+    const d=dock();if(!d)return;
+    const tab=currentTab();
+    d.classList.toggle('evpa-v25-font-mode',tab==='font');
+    d.classList.toggle('evpa-v25-color-mode',tab==='color');
+    if(tab==='font')fontLayout();else if(tab==='color')colorLayout();
+    syncMarkers();
+  }
+  let layoutQueued=false;
+  function queueLayout(){if(layoutQueued)return;layoutQueued=true;(window.requestAnimationFrame||((fn)=>setTimeout(fn,16)))(()=>{layoutQueued=false;try{syncModes();}catch(err){console.warn('Ethvelle palette layout:',err);}});}
+  window.addEventListener('ethvelle-project-color-scope',queueLayout);
+
+  /* Two-way horizontal touch drag: both Font colour rows move together in either direction. */
+  let drag=null,suppressClickUntil=0,suppressClickTarget=null;
+  window.addEventListener('pointerdown',e=>{
+    const scroller=e.target?.closest?.('#ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built');
+    if(!scroller||e.isPrimary===false||(e.pointerType==='mouse'&&e.button!==0))return;
+    drag={id:e.pointerId,scroller,startX:e.clientX,startY:e.clientY,startScroll:scroller.scrollLeft,startButton:e.target?.closest?.('button')||null,moved:false};
+  },{capture:true,passive:true});
+  window.addEventListener('pointermove',e=>{
+    if(!drag||drag.id!==e.pointerId)return;
+    const dx=e.clientX-drag.startX,dy=e.clientY-drag.startY;
+    if(!drag.moved&&Math.abs(dx)>7&&Math.abs(dx)>Math.abs(dy)*1.15)drag.moved=true;
+    if(!drag.moved)return;
+    const maxScroll=Math.max(0,drag.scroller.scrollWidth-drag.scroller.clientWidth);
+    drag.scroller.scrollLeft=Math.max(0,Math.min(maxScroll,drag.startScroll-dx));
+    suppressClickUntil=Date.now()+650;
+    if(e.cancelable)e.preventDefault();
+  },{capture:true,passive:false});
+  const finishDrag=e=>{if(drag&&(!e||drag.id===e.pointerId)){if(drag.moved){suppressClickUntil=Date.now()+220;suppressClickTarget=drag.startButton;const oldTarget=suppressClickTarget;setTimeout(()=>{if(suppressClickTarget===oldTarget&&Date.now()>=suppressClickUntil)suppressClickTarget=null;},240);}drag=null;}};
+  window.addEventListener('pointerup',finishDrag,{capture:true,passive:true});
+  window.addEventListener('pointercancel',finishDrag,{capture:true,passive:true});
+
+  /* Delegate palette taps before legacy inline handlers: every swatch uses the same live target API,
+     so first-time text, existing text, duplicate Font swatches and the Color grid stay in sync. */
+  window.addEventListener('click',e=>{
+    const d=dock();if(!d||!e.target?.closest)return;
+    const swatch=e.target.closest('#ethvellePicsartTextDock #evpaPalette .evpa-swatch[data-color],#ethvellePicsartTextDock #evpaPalette .evpa-color-wheel,#ethvellePicsartTextDock #evpaPalette .evpa-transparent,#ethvellePicsartTextDock #evpaPalette .evpa-eye');
+    if(!swatch)return;
+    if(Date.now()<suppressClickUntil&&suppressClickTarget&&(e.target===suppressClickTarget||suppressClickTarget.contains(e.target))){suppressClickTarget=null;e.preventDefault();e.stopImmediatePropagation();return;}
+    if(Date.now()>=suppressClickUntil)suppressClickTarget=null;
+    const key=keyForTab();
+    e.preventDefault();e.stopImmediatePropagation();
+    try{if(typeof window.ethvellePicsartSetColorTarget==='function')window.ethvellePicsartSetColorTarget(key);}catch(_e){}
+    if(swatch.classList.contains('evpa-swatch')&&swatch.hasAttribute('data-color')){
+      const color=norm(swatch.dataset.color);if(!color)return;
+      try{if(typeof window.ethvellePicsartSetColor==='function')window.ethvellePicsartSetColor(key,color);}catch(err){console.warn('Ethvelle swatch selection:',err);}
+      syncMarkers();return;
+    }
+    if(swatch.classList.contains('evpa-color-wheel')){
+      try{if(typeof window.openEthvelleColorPicker==='function')window.openEthvelleColorPicker(key);}catch(err){console.warn('Ethvelle custom color picker:',err);}
+      return;
+    }
+    if(swatch.classList.contains('evpa-transparent')){
+      try{if(typeof window.ethvellePicsartSetNone==='function')window.ethvellePicsartSetNone(key);else if(key==='textColor'&&typeof window.ethvellePicsartSetValue==='function')window.ethvellePicsartSetValue('textOpacity',0);}catch(err){console.warn('Ethvelle transparent swatch:',err);}
+      syncMarkers();return;
+    }
+    if(swatch.classList.contains('evpa-eye')){
+      try{if(typeof window.ethvellePicsartSampleColor==='function')window.ethvellePicsartSampleColor();}catch(err){console.warn('Ethvelle canvas eyedropper:',err);}
+    }
+  },true);
+
+  const originalSetColor=window.ethvellePicsartSetColor;
+  if(typeof originalSetColor==='function'&&!originalSetColor.__evV25PaletteSync){
+    const wrappedSetColor=function(){const out=originalSetColor.apply(this,arguments);queueLayout();return out;};
+    wrappedSetColor.__evV25PaletteSync=true;window.ethvellePicsartSetColor=wrappedSetColor;
+  }
+  const originalSetTool=window.ethvellePicsartSetTool;
+  if(typeof originalSetTool==='function'&&!originalSetTool.__evV25PaletteSync){
+    const wrappedSetTool=function(){const out=originalSetTool.apply(this,arguments);queueLayout();return out;};
+    wrappedSetTool.__evV25PaletteSync=true;window.ethvellePicsartSetTool=wrappedSetTool;
+  }
+  const originalOpenComposer=window.openEthvelleTextComposer;
+  if(typeof originalOpenComposer==='function'&&!originalOpenComposer.__evV25PaletteSync){
+    const wrappedOpenComposer=function(){const out=originalOpenComposer.apply(this,arguments);queueLayout();return out;};
+    wrappedOpenComposer.__evV25PaletteSync=true;window.openEthvelleTextComposer=wrappedOpenComposer;
+  }
+  let observed=null,observer=null;
+  function attach(){const p=palette();if(!p||p===observed)return;if(observer)observer.disconnect();observed=p;observer=new MutationObserver(()=>queueLayout());observer.observe(p,{childList:true,subtree:true});queueLayout();}
+  function boot(){attach();syncModes();syncMarkers();}
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',boot,{once:true});else boot();
+  const bodyObserver=new MutationObserver(()=>{if(dock()&&palette()!==observed)attach();});
+  if(document.body)bodyObserver.observe(document.body,{childList:true,subtree:true});
+  window.addEventListener('resize',queueLayout,{passive:true});
+})();
+</script>
+
+
+<style id="ethvelle-capcut-timeline-layout-v4">
+  /* Compact CapCut-like tracks give the portrait preview more vertical room while keeping
+     four default rows visible without a vertical swipe on typical phone screens. */
+  .timeline-area{height:clamp(204px,25dvh,236px)!important;min-height:204px!important;max-height:236px!important;flex:0 0 auto!important;}
+  .timeline-scroll{overflow-x:auto!important;overflow-y:auto!important;-webkit-overflow-scrolling:touch!important;overscroll-behavior:contain;scroll-behavior:auto!important;}
+  .timeline-inner{padding-top:4px!important;padding-bottom:4px!important;}
+  .timeline-ruler{height:14px!important;margin-bottom:3px!important;}
+  #timelineInner .layer-row[data-layer="background"]{height:42px!important;min-height:42px!important;max-height:42px!important;}
+  #timelineInner #track-background{height:36px!important;min-height:36px!important;max-height:36px!important;}
+  #timelineInner .track-clip{top:0!important;height:36px!important;min-height:36px!important;max-height:36px!important;}
+  #timelineInner .layer-row.char-row{height:39px!important;min-height:39px!important;max-height:39px!important;align-items:flex-start!important;}
+  #timelineInner .layer-row.char-row .layer-badge{margin-top:6px!important;}
+  #timelineInner .char-row-track{height:35px!important;min-height:35px!important;max-height:35px!important;margin-top:1px!important;margin-bottom:1px!important;}
+  #timelineInner .anim-clip{height:31px!important;}
+  #timelineInner .layer-row.overlay-track-row{min-height:38px!important;align-items:flex-start!important;padding-top:0!important;padding-bottom:0!important;}
+  #timelineInner .layer-row.overlay-track-row .layer-badge{margin-top:6px!important;}
+  #timelineInner .layer-row.overlay-track-row .layer-track{min-height:34px!important;margin-top:2px!important;margin-bottom:2px!important;}
+  #timelineInner .overlay-clip{height:30px!important;}
+  #timelineInner .layer-row.char-add-row{height:34px!important;min-height:34px!important;max-height:34px!important;}
+  #timelineInner .char-add-row .layer-badge{width:20px!important;height:20px!important;margin-top:5px!important;}
+  #timelineInner .char-add-row .char-add-track{height:28px!important;min-height:28px!important;max-height:28px!important;font-size:11px!important;}
+  /* Portrait projects use nearly the entire available preview box, like CapCut. */
+  .canvas-wrap.canvas-wrap-portrait{padding:2px 4px!important;}
+</style>
+
+<style id="ethvelle-v30-compact-selection-animation-filter">
+  /* Keep selected clip edges INSIDE their compact timeline row. Previous styling intentionally
+     projected 20px handles 10px beyond selected clips; once compact rows were introduced those
+     handles painted into adjacent tracks and made the selected clip appear much taller. */
+  
+  #timelineInner .anim-clip.selected,
+  #timelineInner .overlay-clip.selected,
+  #timelineInner .track-clip.selected{
+    z-index:6!important;box-sizing:border-box!important;
+  }
+  #timelineInner .anim-clip.selected{height:31px!important;min-height:31px!important;max-height:31px!important;}
+  #timelineInner .overlay-clip.selected{height:30px!important;min-height:30px!important;max-height:30px!important;}
+/* The Add-character lane used a 20px badge while every other track uses 26px; that made its
+     dashed placeholder begin 6px too far left. Match the normal badge and retain the same gap. */
+  #timelineInner .layer-row.char-add-row{display:flex!important;align-items:center!important;gap:10px!important;}
+  #timelineInner .char-add-row .char-add-track{flex:1 1 auto!important;min-width:0!important;height:28px!important;min-height:28px!important;max-height:28px!important;margin:0!important;box-sizing:border-box!important;}
+  /* New clip tools keep the existing horizontal toolbar layout and touch target sizing. */
+  #bottomToolsClip .evca-toolbar-tool{display:flex;flex:0 0 78px;min-width:78px;max-width:82px;align-items:center;justify-content:center;gap:5px;padding:3px 4px;}
+  #bottomToolsClip .evca-toolbar-tool svg{width:21px;height:21px;flex:0 0 21px;}

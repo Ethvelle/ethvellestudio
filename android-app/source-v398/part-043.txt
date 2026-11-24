@@ -1,0 +1,1000 @@
+    transform: translateY(-50%) !important;
+  }
+</style>
+
+
+<!-- Ethvelle v37: highest-specificity clip-group handle alignment guard. -->
+<style id="ethvelle-v37-handle-specificity-guard">
+</style>
+
+
+
+<!-- Ethvelle v38: fix real root cause of unselected clip grip offset; use full-height v32 selection tabs. -->
+<style id="ethvelle-v38-compact-clip-geometry-final">
+  /* ROOT FIX: v30 left 48px !important on ordinary overlay clips. The old rule was more
+     specific than the later generic compact rule, so unselected clips stayed 48px tall while
+     selected clips were 30px. Since the lane is compact, the tall unselected box was cropped
+     by its parent and its blue trim bars looked low. Enforce the intended height in every state. */
+  #timelineInner .layer-row.overlay-track-row .overlay-clip:not(.selected):not(.dragging) {
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    box-sizing: border-box !important;
+  }
+  #timelineInner .layer-row.overlay-track-row .overlay-clip.selected,
+  #timelineInner .layer-row.overlay-track-row .overlay-clip.dragging {
+    height: 30px !important;
+    min-height: 30px !important;
+    max-height: 30px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Keep animation clips compact whether selected or not; older geometry rules specified 58px. */
+  #timelineInner .anim-clip:not(.selected):not(.dragging) {
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+    box-sizing: border-box !important;
+  }
+  #timelineInner .anim-clip.selected,
+  #timelineInner .anim-clip.dragging {
+    height: 31px !important;
+    min-height: 31px !important;
+    max-height: 31px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Keep Background at its intended 36px height in all states (also defeats the older 60px rule). */
+  #timelineInner #track-background .track-clip[data-bg-id]:not(.selected):not(.dragging),
+  #timelineInner #track-background .track-clip[data-bg-id].selected,
+  #timelineInner #track-background .track-clip[data-bg-id].dragging {
+    top: 0 !important;
+    height: 36px !important;
+    min-height: 36px !important;
+    max-height: 36px !important;
+    box-sizing: border-box !important;
+  }
+
+  /* Every visible blue trim bar is positioned at the exact vertical centre of its own clip.
+     Do not depend on the lane's height or alignment; the clip itself is now the right height. */
+  #timelineInner .anim-clip .anim-clip-handle,
+  #timelineInner .overlay-clip .anim-clip-handle,
+  #timelineInner .track-clip .anim-clip-handle {
+    position: absolute !important;
+    top: 0 !important;
+    bottom: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
+    max-height: none !important;
+    width: min(40px,33.333333%) !important;
+    min-width: min(40px,33.333333%) !important;
+    max-width: min(40px,33.333333%) !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    display: block !important;
+    box-sizing: border-box !important;
+    background: none !important;
+    transform: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle.left,
+  #timelineInner .overlay-clip .anim-clip-handle.left,
+  #timelineInner .track-clip .anim-clip-handle.left {
+    left: 0 !important;
+    right: auto !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle.right,
+  #timelineInner .overlay-clip .anim-clip-handle.right,
+  #timelineInner .track-clip .anim-clip-handle.right {
+    right: 0 !important;
+    left: auto !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::before,
+  #timelineInner .overlay-clip .anim-clip-handle::before,
+  #timelineInner .track-clip .anim-clip-handle::before {
+    content: none !important;
+    display: none !important;
+  }
+  #timelineInner .anim-clip .anim-clip-handle::after,
+  #timelineInner .overlay-clip .anim-clip-handle::after,
+  #timelineInner .track-clip .anim-clip-handle::after {
+    content: "" !important;
+    display: block !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    right: auto !important;
+    bottom: auto !important;
+    width: 3px !important;
+    height: 16px !important;
+    min-height: 16px !important;
+    max-height: 16px !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    border: 0 !important;
+    border-radius: 1.5px !important;
+    background: #2F5CE8 !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: none !important;
+    filter: none !important;
+    pointer-events: none !important;
+  }
+</style>
+
+
+<style id="ethvelle-v38-selection-tabs-outer-box-alignment">
+</style>
+
+
+<style id="ethvelle-v38-background-tabs-exact-outer-height">
+</style>
+
+
+
+<!-- Ethvelle v40: restore full side-tab height to meet the thin horizontal selection edges; preserve icon spacing. -->
+<style id="ethvelle-v41-selection-border-fine-tune">
+</style>
+
+
+
+<!-- Ethvelle v42: text-color selection visibility, persistent composer focus, precise picker marker,
+     safe empty-timeline scrubbing, reliable stacked text-lane selection, and short-clip grip cleanup. -->
+<style id="ethvelle-v42-text-color-selection-and-short-grips">
+  /* The chosen text-color block must show a blue selection border immediately in every text UI:
+     the main dock (including the Font two-row strip and Color grid), the composer, and style panel. */
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-color-grid > .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-tools > .evpa-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-font-color-row > .evpa-swatch.active,
+  #ethvelleTextComposer .evtc-color-swatch.active,
+  #ethvelleTextComposer .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active {
+    border: 2px solid #2F5CE8 !important;
+    outline: 2px solid #2F5CE8 !important;
+    outline-offset: 1px !important;
+    box-shadow: 0 0 0 1px #111218 !important;
+    box-sizing: border-box !important;
+    position: relative !important;
+    z-index: 10 !important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch:active,
+  #ethvelleTextComposer .evtc-color-swatch:active,
+  #ethvelleTextStylePanel .evts-swatch:active {
+    outline: 2px solid #2F5CE8 !important;
+    outline-offset: 1px !important;
+  }
+  /* A square picker's dot uses its actual selected colour, not a stale inherited preview value. */
+  #ethvelleColorPicker .evpa-sat-square .evpa-sat-marker {
+    background-color: var(--evpa-picked-color, #FFFFFF) !important;
+    background-image: none !important;
+    opacity: 1 !important;
+    visibility: visible !important;
+    z-index: 5 !important;
+  }
+  /* Very short clips cannot fit two blue trim indicators without the indicators nearly touching.
+     Hide only their blue visual bars; the underlying handle hit targets and trimming stay usable. */
+  #timelineInner .ev-short-clip .anim-clip-handle::after,
+  #timelineInner .ev-short-clip .anim-clip-handle::before {
+    content: none !important;
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+  }
+</style>
+<script id="ethvelle-v42-focus-and-short-clip-fix">
+(function(){
+  'use strict';
+  const SHORT_CLIP_WIDTH = 42;
+  const CLIP_SELECTOR = '#timelineInner .anim-clip, #timelineInner .overlay-clip, #timelineInner .track-clip';
+  const observedClips = new WeakSet();
+  let timelineRoot = null;
+  let timelineMutationObserver = null;
+  let bodyWaitObserver = null;
+  let clipResizeObserver = null;
+
+  function updateShortClip(el){
+    if(!el || !el.isConnected) return;
+    const width = el.getBoundingClientRect().width || Number.parseFloat(el.style.width) || 0;
+    el.classList.toggle('ev-short-clip', width > 0 && width < SHORT_CLIP_WIDTH);
+  }
+  function observeClip(el){
+    if(!el || !el.matches || !el.matches('.anim-clip, .overlay-clip, .track-clip')) return;
+    updateShortClip(el);
+    if(clipResizeObserver && !observedClips.has(el)){
+      observedClips.add(el);
+      try{clipResizeObserver.observe(el);}catch(_e){}
+    }
+  }
+  function observeAdded(node){
+    if(!node || node.nodeType !== 1) return;
+    if(node.matches && node.matches('.anim-clip, .overlay-clip, .track-clip')) observeClip(node);
+    if(node.querySelectorAll) node.querySelectorAll('.anim-clip, .overlay-clip, .track-clip').forEach(observeClip);
+  }
+  function attachTimelineObservers(){
+    const root = document.getElementById('timelineInner');
+    if(!root || root === timelineRoot) return;
+    if(timelineMutationObserver) timelineMutationObserver.disconnect();
+    timelineRoot = root;
+    if(typeof ResizeObserver === 'function'){
+      clipResizeObserver = clipResizeObserver || new ResizeObserver(entries=>entries.forEach(entry=>updateShortClip(entry.target)));
+    }
+    root.querySelectorAll('.anim-clip, .overlay-clip, .track-clip').forEach(observeClip);
+    if(typeof MutationObserver === 'function'){
+      timelineMutationObserver = new MutationObserver(records=>records.forEach(record=>record.addedNodes.forEach(observeAdded)));
+      timelineMutationObserver.observe(root,{childList:true,subtree:true});
+    }
+    if(bodyWaitObserver){bodyWaitObserver.disconnect();bodyWaitObserver=null;}
+  }
+  if(document.readyState === 'loading') document.addEventListener('DOMContentLoaded', attachTimelineObservers, {once:true});
+  else attachTimelineObservers();
+  if(document.body && !timelineRoot && typeof MutationObserver === 'function'){
+    bodyWaitObserver = new MutationObserver(attachTimelineObservers);
+    bodyWaitObserver.observe(document.body,{childList:true,subtree:true});
+  }
+  window.addEventListener('resize',()=>{if(timelineRoot)timelineRoot.querySelectorAll('.anim-clip, .overlay-clip, .track-clip').forEach(updateShortClip);},{passive:true});
+
+  /* Preserve the composing text input focus while applying a swatch. This keeps the software
+     keyboard available when a user picks a text colour rather than forcing them to tap the text
+     field again after every colour change. */
+  let focusToRestore = null;
+  let palettePointerDown = false;
+  document.addEventListener('pointerdown',e=>{
+    const inPalette = !!(e.target && e.target.closest && e.target.closest(
+      '#ethvellePicsartTextDock #evpaPalette button, #ethvelleTextComposer #evtcColorStrip button, #ethvelleTextComposer .evpa-palette button'
+    ));
+    palettePointerDown = inPalette;
+    focusToRestore = null;
+    if(!inPalette) return;
+    const active = document.activeElement;
+    if(active && active.matches && active.matches('textarea, input:not([type="range"]), [contenteditable="true"]') && active.closest('#ethvelleTextComposer')){
+      focusToRestore = active;
+    }
+  },true);
+  document.addEventListener('pointerup',()=>{
+    const input = palettePointerDown ? focusToRestore : null;
+    palettePointerDown = false;
+    focusToRestore = null;
+    if(!input) return;
+    setTimeout(()=>{
+      const composer = document.getElementById('ethvelleTextComposer');
+      if(!input.isConnected || !composer || !composer.classList.contains('active')) return;
+      if(document.activeElement !== input){
+        try{input.focus({preventScroll:true});}catch(_e){try{input.focus();}catch(__e){}}
+      }
+    },90);
+  },true);
+  document.addEventListener('pointercancel',()=>{palettePointerDown=false;focusToRestore=null;},true);
+})();
+</script>
+
+
+
+<!-- Ethvelle v43: correct HSV square, stable text swatches/keyboard, centred picker close icon,
+     usable outside trim tabs, and chronological Add Text insertion around the playhead. -->
+<style id="ethvelle-v43-text-picker-timeline-fixes">
+  /* The custom picker close cross is drawn with two equal strokes so it is optically centred,
+     independently of the browser's font baseline for the multiplication glyph. */
+  #ethvelleColorPicker .evpa-picker-close {
+    position:relative!important;display:flex!important;align-items:center!important;justify-content:center!important;
+    padding:0!important;line-height:0!important;font-size:0!important;box-sizing:border-box!important;
+  }
+  #ethvelleColorPicker .evpa-picker-close::before,
+  #ethvelleColorPicker .evpa-picker-close::after {
+    content:""!important;position:absolute!important;left:50%!important;top:50%!important;
+    width:15px!important;height:2px!important;margin:0!important;padding:0!important;border:0!important;
+    border-radius:2px!important;background:currentColor!important;transform:translate(-50%,-50%) rotate(45deg)!important;
+    pointer-events:none!important;
+  }
+  #ethvelleColorPicker .evpa-picker-close::after {transform:translate(-50%,-50%) rotate(-45deg)!important;}
+
+  /* HSV marker must be a solid sample of the selected pixel and the selected chip must keep
+     its blue border, including when that chip is white. Only the currently selected colour rings. */
+  #ethvelleColorPicker .evpa-sat-marker {
+    background:var(--evpa-picked-color,#FF1744)!important;background-image:none!important;
+    border:2px solid #fff!important;opacity:1!important;visibility:visible!important;
+  }
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active {
+    border:2px solid #2F5CE8!important;outline:2px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 2px #15161E,0 0 0 4px #2F5CE8!important;position:relative!important;z-index:20!important;
+  }
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch,
+  #ethvelleTextComposer #evtcColorStrip .evtc-swatch-action,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvelleTextStylePanel .evts-swatch {
+    -webkit-tap-highlight-color:transparent!important;touch-action:manipulation!important;
+  }
+
+  /* Selected white tabs sit outside the clip; place the actual trim hit zones directly beneath
+     those tabs. Their original pointer handlers continue doing the trim, and no clip-body drag
+     handler sees the gesture. */
+  #timelineInner .anim-clip.selected > .anim-clip-handle.left,
+  #timelineInner .overlay-clip.selected > .anim-clip-handle.left,
+  #timelineInner .track-clip.selected > .anim-clip-handle.left {
+    left:-10px!important;right:auto!important;width:20px!important;min-width:20px!important;max-width:20px!important;
+    z-index:96!important;pointer-events:auto!important;cursor:ew-resize!important;touch-action:none!important;
+  }
+  #timelineInner .anim-clip.selected > .anim-clip-handle.right,
+  #timelineInner .overlay-clip.selected > .anim-clip-handle.right,
+  #timelineInner .track-clip.selected > .anim-clip-handle.right {
+    right:-10px!important;left:auto!important;width:20px!important;min-width:20px!important;max-width:20px!important;
+    z-index:96!important;pointer-events:auto!important;cursor:ew-resize!important;touch-action:none!important;
+  }
+</style>
+<script id="ethvelle-v43-text-picker-timeline-fixes-js">
+(function(){
+  'use strict';
+  const norm = v => {
+    const s=String(v||'').trim();
+    if(/^#[0-9a-f]{6}$/i.test(s))return s.toUpperCase();
+    const m=s.match(/rgba?\((\d+)[, ]+\s*(\d+)[, ]+\s*(\d+)/i);
+    return m?'#'+m.slice(1,4).map(n=>Math.max(0,Math.min(255,Number(n))).toString(16).padStart(2,'0')).join('').toUpperCase():'';
+  };
+  let composerColor='';
+  function syncComposerSwatches(color){
+    const c=norm(color);if(!c)return;composerColor=c;
+    const strip=document.getElementById('evtcColorStrip');if(!strip)return;
+    strip.querySelectorAll('.evtc-color-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===c));
+  }
+  window.__ethvelleSyncTextSwatches=function(key,color){
+    const c=norm(color);if(!c)return;
+    if(key==='textColor')syncComposerSwatches(c);
+    const palette=document.querySelector('#ethvellePicsartTextDock #evpaPalette');
+    if(palette){
+      palette.querySelectorAll('.evpa-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===c));
+    }
+    const stylePanel=document.getElementById('ethvelleTextStylePanel');
+    if(stylePanel){stylePanel.querySelectorAll('.evts-swatch[data-color]').forEach(b=>b.classList.toggle('active',norm(b.dataset.color)===c));}
+  };
+
+  /* Wrap, rather than replace, the existing setters so live application and project saving stay intact. */
+  const oldComposerSet=window.setEthvelleComposerColor;
+  if(typeof oldComposerSet==='function'&&!oldComposerSet.__ev43StableSelection){
+    const wrapped=function(color){const out=oldComposerSet.apply(this,arguments);syncComposerSwatches(color);return out;};
+    wrapped.__ev43StableSelection=true;window.setEthvelleComposerColor=wrapped;
+  }
+  const oldDockSet=window.ethvellePicsartSetColor;
+  if(typeof oldDockSet==='function'&&!oldDockSet.__ev43StableSelection){
+    const wrapped=function(key,color){const out=oldDockSet.apply(this,arguments);window.__ethvelleSyncTextSwatches(key,color);return out;};
+    wrapped.__ev43StableSelection=true;window.ethvellePicsartSetColor=wrapped;
+  }
+  const oldComposerOpen=window.openEthvelleTextComposer;
+  if(typeof oldComposerOpen==='function'&&!oldComposerOpen.__ev43StableSelection){
+    const wrapped=function(){const out=oldComposerOpen.apply(this,arguments);requestAnimationFrame(()=>{
+      const input=document.getElementById('evtcStageText');
+      const target=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;
+      syncComposerSwatches(target?.textColor||input?.style.color||'#FFFFFF');
+    });return out;};
+    wrapped.__ev43StableSelection=true;window.openEthvelleTextComposer=wrapped;
+  }
+
+  /* Avoid moving focus to a colour button while the text field owns the Android keyboard.
+     Preventing the pointer's default focus action prevents the keyboard close/reopen flash;
+     the button's normal click/onClick handler still applies the colour. */
+  document.addEventListener('pointerdown',e=>{
+    const button=e.target&&e.target.closest?e.target.closest(
+      '#ethvelleTextComposer #evtcColorStrip .evtc-color-swatch, #ethvelleTextComposer #evtcColorStrip .evtc-swatch-action, #ethvellePicsartTextDock #evpaPalette .evpa-swatch, #ethvelleTextStylePanel .evts-swatch'
+    ):null;
+    if(!button)return;
+    const active=document.activeElement;
+    if(active&&active.matches&&active.matches('textarea,input:not([type="range"]),[contenteditable="true"]')&&active.closest('#ethvelleTextComposer')){
+      e.preventDefault();
+    }
+  },{capture:true,passive:false});
+
+  /* Keep the composer ring correct if a palette rebuild recreates its swatch nodes. */
+  const composer=document.getElementById('ethvelleTextComposer');
+  if(composer&&typeof MutationObserver==='function'){
+    const strip=composer.querySelector('#evtcColorStrip');
+    if(strip&&!strip.dataset.ev43Observed){strip.dataset.ev43Observed='1';new MutationObserver(()=>{if(composerColor)syncComposerSwatches(composerColor);}).observe(strip,{childList:true,subtree:true,attributes:true,attributeFilter:['class','data-color']});}
+  }
+
+  /* Add Text behaves like timeline insertion: the first text clip begins at 0s. Later text clips
+     insert before the nearest clip when the playhead is in its first half, or after it in the
+     second half; following text clips move forward rather than overlapping. */
+  window.ethvellePlanTextInsertStart=function(duration){
+    const list=(typeof overlays!=='undefined'&&Array.isArray(overlays))?overlays:(Array.isArray(window.overlays)?window.overlays:[]);
+    const len=Math.max(MIN_CLIP_SEC,Number(duration)||5);
+    const clips=list.filter(o=>o&&o.type==='text'&&Number.isFinite(Number(o.trimStart))&&Number.isFinite(Number(o.trimEnd))&&Number(o.trimEnd)>Number(o.trimStart))
+      .sort((a,b)=>Number(a.trimStart)-Number(b.trimStart));
+    if(!clips.length)return 0;
+    const playhead=Math.max(0,Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:window.currentAbsoluteTimeSec))||0);
+    let anchor=clips.find(c=>playhead>=Number(c.trimStart)-.001&&playhead<Number(c.trimEnd)-.001);
+    if(!anchor){
+      let best=Infinity;
+      clips.forEach(c=>{const st=Number(c.trimStart),en=Number(c.trimEnd),d=playhead<st?st-playhead:(playhead>en?playhead-en:0);if(d<best){best=d;anchor=c;}});
+    }
+    const st=Math.max(0,Number(anchor.trimStart)||0),en=Math.max(st+MIN_CLIP_SEC,Number(anchor.trimEnd)||st+len);
+    const insertAfter=playhead>=(st+en)/2;
+    const insertAt=insertAfter?en:st;
+    clips.forEach(c=>{
+      if(Number(c.trimEnd)>insertAt+.0001){
+        const oldStart=Number(c.trimStart)||0;
+        const oldKeyframeTimes=Array.isArray(c.ethvelleMediaKeyframes)?c.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+        c.trimStart=oldStart+len;c.trimEnd=Number(c.trimEnd)+len;
+        shiftTimelineKeyframesOnce(c.ethvelleMediaKeyframes,oldKeyframeTimes,len);
+      }
+    });
+    try{if(typeof timelineDuration!=='undefined')timelineDuration=Math.max(Number(timelineDuration)||0,insertAt+len,...clips.map(c=>Number(c.trimEnd)||0));}catch(_e){}
+    return insertAt;
+  };
+})();
+</script>
+
+
+
+<!-- Ethvelle v45: reliable text colour taps, stable swatch state, mobile recorder reliability,
+     exact before/after preview alignment, and hide on-canvas selection chrome during Enhance. -->
+<style id="ethvelle-v45-text-enhance-repair-css">
+  /* Inactive swatches explicitly have no blue ring; only the currently applied colour can show it. */
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch:not(.active),
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch:not(.active),
+  #ethvelleTextStylePanel .evts-swatch:not(.active) {
+    border-color:transparent!important;outline-color:transparent!important;box-shadow:none!important;
+  }
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active {
+    border:2px solid #2F5CE8!important;outline:2px solid #2F5CE8!important;outline-offset:1px!important;
+    box-shadow:0 0 0 2px #15161E,0 0 0 3px #2F5CE8!important;position:relative!important;z-index:30!important;
+  }
+  /* The on-canvas transform frame is editing chrome, not part of the enhancement preview. */
+  body.evlt-enhance-preview-active #selBoxLayer,
+  body.evlt-enhance-preview-active #selBoxLayer .sb-frame,
+  body.evlt-enhance-preview-active #selBoxLayer .sb-btn {display:none!important;visibility:hidden!important;pointer-events:none!important;}
+  body.evlt-enhance-preview-active #ethvelleCanvasCompareRoot,
+  body.evlt-enhance-preview-active #ethvelleCanvasCompareRoot .evcc-layer,
+  body.evlt-enhance-preview-active #ethvelleCanvasCompareRoot .evcc-media {box-sizing:border-box!important;}
+  #ethvelleCanvasCompareRoot .evcc-media {max-width:none!important;max-height:none!important;object-fit:contain!important;object-position:center!important;}
+</style>
+<script id="ethvelle-v45-text-enhance-repair-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const norm=v=>{const s=String(v||'').trim();return /^#[0-9a-f]{6}$/i.test(s)?s.toUpperCase():'';};
+  const composerSelector='#ethvelleTextComposer #evtcColorStrip .evtc-color-swatch[data-color]';
+  const dockSelector='#ethvellePicsartTextDock #evpaPalette .evpa-swatch[data-color]';
+  let currentComposerColor='#FFFFFF',currentDockColor='';
+  let restoreComposerFocus=null;
+  function setOnlyActive(root,selector,color){
+    if(!root)return;const c=norm(color);if(!c)return;
+    root.querySelectorAll(selector).forEach(button=>button.classList.toggle('active',norm(button.dataset.color)===c));
+  }
+  function syncColorRings(){
+    const composer=$('ethvelleTextComposer');
+    if(composer&&composer.classList.contains('active'))setOnlyActive(composer,'.evtc-color-swatch[data-color]',currentComposerColor);
+    const dock=$('ethvellePicsartTextDock');
+    if(dock&&currentDockColor)setOnlyActive(dock,'.evpa-swatch[data-color]',currentDockColor);
+  }
+  function settleRings(color,scope){
+    const c=norm(color);if(!c)return;
+    if(scope==='composer')currentComposerColor=c;else if(scope==='dock')currentDockColor=c;
+    syncColorRings();
+    requestAnimationFrame(syncColorRings);
+    setTimeout(syncColorRings,40);
+  }
+
+  // Wrap the existing setters (do not replace their model updates / redraw / save behaviour).
+  const priorComposerSet=window.setEthvelleComposerColor;
+  if(typeof priorComposerSet==='function'&&!priorComposerSet.__evV45Stable){
+    const wrapped=function(color){const c=norm(color)||'#FFFFFF';const result=priorComposerSet.apply(this,arguments);try{const composer=$('ethvelleTextComposer');const t=typeof window.ethvellePicsartGetTarget==='function'?window.ethvellePicsartGetTarget():null;if(composer&&composer.classList.contains('active')&&t){t.textColor=c;if(Number(t.textOpacity)===0)t.textOpacity=100;}}catch(_e){}settleRings(c,'composer');return result;};
+    wrapped.__evV45Stable=true;window.setEthvelleComposerColor=wrapped;
+  }
+  const priorDockSet=window.ethvellePicsartSetColor;
+  if(typeof priorDockSet==='function'&&!priorDockSet.__evV45Stable){
+    const wrapped=function(key,color){const c=norm(color)||'#FFFFFF';const result=priorDockSet.apply(this,arguments);if(key==='textColor')settleRings(c,'dock');return result;};
+    wrapped.__evV45Stable=true;window.ethvellePicsartSetColor=wrapped;
+  }
+
+  // The earlier focus guard prevented Android from focusing the palette button, but that could
+  // also suppress its synthetic click. Apply the selected colour on pointerdown itself, then
+  // preserve the live draft input's focus so there is no keyboard close/reopen cycle.
+  document.addEventListener('pointerdown',e=>{
+    const target=e.target&&e.target.closest?e.target.closest(composerSelector+', '+dockSelector):null;
+    if(!target)return;
+    const isComposerSwatch=!!target.matches(composerSelector),color=norm(target.dataset.color);if(!color)return;
+    const composer=$('ethvelleTextComposer'),input=$('evtcStageText');
+    const keepKeyboard=!!(composer&&composer.classList.contains('active')&&input&&document.activeElement===input);
+    if(keepKeyboard){restoreComposerFocus=input;try{input.__evV45SelectionStart=input.selectionStart;input.__evV45SelectionEnd=input.selectionEnd;}catch(_e){}}
+    // Apply now as a user gesture. The normal click may also fire; applying the same colour twice
+    // is harmless, while this guarantees the colour is not lost if a WebView cancels that click.
+    try{
+      if(isComposerSwatch&&typeof window.setEthvelleComposerColor==='function')window.setEthvelleComposerColor(color);
+      else if(typeof window.ethvellePicsartSetColor==='function'){
+        /* Stroke / Shadow / Background tabs own their colour: never write the tapped swatch to the text colour. */
+        const tab=$('evpaTabs')?.querySelector('.evpa-tab.active')?.dataset.tab||'';
+        const key=tab==='stroke'?'strokeColor':tab==='shadow'?'shadowColor':(tab==='highlight'||tab==='background')?'textBackgroundColor':'textColor';
+        window.ethvellePicsartSetColor(key,color);
+      }
+    }catch(err){console.warn('Ethvelle text swatch:',err);}
+    settleRings(color,isComposerSwatch?'composer':'dock');
+    if(keepKeyboard){e.preventDefault();}
+  },{capture:true,passive:false});
+
+  function restoreFocus(){
+    const input=restoreComposerFocus;restoreComposerFocus=null;
+    if(!input)return;
+    const composer=$('ethvelleTextComposer');if(!input.isConnected||!composer||!composer.classList.contains('active'))return;
+    const start=input.__evV45SelectionStart,end=input.__evV45SelectionEnd;
+    try{if(document.activeElement!==input)input.focus({preventScroll:true});}catch(_e){try{input.focus();}catch(__e){}}
+    try{if(Number.isInteger(start)&&Number.isInteger(end))input.setSelectionRange(start,end);}catch(_e){}
+    syncColorRings();
+  }
+  document.addEventListener('pointerup',()=>{setTimeout(restoreFocus,0);},true);
+  document.addEventListener('pointercancel',()=>{setTimeout(restoreFocus,0);},true);
+
+  // Keep rings correct after palettes are recreated without letting an old white default overwrite
+  // the colour just selected in the active composer.
+  document.addEventListener('click',e=>{
+    const swatch=e.target&&e.target.closest?e.target.closest(composerSelector+', '+dockSelector):null;if(!swatch)return;
+    const color=norm(swatch.dataset.color);if(color)settleRings(color,swatch.matches(composerSelector)?'composer':'dock');
+  },true);
+  const enhancePanel=$('toolPanel');
+  if(enhancePanel&&typeof MutationObserver==='function'){
+    new MutationObserver(()=>{
+      const enhancing=enhancePanel.classList.contains('evlt-enhance-compact')&&getComputedStyle(enhancePanel).display!=='none';
+      document.body.classList.toggle('evlt-enhance-preview-active',enhancing);
+    }).observe(enhancePanel,{attributes:true,attributeFilter:['class','style']});
+  }
+
+  // Also toggle the preview mode synchronously at the panel API boundary, so the selection frame
+  // disappears before the enhanced compare overlay is shown and returns when Enhance closes.
+  const priorOpenPanel=window.openPanel;
+  if(typeof priorOpenPanel==='function'&&!priorOpenPanel.__evV45EnhanceChrome){
+    const wrapped=function(key){
+      document.body.classList.toggle('evlt-enhance-preview-active',key==='evltEnhance');
+      const result=priorOpenPanel.apply(this,arguments);
+      if(key!=='evltEnhance')document.body.classList.remove('evlt-enhance-preview-active');
+      else requestAnimationFrame(()=>document.body.classList.add('evlt-enhance-preview-active'));
+      return result;
+    };
+    wrapped.__evV45EnhanceChrome=true;window.openPanel=wrapped;
+  }
+  const priorClosePanel=window.closePanel;
+  if(typeof priorClosePanel==='function'&&!priorClosePanel.__evV45EnhanceChrome){
+    const wrapped=function(){const result=priorClosePanel.apply(this,arguments);document.body.classList.remove('evlt-enhance-preview-active');return result;};
+    wrapped.__evV45EnhanceChrome=true;window.closePanel=wrapped;
+  }
+})();
+</script>
+
+
+<!-- Ethvelle v46: single-ring text swatches, live custom text colour, in-row enhance quality tag,
+     silent enhancement preview, slightly taller character lane, and consistent clip insertion. -->
+<style id="ethvelle-v46-targeted-fixes-css">
+  /* One thin solid blue ring only: no black inner halo, doubled outline, or persistent default-white ring. */
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvelleTextStylePanel .evts-swatch {
+    outline:0!important;outline-offset:0!important;box-shadow:none!important;
+    border:1px solid transparent!important;
+  }
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active {
+    border:1.5px solid #2F5CE8!important;outline:0!important;outline-offset:0!important;
+    box-shadow:none!important;transform:none!important;z-index:30!important;
+  }
+  /* The Apply control has a slightly stronger, single blue edge. */
+  #evltEnhanceApply.evlt-primary,#evltEnhanceApply {
+    border:2px solid #426BFF!important;box-shadow:0 0 0 1px rgba(47,92,232,.18)!important;
+  }
+  #evltEnhanceApply:disabled {border-color:#46506C!important;box-shadow:none!important;}
+  /* Give the character timeline lane a little more vertical room without changing its timing width. */
+  #timelineInner .layer-row.char-row {height:43px!important;min-height:43px!important;max-height:43px!important;}
+  #timelineInner .layer-row.char-row .layer-badge {margin-top:8px!important;}
+  #timelineInner .char-row-track {height:39px!important;min-height:39px!important;max-height:39px!important;margin-top:1px!important;margin-bottom:1px!important;}
+  #timelineInner .char-row-track .anim-clip,
+  #timelineInner .char-row-track .anim-clip.selected {height:33px!important;min-height:33px!important;max-height:33px!important;}
+  /* Quality is UI metadata in the timeline only; it is never painted into the enhanced canvas pixels. */
+  #timelineInner .evlt-quality-row-badge {
+    position:absolute!important;left:4px!important;top:50%!important;transform:translateY(-50%)!important;
+    z-index:80!important;display:inline-flex!important;align-items:center!important;justify-content:center!important;
+    max-width:calc(100% - 8px)!important;min-height:15px!important;padding:2px 5px!important;
+    box-sizing:border-box!important;white-space:nowrap!important;overflow:hidden!important;text-overflow:ellipsis!important;
+    border:1px solid rgba(95,137,255,.95)!important;border-radius:4px!important;
+    background:rgba(11,18,43,.94)!important;color:#F5F7FF!important;
+    font:800 8px/1.15 Inter,Arial,sans-serif!important;letter-spacing:.035em!important;
+    pointer-events:none!important;text-shadow:none!important;box-shadow:none!important;
+  }
+</style>
+<script id="ethvelle-v46-targeted-fixes-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const safe=(fn)=>{try{return fn();}catch(_e){return undefined;}};
+
+  // Opening the custom picker from Add Text deliberately dismisses the Android keyboard.
+  const openPicker=window.openEthvelleColorPicker;
+  if(typeof openPicker==='function'&&!openPicker.__evV46BlurKeyboard){
+    const wrapped=function(){
+      const composer=$('ethvelleTextComposer'),input=$('evtcStageText');
+      if(composer&&composer.classList.contains('active')&&input){
+        try{input.blur();}catch(_e){}
+      }
+      return openPicker.apply(this,arguments);
+    };
+    wrapped.__evV46BlurKeyboard=true;window.openEthvelleColorPicker=wrapped;
+  }
+
+  function qualityFor(model){
+    if(!model)return '';
+    const raw=model.__evltPendingEnhancedQuality||model.__evltEnhanceChosenQuality||model.enhancedAssetQuality;
+    const runtime=String(model.__evltRuntimeEnhancedQuality||'').toUpperCase();
+    if(runtime.includes('ULTRA'))return 'ULTRA HD';
+    if(runtime.includes('QHD')||runtime.includes('1440'))return 'QHD';
+    if(runtime.includes('FULL HD')||runtime==='HD')return 'FULL HD';
+    const q=Number(raw)||0;
+    return q>=2160?'ULTRA HD':q>=1440?'QHD':q>=1080?'FULL HD':'';
+  }
+  function placeBadge(el,label){
+    if(!el)return;
+    let badge=el.querySelector(':scope > .evlt-quality-row-badge');
+    if(!label){if(badge)badge.remove();return;}
+    if(!badge){badge=document.createElement('span');badge.className='evlt-quality-row-badge';badge.setAttribute('aria-label','Enhanced output quality');el.appendChild(badge);}
+    if(badge.textContent!==label)badge.textContent=label;
+  }
+  function refreshQualityBadges(){
+    let overlayList=[],backgroundList=[];
+    try{overlayList=Array.isArray(overlays)?overlays:(Array.isArray(window.overlays)?window.overlays:[]);}catch(_e){}
+    try{backgroundList=Array.isArray(backgrounds)?backgrounds:(Array.isArray(window.backgrounds)?window.backgrounds:[]);}catch(_e){}
+    document.querySelectorAll('#timelineInner .overlay-clip[data-overlay-id]').forEach(el=>{
+      const model=overlayList.find(o=>String(o.id)===String(el.dataset.overlayId));placeBadge(el,qualityFor(model));
+    });
+    document.querySelectorAll('#timelineInner .track-clip[data-bg-id]').forEach(el=>{
+      const model=backgroundList.find(o=>String(o.id)===String(el.dataset.bgId));placeBadge(el,qualityFor(model));
+    });
+  }
+  window.__ethvelleV46RefreshQualityBadges=refreshQualityBadges;
+  const timeline=$('timelineInner');
+  if(timeline&&typeof MutationObserver==='function'){
+    let queued=false;new MutationObserver(()=>{if(queued)return;queued=true;requestAnimationFrame(()=>{queued=false;refreshQualityBadges();});})
+      .observe(timeline,{childList:true,subtree:true});
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',refreshQualityBadges,{once:true});
+  else refreshQualityBadges();
+
+  // After Apply, force the actual timeline/canvas renderer to bind the runtime enhanced source.
+  const priorApply=window.ethvelleApplyVideoEnhance;
+  if(typeof priorApply==='function'&&!priorApply.__evV46CanvasRefresh){
+    const wrappedApply=async function(){
+      const result=await priorApply.apply(this,arguments);
+      [50,180,420].forEach(delay=>setTimeout(()=>{
+        safe(()=>{if(typeof window.renderOverlayLayers==='function')window.renderOverlayLayers();});
+        safe(()=>{if(typeof window.refreshCurrentBgFromPlayhead==='function')window.refreshCurrentBgFromPlayhead();});
+        safe(()=>{if(typeof window.applyBackground==='function')window.applyBackground();});
+        safe(()=>{if(typeof window.renderFrame==='function')window.renderFrame();});
+        safe(()=>{if(typeof window.updateSelBox==='function')window.updateSelBox();});
+        safe(refreshQualityBadges);
+      },delay));
+      return result;
+    };
+    wrappedApply.__evV46CanvasRefresh=true;window.ethvelleApplyVideoEnhance=wrappedApply;
+  }
+  const priorStart=window.ethvelleStartVideoEnhance;
+  if(typeof priorStart==='function'&&!priorStart.__evV46QualityRefresh){
+    const wrappedStart=async function(){const result=await priorStart.apply(this,arguments);[80,260].forEach(delay=>setTimeout(refreshQualityBadges,delay));return result;};
+    wrappedStart.__evV46QualityRefresh=true;window.ethvelleStartVideoEnhance=wrappedStart;
+  }
+})();
+</script>
+
+<!-- Ethvelle v47: final text colour application, visible text after reload, two-way font palette scroll,
+     apply-and-close enhancement, watermark-only quality label, and slightly taller character row. -->
+<style id="ethvelle-v47-final-repair-css">
+  /* Single solid blue selection ring, slightly stronger than v46, with no inner black edge or glow. */
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch,
+  #ethvelleTextStylePanel .evts-swatch {
+    outline:0!important;outline-offset:0!important;box-shadow:none!important;
+    border:1px solid transparent!important;
+  }
+  #ethvelleTextComposer #evtcColorStrip .evtc-color-swatch.active,
+  #ethvellePicsartTextDock #evpaPalette .evpa-swatch.active,
+  #ethvelleTextStylePanel .evts-swatch.active {
+    border:2px solid #2F5CE8!important;outline:0!important;outline-offset:0!important;
+    box-shadow:none!important;filter:none!important;transform:none!important;z-index:40!important;
+  }
+  /* Horizontal pan is allowed on the shared Font palette scroller and both rows. */
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built > .evpa-font-color-tools,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built > .evpa-font-color-row,
+  #ethvellePicsartTextDock.evpa-v25-font-mode #evpaPalette .evpa-swatches.evpa-v25-font-built button {
+    touch-action:pan-x!important;-webkit-overflow-scrolling:touch!important;
+  }
+  /* Quality label is watermark-like text only: no pill, border, fill, shadow, or glow. */
+  #timelineInner .evlt-quality-row-badge {
+    border:0!important;border-radius:0!important;background:transparent!important;
+    box-shadow:none!important;text-shadow:none!important;filter:none!important;
+    min-height:0!important;padding:0 2px!important;opacity:.88!important;
+    color:#FFFFFF!important;font:800 9px/1.1 Inter,Arial,sans-serif!important;
+    letter-spacing:.035em!important;
+  }
+  /* A little extra height for the character row and its clip without affecting timeline width. */
+  #timelineInner .layer-row.char-row {height:46px!important;min-height:46px!important;max-height:46px!important;}
+  #timelineInner .layer-row.char-row .layer-badge {margin-top:9px!important;}
+  #timelineInner .char-row-track {height:42px!important;min-height:42px!important;max-height:42px!important;margin-top:1px!important;margin-bottom:1px!important;}
+  #timelineInner .char-row-track .anim-clip,
+  #timelineInner .char-row-track .anim-clip.selected {height:36px!important;min-height:36px!important;max-height:36px!important;}
+</style>
+<script id="ethvelle-v47-final-repair-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const normColor=value=>{
+    let c=String(value||'').trim();
+    if(/^#[0-9a-f]{3}$/i.test(c))c='#'+c.slice(1).split('').map(ch=>ch+ch).join('');
+    return /^#[0-9a-f]{6}$/i.test(c)?c.toUpperCase():'';
+  };
+  const activeComposer=()=>!!$('ethvelleTextComposer')?.classList.contains('active');
+  function setVisibleColorRings(color){
+    const c=normColor(color);if(!c)return;
+    const specs=[
+      ['#ethvelleTextComposer #evtcColorStrip .evtc-color-swatch[data-color]', 'data-color'],
+      ['#ethvellePicsartTextDock #evpaPalette .evpa-swatch[data-color]', 'data-color'],
+      ['#ethvelleTextStylePanel .evts-swatch[data-color]', 'data-color']
+    ];
+    specs.forEach(([selector,attr])=>document.querySelectorAll(selector).forEach(el=>el.classList.toggle('active',normColor(el.getAttribute(attr))===c)));
+  }
+
+  /* The composer has two legacy style objects (draft + dock target). Sync both so a colour picked
+     in the Font row is what the check-mark saves, not just what the preview temporarily paints. */
+  const priorComposerSet=window.setEthvelleComposerColor;
+  if(typeof priorComposerSet==='function'&&!priorComposerSet.__evV47ApplyColor){
+    const wrapped=function(color){
+      const c=normColor(color);const result=priorComposerSet.apply(this,arguments);
+      if(c){
+        try{const target=window.ethvellePicsartGetTarget?.();if(target){target.textColor=c;target.textGradient='';target.textTexture='';if(Number(target.textOpacity)===0)target.textOpacity=100;}}catch(_e){}
+        const input=$('evtcStageText');if(input){input.style.setProperty('color',c,'important');input.style.setProperty('-webkit-text-fill-color',c,'important');input.style.setProperty('background-image','none','important');input.style.setProperty('background-clip','border-box','important');input.style.setProperty('-webkit-background-clip','border-box','important');}
+        setVisibleColorRings(c);
+      }
+      return result;
+    };
+    wrapped.__evV47ApplyColor=true;window.setEthvelleComposerColor=wrapped;
+  }
+
+  /* Make existing-text swatches immediately update the model, canvas renderer, and persistent save.
+     In composer mode explicitly update the actual draft too; this is the path that legacy dock
+     handlers could miss when a color was chosen from the Font section. */
+  const priorDockSet=window.ethvellePicsartSetColor;
+  if(typeof priorDockSet==='function'&&!priorDockSet.__evV47ApplyColor){
+    const wrapped=function(key,color){
+      const c=normColor(color);const composing=activeComposer();
+      const result=priorDockSet.apply(this,arguments);
+      if(key==='textColor'&&c){
+        if(composing&&typeof window.setEthvelleComposerColor==='function'){
+          try{window.setEthvelleComposerColor(c);}catch(_e){}
+        }else{
+          try{
+            const target=window.ethvellePicsartGetTarget?.();
+            if(target&&target.type==='text'){
+              target.textColor=c;target.textGradient='';target.textTexture='';
+              if(Number(target.textOpacity)===0)target.textOpacity=100;
+            }
+            if(typeof window.renderFrame==='function')window.renderFrame();
+            if(typeof window.persistProjectState==='function')window.persistProjectState({skipHistory:true});
+          }catch(err){console.warn('Ethvelle text color apply:',err);}
+        }
+        setVisibleColorRings(c);
+      }
+      return result;
+    };
+    wrapped.__evV47ApplyColor=true;window.ethvellePicsartSetColor=wrapped;
+  }
+
+  /* Re-sync the selected swatch on composer open/rebuild, using the real style target as source. */
+  const priorComposerOpen=window.openEthvelleTextComposer;
+  if(typeof priorComposerOpen==='function'&&!priorComposerOpen.__evV47SyncRings){
+    const wrapped=function(){
+      const result=priorComposerOpen.apply(this,arguments);
+      requestAnimationFrame(()=>{
+        try{
+          const target=window.ethvellePicsartGetTarget?.();
+          const c=normColor(target?.textColor||'#FFFFFF')||'#FFFFFF';
+          /* Only restore the selected swatch marker here. Calling the colour setter on open
+             clears textGradient/textTexture, destroying the selected layer's saved fill effect. */
+          setVisibleColorRings(c);
+          if(typeof window.__ethvelleSyncTextSwatches==='function')window.__ethvelleSyncTextSwatches('textColor',c);
+        }catch(_e){}
+      });
+      return result;
+    };
+    wrapped.__evV47SyncRings=true;window.openEthvelleTextComposer=wrapped;
+  }
+
+  // Successful video enhancement now starts the main timeline player once. The short-lived
+  // pause guard remains for unsuccessful runs and Apply's media-rebinding refreshes.
+  function freezeEnhanceTargetVideo(forceClockPause){
+    if(forceClockPause){
+      try{
+        if(typeof window.pausePlaybackAtCurrentTime==='function')window.pausePlaybackAtCurrentTime();
+        else if(typeof window.pausePlayback==='function')window.pausePlayback();
+      }catch(_e){}
+    }
+    try{
+      const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+      const raw=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[id]:null;
+      const video=raw&&raw.tagName==='VIDEO'?raw:(raw&&raw.querySelector?raw.querySelector('video'):null);
+      if(!video)return;
+      video.autoplay=false;video.removeAttribute('autoplay');
+      const pausedPlayGuard=()=>{
+        if(!(typeof isPlaying!=='undefined'&&isPlaying)){
+          try{video.pause();}catch(_e){}
+        }
+      };
+      try{video.pause();}catch(_e){}
+      if(!video.__evV47EnhancePauseGuard){
+        video.__evV47EnhancePauseGuard=pausedPlayGuard;
+        video.addEventListener('play',pausedPlayGuard);
+        setTimeout(()=>{
+          try{video.removeEventListener('play',pausedPlayGuard);delete video.__evV47EnhancePauseGuard;}catch(_e){}
+        },2200);
+      }
+    }catch(_e){}
+  }
+  let enhanceAutoPlayToken=0,enhanceSweepRaf=0;
+  let enhanceAutoPreviewPending=false,enhanceAutoPreviewRunning=false,enhanceAutoPreviewRaf=0,enhanceAutoPreviewStartTimer=0,enhanceAutoPreviewClipId=null;
+  window.__evEnhancePreviewMute=false;
+  function enhanceSelectedClip(){
+    const id=String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');
+    return typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===id):null;
+  }
+  function cancelEnhanceAutoPreview(reason,pauseIfRunning,renderAfter){
+    const active=enhanceAutoPreviewPending||enhanceAutoPreviewRunning||window.__evEnhancePreviewMute===true;
+    if(!active)return false;
+    const wasRunning=enhanceAutoPreviewRunning;
+    enhanceAutoPlayToken++;
+    enhanceAutoPreviewPending=false;enhanceAutoPreviewRunning=false;enhanceAutoPreviewClipId=null;
+    if(enhanceAutoPreviewStartTimer){clearTimeout(enhanceAutoPreviewStartTimer);enhanceAutoPreviewStartTimer=0;}
+    if(enhanceAutoPreviewRaf){cancelAnimationFrame(enhanceAutoPreviewRaf);enhanceAutoPreviewRaf=0;}
+    window.__evEnhancePreviewMute=false;
+    if(wasRunning&&pauseIfRunning&&typeof window.pausePlaybackAtCurrentTime==='function'&&typeof isPlaying!=='undefined'&&isPlaying){try{window.pausePlaybackAtCurrentTime();}catch(_e){}}
+    else if(renderAfter!==false&&wasRunning){try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(_e){}}
+    return true;
+  }
+  window.__evCancelEnhanceAutoPreview=cancelEnhanceAutoPreview;
+  /* Every timeline scrub entry point writes this flag, including the compact zoom-HUD scrubber. */
+  try{
+    const oldScrubDescriptor=Object.getOwnPropertyDescriptor(window,'__ethvelleTimelineScrubbing');
+    if(!oldScrubDescriptor||oldScrubDescriptor.configurable){
+      let scrubState=!!window.__ethvelleTimelineScrubbing;
+      Object.defineProperty(window,'__ethvelleTimelineScrubbing',{configurable:true,enumerable:true,get(){return scrubState;},set(value){const next=!!value;if(next&&!scrubState)cancelEnhanceAutoPreview('scrub',false,true);scrubState=next;}});
+    }
+  }catch(_e){}
+  window.addEventListener('pagehide',()=>cancelEnhanceAutoPreview('pagehide',true,false),{once:true});
+  document.addEventListener('visibilitychange',()=>{if(document.hidden)cancelEnhanceAutoPreview('visibility-hidden',true,false);});
+  function cancelEnhanceSweep(){if(enhanceSweepRaf){cancelAnimationFrame(enhanceSweepRaf);enhanceSweepRaf=0;}}
+  window.__evSweepCancel=cancelEnhanceSweep;
+  /* After Enhance finishes the BEFORE/AFTER divider glides 50% -> 0% -> 100% -> 50% so the whole
+     enhanced frame is seen on both sides. Touching the divider cancels it at once. */
+  function sweepEnhanceCompare(totalSec){
+    cancelEnhanceSweep();
+    const set=window.ethvelleSetCompareSplit;if(typeof set!=='function')return;
+    const period=Math.min(6,Math.max(3,totalSec)),total=Math.max(period,totalSec),t0=performance.now();
+    const step=now=>{
+      if(!document.getElementById('ethvelleCanvasCompareRoot')){enhanceSweepRaf=0;return;}
+      const t=(now-t0)/1000;
+      if(t>=total){set(50);enhanceSweepRaf=0;return;}
+      // phase 0..1 inside the current period; sine keeps motion smooth at both ends.
+      const phase=(t%period)/period;
+      set(50-50*Math.sin(phase*2*Math.PI));
+      enhanceSweepRaf=requestAnimationFrame(step);
+    };
+    enhanceSweepRaf=requestAnimationFrame(step);
+  }
+  function playEnhancedVideoOnce(lockedId){
+    // The clip that was enhanced is locked in when Enhance starts, so a neighbouring clip that happens to sit
+    // under the playhead can never become the selected / previewed one.
+    const clip=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(lockedId)):null;
+    if(!clip||clip.type!=='video'){window.__evEnhancePreviewMute=false;return;}
+    const token=++enhanceAutoPlayToken,keepId=clip.id;
+    enhanceAutoPreviewPending=true;enhanceAutoPreviewRunning=false;enhanceAutoPreviewClipId=keepId;
+    // startPlayback()/pause deselect or re-select by playhead position. Put the enhanced clip back directly
+    // (same pattern as the audio preview) so playback keeps running and the Enhance panel keeps its target.
+    const keepSelected=()=>{
+      try{
+        if(String(selectedClip)===String(keepId))return;
+        selectedClip=keepId;selectedKfIdx=null;
+        document.querySelectorAll('#timelineInner .overlay-clip.selected,#timelineInner .track-clip.selected').forEach(el=>el.classList.remove('selected'));
+        const el=[...document.querySelectorAll('#timelineInner .overlay-clip[data-overlay-id]')].find(n=>String(n.getAttribute('data-overlay-id'))===String(keepId));if(el)el.classList.add('selected');
+      }catch(_e){}
+    };
+    const start=Number(clip.trimStart)||0,end=Number(clip.trimEnd)||start;
+    if(!(end>start)){enhanceAutoPreviewPending=false;enhanceAutoPreviewClipId=null;window.__evEnhancePreviewMute=false;return;}
+    const stopAt=start+0.9*(end-start);
+    enhanceAutoPreviewStartTimer=setTimeout(()=>{
+      enhanceAutoPreviewStartTimer=0;
+      if(token!==enhanceAutoPlayToken)return;
+      enhanceAutoPreviewPending=false;
+      try{
+        if(String(selectedClip)!==String(keepId))keepSelected();
+        if(typeof window.pausePlaybackAtCurrentTime==='function'&&typeof isPlaying!=='undefined'&&isPlaying)window.pausePlaybackAtCurrentTime();
+        if(typeof window.seekAbsoluteTimelineSeconds==='function')window.seekAbsoluteTimelineSeconds(start);
+        if(typeof window.startPlayback!=='function'){window.__evEnhancePreviewMute=false;enhanceAutoPreviewClipId=null;return;}
+        window.__evEnhancePreviewMute=true;
+        enhanceAutoPreviewRunning=true;
+        window.startPlayback();
+        keepSelected();
+        // startPlayback() can be gated ("Preparing playback…") and start a moment later, so wait for it before treating "not playing" as stopped.
+        const startWaitFrom=performance.now();let sawPlaying=!!(typeof isPlaying!=='undefined'&&isPlaying);
+        // Preview once, stopping at 90% of the clip without moving the playhead afterward.
+        const finish=()=>{
+          if(token!==enhanceAutoPlayToken)return;
+          enhanceAutoPreviewRunning=false;
+          try{window.pausePlaybackAtCurrentTime();}catch(_e){}
+          window.__evEnhancePreviewMute=false;
+          try{if(typeof window.renderFrame==='function')window.renderFrame();}catch(_e){}
+          keepSelected();[60,250,700].forEach(ms=>setTimeout(()=>{if(token===enhanceAutoPlayToken)keepSelected();},ms));
+        };
+        const watch=()=>{
+          enhanceAutoPreviewRaf=0;
+          if(token!==enhanceAutoPlayToken)return;
+          if(typeof isPlaying!=='undefined'&&isPlaying)sawPlaying=true;
+          if(typeof isPlaying==='undefined'||!isPlaying){
+            if(!sawPlaying&&performance.now()-startWaitFrom<12000){enhanceAutoPreviewRaf=requestAnimationFrame(watch);return;}
+            cancelEnhanceAutoPreview('playback-stopped',false,true);return;
+          }
+          keepSelected();
+          const now=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0;
+          if(now>=stopAt-0.04){finish();return;}
+          enhanceAutoPreviewRaf=requestAnimationFrame(watch);
+        };
+        enhanceAutoPreviewRaf=requestAnimationFrame(watch);
+      }catch(err){
+        console.warn('Ethvelle: automatic one-time Enhance preview playback failed',err);
+        cancelEnhanceAutoPreview('preview-error',true,true);
+        window.__evEnhancePreviewMute=false;
+      }
+    },150);
+  }
+  const priorStartEnhance=window.ethvelleStartVideoEnhance;
+  if(typeof priorStartEnhance==='function'&&!priorStartEnhance.__evV47PauseAfterRun){
+    const wrappedStart=async function(){
+      cancelEnhanceAutoPreview('new-enhance',true,true);
+      let readyForPlayback=false;
+      const lockedId=typeof selectedClip!=='undefined'?selectedClip:null;
+      try{
+        const result=await priorStartEnhance.apply(this,arguments);
+        const clip=typeof overlays!=='undefined'&&Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===String(lockedId)):null;
+        const status=$('evltEnhanceStatus');
+        readyForPlayback=!!(clip&&clip.type==='video'&&status&&/Ready to apply/i.test(status.textContent||''));
+        return result;
+      }finally{
+        if(readyForPlayback)playEnhancedVideoOnce(lockedId);
+        else freezeEnhanceTargetVideo(true);
+      }
+    };
+    wrappedStart.__evV47PauseAfterRun=true;window.ethvelleStartVideoEnhance=wrappedStart;
+  }
+  const priorEnhanceTogglePlayback=window.togglePlayback;
+  if(typeof priorEnhanceTogglePlayback==='function'&&!priorEnhanceTogglePlayback.__evEnhancePreviewCancel){
+    const wrappedToggle=function(){cancelEnhanceAutoPreview('transport-toggle',false,false);return priorEnhanceTogglePlayback.apply(this,arguments);};
+    wrappedToggle.__evEnhancePreviewCancel=true;window.togglePlayback=wrappedToggle;
+  }
+  const priorEnhanceTogglePlay=window.togglePlay;
+  if(typeof priorEnhanceTogglePlay==='function'&&!priorEnhanceTogglePlay.__evEnhancePreviewCancel){
+    const wrappedTogglePlay=function(){cancelEnhanceAutoPreview('transport-toggle',false,false);return priorEnhanceTogglePlay.apply(this,arguments);};
+    wrappedTogglePlay.__evEnhancePreviewCancel=true;window.togglePlay=wrappedTogglePlay;
+  }
+  const priorEnhanceSelectClip=window.selectClipForChrome;
+  if(typeof priorEnhanceSelectClip==='function'&&!priorEnhanceSelectClip.__evEnhancePreviewCancel){
+    const wrappedSelectClip=function(which){if((enhanceAutoPreviewPending||enhanceAutoPreviewRunning)&&String(which)!==String(enhanceAutoPreviewClipId))cancelEnhanceAutoPreview('clip-selection',false,false);return priorEnhanceSelectClip.apply(this,arguments);};
+    wrappedSelectClip.__evEnhancePreviewCancel=true;window.selectClipForChrome=wrappedSelectClip;
+  }
+
+  /* Successful Apply closes only after the runtime enhanced source has actually been installed.
+     Errors keep the panel open so the user can read the failure and retry. */
+  const priorApply=window.ethvelleApplyVideoEnhance;
+  if(typeof priorApply==='function'&&!priorApply.__evV47CloseOnSuccess){
+    const wrapped=async function(){
+      const result=await priorApply.apply(this,arguments);
+      const status=$('evltEnhanceStatus');
+      if(status&&/\bApplied\b/.test(status.textContent||'')){
+        document.body.classList.remove('evlt-enhance-preview-active');
+        cancelEnhanceAutoPreview('apply-close',true,true);
+        if(typeof window.closePanel==='function')window.closePanel();
+        return result;
+      }
+      freezeEnhanceTargetVideo(true);
