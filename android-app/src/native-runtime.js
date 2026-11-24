@@ -59,7 +59,7 @@ if (native) {
     if (window.__ethvelleNativeStorageWriteFailed) window.__ethvelleNativeStorageWriteFailed(err);
   };
   const parseArray = key => {
-    try { const v = JSON.parse(window.__ethvelleNativeMemory?.[key] || '[]'); return Array.isArray(v) ? v : []; }
+    try { const raw = window.localStorage?.getItem(key) || window.__ethvelleNativeMemory?.[key] || '[]'; const v = JSON.parse(raw); return Array.isArray(v) ? v : []; }
     catch (e) { announceWriteFailure(new Error('Could not parse ' + key + ': ' + e.message)); return []; }
   };
 
@@ -202,7 +202,7 @@ if (native) {
                   const actualKey = key != null ? key : (value && value.key != null ? value.key : value && value.id);
                   if (actualKey == null) throw new Error('A key is required for the native file store.');
                   if (name === 'ethvelle-source-media-v1' && value && value.blob) throw new Error('Timeline source media is URI-linked on Android; byte copies are disabled.');
-                  const encoded = await encodeValue(value, name);
+                  if (name === 'ethvelle-device-project-storage-v1') return actualKey; // projects are stored one JSON file per project, never as a duplicate aggregate snapshot\n                  const encoded = await encodeValue(value, name);
                   await atomicWrite(fileFor(name, store, actualKey), JSON.stringify({ key: actualKey, value: encoded }));
                   return actualKey;
                 }, tx),
@@ -265,26 +265,31 @@ if (native) {
     } catch (_) { alert(message); }
   };
   let currentExportUri = null;
-  async function blobToBase64(blob) {
-    const data = await blobToDataUrl(blob);
-    return data.substring(data.indexOf(',') + 1);
-  }
   async function persistExport(blob, filename) {
+    let session = null;
     try {
-      const base64 = await blobToBase64(blob);
-      const saved = await EthvelleMedia.saveExport({ base64, filename, mime: blob.type || 'video/mp4' });
+      await EthvelleMedia.setKeepAwake({ enabled: true });
+      session = await EthvelleMedia.startExport({ filename: filename || 'Ethvelle-v399.mp4', mime: blob.type || 'video/mp4' });
+      const bytes = new Uint8Array(await blob.arrayBuffer());
+      const chunkSize = 384 * 1024;
+      for (let offset = 0; offset < bytes.length; offset += chunkSize) {
+        const chunk = bytes.subarray(offset, Math.min(bytes.length, offset + chunkSize));
+        let binary = '';
+        for (let i = 0; i < chunk.length; i++) binary += String.fromCharCode(chunk[i]);
+        await EthvelleMedia.appendExportChunk({ id: session.id, base64: btoa(binary) });
+      }
+      const saved = await EthvelleMedia.finishExport({ id: session.id });
       currentExportUri = saved.uri;
-      const share = $('ethvelle-share-export');
-      if (share) share.hidden = false;
+      const share = $('ethvelle-share-export'); if (share) share.hidden = false;
       toast('Export saved to Movies/Ethvelle.');
       return saved;
     } catch (e) { toast('Export could not be saved: ' + (e?.message || e)); throw e; }
     finally { try { await EthvelleMedia.setKeepAwake({ enabled: false }); } catch (_) {} }
   }
   window.__ethvelleSaveExport = persistExport;
-  window.__capExportBegin = async function () { try { await EthvelleMedia.setKeepAwake({ enabled: true }); } catch (e) { log(e); } };
+  window.__capExportBegin = function () { EthvelleMedia.setKeepAwake({ enabled: true }).catch(log); };
   window.__capExportDone = function (info) {
-    if (info?.blob) return persistExport(info.blob, info.filename || 'Ethvelle-export.mp4');
+    if (info?.blob) return persistExport(info.blob, info.filename || 'Ethvelle-v399.mp4');
     return Promise.resolve();
   };
   document.addEventListener('click', async event => {
@@ -388,16 +393,63 @@ if (native) {
     toast('Linked to the original device file — no media copy was made.');
   }
 
-  const oldTrigger = window.triggerUpload;
-  window.triggerUpload = function (target, appendAfterGroup) {
-    const t = String(target || '');
-    if (['overlay', 'media', 'audio', 'replace-overlay', 'background', 'replace-background'].includes(t)) {
-      try { uploadTarget = t; uploadAppendGroup = appendAfterGroup || null; } catch (_) {}
-      addNativeMedia(t, appendAfterGroup).catch(e => toast('Could not add media: ' + (e?.message || e)));
-      return;
+  let wrappersInstalled = false;
+  function installLateWrappers() {
+    if (wrappersInstalled) return;
+    wrappersInstalled = true;
+    const oldTrigger = window.triggerUpload;
+    window.triggerUpload = function (target, appendAfterGroup) {
+      const t = String(target || '');
+      if (['overlay', 'media', 'audio', 'replace-overlay', 'background', 'replace-background'].includes(t)) {
+        try { uploadTarget = t; uploadAppendGroup = appendAfterGroup || null; } catch (_) {}
+        addNativeMedia(t, appendAfterGroup).catch(e => toast('Could not add media: ' + (e?.message || e)));
+        return;
+      }
+      return typeof oldTrigger === 'function' ? oldTrigger.apply(this, arguments) : undefined;
+    };
+    window.__ethvelleDeviceSaveNow = window.__ethvelleNativeFlush;
+    const oldBegin = window.__capExportBegin;
+    window.__capExportBegin = function () {
+      EthvelleMedia.setKeepAwake({ enabled: true }).catch(log);
+      if (typeof oldBegin === 'function') { try { oldBegin.apply(this, arguments); } catch (e) { log(e); } }
+    };
+    const oldGoogle = window.performGoogleSignIn;
+    if (typeof oldGoogle === 'function' && !oldGoogle.__ethvelleNativeGoogle) {
+      const google = async function () {
+        try {
+          if (typeof loginLegalConsentAcceptedOnce !== 'undefined' &&
+              (!loginLegalConsentAcceptedOnce || (typeof requireLoginLegalConsent === 'function' && !requireLoginLegalConsent()))) return;
+          try { loginLegalConsentAcceptedOnce = false; } catch (_) {}
+          if ((typeof firebaseReady !== 'undefined' && !firebaseReady) || !window.fbAuth || !window.firebase) {
+            if (typeof showLoginError === 'function') showLoginError('Firebase is not ready. Please try again.');
+            return;
+          }
+          const button = $('googleSignInBtn'); if (button) button.disabled = true;
+          const result = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true, useCredentialManager: true });
+          const token = result?.credential || {};
+          if (!token.idToken && !token.accessToken) throw new Error('Google returned no id/access token. Check Firebase Android setup.');
+          const credential = firebase.auth.GoogleAuthProvider.credential(token.idToken || null, token.accessToken || null);
+          const signed = await fbAuth.signInWithCredential(credential);
+          try { if (typeof trackEvent === 'function') trackEvent(signed?.additionalUserInfo?.isNewUser ? 'user_signup' : 'user_login'); } catch (_) {}
+        } catch (err) {
+          log('native Google sign-in failed', err);
+          toast('Google sign-in needs Firebase Android SHA-1/SHA-256 and google-services.json. ' + (err?.message || ''));
+        } finally { const button = $('googleSignInBtn'); if (button) button.disabled = false; }
+      };
+      google.__ethvelleNativeGoogle = true;
+      window.performGoogleSignIn = google;
     }
-    return typeof oldTrigger === 'function' ? oldTrigger.apply(this, arguments) : undefined;
-  };
+    window.__ethvelleHandleBack = function () {
+      const backdrops = ['settingsSheetBackdrop', 'projectMenuBackdrop', 'ethvelleStoragePermission'];
+      for (const id of backdrops) {
+        const el = $(id); if (el && el.classList.contains('active')) { el.classList.remove('active'); return true; }
+      }
+      const editor = $('screen-editor');
+      if (editor && editor.classList.contains('active') && typeof window.exitEditor === 'function') { window.exitEditor(); return true; }
+      if (typeof window.closePanel === 'function') { try { window.closePanel(); return true; } catch (_) {} }
+      return false;
+    };
+  }
 
   async function backupData() {
     await window.__ethvelleNativeFlush();
@@ -411,7 +463,7 @@ if (native) {
       const state = p.savedState || {};
       for (const clip of [...(state.overlays || []), ...(state.backgrounds || [])]) {
         if (!clip || typeof clip.src !== 'string') continue;
-        if (/^(blob:|data:)/i.test(clip.src) || /ethvelle-device-media:///i.test(clip.src)) {
+        if (/^(blob:|data:)/i.test(clip.src) || clip.src.includes('ethvelle-device-media://')) {
           clip.nativeMediaMissing = true;
           clip.nativeMediaRef = null;
           clip.src = '';
@@ -530,29 +582,10 @@ if (native) {
     scan();
   }
   document.addEventListener('DOMContentLoaded', () => {
+    installLateWrappers();
     installBackupControls(); installDiagnosticsGesture(); setupMissingMediaRelink(); suppressBrowserQuotaWarnings();
   }, { once: true });
-  if (document.readyState !== 'loading') { installBackupControls(); installDiagnosticsGesture(); setupMissingMediaRelink(); suppressBrowserQuotaWarnings(); }
-
-  const oldGoogle = window.performGoogleSignIn;
-  if (typeof oldGoogle === 'function') {
-    window.performGoogleSignIn = async function () {
-      if (typeof loginLegalConsentAcceptedOnce !== 'undefined' && !loginLegalConsentAcceptedOnce) {
-        if (typeof requireLoginLegalConsent === 'function' && !requireLoginLegalConsent()) return;
-      }
-      try {
-        const button = $('googleSignInBtn'); if (button) button.disabled = true;
-        if (!window.firebase || !window.fbAuth) throw new Error('Firebase Authentication is not ready.');
-        const result = await FirebaseAuthentication.signInWithGoogle({ skipNativeAuth: true, useCredentialManager: true });
-        const token = result?.credential || {};
-        if (!token.idToken && !token.accessToken) throw new Error('Google did not return a Firebase credential. Check google-services.json and SHA fingerprints.');
-        const credential = firebase.auth.GoogleAuthProvider.credential(token.idToken || null, token.accessToken || null);
-        const signed = await fbAuth.signInWithCredential(credential);
-        try { if (typeof trackEvent === 'function') trackEvent(signed?.additionalUserInfo?.isNewUser ? 'user_signup' : 'user_login'); } catch (_) {}
-      } catch (err) {
-        log('native Google sign-in failed', err);
-        toast('Google sign-in needs Firebase Android SHA-1/SHA-256 and google-services.json. ' + (err?.message || ''));
-      } finally { const button = $('googleSignInBtn'); if (button) button.disabled = false; }
-    };
+  if (document.readyState !== 'loading') {
+    installLateWrappers(); installBackupControls(); installDiagnosticsGesture(); setupMissingMediaRelink(); suppressBrowserQuotaWarnings();
   }
 }
