@@ -1,0 +1,23 @@
+{
+  "name": "ethvelle-android",
+  "version": "399.0.0",
+  "private": true,
+  "description": "Capacitor Android app for the Ethvelle editor",
+  "scripts": {
+    "build:web": "node scripts/assemble-html.mjs",
+    "build:native": "npm run build:web && esbuild src/native-runtime.js --bundle --format=iife --target=chrome100 --outfile=www/native-runtime.js",
+    "android:init": "npx cap add android",
+    "android:sync": "npm run build:native && npx cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/app": "^8.0.0",
+    "@capacitor/core": "^8.0.0",
+    "@capacitor/filesystem": "^8.0.0",
+    "@capacitor-firebase/authentication": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0",
+    "esbuild": "^0.25.0"
+  }
+}
