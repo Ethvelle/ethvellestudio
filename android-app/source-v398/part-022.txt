@@ -1,0 +1,1000 @@
+    hint.style.display = 'block';
+    hint.innerHTML = 'Higher quality needs a bigger plan  -  <b>upgrade</b> to unlock it.';
+  } else {
+    hint.style.display = 'none';
+  }
+  renderExportCreditEstimate();
+}
+function renderExportCreditEstimate(){
+  const el=document.getElementById('exportCreditEstimate');if(!el)return;
+  const settings=getCreditSettings();
+  if(!settings.enabled){el.textContent='Credit charging is currently disabled.';return;}
+  const duration=getExportContentDurationSec();
+  const cost=calculateExportCreditCost(exportQuality,duration);
+  const rate=getExportCreditRate(exportQuality);
+  const label=exportQuality===2160?'4K':exportQuality+'p';
+  el.textContent='Estimated cost: '+cost.toLocaleString()+' credits · '+label+' · '+Math.ceil(duration)+' sec video ('+rate+' credits/min). Balance: '+(currentUser?myCreditsBalance.toLocaleString():'sign in required')+'.';
+  const btn=document.getElementById('exportConfirmBtn');
+  if(btn){const insufficient=currentUser&&myCreditsBalance<cost;btn.disabled=!!insufficient;btn.style.opacity=insufficient?'.62':'';}
+}
+function selectExportQuality(el){
+  if(el.classList.contains('locked')){
+    const plan = getMyPlanData();
+    showToast('Upgrade your plan to export at ' + el.querySelector('.ratio-label').textContent, {icon: toastIcons.info, duration:2200});
+    return;
+  }
+  document.querySelectorAll('#exportQualityGrid .ratio-opt').forEach(o=>o.classList.remove('selected'));
+  el.classList.add('selected');
+  exportQuality = +el.dataset.quality;
+  renderExportCreditEstimate();
+}
+
+function qualityToHeight(q){
+  // width/height derived from the project ratio, scaled so the shorter/relevant side matches q
+  const [rw, rh] = (currentProject?.ratio || '9:16').split(':').map(Number);
+  if(rw >= rh){
+    // landscape-ish: q is the height
+    const h = q, w = Math.round(q * (rw/rh));
+    return {w, h};
+  } else {
+    // portrait: q is the width for consistent quality across ratios
+    const w = q, h = Math.round(q * (rh/rw));
+    return {w, h};
+  }
+}
+
+let isExporting = false;
+// FEATURE (extract audio / control clip volume  -  export mixing): builds the FULL audio mix
+// for the project as a single decoded AudioBuffer, covering every video and audio overlay
+// clip that carries sound, each one gain-adjusted by its own `volume` (0 - 2) and placed at
+// its correct absolute-timeline start, trimmed and speed-adjusted exactly the way
+// renderOverlayMedia/renderAudioOverlayMedia already do for live preview. The WebCodecs
+// path encodes this buffer using sample-derived timestamps; only the legacy MediaRecorder
+// compatibility fallback plays it through a MediaStreamAudioDestinationNode.
+// Returns null if the project has no audio-bearing clips at all.
+async function mixProjectAudioForExport(durationSec){
+  const soundClips = overlays.filter(o=> (o.type==='video'||o.type==='audio') && o.src && (o.volume!==0 || (Array.isArray(o.ethvelleMediaKeyframes)&&o.ethvelleMediaKeyframes.some(k=>k&&k.property==='volume'&&Number(k.value)>0))));
+  if(soundClips.length === 0) return null;
+  const SR = 44100;
+  const offlineCtx = new OfflineAudioContext(2, Math.ceil(durationSec*SR), SR);
+  let anyDecoded = false;
+  const audioDecodeFailures=[];
+  for(const ov of soundClips){
+    try{
+      const resp = await fetch(ov.src);
+      const arrBuf = await resp.arrayBuffer();
+      // decodeAudioData's older callback form is used instead of the promise form for
+      // Safari compatibility (older WebKit only supports the callback signature)  -  the
+      // surrounding Promise wrapper gives both forms the same async/await call site.
+      let audioBuf = await new Promise((resolve, reject)=> offlineCtx.decodeAudioData(arrBuf, resolve, reject));
+      const audioCfg = (ov.type==='audio' && typeof getEthvelleAudioSettings==='function') ? getEthvelleAudioSettings(ov) : {voice:'natural',effect:'none',pitch:0,enhance:0,enhanceEnabled:false,noiseReduction:false,noiseStrength:65};
+      // PCM enhancement/noise reduction is baked into the selected WAV after Apply.
+      // Do not run its matching realtime/export stage a second time on that processed source.
+      const processedModes=ov.audioProcessedModes||{};
+      const noiseLive=!!audioCfg.noiseReduction&&!processedModes.noise;
+      const enhanceLive=!!audioCfg.enhanceEnabled&&!processedModes.enhance;
+      if(ov.type==='audio' && noiseLive && typeof window.ethvelleApplyOfflineNoiseGate==='function'){
+        audioBuf = window.ethvelleApplyOfflineNoiseGate(audioBuf,audioCfg.noiseStrength);
+      }
+      const baseSpeed = ov.speed || 1;
+      const speed = baseSpeed * Math.pow(2, Math.max(-12,Math.min(12,Number(audioCfg.pitch)||0))/12);
+      const vol = ov.volume==null ? 1 : ov.volume; // Volume boost remains independent of the voice-processing controls.
+      const srcNode = offlineCtx.createBufferSource();
+      const exportPitchRatio = Math.pow(2, Math.max(-12,Math.min(12,Number(audioCfg.pitch)||0))/12);
+      /* v221: buffer + playbackRate are assigned right before start() so clip speed can be applied pitch-safe. */
+      const gainNode = offlineCtx.createGain(); gainNode.gain.value = vol;
+      let exportFadeNode = null;
+      if(ov.type==='audio'){
+        // Standalone audio clips receive the selected voice/effect/noise processing.
+        const cfg = (typeof window.ethvelleAudioVoiceProfile==='function') ? window.ethvelleAudioVoiceProfile(audioCfg.voice) : {highpass:20,lowpass:20000,type:'peaking',frequency:1200,q:.5,gain:0};
+        const noiseAmount=Math.max(0,Math.min(100,Number(audioCfg.noiseStrength)||0))/100;
+        const highpass = offlineCtx.createBiquadFilter(); highpass.type='highpass'; highpass.frequency.value=noiseLive?80+noiseAmount*120:cfg.highpass;
+        const voiceFilter = offlineCtx.createBiquadFilter(); voiceFilter.type=cfg.type; voiceFilter.frequency.value=cfg.frequency; voiceFilter.Q.value=cfg.q; voiceFilter.gain.value=cfg.gain;
+        const lowpass = offlineCtx.createBiquadFilter(); lowpass.type='lowpass'; lowpass.frequency.value=noiseLive?Math.max(6500,14500-noiseAmount*4500):cfg.lowpass;
+        const compressor = offlineCtx.createDynamicsCompressor();
+        compressor.threshold.value=noiseLive?-38:(audioCfg.effect==='studio'?-24:(enhanceLive?-25:0));
+        compressor.knee.value=audioCfg.effect==='studio'?18:24;
+        compressor.ratio.value=noiseLive?4:(audioCfg.effect==='studio'?5:(enhanceLive?3.5:1));
+        compressor.attack.value=.008; compressor.release.value=.18;
+        const makeup = offlineCtx.createGain(); makeup.gain.value=enhanceLive ? 1+Math.max(0,Math.min(100,Number(audioCfg.enhance)||0))/100*.55 : 1;
+        const panner = (typeof offlineCtx.createStereoPanner==='function') ? offlineCtx.createStereoPanner() : null;
+        const fadeNode = offlineCtx.createGain();
+        if(panner){panner.pan.value=Math.max(-1,Math.min(1,(Number(audioCfg.pan)||0)/100));}
+        srcNode.connect(highpass); highpass.connect(voiceFilter); voiceFilter.connect(lowpass); lowpass.connect(compressor); compressor.connect(makeup);
+        if(typeof window.ethvelleBuildAudioFx==='function'){window.ethvelleBuildAudioFx(offlineCtx,makeup,panner||fadeNode,audioCfg);}else{makeup.connect(panner||fadeNode);}if(panner){panner.connect(fadeNode);}
+        fadeNode.connect(gainNode);
+        if(audioCfg.effect==='echo'){
+          const delay=offlineCtx.createDelay(1); delay.delayTime.value=.24;
+          const echoGain=offlineCtx.createGain(); echoGain.gain.value=.22;
+          const feedback=offlineCtx.createGain(); feedback.gain.value=.22;
+          srcNode.connect(delay); delay.connect(echoGain); if(panner)echoGain.connect(panner);else echoGain.connect(fadeNode); delay.connect(feedback); feedback.connect(delay);
+        }
+        exportFadeNode=fadeNode;
+      }else{
+        // Audio embedded in a video is kept unchanged; only its existing clip volume applies.
+        srcNode.connect(gainNode);
+      }
+      gainNode.connect(offlineCtx.destination);
+      // trimStart/trimEnd are absolute timeline seconds; sourceOffset is the exact source
+      // second where this segment begins. Split halves therefore retain their source offset.
+      const sourceOffset = Math.max(0,Number(ov.sourceOffset)||0);
+      const clipLenSourceSec = Math.max(0, (ov.trimEnd - ov.trimStart) * speed);
+      if(clipLenSourceSec <= 0 || ov.trimStart >= durationSec || sourceOffset >= audioBuf.duration) continue;
+      const when = Math.max(0, ov.trimStart);
+      const availableSourceSec = Math.max(0,audioBuf.duration-sourceOffset);
+      const outputRoomSourceSec = Math.max(0,durationSec-when)*speed;
+      const playLen = Math.min(clipLenSourceSec,availableSourceSec,outputRoomSourceSec);
+      if(playLen <= 0) continue;
+      if(Array.isArray(ov.ethvelleMediaKeyframes)&&ov.ethvelleMediaKeyframes.some(k=>k&&k.property==='volume')){
+        ethvelleScheduleObjectVolumeAutomation(gainNode.gain,ov,when,Math.min(playLen/speed,Math.max(0,(ov.trimEnd-ov.trimStart))));
+      }
+      if(ov.type==='audio' && exportFadeNode){
+        const fadeNode=exportFadeNode;
+        const audibleDuration=Math.max(.001,playLen/speed);
+        let fadeIn=Math.max(0,Math.min(8,Number(audioCfg.fadeIn)||0));
+        let fadeOut=Math.max(0,Math.min(8,Number(audioCfg.fadeOut)||0));
+        if(fadeIn+fadeOut>audibleDuration){const factor=audibleDuration/(fadeIn+fadeOut);fadeIn*=factor;fadeOut*=factor;}
+        try{
+          fadeNode.gain.cancelScheduledValues(when);
+          fadeNode.gain.setValueAtTime(fadeIn>0?0:1,when);
+          if(fadeIn>0)fadeNode.gain.linearRampToValueAtTime(1,when+fadeIn);
+          if(fadeOut>0){const fadeStart=when+Math.max(fadeIn,audibleDuration-fadeOut);fadeNode.gain.setValueAtTime(1,fadeStart);fadeNode.gain.linearRampToValueAtTime(0,when+audibleDuration);}
+        }catch(_e){fadeNode.gain.value=1;}
+      }
+      let nodeBuffer = audioBuf, nodeRate = speed, nodeOffset = sourceOffset, nodePlayLen = playLen;
+      if(Math.abs(baseSpeed-1) > .001 && window.ethvellePitchSafeStretch){
+        try{
+          const stretched = await window.ethvellePitchSafeStretch.request(audioBuf, baseSpeed, sourceOffset, sourceOffset+playLen+.05);
+          if(stretched && stretched.buffer){
+            /* Time-stretched copy keeps the original pitch; only the semitone Pitch setting still changes the rate. */
+            nodeBuffer = stretched.buffer;
+            nodeRate = exportPitchRatio;
+            nodeOffset = Math.max(0,(sourceOffset-stretched.originSec)/baseSpeed);
+            nodePlayLen = Math.max(.001,playLen/baseSpeed);
+          }
+        }catch(stretchErr){console.warn('Ethvelle pitch-safe export fallback:',stretchErr);}
+      }
+      srcNode.buffer = nodeBuffer;
+      srcNode.playbackRate.value = nodeRate;
+      srcNode.start(when, nodeOffset, nodePlayLen);
+      anyDecoded = true;
+    }catch(err){
+      const clipLabel=String(ov.name||ov.title||('Clip '+String(ov.id||'')));
+      audioDecodeFailures.push(clipLabel);
+      console.error('Ethvelle: could not decode audio for export; this clip will be silent',clipLabel,err);
+    }
+  }
+  if(audioDecodeFailures.length){
+    window.__ethvelleLastExportAudioDecodeFailures=audioDecodeFailures.slice();
+    const shown=audioDecodeFailures.slice(0,3).join(', ');
+    const more=audioDecodeFailures.length>3?' and '+(audioDecodeFailures.length-3)+' more':'';
+    try{showToast('Audio could not be decoded for: '+shown+more,{icon:toastIcons.info,duration:4200});}catch(_e){}
+  }else{window.__ethvelleLastExportAudioDecodeFailures=[];}
+  if(!anyDecoded) return null;
+  return await offlineCtx.startRendering();
+}
+
+// Load the pinned, browser-global muxer builds only when an export actually needs them.
+function loadPinnedExportMuxer(globalName,src){
+  if(window[globalName])return Promise.resolve(window[globalName]);
+  return new Promise((resolve,reject)=>{
+    const existing=document.querySelector('script[data-ethvelle-export-muxer="'+globalName+'"]');
+    const script=existing||document.createElement('script');
+    const done=()=>{if(window[globalName])resolve(window[globalName]);else reject(new Error('Export muxer did not initialize: '+globalName));};
+    if(existing){
+      if(existing.dataset.loaded==='1'){done();return;}
+      existing.addEventListener('load',done,{once:true});
+      existing.addEventListener('error',()=>reject(new Error('Could not load '+globalName)),{once:true});
+      return;
+    }
+    script.src=src;script.async=true;script.dataset.ethvelleExportMuxer=globalName;
+    script.onload=()=>{script.dataset.loaded='1';done();};
+    script.onerror=()=>reject(new Error('Could not load pinned export muxer: '+globalName));
+    document.head.appendChild(script);
+  });
+}
+
+// A video frame is never drawn into an export frame until the requested source time is
+// decoded. Avoid seeking when the frame is already at the requested source time.
+async function waitForExportVideoFrame(video,targetSec,clipLabel){
+  if(!video)throw new Error('Missing video element for '+clipLabel);
+  video.preload='auto';
+  const target=Math.max(0,Number(targetSec)||0);
+  const needsSeek=Math.abs((Number(video.currentTime)||0)-target)>0.008;
+  if(needsSeek){
+    await new Promise((resolve,reject)=>{
+      let settled=false;
+      const timeout=setTimeout(()=>finish(new Error('Timed out decoding '+clipLabel)),12000);
+      const cleanup=()=>{clearTimeout(timeout);['seeked','loadeddata','canplay','error'].forEach(name=>video.removeEventListener(name,onEvent));};
+      const finish=err=>{if(settled)return;settled=true;cleanup();err?reject(err):resolve();};
+      const onEvent=e=>{
+        if(e.type==='error'){finish(new Error('Video decode failed for '+clipLabel));return;}
+        if(video.readyState>=2&&(e.type==='seeked'||e.type==='loadeddata'||e.type==='canplay'))finish();
+      };
+      ['seeked','loadeddata','canplay','error'].forEach(name=>video.addEventListener(name,onEvent));
+      try{video.currentTime=target;}catch(err){finish(err);}
+    });
+  }else if(video.readyState<2){
+    await new Promise((resolve,reject)=>{
+      let settled=false;
+      const timeout=setTimeout(()=>finish(new Error('Timed out loading '+clipLabel)),12000);
+      const cleanup=()=>{clearTimeout(timeout);['loadeddata','canplay','error'].forEach(name=>video.removeEventListener(name,onEvent));};
+      const finish=err=>{if(settled)return;settled=true;cleanup();err?reject(err):resolve();};
+      const onEvent=e=>{if(e.type==='error')finish(new Error('Video decode failed for '+clipLabel));else if(video.readyState>=2)finish();};
+      ['loadeddata','canplay','error'].forEach(name=>video.addEventListener(name,onEvent));
+      if(video.readyState>=2)finish();
+    });
+  }
+  if(video.readyState<2)throw new Error('No decoded video frame available for '+clipLabel);
+}
+
+async function startExport(){
+  if(isExporting) return;
+  // Hard safety checks against the signed-in user's actual plan limits  -  the export sheet
+  // already prevents picking a locked quality or opening past the monthly cap, but this is
+  // the last line of defense in case exportQuality was set before a plan change took effect.
+  const plan = getMyPlanData();
+  const maxQ = Number(plan.maxQuality) || 720;
+  if(exportQuality > maxQ){
+    showToast('Your plan only allows up to ' + maxQ + 'p exports  -  upgrade for higher quality', {icon: toastIcons.info, duration:2600});
+    return;
+  }
+  if(!plan.unlimitedExports && plan.maxExports != null){
+    const used = getExportsUsedThisMonth();
+    if(used >= plan.maxExports){
+      showToast('You\u2019ve used all ' + plan.maxExports + ' exports included in your plan this month  -  upgrade for more', {icon: toastIcons.info, duration:3000});
+      closeExportSheet();
+      return;
+    }
+  }
+  closeExportSheet();
+  // v195: character-free and animation-free projects may still export backgrounds/media.
+  const hasWebCodecsVideo=typeof VideoEncoder!=='undefined'&&typeof VideoFrame!=='undefined';
+  if(!hasWebCodecsVideo&&typeof MediaRecorder==='undefined'){
+    showToast("This browser can't export video. Try a recent version of Chrome.", {icon: toastIcons.info, duration:2600});
+    return;
+  }
+  const plannedDurationSec = getExportContentDurationSec();
+  const renderFps = Math.max(24,Math.min(60,Number(window.exportFrameRate)||30));
+  const requiredCredits = calculateExportCreditCost(exportQuality, plannedDurationSec);
+  const wasPlaying = isPlaying;
+  pausePlayback();
+  isExporting = true;
+  // v190: cover the editor with the exporting page right away. Credit verification and image
+  // preloading below are async; without this the live canvas was visible for a moment first.
+  try{
+    const earlySize = qualityToHeight(exportQuality);
+    window.__capExportCancelled = false;
+    if(window.__capExportBegin) window.__capExportBegin(earlySize.w, earlySize.h);
+    showExportProgress(0);
+  }catch(_e){}
+  let chargedCreditsAmount = 0;
+  let creditChargeId = '';
+  if(requiredCredits > 0){
+    if(!(currentUser&&firebaseReady&&fbDb)){
+      isExporting=false;
+      try{hideExportProgress();}catch(_e){}
+      showToast('Connect and sign in to verify your credit balance before exporting.', {icon:toastIcons.info,duration:2800});
+      return;
+    }
+    try{
+      const charge=await changeMyCreditBalance(-requiredCredits,{type:'usage',feature:'export',description:'Video export · '+(exportQuality===2160?'4K':exportQuality+'p')+' · '+Math.ceil(plannedDurationSec)+' sec',quality:exportQuality,durationSeconds:Math.ceil(plannedDurationSec)});
+      chargedCreditsAmount=requiredCredits;creditChargeId=charge.id||'';
+    }catch(err){
+      isExporting=false;
+      try{hideExportProgress();}catch(_e){}
+      if(wasPlaying)startPlayback();
+      if(err&&err.code==='ethvelle/insufficient-credits'){
+        showToast('Not enough credits. Need '+requiredCredits+'; available '+myCreditsBalance+'. Upgrade your plan or ask admin to add credits.',{icon:toastIcons.info,duration:3200});
+      }else{
+        showToast('Could not verify or deduct credits. Please try again after reconnecting.',{icon:toastIcons.info,duration:3200});
+      }
+      renderMyPlanScreen();
+      return;
+    }
+  }
+  trackEvent('export_requested');
+  // Exporting renders every frame of every clip in turn for every character, which
+  // temporarily overwrites each character's own modelTransform (and bone angles, via
+  // applyPoseToBones) via transform-keyframes/poses belonging to whichever frame is
+  // currently being rendered  -  not necessarily where the live editor's playhead was. Save
+  // every character's transform+pose here (not just the active one) so the whole cast can be
+  // put back exactly as it looked before export started, even if a character's own clip has
+  // no keyframe sitting at exactly the current playhead position to restore it via the
+  // renderFrame() call in the `finally` block below.
+  const preExportState = characters.map(c=>({
+    modelTransform: { ...c.modelTransform },
+    angles: Object.fromEntries(Object.keys(c.bones).map(k=>[k, c.bones[k].angle])),
+    hipY: c.bones.hip.y
+  }));
+  let exportOverlayEls = {}; // ov.id -> { el, iw, ih }  -  declared here so `finally` can release the <video> elements even if export throws partway through
+  let liveAudioCtx = null; // Used only by the MediaRecorder fallback when WebCodecs is unavailable.
+  let exportVideoEncoder=null,exportAudioEncoder=null,exportMuxer=null,exportRecorder=null,exportCaptureTrack=null;
+  let exportRecorderFinished=null,exportRecorderChunks=[],exportMode='webcodecs';
+
+  try{
+    const { w, h } = qualityToHeight(exportQuality);
+    const exportCanvas = document.createElement('canvas');
+    exportCanvas.width = w; exportCanvas.height = h;
+    const exportCtx = exportCanvas.getContext('2d');
+    // Every custom character's part images must be fully decoded BEFORE the frame loop
+    // starts  -  drawCustomCharacterOnContext silently skips drawing any image that hasn't
+    // finished loading yet (see its img.complete check), which would otherwise make a
+    // custom character's limbs flicker in/missing for the first frame or two of export
+    // while each Image() is still fetching its (already-in-memory, base64) src.
+    await preloadCustomCharacterImages(exportCtx, characters);
+
+    // The duration comes from the maximum real trimEnd across characters, backgrounds and
+    // every overlay type; neither legacy 2s defaults nor padded timelineDuration are used.
+    const durationSec = plannedDurationSec;
+    const totalFrames = Math.max(1, Math.round(durationSec * renderFps));
+
+    window.__capExportCancelled=false;window.__capExportBegin&&window.__capExportBegin(w,h);
+    showExportProgress(0);
+
+    // Build the full sample-accurate offline audio mix at the exact same content endpoint.
+    let mixedAudioBuffer = null;
+    try{ mixedAudioBuffer = await mixProjectAudioForExport(durationSec); }
+    catch(err){
+      console.error('Ethvelle: audio mix failed',err);
+      showToast('Audio mix could not be prepared. The export will contain no audio.',{icon:toastIcons.info,duration:4200});
+    }
+
+    // FEATURE (multiple sequential backgrounds): pre-load EVERY background clip's image
+    // once before the frame loop starts (mirrors exportOverlayEls just below)  -  not just
+    // whichever one happened to be under the live playhead when export started. Solid-color
+    // clips need no image at all; only url(...) clips get an Image() entry here.
+    const exportBgEls = {}; // bg.id -> { el, iw, ih }
+    for(const bg of backgrounds){
+      if(!bg.src || !String(bg.src).startsWith('url(')) continue;
+      const urlMatch = String(bg.src).match(/url\((.*)\)/);
+      if(!urlMatch) continue;
+      const img = new Image();
+      img.src = urlMatch[1].replace(/^["']|["']$/g,'');
+      await new Promise(res=>{ img.onload = res; img.onerror = res; });
+      exportBgEls[bg.id] = { el: img, iw: img.naturalWidth||16, ih: img.naturalHeight||9 };
+    }
+    // Computes the same object-fit:cover destination rect + rotation the live preview's
+    // applyBgTransform gives a background image, for whichever clip covers `tSec`  -  mirrors
+    // drawOverlayMediaToContext's per-clip transform math just below, scoped to Background.
+    function bgDrawFor(tSec){
+      const bg = currentBackgroundClip(tSec);
+      if(!bg) return { fill:'#ffffff', image:null, adjustments:null, enhanceAmount:0 };
+      const rec = exportBgEls[bg.id];
+      if(!rec) return { fill: bg.src && !String(bg.src).startsWith('url(') ? bg.src : '#ffffff', image:null, adjustments:bg.adjustments||null, enhanceAmount:bg.enhanceAmount||0 };
+      const iw = rec.iw, ih = rec.ih;
+      const bgExportScale = stageW ? (w/stageW) : 1;
+      const t = ethvelleGetObjectKeyframeValue(bg,'transform',tSec) || bg.transform || {scale:1, offsetX:0, offsetY:0, rotation:0};
+      // UPDATED (no-crop backgrounds, export side): was Math.max(w/iw, h/ih)  -  "cover", which
+      // scales the image up until it fills the frame and discards the overflow, i.e. crops it.
+      // Math.min gives "contain": the largest size at which the WHOLE image still fits inside
+      // the frame, identical to the live preview's `object-fit:contain` on .bg-img-layer, so the
+      // exported video shows exactly the uncropped picture the editor shows.
+      const crop=window.ethvelleCropFractions?window.ethvelleCropFractions(bg.crop):{left:0,top:0,right:0,bottom:0};
+      const sourceX=iw*crop.left,sourceY=ih*crop.top;
+      const sourceW=Math.max(1,iw*(1-crop.left-crop.right)),sourceH=Math.max(1,ih*(1-crop.top-crop.bottom));
+      // Crop clips source pixels but keeps the same contain scale and source placement.
+      // The cropped portion therefore never jumps/zooms to fill the whole project canvas.
+      const baseScale=Math.min(w/iw,h/ih);
+      const fullW=iw*baseScale,fullH=ih*baseScale;
+      const baseW=sourceW*baseScale,baseH=sourceH*baseScale;
+      const destX=(w-fullW)/2+sourceX*baseScale;
+      const destY=(h-fullH)/2+sourceY*baseScale;
+      return {
+        fill: null,
+        image: rec.el,
+        sourceX,sourceY,sourceW,sourceH,
+        destX,destY,baseW,baseH,
+        offsetX:(Number(t.offsetX)||0)*bgExportScale,
+        offsetY:(Number(t.offsetY)||0)*bgExportScale,
+        scale:Number(t.scale)||1,
+        rotation: Number(t.rotation)||0, mirrorX:!!t.mirrorX, mirrorY:!!t.mirrorY, visualMask:bg.visualMask||null, adjustments:bg.adjustments||null, enhanceAmount:bg.enhanceAmount||0,
+        perspectiveX:Number(bg.mediaPerspectiveX)||0, perspectiveY:Number(bg.mediaPerspectiveY)||0, perspectiveScale:bgExportScale,
+        stretchW:(window.ethvelleMediaStretch?window.ethvelleMediaStretch(bg).w:1), stretchL:(window.ethvelleMediaStretch?window.ethvelleMediaStretch(bg).l:1)
+      };
+    }
+
+    // BUGFIX (added clips didn't show on the background  -  export side): mirrors
+    // renderOverlayMedia()'s live-preview compositing. Every video/image overlay clip gets
+    // its own offscreen <video>/<img> element here, pre-loaded once before the frame loop
+    // starts (not created fresh per-frame  -  that would mean re-fetching/re-decoding the same
+    // source dozens of times a second). Each is object-fit:cover-sized to the export canvas
+    // exactly like .overlay-media-layer's CSS does in the live DOM, then drawn in `overlays`
+    // array order (later clips paint over earlier ones) between the background and the
+    // stickman on every frame where that clip's [trimStart, trimEnd) covers the current time.
+    exportOverlayEls = {}; // ov.id -> { el, iw, ih } for video/image overlays
+    const exportChromaCanvases = {}; // reusable processed frames for chroma-keyed videos
+    try{ if(document.fonts && document.fonts.ready) await document.fonts.ready; }catch(e){}
+    for(const ov of overlays){
+      if(ov.type!=='video' && ov.type!=='image') continue;
+      if(ov.type==='video'){
+        const v = document.createElement('video');
+        v.preload='auto';v.crossOrigin='anonymous';v.muted = true; v.playsInline = true;v.loop=false;
+        v.src = ov.src;
+        await new Promise(res=>{ v.onloadedmetadata = res; v.onerror = res; });
+        exportOverlayEls[ov.id] = { el:v, iw:v.videoWidth||16, ih:v.videoHeight||9 };
+      } else {
+        const img = new Image();
+        img.crossOrigin='anonymous';img.src = ov.src;
+        await new Promise(res=>{ img.onload = res; img.onerror = res; });
+        exportOverlayEls[ov.id] = { el:img, iw:img.naturalWidth||16, ih:img.naturalHeight||9 };
+      }
+    }
+    const baseBitrate = exportQuality >= 2160 ? 16000000 : exportQuality >= 1440 ? 12000000 : exportQuality >= 1080 ? 8000000 : exportQuality >= 720 ? 5000000 : 2500000;
+    const bitrateMultiplier = window.exportBitrateMode === 'high' ? 1.4 : 1;
+    const customBitrate = Number(window.exportBitrateMbps);
+    const outputBitrate = customBitrate > 0 ? Math.round(customBitrate * 1000000) : Math.round(baseBitrate * bitrateMultiplier * (renderFps/30));
+    const wantsAudio=!!mixedAudioBuffer;
+    const canUseWebCodecs=typeof VideoEncoder!=='undefined'&&typeof VideoFrame!=='undefined'&&(!wantsAudio||(typeof AudioEncoder!=='undefined'&&typeof AudioData!=='undefined'));
+    let exportOutputMime='video/webm',exportFileExtension='webm',exportVideoConfig=null,exportAudioConfig=null;
+    let muxerTarget=null;
+    if(canUseWebCodecs){
+      const probeVideo=async configs=>{
+        for(const cfg of configs){try{const result=await VideoEncoder.isConfigSupported(cfg);if(result&&result.supported)return result.config||cfg;}catch(_e){}}
+        return null;
+      };
+      const probeAudio=async cfg=>{if(!wantsAudio)return null;try{const result=await AudioEncoder.isConfigSupported(cfg);return result&&result.supported?(result.config||cfg):null;}catch(_e){return null;}};
+      const mp4Video=await probeVideo([
+        {codec:'avc1.420033',width:w,height:h,bitrate:outputBitrate,framerate:renderFps,latencyMode:'realtime'},
+        {codec:'avc1.420028',width:w,height:h,bitrate:outputBitrate,framerate:renderFps,latencyMode:'realtime'},
+        {codec:'avc1.42001f',width:w,height:h,bitrate:outputBitrate,framerate:renderFps,latencyMode:'realtime'}
+      ]);
+      const aacConfig=await probeAudio({codec:'mp4a.40.2',sampleRate:mixedAudioBuffer?mixedAudioBuffer.sampleRate:44100,numberOfChannels:mixedAudioBuffer?mixedAudioBuffer.numberOfChannels:2,bitrate:160000});
+      if(mp4Video&&(!wantsAudio||aacConfig)){
+        const lib=await loadPinnedExportMuxer('Mp4Muxer','https://cdn.jsdelivr.net/npm/mp4-muxer@5.2.2/build/mp4-muxer.js');
+        if(!lib||!lib.Muxer||!lib.ArrayBufferTarget)throw new Error('The MP4 muxer library is unavailable.');
+        muxerTarget=new lib.ArrayBufferTarget();
+        exportMuxer=new lib.Muxer({target:muxerTarget,video:{codec:'avc',width:w,height:h,frameRate:renderFps},...(wantsAudio?{audio:{codec:'aac',numberOfChannels:mixedAudioBuffer.numberOfChannels,sampleRate:mixedAudioBuffer.sampleRate}}:{}),fastStart:'in-memory'});
+        exportOutputMime='video/mp4';exportFileExtension='mp4';exportVideoConfig=mp4Video;exportAudioConfig=aacConfig;
+      }else{
+        const webmVideo=await probeVideo([
+          {codec:'vp09.00.10.08',width:w,height:h,bitrate:outputBitrate,framerate:renderFps,latencyMode:'realtime'},
+          {codec:'vp8',width:w,height:h,bitrate:outputBitrate,framerate:renderFps,latencyMode:'realtime'}
+        ]);
+        const webmAudio=await probeAudio({codec:'opus',sampleRate:mixedAudioBuffer?mixedAudioBuffer.sampleRate:44100,numberOfChannels:mixedAudioBuffer?mixedAudioBuffer.numberOfChannels:2,bitrate:128000});
+        if(!webmVideo)throw new Error('This browser does not support a compatible WebCodecs video encoder for this export size.');
+        if(wantsAudio&&!webmAudio)throw new Error('This browser cannot encode the project audio as Opus or AAC.');
+        const lib=await loadPinnedExportMuxer('WebMMuxer','https://cdn.jsdelivr.net/npm/webm-muxer@5.1.4/build/webm-muxer.js');
+        if(!lib||!lib.Muxer||!lib.ArrayBufferTarget)throw new Error('The WebM muxer library is unavailable.');
+        muxerTarget=new lib.ArrayBufferTarget();
+        const codec=String(webmVideo.codec).startsWith('vp09')?'V_VP9':'V_VP8';
+        exportMuxer=new lib.Muxer({target:muxerTarget,video:{codec,width:w,height:h,frameRate:renderFps},...(wantsAudio?{audio:{codec:'A_OPUS',numberOfChannels:mixedAudioBuffer.numberOfChannels,sampleRate:mixedAudioBuffer.sampleRate}}:{})});
+        exportOutputMime='video/webm';exportFileExtension='webm';exportVideoConfig=webmVideo;exportAudioConfig=webmAudio;
+      }
+      let videoEncoderError=null,audioEncoderError=null;
+      exportVideoEncoder=new VideoEncoder({output:(chunk,meta)=>exportMuxer.addVideoChunk(chunk,meta),error:err=>{videoEncoderError=err;}});
+      exportVideoEncoder.configure(exportVideoConfig);
+      if(wantsAudio){
+        exportAudioEncoder=new AudioEncoder({output:(chunk,meta)=>exportMuxer.addAudioChunk(chunk,meta),error:err=>{audioEncoderError=err;}});
+        exportAudioEncoder.configure(exportAudioConfig);
+      }
+      window.__ethvelleExportEncoderErrors=()=>({video:videoEncoderError,audio:audioEncoderError});
+      exportMode='webcodecs';
+    }else{
+      // Compatibility fallback only when WebCodecs (or the required audio encoder pieces)
+      // are absent. requestFrame() is called only after the complete scratch frame is drawn.
+      if(typeof MediaRecorder==='undefined')throw new Error('WebCodecs is unavailable and MediaRecorder is not supported.');
+      exportMode='mediarecorder';
+      const stream=exportCanvas.captureStream(0);
+      exportCaptureTrack=stream.getVideoTracks()[0];
+      if(!exportCaptureTrack||typeof exportCaptureTrack.requestFrame!=='function')throw new Error('This browser does not support manual canvas frame capture.');
+      if(wantsAudio){
+        liveAudioCtx=new (window.AudioContext||window.webkitAudioContext)();
+        const destination=liveAudioCtx.createMediaStreamDestination();
+        destination.stream.getAudioTracks().forEach(track=>stream.addTrack(track));
+        liveAudioCtx._exportSourceNode=liveAudioCtx.createBufferSource();
+        liveAudioCtx._exportSourceNode.buffer=mixedAudioBuffer;
+        liveAudioCtx._exportSourceNode.connect(destination);
+        try{await liveAudioCtx.resume();}catch(_e){}
+      }
+      const mimeCandidates=['video/webm;codecs=vp9,opus','video/webm;codecs=vp8,opus','video/webm;codecs=vp9','video/webm;codecs=vp8','video/webm'];
+      const mimeType=mimeCandidates.find(m=>MediaRecorder.isTypeSupported&&MediaRecorder.isTypeSupported(m))||'video/webm';
+      exportOutputMime=mimeType;exportFileExtension=mimeType.includes('mp4')?'mp4':'webm';
+      exportRecorder=new MediaRecorder(stream,{mimeType,videoBitsPerSecond:outputBitrate});
+      exportRecorder.ondataavailable=e=>{if(e.data&&e.data.size>0)exportRecorderChunks.push(e.data);};
+      exportRecorderFinished=new Promise(resolve=>{exportRecorder.onstop=resolve;});
+    }
+
+    // Draws every overlay clip active at `tSec` onto the offscreen scratch canvas, preserving
+    // the original export order. The scratch canvas is encoded only after ALL layers finish.
+    async function drawOverlayMediaToContext(tSec, behindBackgroundPass){
+      const isBehindPass=behindBackgroundPass===true;
+      const active = overlays.filter(o=> (o.type==='video'||o.type==='image'||o.type==='text') && tSec >= o.trimStart && tSec < o.trimEnd && !!o.__ethvelleBehindBackground===isBehindPass);
+      for(const ov of active){
+        if(ov.type==='text'){
+          const exportScale=stageW ? (w/stageW) : 1;
+          const tr=((ov.clipTracking&&ov.clipTracking.enabled&&ov.clipTracking.targetId&&window.ethvelleGetTrackedOverlayTransform)?window.ethvelleGetTrackedOverlayTransform(ov,tSec):null)||ethvelleGetObjectKeyframeValue(ov,'transform',tSec)||ov.transform||{scale:1,offsetX:0,offsetY:0,rotation:0};
+          const fontSize=Math.max(8,Number(ov.fontSize)||36)*exportScale;
+          const evAnim = window.getEthvelleClipAnimationState ? window.getEthvelleClipAnimationState(ov,tSec) : {opacity:1,scale:1,x:0,y:0,rotation:0};
+          exportCtx.save();
+          const overallTextOpacity=Math.max(0,Math.min(100,Number(ov.textOverallOpacity==null?100:ov.textOverallOpacity)))/100;
+          exportCtx.globalAlpha = Math.max(0,Math.min(1,Number(evAnim.opacity)||0))*overallTextOpacity;
+          exportCtx.filter = window.ethvelleAdjustmentFilter ? window.ethvelleAdjustmentFilter(ov.adjustments,ov.enhanceAmount||0) : 'none';
+          exportCtx.translate(w/2+((Number(tr.offsetX)||0)+(Number(evAnim.x)||0))*exportScale,h/2+((Number(tr.offsetY)||0)+(Number(evAnim.y)||0))*exportScale);
+          exportCtx.rotate(((Number(tr.rotation)||0)+(Number(evAnim.rotation)||0))*Math.PI/180);
+          const exportObjectScale = (Number(tr.scale)||1)*(Number(evAnim.scale)||1);
+          exportCtx.scale(exportObjectScale,exportObjectScale);
+          exportCtx.scale(ov.mirrorX?-1:1,ov.mirrorY?-1:1);
+          if(ov.visualMask&&window.ethvelleApplyCanvasMaskClip){exportCtx.save();exportCtx.translate(-w/2,-h/2);window.ethvelleApplyCanvasMaskClip(exportCtx,ov.visualMask,w,h);exportCtx.translate(w/2,h/2);}
+          exportCtx.fillStyle=ethvelleHexToRgba(ov.textColor||'#ffffff',Math.max(0,Math.min(100,Number(ov.textOpacity==null?100:ov.textOpacity)))/100);
+          exportCtx.textAlign=ov.textAlign||'center'; exportCtx.textBaseline='middle';
+          exportCtx.font=`${ov.fontStyle==='italic'?'italic ':''}${Number(ov.fontWeight)||800} ${fontSize}px "${String(ov.fontFamily||'Inter').replace(/["\\]/g,'')}", sans-serif`;
+          const maxWidth=w*0.82, lineHeight=fontSize*1.2, lines=[];
+          const strokeWidth=Math.max(0,Number(ov.strokeWidth)||0)*exportScale;
+          const strokeColor=ethvelleHexToRgba(ov.strokeColor||'#17172B',Math.max(0,Math.min(100,Number(ov.strokeOpacity==null?100:ov.strokeOpacity)))/100);
+          const shadowEnabled=!!ov.shadowEnabled;
+          const shadowBlur=Math.max(0,Number(ov.shadowBlur)||0)*exportScale;
+          const shadowX=(Number(ov.shadowX)||0)*exportScale;
+          const shadowY=(Math.max(4,Number(ov.shadowY)||6))*exportScale;
+          const bgPad=Math.max(0,Number(ov.textBackgroundPadding==null?7:ov.textBackgroundPadding))*exportScale;
+          const bgRadius=Math.max(0,Number(ov.textBackgroundRadius==null?8:ov.textBackgroundRadius))*exportScale;
+          const bgFill=ov.textBackgroundEnabled?ethvelleHexToRgba(ov.textBackgroundColor||'#182A66',Math.max(0,Math.min(100,Number(ov.textBackgroundOpacity==null?78:ov.textBackgroundOpacity)))/100):'transparent';
+          const drawRoundedRect=(x,y,rw,rh,r)=>{
+            const rr=Math.max(0,Math.min(r,rw/2,rh/2));
+            exportCtx.beginPath(); exportCtx.moveTo(x+rr,y); exportCtx.lineTo(x+rw-rr,y); exportCtx.quadraticCurveTo(x+rw,y,x+rw,y+rr); exportCtx.lineTo(x+rw,y+rh-rr); exportCtx.quadraticCurveTo(x+rw,y+rh,x+rw-rr,y+rh); exportCtx.lineTo(x+rr,y+rh); exportCtx.quadraticCurveTo(x,y+rh,x,y+rh-rr); exportCtx.lineTo(x,y+rr); exportCtx.quadraticCurveTo(x,y,x+rr,y); exportCtx.closePath(); exportCtx.fill();
+          };
+          String(ov.textContent||'').split('\n').forEach(paragraph=>{
+            const words=paragraph.split(/\s+/); let line='';
+            words.forEach(word=>{
+              const candidate=line ? line+' '+word : word;
+              if(line && exportCtx.measureText(candidate).width>maxWidth){lines.push(line);line=word;}else line=candidate;
+            });
+            lines.push(line);
+          });
+          const usable=lines.filter((line,i)=>line!=='' || lines.length===1);
+          const totalH=usable.length*lineHeight;
+          const bgShape=String(ov.textBackgroundShape||'rounded');
+          if(ov.textBackgroundEnabled&&bgShape!=='rounded'&&typeof window.ethvelleDrawTextBackplate==='function'){
+            const widest=Math.max(1,...usable.map(line=>Math.min(maxWidth,exportCtx.measureText(line).width)));
+            const bx=(ov.textAlign||'center')==='left'?-maxWidth/2-bgPad:(ov.textAlign==='right'?maxWidth/2-widest-bgPad:-widest/2-bgPad);
+            exportCtx.save();exportCtx.shadowColor='transparent';exportCtx.shadowBlur=0;exportCtx.shadowOffsetX=0;exportCtx.shadowOffsetY=0;exportCtx.fillStyle=bgFill;
+            window.ethvelleDrawTextBackplate(exportCtx,bx,-totalH/2-bgPad,widest+bgPad*2,totalH+bgPad*2,bgRadius,bgShape);
+            exportCtx.restore();
+          }
+          usable.forEach((line,i)=>{
+            const y=-totalH/2+lineHeight*(i+0.5);
+            const lineW=Math.min(maxWidth,exportCtx.measureText(line).width);
+            let lineX=0;
+            if((ov.textAlign||'center')==='left') lineX=-maxWidth/2;
+            else if((ov.textAlign||'center')==='right') lineX=maxWidth/2;
+            if(ov.textBackgroundEnabled&&bgShape==='rounded'){
+              exportCtx.save(); exportCtx.shadowColor='transparent'; exportCtx.shadowBlur=0; exportCtx.shadowOffsetX=0; exportCtx.shadowOffsetY=0;
+              exportCtx.fillStyle=bgFill;
+              const rectX=(ov.textAlign||'center')==='left' ? -maxWidth/2-bgPad : (ov.textAlign==='right' ? maxWidth/2-lineW-bgPad : -lineW/2-bgPad);
+              drawRoundedRect(rectX,y-lineHeight/2-bgPad,lineW+bgPad*2,lineHeight+bgPad*2,bgRadius);
+              exportCtx.restore();
+            }
+            exportCtx.shadowColor=shadowEnabled?ethvelleHexToRgba(ov.shadowColor||'#000000',Math.max(0,Math.min(100,Number(ov.shadowOpacity==null?100:ov.shadowOpacity)))/100):'transparent';
+            exportCtx.shadowBlur=shadowEnabled?shadowBlur:0;
+            exportCtx.shadowOffsetX=shadowEnabled?shadowX:0;
+            exportCtx.shadowOffsetY=shadowEnabled?shadowY:0;
+            if(strokeWidth>0){ exportCtx.lineWidth=strokeWidth*2; exportCtx.lineJoin='round'; exportCtx.strokeStyle=strokeColor; if(window.ethvelleDrawStrokeDepth)window.ethvelleDrawStrokeDepth(exportCtx,line,lineX,y,maxWidth,strokeWidth,exportScale); exportCtx.strokeText(line,lineX,y,maxWidth); }
+            exportCtx.fillText(line,lineX,y,maxWidth);
+          });
+          if(ov.visualMask&&window.ethvelleApplyCanvasMaskClip)exportCtx.restore();
+          exportCtx.restore();
+          continue;
+        }
+        const rec = exportOverlayEls[ov.id];
+        if(!rec) continue;
+        if(ov.type==='video'){
+          const speed = ov.speed || 1;
+          // Speed-scaled the same way as the live preview (see renderOverlayMedia) so an
+          // exported video matches exactly what was seen in the editor.
+          const maxT = Math.max(0.05, (ov.sourceDuration || rec.el.duration || (ov.trimEnd-ov.trimStart)) - 0.02);
+          const elapsed=Math.max(0,(tSec-Number(ov.trimStart))*speed);
+          const span=Math.max(0,(Number(ov.trimEnd)-Number(ov.trimStart))*speed);
+          const rawLocal=ov.reversePlayback?(Number(ov.sourceOffset)||0)+span-elapsed:(Number(ov.sourceOffset)||0)+elapsed;
+          const localT = Math.max(0, Math.min(maxT, rawLocal));
+          await waitForExportVideoFrame(rec.el,localT,ov.name||('Video clip '+String(ov.id||'')));
+        }
+        const evAnim = window.getEthvelleClipAnimationState ? window.getEthvelleClipAnimationState(ov,tSec) : {opacity:1,scale:1,x:0,y:0,rotation:0};
+        const coverScale = Math.min(w/rec.iw, h/rec.ih) * (ov.transform ? ov.transform.scale : 1) * (Number(evAnim.scale)||1);
+        const drawW = rec.iw*coverScale, drawH = rec.ih*coverScale;
+        // Mirrors the live preview's authored transform plus the selected clip's animation.
+        const ovExportScale = stageW ? (w/stageW) : 1;
+        const trackedExportTransform = window.ethvelleGetTrackedOverlayTransform ? window.ethvelleGetTrackedOverlayTransform(ov,tSec) : ov.transform;
+        const keyedExportTransform = ethvelleObjectKeyframeProperty(ov)==='transform' ? ethvelleGetObjectKeyframeValue(ov,'transform',tSec) : null;
+        const t = ov.clipTracking&&ov.clipTracking.enabled&&ov.clipTracking.targetId ? trackedExportTransform : (keyedExportTransform||trackedExportTransform);
+        const cx = w/2 + (((t ? Number(t.offsetX)||0 : 0) + (Number(evAnim.x)||0))*ovExportScale);
+        const cy = h/2 + (((t ? Number(t.offsetY)||0 : 0) + (Number(evAnim.y)||0))*ovExportScale);
+        const exportRotation = (t ? Number(t.rotation)||0 : 0) + (Number(evAnim.rotation)||0);
+        try{
+          exportCtx.save();
+          exportCtx.globalAlpha = Math.max(0,Math.min(1,Number(evAnim.opacity)||0));
+          const exportBaseFilter=window.ethvelleAdjustmentFilter ? window.ethvelleAdjustmentFilter(ov.adjustments, ov.enhanceAmount) : 'none';
+          const exportBlurFx=window.ethvelleGetActiveClipBlurEffect?window.ethvelleGetActiveClipBlurEffect(ov,tSec):(ov.visualEffects&&ov.visualEffects.type==='blur'?ov.visualEffects:null);
+          const exportBlurPx=exportBlurFx ? Math.max(0,Math.min(14,(Number(exportBlurFx.intensity)||135)/30))*ovExportScale : 0;
+          exportCtx.filter=exportBlurPx>0 ? ((exportBaseFilter&&exportBaseFilter!=='none'?exportBaseFilter+' ':'')+'blur('+exportBlurPx.toFixed(2)+'px)') : exportBaseFilter;
+          let drawSource=rec.el;
+          if(ov.type==='video' && ov.chromaKey && ov.chromaKey.enabled){
+            let keyed=exportChromaCanvases[ov.id];
+            if(!keyed){ keyed=document.createElement('canvas'); exportChromaCanvases[ov.id]=keyed; }
+            if(paintChromaKeyFrame(rec.el,keyed,ov.chromaKey,1280)) drawSource=keyed;
+          }
+          const crop=window.ethvelleCropFractions?window.ethvelleCropFractions(ov.crop):{left:0,top:0,right:0,bottom:0};
+          const sourceX=rec.iw*crop.left,sourceY=rec.ih*crop.top;
+          const sourceW=Math.max(1,rec.iw*(1-crop.left-crop.right)),sourceH=Math.max(1,rec.ih*(1-crop.top-crop.bottom));
+          // Preserve the full source's contain scale. The crop only removes pixels from the
+          // original source rectangle; it does not enlarge or recenter the remaining pixels.
+          const baseContainScale=Math.min(w/rec.iw,h/rec.ih);
+          const fullDrawW=rec.iw*baseContainScale,fullDrawH=rec.ih*baseContainScale;
+          const baseDrawW=sourceW*baseContainScale,baseDrawH=sourceH*baseContainScale;
+          const cropDestX=(w-fullDrawW)/2+sourceX*baseContainScale;
+          const cropDestY=(h-fullDrawH)/2+sourceY*baseContainScale;
+          const objectScale=(t?(Number(t.scale)||1):1)*(Number(evAnim.scale)||1);
+          exportCtx.save();
+          exportCtx.translate(cx,cy);
+          if(exportRotation)exportCtx.rotate(exportRotation*Math.PI/180);
+          exportCtx.scale(objectScale*(ov.mirrorX?-1:1),objectScale*(ov.mirrorY?-1:1));
+          { const evStretch=window.ethvelleMediaStretch?window.ethvelleMediaStretch(ov):null; if(evStretch&&(evStretch.w!==1||evStretch.l!==1))exportCtx.scale(evStretch.w,evStretch.l); }
+          exportCtx.translate(-w/2,-h/2);
+          // The mask is clipped in the transformed layer's own full-stage box, so it moves,
+          // rotates and mirrors together with the image/video exactly like the live CSS mask.
+          if(window.ethvelleApplyCanvasMaskClip)window.ethvelleApplyCanvasMaskClip(exportCtx,ov.visualMask,w,h);
+          const evPerspX=Number(ov.mediaPerspectiveX)||0,evPerspY=Number(ov.mediaPerspectiveY)||0;
+          if((evPerspX||evPerspY)&&window.ethvelleDrawPerspectiveImage)window.ethvelleDrawPerspectiveImage(exportCtx,drawSource,sourceX,sourceY,sourceW,sourceH,cropDestX,cropDestY,baseDrawW,baseDrawH,evPerspX,evPerspY,w/2,h/2,(window.ethvelleMediaPerspectiveDistance||900)*ovExportScale);
+          else exportCtx.drawImage(drawSource,sourceX,sourceY,sourceW,sourceH,cropDestX,cropDestY,baseDrawW,baseDrawH);
+          exportCtx.restore();
+          exportCtx.restore();
+        }
+        catch(err){ try{exportCtx.restore();}catch(_e){} throw new Error('Could not draw '+String(ov.name||('clip '+ov.id))+': '+(err&&err.message||err)); }
+      }
+    }
+
+    // Render each frame of the FULL combined timeline (every clip/segment in its own
+    // absolute-time slot) into the export canvas at the target FPS  -  using the exact same
+    // poseAtClipTime()/transformAtClipTime() functions the live preview uses, so exported
+    // motion always matches what was seen in the editor (PART 35). animateAllCharacters()
+    // additionally poses every OTHER character from its own clip each frame, so multiple
+    // characters with their own animations all move together in the exported video instead
+    // of only the active one animating while the rest export frozen in their rest pose.
+    if(exportMode==='mediarecorder'){
+      exportRecorder.start();
+      if(liveAudioCtx&&liveAudioCtx._exportSourceNode){try{liveAudioCtx._exportSourceNode.start();}catch(err){throw new Error('Could not start fallback export audio: '+err.message);}}
+    }else if(exportMode==='webcodecs'&&mixedAudioBuffer&&exportAudioEncoder){
+      // Encode offline-mixed PCM with sample-derived timestamps, not wall-clock playback.
+      const channels=mixedAudioBuffer.numberOfChannels,sampleRate=mixedAudioBuffer.sampleRate,totalSamples=mixedAudioBuffer.length;
+      const channelData=Array.from({length:channels},(_,i)=>mixedAudioBuffer.getChannelData(i));
+      const chunkFrames=1024;
+      for(let offset=0;offset<totalSamples;offset+=chunkFrames){
+        const frameCount=Math.min(chunkFrames,totalSamples-offset);
+        const planar=new Float32Array(frameCount*channels);
+        for(let ch=0;ch<channels;ch++)planar.set(channelData[ch].subarray(offset,offset+frameCount),ch*frameCount);
+        const audioData=new AudioData({format:'f32-planar',sampleRate,numberOfFrames:frameCount,numberOfChannels:channels,timestamp:Math.round(offset*1000000/sampleRate),data:planar});
+        try{exportAudioEncoder.encode(audioData);}finally{audioData.close();}
+        if(exportAudioEncoder.encodeQueueSize>24)await exportAudioEncoder.flush();
+        const audioError=window.__ethvelleExportEncoderErrors&&window.__ethvelleExportEncoderErrors().audio;
+        if(audioError)throw audioError;
+      }
+      await exportAudioEncoder.flush();
+      const audioError=window.__ethvelleExportEncoderErrors&&window.__ethvelleExportEncoderErrors().audio;
+      if(audioError)throw audioError;
+    }
+
+    const fallbackStartMs=exportMode==='mediarecorder'?performance.now():0;
+    const frameIntervalMs=1000/renderFps;
+    let fallbackFrameIndex=0;
+    for(let f=0;exportMode==='webcodecs'?f<totalFrames:true;f++){
+      let clipAbsoluteT;
+      if(exportMode==='webcodecs')clipAbsoluteT=f/renderFps;
+      else{
+        const elapsed=Math.max(0,(performance.now()-fallbackStartMs)/1000);
+        clipAbsoluteT=elapsed>=durationSec?Math.max(0,durationSec-1/renderFps):Math.min(elapsed,Math.max(0,durationSec-1/renderFps));
+      }
+      faceAnimationTimeOverride=clipAbsoluteT;
+      if(activeCharacter()) resetCharacterForTimelineFrame(activeCharacter());
+      if(activeCharacter() && activeClip){
+        const pose = poseAtClipTime(clipAbsoluteT);
+        if(pose) applyPoseToBones(pose);
+        const clipTransform = transformAtClipTime(clipAbsoluteT);
+        if(clipTransform) applyTransformToModel(clipTransform);
+      }
+      if(window.__capExportCancelled)throw new Error('export-cancelled');
+      animateAllCharacters(clipAbsoluteT);
+
+      exportCtx.clearRect(0,0,w,h);
+      // Paint overlays explicitly sent behind the Background first. The background is then
+      // drawn over them, matching the live canvas z-order instead of letting export silently
+      // pull every overlay back above the background layer.
+      await drawOverlayMediaToContext(clipAbsoluteT,true);
+      // FEATURE (multiple sequential backgrounds): resolved freshly for THIS frame's own
+      // time  -  a project that switches background partway through now actually shows that
+      // switch in the exported video, instead of exporting whichever background was active
+      // only at the moment export started.
+      const bgNow = bgDrawFor(clipAbsoluteT);
+      if(bgNow.image){
+        exportCtx.save();
+        // Keep the stage's neutral white visible outside a masked/moved background image.
+        exportCtx.fillStyle = '#ffffff'; exportCtx.fillRect(0,0,w,h);
+        exportCtx.filter = window.ethvelleAdjustmentFilter ? window.ethvelleAdjustmentFilter(bgNow.adjustments, bgNow.enhanceAmount) : 'none';
+        exportCtx.translate(w/2+bgNow.offsetX,h/2+bgNow.offsetY);
+        if(bgNow.rotation) exportCtx.rotate(bgNow.rotation * Math.PI/180);
+        exportCtx.scale(bgNow.scale*(bgNow.mirrorX?-1:1),bgNow.scale*(bgNow.mirrorY?-1:1));
+        if((bgNow.stretchW&&bgNow.stretchW!==1)||(bgNow.stretchL&&bgNow.stretchL!==1))exportCtx.scale(bgNow.stretchW||1,bgNow.stretchL||1);
+        exportCtx.translate(-w/2,-h/2);
+        if(window.ethvelleApplyCanvasMaskClip) window.ethvelleApplyCanvasMaskClip(exportCtx,bgNow.visualMask,w,h);
+        if((bgNow.perspectiveX||bgNow.perspectiveY)&&window.ethvelleDrawPerspectiveImage)window.ethvelleDrawPerspectiveImage(exportCtx,bgNow.image,bgNow.sourceX||0,bgNow.sourceY||0,bgNow.sourceW||bgNow.image.width,bgNow.sourceH||bgNow.image.height,bgNow.destX??((w-bgNow.baseW)/2),bgNow.destY??((h-bgNow.baseH)/2),bgNow.baseW,bgNow.baseH,bgNow.perspectiveX,bgNow.perspectiveY,w/2,h/2,(window.ethvelleMediaPerspectiveDistance||900)*(bgNow.perspectiveScale||1));
+        else exportCtx.drawImage(bgNow.image,bgNow.sourceX||0,bgNow.sourceY||0,bgNow.sourceW||bgNow.image.width,bgNow.sourceH||bgNow.image.height,bgNow.destX??((w-bgNow.baseW)/2),bgNow.destY??((h-bgNow.baseH)/2),bgNow.baseW,bgNow.baseH);
+        exportCtx.restore();
+      }
+      else {
+        exportCtx.save();
+        exportCtx.filter = window.ethvelleAdjustmentFilter ? window.ethvelleAdjustmentFilter(bgNow.adjustments, bgNow.enhanceAmount) : 'none';
+        exportCtx.fillStyle = bgNow.fill; exportCtx.fillRect(0,0,w,h);
+        exportCtx.restore();
+      }
+
+      await drawOverlayMediaToContext(clipAbsoluteT,false);
+
+      window.__evCharFxTime = clipAbsoluteT;
+      try{ drawStickToContext(exportCtx, w, h); } finally { window.__evCharFxTime = undefined; }
+      if(window.ethvelleDrawVisualEffectsToContext) window.ethvelleDrawVisualEffectsToContext(exportCtx,clipAbsoluteT,w,h);
+
+      if(exportMode==='webcodecs'){
+        const timestamp=Math.round(f*1000000/renderFps);
+        const frame=new VideoFrame(exportCanvas,{timestamp,duration:Math.round(1000000/renderFps)});
+        try{exportVideoEncoder.encode(frame,{keyFrame:f===0||f%(renderFps*2)===0});}finally{frame.close();}
+        while(exportVideoEncoder.encodeQueueSize>8){await new Promise(r=>{let d=false;const fin=()=>{if(d)return;d=true;exportVideoEncoder.ondequeue=null;r();};exportVideoEncoder.ondequeue=fin;setTimeout(fin,40);});if(window.__ethvelleExportEncoderErrors&&(window.__ethvelleExportEncoderErrors().video))break;}
+        const encoderErrors=window.__ethvelleExportEncoderErrors&&window.__ethvelleExportEncoderErrors();
+        if(encoderErrors&&encoderErrors.video)throw encoderErrors.video;
+        if(f%Math.max(1,Math.floor(renderFps/2))===0){showExportProgress(Math.round(((f+1)/totalFrames)*96));window.__capExportFrame&&window.__capExportFrame(exportCanvas);await new Promise(resolve=>setTimeout(resolve,0));}
+      }else{
+        // MediaRecorder timestamps from the real clock. The source time is also taken from
+        // that clock, and the offline mix starts with recorder.start(), keeping this fallback
+        // in sync even when the renderer cannot maintain the requested frame rate.
+        exportCaptureTrack.requestFrame();
+        fallbackFrameIndex++;
+        const elapsed=(performance.now()-fallbackStartMs)/1000;
+        showExportProgress(Math.min(96,Math.round(elapsed/durationSec*96)));window.__capExportFrame&&window.__capExportFrame(exportCanvas);
+        if(elapsed>=durationSec)break;
+        const nextDue=fallbackStartMs+fallbackFrameIndex*frameIntervalMs;
+        const waitMs=nextDue-performance.now();
+        if(waitMs>1)await new Promise(resolve=>setTimeout(resolve,waitMs));
+      }
+    }
+
+    let blob;
+    if(exportMode==='webcodecs'){
+      await exportVideoEncoder.flush();
+      const encoderErrors=window.__ethvelleExportEncoderErrors&&window.__ethvelleExportEncoderErrors();
+      if(encoderErrors&&(encoderErrors.video||encoderErrors.audio))throw (encoderErrors.video||encoderErrors.audio);
+      exportMuxer.finalize();
+      const finalBuffer=muxerTarget&&muxerTarget.buffer;
+      if(!finalBuffer||!finalBuffer.byteLength)throw new Error('The video encoder produced an empty export.');
+      blob=new Blob([finalBuffer],{type:exportOutputMime});
+    }else{
+      exportRecorder.stop();
+      await exportRecorderFinished;
+      blob=new Blob(exportRecorderChunks,{type:exportOutputMime||'video/webm'});
+    }
+    showExportProgress(100);
+    const url = URL.createObjectURL(blob);
+    const safeName = (currentProject?.name || 'ethvelle-animation').replace(/[^a-z0-9\-_]+/gi,'_');
+    const savedFileName = `${safeName}-${exportQuality}p.${exportFileExtension}`;
+    // Direct save: the file is written to the device (Downloads) automatically the moment export ends.
+    const a = document.createElement('a');
+    a.href = url; a.download = savedFileName;
+    document.body.appendChild(a); a.click(); a.remove();
+    if(window.__capExportDone) window.__capExportDone({blob, url, filename:savedFileName}); else { hideExportProgress(); showToast('Saved to device', {icon: toastIcons.export, duration:1800}); }
+    recordExportUsed();
+    trackEvent('export');
+  }catch(err){
+    console.error('Ethvelle export failed', err);
+    hideExportProgress();
+    trackEvent('export_failed');
+    if(chargedCreditsAmount>0){
+      try{await changeMyCreditBalance(chargedCreditsAmount,{type:'refund',feature:'export',description:'Refund for failed video export',quality:exportQuality,durationSeconds:Math.ceil(plannedDurationSec),referenceId:creditChargeId});}
+      catch(refundErr){console.error('Ethvelle: automatic credit refund failed',refundErr);}
+    }
+    showToast((err&&err.message==='export-cancelled')?"Export cancelled  -  credits refunded when possible":"Export failed  -  credits were refunded when possible. Try a lower quality", {icon: toastIcons.info, duration:3000});
+  }finally{
+    faceAnimationTimeOverride=null;
+    isExporting = false;
+    // Release the offscreen <video> elements created for overlay export compositing  - 
+    // without this, each export would leak a decoder/video element per video overlay clip.
+    Object.values(exportOverlayEls).forEach(rec=>{
+      if(rec.el.tagName === 'VIDEO'){ rec.el.pause(); rec.el.removeAttribute('src'); rec.el.load(); }
+    });
+    // Tear down the real-time audio-mix context (if the project had any sound)  -  stopping
+    // the source node is harmless even if it already finished playing on its own (a
+    // buffer source that's already ended throws on a second stop() in some browsers, so
+    // this is wrapped defensively), and closing the context releases its audio-processing
+    // resources instead of leaving one AudioContext alive per export.
+    if(exportRecorder&&exportRecorder.state!=='inactive'){try{exportRecorder.stop();}catch(_e){}}
+    if(exportVideoEncoder){try{if(exportVideoEncoder.state!=='closed')exportVideoEncoder.close();}catch(_e){}}
+    if(exportAudioEncoder){try{if(exportAudioEncoder.state!=='closed')exportAudioEncoder.close();}catch(_e){}}
+    if(liveAudioCtx){
+      try{ if(liveAudioCtx._exportSourceNode) liveAudioCtx._exportSourceNode.stop(); }catch(e){}
+      try{ liveAudioCtx.close(); }catch(e){}
+    }
+    // Put every character's modelTransform AND bone pose back exactly as they were before
+    // export touched them, then let renderFrame() re-apply whatever pose/transform-keyframe
+    // (if any) actually belongs at the current playhead on top of that  -  for the active
+    // character via the shared bones/modelTransform, and for every other character via
+    // animateAllCharacters() inside that same renderFrame() call.
+    characters.forEach((c, idx)=>{
+      const saved = preExportState[idx];
+      if(!saved) return;
+      Object.assign(c.modelTransform, saved.modelTransform);
+      Object.keys(saved.angles).forEach(k=>{ if(c.bones[k]) c.bones[k].angle = saved.angles[k]; });
+      c.bones.hip.y = saved.hipY;
+    });
+    // restore live canvas to current playhead position
+    renderFrame();
+    if(wasPlaying) startPlayback();
+  }
+}
+
+// Draw the current bone pose into an arbitrary canvas context, scaled to that context's size.
+// Draws ONE character's rig (given the character object itself, independent of whichever
+// character is currently "active") into an arbitrary target context, scaled to that
+// context's size. Shared by drawStickToContext (loops this over every character) so export/
+// thumbnails render the whole cast, not just whichever one happens to be selected. Takes the
+// full character (not just bones/modelTransform) so a custom image-based character exports
+// with its own artwork (see drawCustomCharacterOnContext) instead of always falling back to
+// the green stroke stickman.
+function drawCharacterToContext(targetCtx, char){
+  const charBones = char.bones, charModelTransform = char.modelTransform;
+  function boneEnd(key){
+    const b = charBones[key];
+    if(!b.parent) return {x:b.x, y:b.y};
+    const pEnd = boneEnd(b.parent);
+    let sx=pEnd.x, sy=pEnd.y;
+    if(b.attachAt!==undefined){
+      const pStart = boneStart(b.parent);
+      sx = pStart.x + (pEnd.x-pStart.x)*b.attachAt;
+      sy = pStart.y + (pEnd.y-pStart.y)*b.attachAt;
+    }
+    return { x: sx+Math.cos(b.angle)*b.length, y: sy+Math.sin(b.angle)*b.length };
+  }
+  function boneStart(key){
+    const b = charBones[key];
+    if(!b.parent) return {x:b.x, y:b.y};
+    const pEnd = boneEnd(b.parent);
+    if(b.attachAt!==undefined){
+      const pStart = boneStart(b.parent);
+      return { x: pStart.x+(pEnd.x-pStart.x)*b.attachAt, y: pStart.y+(pEnd.y-pStart.y)*b.attachAt };
+    }
+    return pEnd;
+  }
+  targetCtx.save();
+  const anchor = charBones.hip;
+  targetCtx.translate(anchor.x + charModelTransform.offsetX, anchor.y + charModelTransform.offsetY);
+  targetCtx.rotate(charModelTransform.rotation * Math.PI/180);
+  targetCtx.scale(charModelTransform.scale, charModelTransform.scale);
+  targetCtx.scale(char.mirrorX?-1:1,char.mirrorY?-1:1);
+  // Keep the exported mask aligned to the same local stage coordinates as the rig.
+  targetCtx.translate(-anchor.x, -anchor.y);
+  if(window.ethvelleApplyCanvasMaskClip) window.ethvelleApplyCanvasMaskClip(targetCtx,char.visualMask,stageW,stageH);
+  if(char.type==='custom' && char.parts){
+    drawCustomCharacterOnContext(targetCtx, char, boneStart, boneEnd);
+  } else {
+    targetCtx.strokeStyle = '#2F5CE8';
+    targetCtx.lineWidth = 5;
+    targetCtx.lineCap = 'round';
+    ['spine','armL','armL_lo','armR','armR_lo','legL','legL_lo','legR','legR_lo'].forEach(key=>{
+      const s = boneStart(key), e = boneEnd(key);
+      targetCtx.beginPath();
+      targetCtx.moveTo(s.x, s.y);
+      targetCtx.lineTo(e.x, e.y);
+      targetCtx.stroke();
+    });
+    const headStart = boneStart('head'), headEnd = boneEnd('head');
+    const headCenter = { x:(headStart.x+headEnd.x)/2, y:(headStart.y+headEnd.y)/2 };
+    targetCtx.beginPath();
+    targetCtx.arc(headCenter.x, headCenter.y, charBones.head.length*0.6, 0, Math.PI*2);
+    targetCtx.stroke();
+  }
+  if(typeof window.ethvelleDrawCharacterProps==='function'){
+    try{window.ethvelleDrawCharacterProps(targetCtx,char,boneStart,boneEnd);}catch(err){console.debug('Held-item render skipped',err);}
+  }
+  targetCtx.restore();
+}
+// Draws EVERY character (not just the active one) into an arbitrary target context, scaled
+// to that context's size  -  used for video export frames and project thumbnails, so both
+// show the full cast exactly as it appears live on stage.
+function drawStickToContext(targetCtx, w, h){
+  const scaleX = w/stageW, scaleY = h/stageH;
+  targetCtx.save();
+  targetCtx.scale(scaleX, scaleY);
+  characters.forEach(c=>{
+    drawCharacterToContext(targetCtx, c);
+  });
+  targetCtx.restore();
+}
+
+// Renders a small real preview  -  background + the clip's first-frame pose  -  for this
+// project's card in the Projects list, CapCut-style, instead of the generic placeholder
+// character every project used to share. Leaves the live editor's own pose/canvas alone
+// (restores it afterward) since this can run right as the user is navigating away.
+async function generateProjectThumbnail(){
+  if(!stageW || !stageH) return null;
+  try{
+    const THUMB_W = 220;
+    const THUMB_H = Math.max(1, Math.round(THUMB_W * (stageH/stageW)));
+    const cv = document.createElement('canvas');
+    cv.width = THUMB_W; cv.height = THUMB_H;
+    const tctx = cv.getContext('2d');
+    const firstFrameBackground = currentBackgroundClip(0);
+    const thumbnailBgSource = firstFrameBackground ? firstFrameBackground.src : currentBg;
+    const thumbnailBgTransform = firstFrameBackground ? firstFrameBackground.transform : bgTransform;
+
+    if(thumbnailBgSource && String(thumbnailBgSource).startsWith('url(')){
+      const urlMatch = String(thumbnailBgSource).match(/url\((.*)\)/);
+      const src = urlMatch ? urlMatch[1].replace(/^["']|["']$/g,'') : null;
+      let drew = false;
+      if(src){
+        const img = new Image();
+        img.src = src;
+        await new Promise(res=>{ img.onload = res; img.onerror = res; });
+        if(img.naturalWidth){
+          const bgScale = THUMB_W/stageW;
+          // UPDATED: "contain" (Math.min) instead of "cover" (Math.max) so the project-list
+          // thumbnail shows the same uncropped background as the editor and the export.
+          tctx.fillStyle = '#ffffff'; tctx.fillRect(0,0,THUMB_W,THUMB_H);
+          const coverScale = Math.min(THUMB_W/img.naturalWidth, THUMB_H/img.naturalHeight) * thumbnailBgTransform.scale;
+          const dw = img.naturalWidth*coverScale, dh = img.naturalHeight*coverScale;
+          const cx = THUMB_W/2 + thumbnailBgTransform.offsetX*bgScale, cy = THUMB_H/2 + thumbnailBgTransform.offsetY*bgScale;
+          // Mirrors the export routine's rotate-around-center handling (see startExport's own
+          // bgDraw comment) so a rotated background still reads correctly in the small
+          // project-list thumbnail too, not just in the live editor/export.
+          if(thumbnailBgTransform.rotation){
+            tctx.save();
+            tctx.translate(cx, cy);
+            tctx.rotate(thumbnailBgTransform.rotation * Math.PI/180);
+            tctx.drawImage(img, -dw/2, -dh/2, dw, dh);
+            tctx.restore();
+          } else {
+            tctx.drawImage(img, cx-dw/2, cy-dh/2, dw, dh);
+          }
+          drew = true;
+        }
+      }
+      if(!drew){ tctx.fillStyle = '#ffffff'; tctx.fillRect(0,0,THUMB_W,THUMB_H); }
+    } else {
+      tctx.fillStyle = thumbnailBgSource || '#ffffff';
+      tctx.fillRect(0,0,THUMB_W,THUMB_H);
+    }
+
+    // Render every character at absolute time zero from isolated rig clones. The live
+    // character bones/model transforms and the playback clock are never temporarily changed.
+    const coverCharacters=ethvelleCloneCharactersForFirstFrameCover();
+    ethvelleDrawCoverCharacters(tctx,coverCharacters,THUMB_W,THUMB_H);
+
+    return cv.toDataURL('image/jpeg', 0.72);
+  }catch(err){
+    console.warn('Ethvelle: thumbnail generation failed', err);
+    return null;
+  }
+}
+
+
+let projectCoverTimer=null;
+let lastLifecycleCoverAt=0;
+let lastLifecycleCoverProjectId=null;
+function saveProjectThumbnailResult(project, thumb){
+  if(!project || !thumb) return;
+  project.thumb=thumb;
+  const idx=projects.findIndex(p=>p.id===project.id);
+  if(idx>-1) projects[idx]=project;
+  saveProjectsToStorage();
+  if(document.getElementById('screen-projects')?.classList.contains('active')) renderProjects();
+}
+function captureProjectFirstFrameCoverSync(project){
+  // This capture is deliberately isolated from the live editor clock/compositor. Never pause,
+  // seek, or call renderFrame() here: doing so removes/recreates the active overlay <video>
+  // nodes while a user is scrubbing and can leave the live preview stuck on a stale frame.
+  if(!project || !stageW || !stageH) return false;
+  try{
+    const w=220, h=Math.max(1,Math.round(w*(stageH/stageW)));
+    const cover=document.createElement('canvas');cover.width=w;cover.height=h;
+    const cx=cover.getContext('2d');
+    if(!cx)return false;
+    cx.fillStyle='#FFFFFF';cx.fillRect(0,0,w,h);
+    const coverCharacters=ethvelleCloneCharactersForFirstFrameCover();
+    ethvelleDrawCoverCharacters(cx,coverCharacters,w,h);
+    const data=cover.toDataURL('image/jpeg',0.76);
+    if(!data || data.length<100)return false;
+    project.thumb=data;
+    const idx=projects.findIndex(p=>p.id===project.id);

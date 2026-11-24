@@ -1,0 +1,1000 @@
+    if(idx>-1)projects[idx]=project;
+    saveProjectsToStorage();
+    if(document.getElementById('screen-projects')?.classList.contains('active'))renderProjects();
+    return true;
+  }catch(err){
+    console.warn('Ethvelle: first-frame cover capture failed',err);
+    return false;
+  }
+}
+function queueProjectFirstFrameCover(delay){
+  if(!currentProject || !stageW || !stageH) return;
+  const pid=currentProject.id;
+  clearTimeout(projectCoverTimer);
+  projectCoverTimer=setTimeout(()=>{
+    if(!currentProject || currentProject.id!==pid || !document.getElementById('screen-editor')?.classList.contains('active')) return;
+    if(isPlaying){ queueProjectFirstFrameCover(1800); return; }
+    const project=currentProject;
+    captureProjectFirstFrameCoverSync(project);
+    generateProjectThumbnail().then(thumb=>{
+      // Don't let a slow background-image load from an old project overwrite another project's cover.
+      if(!thumb || !currentProject || currentProject.id!==pid || !document.getElementById('screen-editor')?.classList.contains('active')) return;
+      saveProjectThumbnailResult(project,thumb);
+    });
+  },Math.max(0,Number(delay)||0));
+}
+function saveEditorStateOnLeave(){
+  if(!currentProject || !document.getElementById('screen-editor')?.classList.contains('active')) return;
+  const now=Date.now();
+  if(lastLifecycleCoverProjectId===currentProject.id && now-lastLifecycleCoverAt<700) return;
+  lastLifecycleCoverAt=now; lastLifecycleCoverProjectId=currentProject.id;
+  clearTimeout(projectCoverTimer);
+  try{ persistProjectState({skipHistory:true}); }catch(e){ console.warn('Ethvelle: leave-save state error',e); }
+  if(isPlaying) pausePlaybackAtCurrentTime();
+  const project=currentProject, pid=currentProject.id;
+  captureProjectFirstFrameCoverSync(project);
+  generateProjectThumbnail().then(thumb=>{
+    if(!thumb || !currentProject || currentProject.id!==pid) return;
+    saveProjectThumbnailResult(project,thumb);
+  });
+}
+document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='hidden')saveEditorStateOnLeave();});
+window.addEventListener('pagehide',saveEditorStateOnLeave);
+
+function showExportProgress(pct){
+  const t=document.getElementById('toast');
+  t.innerHTML = `
+    <div class="toast-icon">${toastIcons.export}</div>
+    <div class="toast-text">Exporting ${pct}%</div>
+    <div class="export-progress-track"><div class="export-progress-fill" style="width:${pct}%;"></div></div>
+  `;
+  t.classList.add('show');
+  clearTimeout(toastTimer);
+}
+function hideExportProgress(){
+  const t=document.getElementById('toast');
+  t.classList.remove('show');
+}
+
+/* ================= BOTTOM TOOL PANELS ================= */
+const panelContent = {
+  assets: { title:'Assets', body:`<div id="editorAssetLibrary"></div>` },
+  media: {
+    title:'Media',
+    body:`
+      <div class="option-grid ethvelle-media-grid">
+        <div class="option-tile upload" onclick="closePanel();triggerUpload('background')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>
+          <span>Background</span>
+        </div>
+        <div class="option-tile upload" onclick="closePanel();triggerUpload('overlay')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 12h8M12 8v8"/></svg>
+          <span>Layer</span>
+        </div>
+        <div class="option-tile upload" onclick="closePanel();triggerUpload('audio')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span>Audio</span>
+        </div>
+      </div>
+    `
+  },
+  anim: {
+    title:'Animate',
+    body:`
+      <div class="anim-list" id="animListBody"></div>
+    `
+  },
+  overlay: {
+    title:'Overlays',
+    body:`
+      <div class="option-grid ev-overlay-upload-grid">
+        <div class="option-tile upload ev-overlay-upload-tile" role="button" tabindex="0" onclick="triggerUpload('overlay')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();triggerUpload('overlay')}">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Upload</span>
+        </div>
+      </div>
+      <div class="anim-list" id="overlayListBody"></div>
+    `
+  },
+  trim: {
+    title:'Trim clip',
+    body:`
+      <div id="trimPanelBody"></div>
+    `
+  },
+  speed: {
+    title:'Speed',
+    body:`
+      <div id="speedPanelBody"></div>
+    `
+  },
+  volume: {
+    title:'Volume',
+    body:`
+      <div id="volumePanelBody"></div>
+    `
+  },
+  chroma: {
+    title:'Chroma Key',
+    body:`<div id="chromaPanelBody"></div>`
+  },
+  transform: {
+    title:'Transform',
+    body:`
+      <div class="transform-group">
+        <div class="transform-label-row"><span>Size</span><span class="transform-value" id="sizeVal">100%</span></div>
+        <input type="range" class="transform-slider" id="sizeSlider" min="10" max="400" value="100" oninput="updateTransform()">
+      </div>
+      <div class="transform-group">
+        <div class="transform-label-row"><span>Horizontal position</span><span class="transform-value" id="posXVal">0</span></div>
+        <input type="range" class="transform-slider" id="posXSlider" min="-200" max="200" value="0" oninput="updateTransform()">
+      </div>
+      <div class="transform-group">
+        <div class="transform-label-row"><span>Vertical position</span><span class="transform-value" id="posYVal">0</span></div>
+        <input type="range" class="transform-slider" id="posYSlider" min="-200" max="200" value="0" oninput="updateTransform()">
+      </div>
+      <div class="transform-group">
+        <div class="transform-label-row"><span>Rotation</span><span class="transform-value" id="rotVal">0°</span></div>
+        <input type="range" class="transform-slider" id="rotSlider" min="-180" max="180" value="0" oninput="updateTransform()">
+      </div>
+      <button class="transform-reset-btn" onclick="resetTransform()">Reset transform</button>
+    `
+  },
+  bg: {
+    title:'Background',
+    body:`
+      <div class="ev-bg-sample-panel">
+        <div class="ev-bg-sample-title">Solid colours</div>
+        <div class="ev-bg-sample-grid">
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#000000','Black')" aria-label="Add black background"><i style="--ev-bg-sample:#000000"></i><span>Black</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#FFFFFF','White')" aria-label="Add white background"><i style="--ev-bg-sample:#FFFFFF"></i><span>White</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#E53935','Red')" aria-label="Add red background"><i style="--ev-bg-sample:#E53935"></i><span>Red</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#2463EB','Blue')" aria-label="Add blue background"><i style="--ev-bg-sample:#2463EB"></i><span>Blue</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#16A05D','Green')" aria-label="Add green background"><i style="--ev-bg-sample:#16A05D"></i><span>Green</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#F4C430','Yellow')" aria-label="Add yellow background"><i style="--ev-bg-sample:#F4C430"></i><span>Yellow</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#7C3AED','Purple')" aria-label="Add purple background"><i style="--ev-bg-sample:#7C3AED"></i><span>Purple</span></button>
+          <button type="button" class="ev-bg-sample" onclick="ethvelleAddSolidBackground('#F07824','Orange')" aria-label="Add orange background"><i style="--ev-bg-sample:#F07824"></i><span>Orange</span></button>
+        </div>
+      </div>
+      <div class="bg-upload-only ev-bg-upload-row">
+        <button type="button" class="bg-upload-plus" onclick="triggerUpload('background')" aria-label="Upload background" title="Upload background">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Upload image</span>
+        </button>
+      </div>
+    `
+  },
+  text: {
+    title:'Text & Fonts',
+    body:`<div id="textPanelBody"></div>`
+  },
+  audio: {
+    title:'Audio',
+    body:`
+      <div class="option-grid">
+        <div class="option-tile upload" onclick="triggerUpload('audio')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>
+          <span>Upload</span>
+        </div>
+        <div class="option-tile" onclick="openEthvelleAudioLibrary()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
+          <span>Library</span>
+        </div>
+      </div>
+    `
+  }
+};
+
+// ---------------- Text overlays + Bangla/English fonts ----------------
+const ETHVELLE_TEXT_FONTS = [
+  {value:'Inter', label:'Inter  -  Default'},
+  {value:'Archivo', label:'Archivo  -  English'},
+  {value:'Roboto Flex', label:'Roboto Flex  -  English'},
+  {value:'Orbitron', label:'Orbitron  -  English'},
+  {value:'Open Sans', label:'Open Sans  -  English'},
+  {value:'Montserrat', label:'Montserrat  -  English'},
+  {value:'Molle', label:'Molle  -  English'},
+  {value:'Cutive Mono', label:'Cutive Mono  -  English'},
+  {value:'Eczar', label:'Eczar  -  English'},
+  {value:'Codystar', label:'Codystar  -  English'},
+  {value:'Croissant One', label:'Croissant One  -  English'},
+  {value:'Bebas Neue', label:'Bebas Neue  -  English'},
+  {value:'Chewy', label:'Chewy  -  English'},
+  {value:'Average Sans', label:'Average Sans  -  English'},
+  {value:'Gloria Hallelujah', label:'Gloria Hallelujah  -  English'},
+  {value:'Spectral', label:'Spectral  -  English'},
+  {value:'Monoton', label:'Monoton  -  English'},
+  {value:'Smokum', label:'Smokum  -  English'},
+  {value:'Unica One', label:'Unica One  -  English'},
+  {value:'Cardo', label:'Cardo  -  English'},
+  {value:'Sniglet', label:'Sniglet  -  English'},
+  {value:'Waiting for the Sunrise', label:'Waiting for the Sunrise  -  English'},
+  {value:'UnifrakturCook', label:'UnifrakturCook  -  English'},
+  {value:'Sansita', label:'Sansita  -  English'},
+  {value:'Meddon', label:'Meddon  -  English'},
+  {value:'Swanky and Moo Moo', label:'Swanky and Moo Moo  -  English'},
+  {value:'Special Elite', label:'Special Elite  -  English'},
+  {value:'Six Caps', label:'Six Caps  -  English'},
+  {value:'Kanit', label:'Kanit  -  English'},
+  {value:'Just Another Hand', label:'Just Another Hand  -  English'},
+  {value:'Lily Script One', label:'Lily Script One  -  English'},
+  {value:'Permanent Marker', label:'Permanent Marker  -  English'},
+  {value:'Trade Winds', label:'Trade Winds  -  English'},
+  {value:'Oleo Script', label:'Oleo Script  -  English'},
+  {value:'Cambo', label:'Cambo  -  English'},
+  {value:'Piedra', label:'Piedra  -  English'},
+  {value:'Limelight', label:'Limelight  -  English'},
+  {value:'Short Stack', label:'Short Stack  -  English'},
+  {value:'Sigmar One', label:'Sigmar One  -  English'},
+  {value:'Caramel', label:'Caramel  -  English'},
+  {value:'Love Ya Like A Sister', label:'Love Ya Like A Sister  -  English'},
+  {value:'Luckiest Guy', label:'Luckiest Guy  -  English'},
+  {value:'Graduate', label:'Graduate  -  English'},
+  {value:'Text Me One', label:'Text Me One  -  English'},
+  {value:'Anton', label:'Anton  -  English'},
+  {value:'Oswald', label:'Oswald  -  English'},
+  {value:'Kranky', label:'Kranky  -  English'},
+  {value:'Elsie', label:'Elsie  -  English'},
+  {value:'Hind Siliguri', label:'Hind Siliguri', script:'bn'},
+  {value:'Noto Sans Bengali', label:'Noto Sans Bengali', script:'bn'},
+  {value:'Noto Serif Bengali', label:'Noto Serif Bengali', script:'bn'},
+  {value:'Anek Bangla', label:'Anek Bangla', script:'bn'},
+  {value:'Alkatra', label:'Alkatra', script:'bn'},
+  {value:'Atma', label:'Atma', script:'bn'},
+  {value:'Baloo Da 2', label:'Baloo Da 2', script:'bn'},
+  {value:'Galada', label:'Galada', script:'bn'},
+  {value:'Google Sans', label:'Google Sans', script:'bn'},
+  {value:'Mina', label:'Mina', script:'bn'},
+  {value:'Tiro Bangla', label:'Tiro Bangla', script:'bn'},
+  {value:'Solaiman Lipi', label:'Solaiman Lipi', script:'bn'},
+  {value:'Kalpurush', label:'Kalpurush', script:'bn'},
+  {value:'Siyam Rupali', label:'Siyam Rupali', script:'bn'},
+  {value:'Lohit Bengali', label:'Lohit Bengali', script:'bn'},
+  {value:'Bornomala', label:'Bornomala', script:'bn'},
+  {value:'Bornomala Vintage', label:'Bornomala Vintage', script:'bn'},
+  {value:'Ekushey Lal Sabuj', label:'Ekushey Lal Sabuj', script:'bn'},
+  {value:'Adorsho Lipi', label:'Adorsho Lipi', script:'bn'},
+  {value:'Charukola', label:'Charukola', script:'bn'},
+  {value:'Ekushey Mukto', label:'Ekushey Mukto', script:'bn'},
+  {value:'Bensen', label:'Bensen', script:'bn'},
+  {value:'Bensen Handwriting', label:'Bensen Handwriting', script:'bn'},
+  {value:'Ekushey Saraswatii', label:'Ekushey Saraswatii', script:'bn'},
+  {value:'Ekushey Azad', label:'Ekushey Azad', script:'bn'},
+  {value:'Hoogli', label:'Hoogli', script:'bn'},
+  {value:'Bornoporichay', label:'Bornoporichay', script:'bn'},
+  {value:'Aikya', label:'Aikya', script:'bn'},
+  {value:'Kalaa', label:'Kalaa', script:'bn'},
+  {value:'UN Bangla', label:'UN Bangla', script:'bn'},
+  {value:'Tuli', label:'Tuli', script:'bn'}
+];
+
+// Extra Unicode Bengali web fonts. These are loaded only when selected or previewed.
+const ETHVELLE_BN_WEB_FONT_CSS = Object.freeze({
+  'Solaiman Lipi':'https://banglawebfonts.pages.dev/css/solaiman-lipi.css',
+  'Kalpurush':'https://banglawebfonts.pages.dev/css/kalpurush.css',
+  'Siyam Rupali':'https://banglawebfonts.pages.dev/css/siyam-rupali.css',
+  'Lohit Bengali':'https://banglawebfonts.pages.dev/css/lohit-bengali.css',
+  'Bornomala':'https://banglawebfonts.pages.dev/css/bornomala.css',
+  'Bornomala Vintage':'https://banglawebfonts.pages.dev/css/bornomala-vintage.css',
+  'Ekushey Lal Sabuj':'https://banglawebfonts.pages.dev/css/ekushey-lal-sabuj.css',
+  'Adorsho Lipi':'https://banglawebfonts.pages.dev/css/adorsho-lipi.css',
+  'Charukola':'https://banglawebfonts.pages.dev/css/charukola.css',
+  'Ekushey Mukto':'https://banglawebfonts.pages.dev/css/ekushey-mukto.css',
+  'Bensen':'https://banglawebfonts.pages.dev/css/bensen.css',
+  'Bensen Handwriting':'https://banglawebfonts.pages.dev/css/bensen-handwriting.css',
+  'Ekushey Saraswatii':'https://banglawebfonts.pages.dev/css/ekushey-saraswatii.css',
+  'Ekushey Azad':'https://banglawebfonts.pages.dev/css/ekushey-azad.css',
+  'Hoogli':'https://banglawebfonts.pages.dev/css/hoogli.css',
+  'Bornoporichay':'https://banglawebfonts.pages.dev/css/bornoporichay.css',
+  'Aikya':'https://banglawebfonts.pages.dev/css/aikya.css',
+  'Kalaa':'https://banglawebfonts.pages.dev/css/kalaa.css',
+  'UN Bangla':'https://banglawebfonts.pages.dev/css/un-bangla.css',
+  'Tuli':'https://banglawebfonts.pages.dev/css/tuli.css',
+});
+function selectedTextOverlay(){
+  return overlays.find(o=>o.id===selectedClip && o.type==='text') || null;
+}
+function renderTextPanel(){
+  const host = document.getElementById('textPanelBody');
+  if(!host) return;
+  const clip = selectedTextOverlay();
+  const family = clip?.fontFamily || pendingAdminFontFamily || 'Inter';
+  const fontOptions = (group)=>group.map(f=>`<option value="${escapeHtml(f.value)}" ${family===f.value?'selected':''}>${escapeHtml(f.label)}</option>`).join('');
+  const adminFonts=getEditorAssets().filter(a=>editorAssetCategory(a)==='font').map(a=>({value:String(a.fontFamily||a.name||'').trim(),label:(a.name||a.fontFamily||'Custom font')+'  -  Admin font',asset:a})).filter(f=>f.value);
+  const adminFontOptions=adminFonts.map(f=>`<option value="${escapeHtml(f.value)}" ${family===f.value?'selected':''}>${escapeHtml(f.label)}</option>`).join('');
+  if(family) ensureAdminFontLoaded(family);
+  pendingAdminFontFamily='';
+  host.innerHTML = `
+    <div class="text-editor-controls">
+      <div>
+        <label class="text-field-label" for="textContentInput">Text / লেখা</label>
+        <textarea id="textContentInput" maxlength="240" placeholder="এখানে বাংলা বা English লিখুন..." oninput="updateTextPreview()">${escapeHtml(clip?.textContent || '')}</textarea>
+      </div>
+      <div>
+        <label class="text-field-label" for="textFontFamily">Font / ফন্ট</label>
+        <select id="textFontFamily" onchange="updateTextPreview()">
+          <optgroup label="English fonts">${fontOptions(ETHVELLE_TEXT_FONTS.filter(f=>f.script!=='bn'))}</optgroup>
+          <optgroup label="বাংলা ফন্ট">${fontOptions(ETHVELLE_TEXT_FONTS.filter(f=>f.script==='bn'))}</optgroup>
+          ${adminFontOptions?`<optgroup label="Admin fonts">${adminFontOptions}</optgroup>`:''}
+        </select>
+      </div>
+      <div class="text-control-row">
+        <div>
+          <label class="text-field-label" for="textFontSize">Font size / সাইজ</label>
+          <div class="text-range-line"><input id="textFontSize" type="range" min="16" max="96" step="1" value="${Math.max(16,Math.min(96,Number(clip?.fontSize)||36))}" oninput="updateTextPreview()"><output id="textFontSizeValue">${Math.max(16,Math.min(96,Number(clip?.fontSize)||36))}px</output></div>
+        </div>
+        <div>
+          <label class="text-field-label" for="textFontColor">Color / রং</label>
+          <input id="textFontColor" type="color" value="${/^#[0-9a-f]{6}$/i.test(clip?.textColor||'')?clip.textColor:'#ffffff'}" oninput="updateTextPreview()">
+        </div>
+      </div>
+      <div>
+        <label class="text-field-label">Preview / প্রিভিউ</label>
+        <div id="textLivePreview" class="text-live-preview">আপনার লেখা এখানে</div>
+      </div>
+      <button type="button" class="text-save-btn" onclick="saveTextOverlay()">${clip?'Update selected text':'Add text to timeline'}</button>
+      <p class="chroma-note">বাংলা ও English - দুই ধরনের লেখা ব্যবহার করতে পারবেন। ফন্ট ঠিকভাবে লোড হওয়ার জন্য ইন্টারনেট সংযোগ প্রয়োজন হতে পারে।</p>
+    </div>`;
+  updateTextPreview();
+}
+function updateTextPreview(){
+  const textEl=document.getElementById('textContentInput');
+  const fontEl=document.getElementById('textFontFamily');
+  const sizeEl=document.getElementById('textFontSize');
+  const colorEl=document.getElementById('textFontColor');
+  const preview=document.getElementById('textLivePreview');
+  if(!preview) return;
+  const text=textEl?.value || 'আপনার লেখা এখানে';
+  const font=fontEl?.value || 'Hind Siliguri';
+  ensureAdminFontLoaded(font);
+  const size=Math.max(16,Math.min(96,Number(sizeEl?.value)||36));
+  preview.textContent=text;
+  preview.style.fontFamily='"'+font+'", sans-serif';
+  preview.style.fontSize=Math.min(34,size)+'px';
+  preview.style.color=colorEl?.value || '#ffffff';
+  const out=document.getElementById('textFontSizeValue');
+  if(out) out.textContent=size+'px';
+}
+function saveTextOverlay(){
+  const text=String(document.getElementById('textContentInput')?.value||'').trim();
+  if(!text){showToast('Write some text first', {icon:toastIcons.info,duration:1500});return;}
+  const family=document.getElementById('textFontFamily')?.value || 'Hind Siliguri';
+  ensureAdminFontLoaded(family);
+  const size=Math.max(16,Math.min(96,Number(document.getElementById('textFontSize')?.value)||36));
+  const color=document.getElementById('textFontColor')?.value || '#ffffff';
+  let clip=selectedTextOverlay();
+  if(clip){
+    clip.textContent=text; clip.name=text.replace(/\s+/g,' ').slice(0,22); clip.fontFamily=family; clip.fontSize=size; clip.textColor=color; clip.fontWeight=700;
+  }else{
+    const len=5;
+    const startT=(typeof window.ethvellePlanTextInsertStart==='function'?window.ethvellePlanTextInsertStart(len):Math.max(0,Number(currentAbsoluteTimeSec)||0));
+    clip={id:'ov'+Date.now()+Math.random().toString(36).slice(2,5),name:text.replace(/\s+/g,' ').slice(0,22)||'Text',color:'#454B73',type:'text',textContent:text,fontFamily:family,fontSize:size,textColor:color,fontWeight:700,sourceDuration:len,trimStart:startT,trimEnd:startT+len,thumbs:[],peaks:[],speed:1,transform:{scale:1,offsetX:0,offsetY:0,rotation:0}};
+    overlays.push(clip);
+    timelineDuration=Math.max(timelineDuration,clip.trimEnd);
+  }
+  renderOverlayLayers(); syncTimelineInnerWidth(); renderRuler(); selectClipForChrome(clip.id); renderFrame(); closePanel(); persistProjectState();
+  showToast(clip.type==='text'?'Text saved':'Text added', {icon:toastIcons.check,duration:1300});
+}
+
+// ---------------- Chroma key / color background removal ----------------
+function getSelectedVideoOverlay(){
+  if(!selectedClip) return null;
+  const clip=overlays.find(o=>o.id===selectedClip);
+  return clip && clip.type==='video' ? clip : null;
+}
+function renderChromaKeyPanel(){
+  const host=document.getElementById('chromaPanelBody');
+  if(!host)return;
+  const clip=overlays.find(o=>String(o.id)===String(selectedClip)&&o.type==='video');
+  if(!clip){host.innerHTML='<div class="chroma-controls"></div>';return;}
+  if(!clip.chromaKey)clip.chromaKey={enabled:false,color:'#00ff00',tolerance:75,softness:24};
+  const cfg=clip.chromaKey;
+  host.innerHTML=`<div class="chroma-controls evlt-compact-controls">
+    <label class="chroma-enable-row"><span>Chroma Key</span><input type="checkbox" ${cfg.enabled?'checked':''} onchange="setChromaEnabled(this.checked)"></label>
+    <div class="chroma-color-row"><label for="chromaKeyColor">Key color</label><input id="chromaKeyColor" type="color" value="${/^#[0-9a-f]{6}$/i.test(cfg.color||'')?cfg.color:'#00ff00'}" oninput="updateChromaSetting('color',this.value)"></div>
+    <div class="chroma-range"><div class="chroma-range-top"><label for="chromaTolerance">Tolerance</label><output id="chromaToleranceValue">${Number(cfg.tolerance)||75}</output></div><input id="chromaTolerance" type="range" min="10" max="180" step="1" value="${Math.max(10,Math.min(180,Number(cfg.tolerance)||75))}" oninput="updateChromaSetting('tolerance',this.value)"></div>
+    <div class="chroma-range"><div class="chroma-range-top"><label for="chromaSoftness">Edge softness</label><output id="chromaSoftnessValue">${Number.isFinite(Number(cfg.softness))?Number(cfg.softness):24}</output></div><input id="chromaSoftness" type="range" min="0" max="100" step="1" value="${Math.max(0,Math.min(100,Number.isFinite(Number(cfg.softness))?Number(cfg.softness):24))}" oninput="updateChromaSetting('softness',this.value)"></div>
+    <button type="button" class="chroma-reset-btn" onclick="resetChromaSettings()">Reset</button>
+  </div>`;
+}
+function setChromaEnabled(enabled){
+  const clip=getSelectedVideoOverlay(); if(!clip) return;
+  if(!clip.chromaKey) clip.chromaKey={color:'#00ff00',tolerance:75,softness:24};
+  clip.chromaKey.enabled=!!enabled;
+  renderFrame(); persistProjectState();
+}
+function updateChromaSetting(key,value){
+  const clip=getSelectedVideoOverlay(); if(!clip) return;
+  if(!clip.chromaKey) clip.chromaKey={enabled:false,color:'#00ff00',tolerance:75,softness:24};
+  if(key==='color') clip.chromaKey.color=String(value);
+  else if(key==='tolerance') clip.chromaKey.tolerance=Math.max(10,Math.min(180,Number(value)||75));
+  else if(key==='softness') clip.chromaKey.softness=Math.max(0,Math.min(100,Number(value)||0));
+  const out=document.getElementById(key==='tolerance'?'chromaToleranceValue':key==='softness'?'chromaSoftnessValue':null);
+  if(out) out.textContent=String(clip.chromaKey[key]);
+  renderFrame(); persistProjectState();
+}
+function resetChromaSettings(){
+  const clip=getSelectedVideoOverlay(); if(!clip) return;
+  clip.chromaKey={enabled:false,color:'#00ff00',tolerance:75,softness:24};
+  renderChromaKeyPanel(); renderFrame(); persistProjectState();
+}
+function hexToRgb(hex){
+  let h=String(hex||'#00ff00').replace('#','').trim();
+  if(h.length===3) h=h.split('').map(ch=>ch+ch).join('');
+  if(!/^[0-9a-f]{6}$/i.test(h)) h='00ff00';
+  return {r:parseInt(h.slice(0,2),16),g:parseInt(h.slice(2,4),16),b:parseInt(h.slice(4,6),16)};
+}
+function paintChromaKeyFrame(source,canvas,cfg,maxSide){
+  const sw=source?.videoWidth||source?.naturalWidth||source?.width||0;
+  const sh=source?.videoHeight||source?.naturalHeight||source?.height||0;
+  if(!sw||!sh) return false;
+  const ratio=Math.min(1,(Number(maxSide)>0?Number(maxSide):Math.max(sw,sh))/Math.max(sw,sh));
+  const w=Math.max(1,Math.round(sw*ratio)),h=Math.max(1,Math.round(sh*ratio));
+  if(canvas.width!==w) canvas.width=w; if(canvas.height!==h) canvas.height=h;
+  const ctx=canvas.getContext('2d',{willReadFrequently:true});
+  if(!ctx) return false;
+  try{
+    ctx.clearRect(0,0,w,h); ctx.drawImage(source,0,0,w,h);
+    const frame=ctx.getImageData(0,0,w,h),d=frame.data,key=hexToRgb(cfg?.color);
+    const tolerance=Math.max(0,Number(cfg?.tolerance)||75),softness=Math.max(0,Number(cfg?.softness)||0),edge=Math.max(1,softness);
+    for(let i=0;i<d.length;i+=4){
+      const dr=d[i]-key.r,dg=d[i+1]-key.g,db=d[i+2]-key.b;
+      const distance=Math.sqrt(dr*dr+dg*dg+db*db);
+      if(distance<=tolerance) d[i+3]=0;
+      else if(softness>0 && distance<tolerance+softness) d[i+3]=Math.round(d[i+3]*Math.max(0,Math.min(1,(distance-tolerance)/edge)));
+    }
+    ctx.putImageData(frame,0,0); return true;
+  }catch(err){
+    console.warn('Ethvelle: chroma-key pixel processing failed (the video may be cross-origin)',err);
+    return false;
+  }
+}
+
+function openPanel(key){
+  // BUGFIX (Animate panel could be opened with zero characters on stage): the Animate panel
+  // lets you pick/replace an animation preset for "the active character" (see renderAnimList/
+  // appendAnimationClip), which is meaningless with no character to apply it to  - 
+  // activeCharacter() is null and bones/baseAngles are never set up yet. Previously the panel
+  // still opened and let you pick a preset, which either silently did nothing useful or could
+  // leave inconsistent state. Now it's blocked at the door with a clear nudge toward the real
+  // first step  -  the same "Add character" affordance already on the timeline/Bones panel  - 
+  // instead of opening into a panel that has nothing to actually animate yet.
+  if(key === 'anim' && !characters.length){
+    showToast('Add a character first', {icon: toastIcons.info, duration:1600});
+    return;
+  }
+  document.querySelectorAll('.tool-item').forEach(t=>t.classList.remove('active'));
+  const btn = document.querySelector(`.tool-item[data-tool="${key}"]`);
+  if(btn) btn.classList.add('active');
+
+  const content = panelContent[key];
+  // Panel title reflects what Transform will actually edit (see transformTarget())  -  so it's
+  // clear at a glance whether Size/Position/Rotation below are about to move the Background,
+  // a Clip, or the stickman, instead of the title always just saying "Transform" regardless.
+  if(key === 'transform'){
+    const { kind } = transformTarget();
+    document.getElementById('panelTitle').textContent =
+      kind==='background' ? 'Transform  -  Background' :
+      kind==='overlay' ? 'Transform Clip' : 'Transform';
+  } else {
+    document.getElementById('panelTitle').textContent = content.title;
+  }
+  document.getElementById('panelBody').innerHTML = content.body;
+  document.getElementById('panelBackdrop').classList.add('active');
+  document.getElementById('toolPanel').classList.add('open');
+
+  if(key === 'transform') syncTransformSliders();
+  if(key === 'anim') renderAnimList();
+  if(key === 'overlay') renderOverlayListPanel();
+  if(key === 'assets') renderAssetsPanel();
+  if(key === 'trim') renderTrimPanel();
+  if(key === 'speed') renderSpeedPanel();
+  if(key === 'volume') renderVolumePanel();
+  if(key === 'text') renderTextPanel();
+  if(key === 'chroma') renderChromaKeyPanel();
+}
+function closePanel(){
+  document.getElementById('panelBackdrop').classList.remove('active');
+  document.getElementById('toolPanel').classList.remove('open');
+  document.querySelectorAll('.tool-item').forEach(t=>t.classList.remove('active'));
+  // Closing the panel mid-preview (see previewAnim) should never leave the rig stuck on
+  // some in-between preset frame  -  cancel the loop and restore the pose it started from.
+  if(typeof previewRAF !== 'undefined' && previewRAF){
+    cancelAnimationPreview(true);
+    renderAnimList();
+  }
+}
+
+function renderAnimList(){
+  const container = document.getElementById('animListBody');
+  if(!container) return;
+  const selectedAnimKey = (()=>{
+    if(selectedClip === 'main' && activeClip) return activeClip.animKey;
+    if(typeof selectedClip === 'string' && selectedClip.startsWith('seg')){ const idx=parseInt(selectedClip.slice(3),10); return splitStickmanSegments[idx]?.animKey || null; }
+    if(selectedClip == null) return activeClip?.animKey || null;
+    return null;
+  })();
+  container.innerHTML = Object.keys(animPresets).map(key=>{
+    const p=animPresets[key]; const applied=key===selectedAnimKey; const previewing=key===previewAnimKey;
+    const required=getAnimationRequiredPlan(key); const locked=isAnimationLocked(key);
+    const action=locked && !applied
+      ? `<button type="button" class="anim-lock-btn" onclick="event.preventDefault();event.stopPropagation();openAnimationUpgrade('${escapeHtml(required.id)}')">🔒 ${escapeHtml(required.name||'Paid')}</button>`
+      : `<button type="button" class="anim-toggle ${applied?'on':''}" aria-pressed="${applied?'true':'false'}" title="${applied?'Turn off':'Add animation'}" onclick="event.preventDefault();event.stopPropagation();toggleApplyAnim('${escapeHtml(key)}')"></button>`;
+    return `<div class="anim-item ${previewing?'selected':''}" role="button" tabindex="0" onclick="previewAnim('${escapeHtml(key)}')" onkeydown="if(event.key==='Enter'||event.key===' '){event.preventDefault();previewAnim('${escapeHtml(key)}')}">
+      <div class="anim-play-mini"><svg viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg></div>
+      <div class="anim-item-name">${escapeHtml(p.name||key)}</div><div class="anim-item-dur">${Number(p.duration||1).toFixed(1)}s</div>${action}
+    </div>`;
+  }).join('');
+}
+
+// Tapping the ROW ITSELF (not the toggle) now only PREVIEWS a preset  -  plays it briefly on
+// the canvas so you can see the motion before committing to it  -  without touching the
+// selected clip's saved animKey at all. This replaces the old behavior where a single tap
+// both selected AND immediately applied the preset to whatever clip was selected.
+let previewAnimKey = null;
+let previewRAF = null;
+let previewSnapshot = null;
+let previewBonesRef = null;
+let previewCharacterId = null;
+let previewExprSnapshot = null;
+function cancelAnimationPreview(redraw){
+  if(previewRAF){ cancelAnimationFrame(previewRAF); previewRAF = null; }
+  if(previewSnapshot && previewBonesRef) restoreBonesSnapshot(previewSnapshot, previewBonesRef);
+  if(previewCharacterId && previewExprSnapshot){
+    const targetChar=characters.find(c=>c&&c.id===previewCharacterId);
+    if(targetChar)targetChar.expr=previewExprSnapshot.had?JSON.parse(JSON.stringify(previewExprSnapshot.value)):null;
+  }
+  previewExprSnapshot = null; previewSnapshot = null; previewBonesRef = null; previewCharacterId = null; previewAnimKey = null;
+  if(redraw !== false) drawStick();
+}
+// v344: a beast-man animation fits beast-man models only; plain humanoid animations still fit beast men too (same rig).
+function animPresetFitsCharacter(preset,character){
+  const pt=(preset&&preset.modelType)||'humanoid';
+  const ct=String(character&&(character.modelType||(character.sheet&&character.sheet.modelType))||'humanoid');
+  if(pt==='beastman')return ct==='humanoid'&&!!(character&&((character.sheet&&character.sheet.beast)||character.beast));
+  if(pt==='mythic')return isMythicModelType(ct);
+  if(pt==='humanoid'&&isWingedHumanoidType(ct))return true;
+  return pt===ct;
+}
+function previewAnim(key){
+  const character = activeCharacter();
+  const preset = animPresets[key];
+  if(!character || !bones || !preset) return;
+  const activeType=String(character.modelType||(character.sheet&&character.sheet.modelType)||'humanoid');
+  if(!animPresetFitsCharacter(preset,character)){if(typeof showToast==='function')showToast('Select a matching character type for this animation.',{icon:toastIcons.info,duration:1800});return;}
+  pausePlayback();
+  // A preview is temporary only. Keep its exact target rig so a character switch cannot
+  // restore the preview pose into a different character by accident.
+  cancelAnimationPreview(false);
+  previewBonesRef = character.bones;
+  previewCharacterId = character.id;
+  previewSnapshot = JSON.parse(JSON.stringify(previewBonesRef));
+  previewExprSnapshot = {had:!!character.expr,value:character.expr?JSON.parse(JSON.stringify(character.expr)):null};
+  previewAnimKey = key;
+  renderAnimList();
+  const LOOPS = 2;
+  const startTime = performance.now();
+  const totalMs = preset.duration * 1000 * LOOPS;
+  const step = (now)=>{
+    // If the preview belongs to a character which is no longer the active canvas layer,
+    // stop cleanly; never keep animating an invisible/stale rig.
+    if(!previewBonesRef || !characters.some(c=>c.id===previewCharacterId) || !activeCharacter() || activeCharacter().id!==previewCharacterId){
+      cancelAnimationPreview(false); drawStick(); renderAnimList(); return;
+    }
+    const elapsed = now - startTime;
+    if(elapsed >= totalMs){
+      cancelAnimationPreview(false);
+      drawStick();
+      renderAnimList();
+      return;
+    }
+    const tFrac = (elapsed % (preset.duration*1000)) / (preset.duration*1000);
+    applyPoseToBones(evalPreset(preset, tFrac), previewBonesRef, character.baseAngles, character.hipRestY);
+    if(preset.faceActions){
+      if(!character.expr)character.expr=typeof sheetExprFresh==='function'?sheetExprFresh():{};
+      const fa=preset.faceActions,period=Math.max(.45,Math.min(6,Number(fa.blinkRate)||3.15)),phase=(elapsed/1000)%period,blink=fa.blink==='auto'&&(phase<.13||phase>period-.13);
+      const talkPhase=(elapsed/1000)%0.82;
+      const talkOpen=fa.mouth==='talk'&&(talkPhase<.22||(talkPhase>.38&&talkPhase<.58));
+      const p=character.sheet&&character.sheet.parts||{},mt=String(character.modelType||(character.sheet&&character.sheet.modelType)||'');
+      const animalFaceKit=mt==='animal'&&!!(p.mouth_inner&&p.head_laugh);
+      const humanoidFaceKit=mt==='humanoid'&&!!(p.mouth_inner&&p.head_laugh&&p.eye_L&&p.eye_R);
+      const birdFaceKit=mt==='bird'&&!!(p.bird_eye&&p.bird_brow&&p.beak_open&&p.beak_closed);
+      character.expr.emo=fa.mouth==='talk'&&(animalFaceKit||humanoidFaceKit||birdFaceKit)
+        ? (talkOpen?(fa.expression&&fa.expression!=='none'?fa.expression:'laugh'):null)
+        : (fa.expression&&fa.expression!=='none'?fa.expression:null);
+      character.expr.eyeState=['open','closed'].includes(fa.eyes)?fa.eyes:'auto';
+      character.expr.blink=character.expr.eyeState==='closed'?false:!!blink;
+      character.expr.ambientBlink=fa.blink==='ambient'&&phase<.13;
+      character.expr.disableAmbientBlink=fa.blink==='off'||character.expr.eyeState!=='auto';
+      character.expr.flying=birdFaceKit&&fa.wings==='fly';
+      if(fa.mouth==='talk')character.expr.mouth=talkOpen?'open':'closed';
+      else if(fa.mouth==='closed'||fa.mouth==='hold')character.expr.mouth=fa.mouth;
+      else character.expr.mouth=birdFaceKit&&['angry','shock','laugh'].includes(fa.expression)?'open':'closed';
+      character.expr.faceKitHideMouth=(animalFaceKit||humanoidFaceKit)&&(fa.mouth==='closed'||(fa.mouth==='talk'&&!talkOpen));
+    }
+    drawStick();
+    previewRAF = requestAnimationFrame(step);
+  };
+  previewRAF = requestAnimationFrame(step);
+}
+
+// The toggle switch is the ONLY thing that actually commits a preset to the selected clip
+// now (see the .anim-toggle CSS note). Tapping an already-on toggle turns the animation back
+// off (the clip reverts to no preset / the character's rest pose) rather than being a one-way
+// switch, since a real on/off control should go both ways.
+function toggleApplyAnim(key){
+  const preset = animPresets[key];
+  const character=activeCharacter();
+  if(!preset || !character) return;
+  const activeType=String(character.modelType||(character.sheet&&character.sheet.modelType)||'humanoid');
+  if(!animPresetFitsCharacter(preset,character)){if(typeof showToast==='function')showToast('Select a matching character type for this animation.',{icon:toastIcons.info,duration:1800});return;}
+  cancelAnimationPreview(false);
+  pausePlayback();
+
+  // Only an explicitly selected main/split animation clip is a toggle target. If the user
+  // has selected a background, overlay, or character row, tapping Add must create a new
+  // animation clip instead of silently toggling currentAnimKey without changing the clip.
+  let target = null;
+  if(selectedClip === 'main' && activeClip){
+    target = {ref:'main', clip:activeClip};
+  } else if(typeof selectedClip === 'string' && selectedClip.startsWith('seg')){
+    const idx = parseInt(selectedClip.slice(3),10);
+    if(Number.isInteger(idx) && splitStickmanSegments[idx]) target = {ref:'seg'+idx, clip:splitStickmanSegments[idx]};
+  } else if(selectedClip == null && activeClip){
+    // No explicit selection means the main animation clip is the default target. This avoids
+    // an apparent flaky toggle where the list UI showed the main animation as selected but
+    // the click instead created a separate clip because selectedClip was null.
+    target = {ref:'main', clip:activeClip};
+  }
+  const currentlyApplied = !!(target && target.clip.animKey === key);
+  if(!currentlyApplied && isAnimationLocked(key)){
+    openAnimationUpgrade(getAnimationRequiredPlan(key)?.id);
+    drawStick();
+    renderAnimList();
+    return;
+  }
+
+  if(currentlyApplied){
+    if(Object.prototype.hasOwnProperty.call(target.clip,'__evFaceActionSnapshot')){
+      const before=target.clip.__evFaceActionSnapshot;
+      if(before===null)delete target.clip.faceActions;else target.clip.faceActions=JSON.parse(JSON.stringify(before));
+      delete target.clip.__evFaceActionSnapshot;
+    }
+    target.clip.animKey = null;
+    if(target.ref === 'main') currentAnimKey = null;
+    renderTimelineClip();
+    renderAnimList();
+    // renderFrame restores the authored rest pose when a clip has no active preset, so
+    // repeatedly toggling an animation on/off cannot leave the character stuck mid-motion.
+    renderFrame();
+    showToast(preset.name + ' turned off', {duration:1200});
+    persistProjectState();
+    return;
+  }
+
+  try{const req=getAnimationRequiredPlan(key);trackEvent(Number(req&&req.price)>0?'animation_paid_used':'animation_free_used',{itemLabel:preset.name});}catch(_e){}
+  if(target){
+    target.clip.animKey = key;
+    if(target.ref === 'main') currentAnimKey = key;
+    renderTimelineClip();
+    renderAnimList();
+    seekAbsoluteTimelineSeconds(target.clip.trimStart);
+  } else if(activeClip){
+    appendAnimationClip(key);
+    renderAnimList();
+  } else {
+    setActiveAnimation(key);
+    renderAnimList();
+  }
+  const committedFaceClip=target?target.clip:activeClip;
+  if(preset.faceActions&&committedFaceClip){
+    if(!Object.prototype.hasOwnProperty.call(committedFaceClip,'__evFaceActionSnapshot'))committedFaceClip.__evFaceActionSnapshot=committedFaceClip.faceActions?JSON.parse(JSON.stringify(committedFaceClip.faceActions)):null;
+    committedFaceClip.faceActions={expression:'none',mouth:'preset',blink:'auto',eyes:'auto',leftHand:'none',rightHand:'none',...preset.faceActions};
+  }
+  showToast(preset.name + (target ? ' applied' : ' added'), {icon:toastIcons.check,duration:1400});
+  // Start at the chosen clip's first frame to make the newly committed animation visible
+  // immediately. The row itself only previews; this real button is the commit action.
+  renderFrame();
+  startPlayback();
+  persistProjectState();
+}
+// FEATURE (multiple sequential backgrounds): picking a solid-color swatch now APPENDS a new
+// background clip (matching the image-upload path in addBackgroundClip) instead of
+// overwriting the single project-wide background in place.
+function pickBg(color, el){
+  document.querySelectorAll('.bg-swatch').forEach(s=>s.classList.remove('selected'));
+  el.classList.add('selected');
+  addBackgroundClip(color);
+  // UPDATED: adding a background used to leave the Background panel open when the background
+  // came from a colour swatch (only the image-upload path called closePanel()), so the user had
+  // to close it by hand every time. One tap on a swatch adds the 5s background AND closes the
+  // panel now, matching the upload path and how CapCut dismisses its picker after a choice.
+  closePanel();
+}
+function resetPose(){
+  pausePlayback();
+  currentAnimKey = null;
+  activeClip = null;
+  splitStickmanSegments = [];
+  syncClipRefsToCharacter();
+  timelineDuration = 2.0;
+  deselectAllClips();
+  initStickman();
+  renderAnimList();
+  renderTimelineClip();
+  frame = 0;
+  currentAbsoluteTimeSec = 0;
+  updateTimeReadout();
+  movePlayhead();
+  showToast('Pose reset', {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+
+let uploadTarget=null;
+let uploadAppendGroup=null; // when set ('clips'|'audio'), the next uploaded clip appends after that group's last clip instead of dropping at the playhead (see clipAddMediaTool)
+let replaceTargetId=null; // overlay clip id currently being replaced  -  see replaceSelectedClip()/the 'replace-overlay' upload branch
+function triggerUpload(target, appendAfterGroup){
+  uploadTarget = target;
+  uploadAppendGroup = appendAfterGroup || null;
+  const input = document.getElementById('fileInput');
+  // Match CapCut: each entry point only accepts the media type it deals in.
+  if(target==='overlay' || target==='media'){ input.accept = 'image/*,video/*'; }
+  else if(target==='audio'){ input.accept = 'audio/*'; }
+  else if(target==='background' || target==='replace-background'){ input.accept = 'image/*'; }
+  // Replace can swap an existing clip for any media type (image/video/audio)  -  the actual
+  // clip TYPE is decided by whichever file is picked (see the 'replace-overlay' branch),
+  // not fixed by whatever the clip started out as.
+  else if(target==='replace-overlay'){ input.accept = 'image/*,video/*,audio/*'; }
+  else { input.accept = 'image/*'; }
+  input.click();
+}
+
+// Dispatches the contextual toolbar's "Replace" button (see bottomToolsClip markup) based on
+// what's currently selected  -  this replaces the old numeric Trim panel entirely, per request.
+//  - Background selected: reopens the same image picker "Add background" already used  - 
+//    picking a new image just overwrites currentBg in place, same as setting it the first time.
+//  - A media/overlay clip selected: opens the picker and swaps that exact clip's own
+//    picture/video/audio content in place (see the 'replace-overlay' upload branch), keeping
+//    its position and trim untouched.
+//  - The stickman animation clip (main/segN) selected: "replacing" it means swapping its
+//    animation preset  -  opens the Animate panel, where the toggle already handles applying a
+//    different preset onto the currently-selected clip in place.
+function replaceSelectedClip(){
+  if(!selectedClip) return;
+  const bgClip = backgroundClipForSelection();
+  if(bgClip){
+    replaceTargetId = bgClip.id;
+    triggerUpload('replace-background');
+    return;
+  }
+  const isStickman = selectedClip==='main' || String(selectedClip).startsWith('seg');
+  if(isStickman){
+    openPanel('anim');
+    return;
+  }
+  const ov = overlays.find(o=>o.id===selectedClip);
+  if(ov){
+    replaceTargetId = ov.id;
+    triggerUpload('replace-overlay');
+  }
+}
+
+/* ---------------- Real media generation: video thumbnails + audio waveforms ----------------
+   CapCut shows the actual content of a clip in its track (filmstrip of real frames for
+   video, a rendered waveform for audio) rather than a flat color block. We generate both
+   client-side from the uploaded file so what's shown is genuine, not a placeholder. */
+
+// Captures `count` evenly-spaced frames from a <video> as JPEG data URLs using an offscreen
+// canvas. Resolves once all frames are captured (or on failure, resolves with []).
+function generateVideoThumbnails(url, count){
+  // Kept as a compatibility name for older upload handlers. Video frames are no longer
+  // batch-extracted here; the timeline's single lazy decoder owns all video thumbnails.
+  return new Promise(resolve=>{
+    const video=document.createElement('video');
+    let settled=false,timer=0;
+    video.muted=true;video.playsInline=true;video.preload='metadata';
+    video.setAttribute('playsinline','');
+    if(/^https?:/i.test(String(url||'')))video.crossOrigin='anonymous';
+    const finish=()=>{
+      if(settled)return;settled=true;clearTimeout(timer);
+      const result={frames:[],duration:Number(video.duration)||1,width:Number(video.videoWidth)||0,height:Number(video.videoHeight)||0};
+      try{video.pause();video.removeAttribute('src');video.load();}catch(_e){}
+      resolve(result);
+    };
+    video.addEventListener('loadedmetadata',finish,{once:true});
+    video.addEventListener('error',finish,{once:true});
+    timer=setTimeout(finish,15000);
+    try{video.src=String(url||'');video.load();}catch(_e){finish();}
+  });
+}
+
+// Decodes an audio file with Web Audio API and returns { peaks: Float32Array-like downsampled
+// min/max pairs, duration } so we can draw a real waveform without keeping the whole PCM buffer.
+function generateAudioWaveform(url){
+  return fetch(url)
+    .then(r=>r.arrayBuffer())
+    .then(buf=>{
+      const AC = window.AudioContext || window.webkitAudioContext;
+      const actx = new AC();
+      return actx.decodeAudioData(buf).then(audioBuffer=>{
+        const raw = audioBuffer.getChannelData(0);
+        const samples = 200; // resolution of the drawn waveform, independent of clip length
+        const blockSize = Math.max(1, Math.floor(raw.length/samples));
+        const peaks = [];
+        for(let i=0;i<samples;i++){
+          const start = i*blockSize;
+          let min=1, max=-1;
+          for(let j=0;j<blockSize && (start+j)<raw.length;j++){
+            const v = raw[start+j];
+            if(v<min) min=v;
+            if(v>max) max=v;
+          }
+          peaks.push([min,max]);
+        }
+        const duration = audioBuffer.duration;
+        actx.close();
+        return { peaks, duration };
+      });
+    })
+    .catch(()=>({ peaks: [], duration: 1 }));
+}
+
+document.getElementById('fileInput').addEventListener('change', function(e){
+  const file = e.target.files[0];
+  if(!file) return;
+  const isVideo = file.type.startsWith('video/');
+  const isAudio = file.type.startsWith('audio/');
+
+  // Standard Android/WebView picker path: persist overlay media as an IndexedDB Blob with a
+  // stable media key. The old Base64 path could push localStorage past its safety threshold;
+  // the project list then became an index-only record before its delayed IndexedDB snapshot
+  // had committed, so reopening could show missing overlay media. This branch saves the actual
+  // source first, references it by key, and awaits the complete project snapshot after adding.
+  const pickedTarget = String(uploadTarget||'');
+  const pickedName = String(file.name||'');
+  const pickedIsVideo = isVideo || /\.(mp4|m4v|f4v|mov|webm|mkv|avi|3gp|3gpp|3g2|mpeg|mpg|mpe|m2v|ogv|ts|mts|m2ts|wmv|flv)$/i.test(pickedName);
+  const pickedIsAudio = isAudio || /\.(mp3|m4a|aac|wav|ogg|opus|flac|aiff?)$/i.test(pickedName);
+  const pickedIsImage = /^image\//i.test(file.type||'') || /\.(png|apng|jpe?g|jfif|webp|gif|avif|bmp|dib|heic|heif|tif|tiff|svg|ico|jxl)$/i.test(pickedName);
+  if(['overlay','media','audio','replace-overlay'].includes(pickedTarget) &&
+     typeof window.__ethvelleStoreMediaFile==='function' && (pickedIsVideo||pickedIsAudio||pickedIsImage)){
+    const pickedFile = file;
+    const pickedAppendGroup = uploadAppendGroup || null;
+    const pickedReplaceId = replaceTargetId;
+    e.preventDefault();
+    e.stopImmediatePropagation(); // do not let the later legacy video listener import this twice
+    closePanel();
+    uploadAppendGroup = null;
+    replaceTargetId = null;
+    e.target.value='';
+    (async()=>{
+      let mediaKey=null, mediaUrl=null, sessionOnly=false;
+      try{
+        try{mediaKey = await window.__ethvelleStoreMediaFile(pickedFile);}catch(storageError){
+          console.warn('Ethvelle durable media storage unavailable; using a safe import fallback:',storageError);
+          if(pickedFile.size<=3*1024*1024){
+            mediaUrl=await new Promise((resolve,reject)=>{const reader=new FileReader();reader.onload=()=>resolve(String(reader.result||''));reader.onerror=()=>reject(reader.error||new Error('Could not read the selected media.'));reader.readAsDataURL(pickedFile);});
+          }else{mediaUrl=URL.createObjectURL(pickedFile);sessionOnly=true;}
+        }
+        if(!mediaUrl)mediaUrl = URL.createObjectURL(pickedFile);
+        const type = pickedTarget==='audio' ? 'audio' : pickedIsVideo ? 'video' : pickedIsAudio ? 'audio' : 'image';
+        let duration = type==='video' ? 12 : 3;
+        let thumbs = [], peaks = [], sourceWidth=0, sourceHeight=0;
+        if(type==='video'){
+          showToast('Preparing video clip…',{icon:toastIcons.info,duration:1200});
+          const result = await generateVideoThumbnails(mediaUrl,24,0,null); // metadata only; frame work is lazy
+          thumbs = [];
+          duration = Math.max(MIN_CLIP_SEC,Number(result&&result.duration)||12);
+          sourceWidth=Number(result&&result.width)||0;sourceHeight=Number(result&&result.height)||0;
+        }else if(type==='audio'){
+          showToast('Preparing audio clip…',{icon:toastIcons.info,duration:1200});
+          const result = await generateAudioWaveform(mediaUrl);
+          peaks = Array.isArray(result&&result.peaks) ? result.peaks : [];
+          duration = Math.max(MIN_CLIP_SEC,Number(result&&result.duration)||3);
+        }
+
+        if(pickedTarget==='replace-overlay'){
+          const target = overlays.find(o=>String(o.id)===String(pickedReplaceId));
+          if(!target) throw new Error('The selected overlay is no longer available.');
+          target.type = type;
+          target.src = mediaUrl;
+          target.deviceMediaKey = mediaKey;
+          target.deviceMediaName = pickedFile.name || '';
+          target.deviceMediaSize = Number(pickedFile.size)||undefined;
+          target.deviceMediaLastModified = Number(pickedFile.lastModified)||undefined;
+          target.name = pickedFile.name || (type==='video'?'Video':type==='audio'?'Audio':'Image');
+          target.sourceDuration = duration;
+          target.sourceOffset = 0;
+          target.sourceWidth = sourceWidth;target.sourceHeight = sourceHeight;
+          target.thumbs = [];
+          target.peaks = peaks;
+          target.speed = Number(target.speed)||1;
+          target.volume = (type==='video'||type==='audio') ? (target.volume==null?1:target.volume) : undefined;
+          if(type==='video'||type==='image') target.transform = target.transform || {scale:1,offsetX:0,offsetY:0,rotation:0};
+          else target.transform = null;
+          renderOverlayLayers();
+          renderOverlayListPanel();
+          renderFrame();
+          persistProjectState();
+        }else{
+          addMediaOverlay({type,src:mediaUrl,name:pickedFile.name,duration,thumbs,peaks,sourceWidth,sourceHeight,appendAfterGroup:pickedAppendGroup,deviceMediaKey:mediaKey,deviceMediaInfo:{name:pickedFile.name,size:pickedFile.size,lastModified:pickedFile.lastModified}});
+        }
+        // Do not leave a project as a lightweight localStorage index until its full, latest
+        // IndexedDB snapshot - including the new clip record and stable media key - is committed.
+        if(typeof window.__ethvelleDeviceSaveNow==='function') await window.__ethvelleDeviceSaveNow();
+        if(sessionOnly){
+          showToast('Clip added for this session. Device storage is unavailable, so export a backup before leaving.',{icon:toastIcons.info,duration:3600});
+        }else if(!mediaKey){
+          showToast('Clip added. This browser saved it in the project data; keep a backup of important work.',{icon:toastIcons.check,duration:2600});
+        }else{
+          if(pickedTarget==='replace-overlay')showToast('Overlay media replaced and saved',{icon:toastIcons.check,duration:1500});
+        }
+      }catch(err){
+        // Once an overlay references this key, keep both the Blob record and its live object URL
+        // even if the full project snapshot write fails. Deleting it here would guarantee that
+        // the just-added clip breaks as soon as the user refreshes.
+        const alreadyAttached = !!(typeof overlays!=='undefined' && Array.isArray(overlays) && overlays.some(o=>o&&((mediaKey&&String(o.deviceMediaKey||'')===String(mediaKey))||(mediaUrl&&String(o.src||'')===String(mediaUrl)))));
+        if(alreadyAttached){
+          try{if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});}catch(_e){}
+          try{if(typeof window.__ethvelleDeviceSaveNow==='function')await window.__ethvelleDeviceSaveNow();}catch(saveErr){console.error('Ethvelle project snapshot retry:',saveErr);}
+          showToast(mediaKey?'Clip is still in the timeline. Its device save did not finish; export a backup before leaving.':'Clip is still in the timeline for this session. Export a backup before leaving because device storage is unavailable.',{icon:toastIcons.info,duration:3800});
+        }else{
+          if(mediaUrl){try{URL.revokeObjectURL(mediaUrl);}catch(_e){}}
+          if(mediaKey&&typeof window.__ethvelleDeleteStoredMediaFile==='function'){
+            try{await window.__ethvelleDeleteStoredMediaFile(mediaKey);}catch(_e){}
+          }
+          showToast(err&&err.message ? err.message : 'Could not save this overlay. Please try again.',{icon:toastIcons.info,duration:2600});
+        }
+        console.error('Ethvelle persistent overlay import:',err);
+      }
+    })();
+    return;
+  }
+
+  if(uploadTarget==='background'){
+    // FEATURE (multiple sequential backgrounds): picking an image via the "Add background"
+    // badge/empty-state now APPENDS a brand new background clip after the last one already
+    // on the row (same "append after existing content" behavior addMediaOverlay already
+    // gives Clips/Audio), instead of overwriting the single project-wide background in
+    // place. Reads the file into a self-contained base64 data: URL first  -  never a
+    // `url(blob:...)` object-URL  -  for the same reason documented on the overlay/media
+    // branch below: blob URLs go stale the moment the page is closed/reopened, which used
+    // to show up as a broken-image glyph on reload and in exported video.
+    // UPDATED: close the Background panel the instant a file is chosen, BEFORE the async
+    // FileReader finishes  -  previously it only closed inside onload, so the panel stayed
+    // open (visible behind the freshly-added clip) for the whole read/decode. Now the panel
+    // is gone immediately and the new 5s background simply appears on the timeline.
+    closePanel();
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      addBackgroundClip(`url(${reader.result})`);
+      showToast('Background added  -  drag to move, pull the corner to resize', {duration:2200});
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that image", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+  } else if(uploadTarget==='replace-background'){
+    // Swaps ONLY the selected background clip's own image in place  -  keeps its
+    // trimStart/trimEnd/transform untouched, mirroring how 'replace-overlay' below swaps a
+    // Clips-row clip's content without moving or resizing it.
+    const target = backgrounds.find(b=>b.id===replaceTargetId);
+    if(!target){ closePanel(); return; }
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      target.src = `url(${reader.result})`;
+      replaceTargetId = null;
+      refreshCurrentBgFromPlayhead();
+      applyBackground();
+      renderBackgroundTrack();
+      showToast('Background replaced', {icon: toastIcons.check, duration:1600});
+      closePanel();
+      persistProjectState();
+    };
+    reader.onerror = ()=>{
+      showToast("Couldn't read that image", {icon: toastIcons.info, duration:1800});
+    };
+    reader.readAsDataURL(file);
+  } else if(uploadTarget==='overlay' || uploadTarget==='media'){
+    // BUGFIX ("the clips aren't saving after refreshing"  -  the actual saving bug): exactly
+    // the same root cause the Background branch above already fixed once, but never applied
+    // here. This used to hand addMediaOverlay a `URL.createObjectURL(file)` blob: URL as the
