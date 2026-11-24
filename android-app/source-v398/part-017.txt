@@ -1,0 +1,1000 @@
+              }
+              if(window.__evVideoDebug)try{console.log('[evVideo] HOLD (outgoing frozen)',id,'->',incomingId,frozenCanvas?'canvas':'decoded-fallback-video');}catch(_e){}
+              if(frozenCanvas&&overlayChromaCanvases[id]!==frozenCanvas&&overlayChromaCanvases[id]){
+                overlayChromaCanvases[id].remove();delete overlayChromaCanvases[id];
+              }
+              delete overlayMediaEls[id];
+              if(frozenCanvas)releaseOverlayVideoEl(goneEl);
+              else{goneEl.style.pointerEvents='none';goneEl.style.visibility='';}
+              keepOutgoing=true;
+            }
+          }
+        }else{
+          // The clip already owns a hold. Preserve its current canvas and only retarget it.
+          hold.incomingId=incomingId;
+          keepOutgoing=!!(hold.canvas||(hold.fallbackVideo&&evOverlayVideoHasDecodedTimelineFrame(hold.fallbackVideo)));
+        }
+        // No timer expires a transferred hold: the next clip may decode after several
+        // 0.2-second cuts. It is released by a presentable incoming frame or a real seek away.
+      }else if(evHeldOutgoing[id]){
+        evRemoveHeldOutgoingEntry(id,evHeldOutgoing[id]);delete evHeldOutgoing[id];
+      }
+      if(keepOutgoing)return;
+      if(overlayMediaEls[id]===goneEl){
+        if(goneEl.tagName==='VIDEO'){evStopOverlayVideo(goneEl,true);releaseOverlayVideoEl(goneEl);}
+        else goneEl.remove();
+        delete overlayMediaEls[id];
+      }
+      if(overlayChromaCanvases[id]&&!evHeldOutgoing[id]){overlayChromaCanvases[id].remove();delete overlayChromaCanvases[id];}
+    }
+  });
+
+  // Maintain overlays[] stacking order, but only reorder when the actual active sequence
+  // changes. Re-appending the same nodes on every scrub frame triggered MutationObservers
+  // and repeated text-effect/layout work, which was a core source of timeline stutter.
+  const activeOrderKey = active.map(o => String(o.id) + (o.type === 'video' && o.chromaKey && o.chromaKey.enabled ? ':chroma' : '')).join('|');
+  const needsReorder = active.length > 1 && (activeOrderKey !== overlayMediaOrderKey || active.some(o => !overlayMediaEls[o.id] || overlayMediaEls[o.id].parentNode !== layer));
+  active.forEach(ov=>{
+    let el = overlayMediaEls[ov.id];
+    if(!el){
+      // A pending warm element is adopted as-is, even when it is still loading. The clock
+      // gate waits on this same decoder; it is never discarded and replaced by a cold one.
+      const warmEl=ov.type==='video'?takeWarmOverlayVideo(ov):null;
+      el=warmEl||document.createElement(ov.type==='video'?'video':ov.type==='image'?'img':'div');
+      if(ov.type==='video'){
+        if(!warmEl)setupOverlayVideoEl(el,ov);
+        // A warmed clip is already parked at sourceOffset. Do not impose the old adoption
+        // cooldown: the clock gate guarantees the first live frame begins at zero drift.
+        if(warmEl){
+          delete el.dataset.evPlayAdoptedAt;
+          delete el.dataset.evPlaySeekAt;
+          el.dataset.evDriftNudge='1';
+          el.style.opacity='';
+          el.style.visibility=((el.readyState>=2&&!el.seeking)||evOverlayVideoHasDecodedTimelineFrame(el))?'':'hidden';
+          el.style.pointerEvents='none';
+        }else{
+          delete el.dataset.evPlayAdoptedAt;
+          delete el.dataset.evPlaySeekAt;
+          el.dataset.evDriftNudge='1';
+        }
+      }else if(ov.type==='image'){el.src=ov.src;}
+      else{el.className='overlay-text-render';}
+      overlayMediaEls[ov.id]=el;
+      layer.appendChild(el);
+    }else if(needsReorder){
+      layer.appendChild(el);
+    }
+    // A clip sent Backward past the lowest overlapping overlay is placed behind the
+    // dedicated Background image layer. Clearing this inline z-index restores normal
+    // overlay stacking when the user brings the clip Forward again.
+    const behindBackground=!!ov.__ethvelleBehindBackground;
+    const overlayZ=behindBackground?'-1':'';
+    if(el.style.zIndex!==overlayZ)el.style.zIndex=overlayZ;
+    if(ov.type==='video')evWatchIncomingOverlayVideo(ov,el);
+    if(ov.type==='text'){
+      const requestedFont=String(ov.fontFamily||'Inter');
+      if(textNodeFontMissingOrChanged(el,requestedFont)){
+        ensureAdminFontLoaded(requestedFont);
+        el.dataset.evLoadedTextFont=requestedFont;
+      }
+      el.classList.add('overlay-text-render');
+      // Keep a content-sized child inside the full-stage compositor. This makes the actual
+      // text clickable/selectable without turning the entire preview into a click target.
+      let textNode=el.querySelector('.ethvelle-overlay-text-content');
+      if(!textNode){
+        el.textContent='';
+        textNode=document.createElement('span');
+        textNode.className='ethvelle-overlay-text-content';
+        el.appendChild(textNode);
+        textNode.addEventListener('pointerdown',function(ev){ev.stopPropagation();});
+        textNode.addEventListener('click',function(ev){
+          ev.preventDefault(); ev.stopPropagation();
+          if(typeof selectClipForChrome==='function') selectClipForChrome(ov.id);
+          if(typeof renderFrame==='function') renderFrame();
+        });
+        textNode.addEventListener('dblclick',function(ev){
+          ev.preventDefault(); ev.stopPropagation();
+          if(typeof openEthvelleTextComposer==='function') openEthvelleTextComposer(ov.id);
+        });
+      }
+      const rawOverlayText=String(ov.textContent||'');
+      if(textNode.dataset.evpaSourceText!==rawOverlayText){
+        // Replace text only when the source string actually changes. Rebuilding plain text
+        // on every frame woke the many Text/Canvas MutationObservers and caused severe lag.
+        const glyph=textNode.querySelector(':scope > .evpa-text-effect-layer');
+        if(glyph)glyph.textContent=rawOverlayText;else textNode.textContent=rawOverlayText;
+        textNode.dataset.evpaSourceText=rawOverlayText;
+        delete textNode.dataset.evpaAppliedEffectSig;
+      }
+      const fontFamily='"'+String(ov.fontFamily||'Inter')+'", sans-serif';
+      const fontSize=Math.max(8,Number(ov.fontSize)||44)+'px';
+      const fontWeight=String(ov.fontWeight||800);
+      const fontStyle=ov.fontStyle==='italic'?'italic':'normal';
+      const textAlign=ov.textAlign||'center';
+      const textColor=ethvelleHexToRgba(ov.textColor||'#ffffff',Math.max(0,Math.min(100,Number(ov.textOpacity==null?100:ov.textOpacity)))/100);
+      const sw=Math.max(0,Number(ov.strokeWidth)||0);
+      const strokeValue=sw>0?(sw+'px '+ethvelleHexToRgba(ov.strokeColor||'#17172B',Math.max(0,Math.min(100,Number(ov.strokeOpacity==null?100:ov.strokeOpacity)))/100)):'0 transparent';
+      const shadowValue=ov.shadowEnabled ? `${Number(ov.shadowX)||0}px ${Math.max(4,Number(ov.shadowY)||6)}px ${Math.max(0,Number(ov.shadowBlur)||0)}px ${ethvelleHexToRgba(ov.shadowColor||'#000000',Math.max(0,Math.min(100,Number(ov.shadowOpacity==null?100:ov.shadowOpacity)))/100)}` : 'none';
+      const backplateValue=ov.textBackgroundEnabled ? ethvelleHexToRgba(ov.textBackgroundColor||'#182A66',Math.max(0,Math.min(100,Number(ov.textBackgroundOpacity==null?78:ov.textBackgroundOpacity)))/100) : 'transparent';
+      const paddingValue=ov.textBackgroundEnabled ? `${Math.max(0,Number(ov.textBackgroundPadding==null?7:ov.textBackgroundPadding))}px` : '0';
+      const radiusValue=Math.max(0,Number(ov.textBackgroundRadius==null?8:ov.textBackgroundRadius))+'px';
+      // These values do not change just because the playhead moved. Writing them on every
+      // preview frame invalidated text paint repeatedly on mobile WebView. Update only when
+      // the actual text/effect settings change; renderOverlayMedia still updates time/transform.
+      const styleSignature=JSON.stringify([rawOverlayText,fontFamily,fontSize,fontWeight,fontStyle,textAlign,textColor,strokeValue,shadowValue,backplateValue,paddingValue,radiusValue,!!ov.textBackgroundEnabled,!!ov.textHighlightEnabled]);
+      if(textNode.dataset.evTextStyleSignature!==styleSignature){
+        textNode.style.fontFamily=fontFamily;
+        textNode.style.fontSize=fontSize;
+        textNode.style.fontWeight=fontWeight;
+        textNode.style.fontStyle=fontStyle;
+        textNode.style.textAlign=textAlign;
+        textNode.style.color=textColor;
+        textNode.style.webkitTextStroke=strokeValue;
+        textNode.style.paintOrder='stroke fill';
+        textNode.style.textShadow=shadowValue;
+        textNode.style.backgroundColor=backplateValue;
+        textNode.style.padding=paddingValue;
+        textNode.style.borderRadius=radiusValue;
+        textNode.dataset.evTextStyleSignature=styleSignature;
+      }
+      const wantsSelected=String(selectedClip)===String(ov.id);
+      if(textNode.classList.contains('ev-text-selected')!==wantsSelected)textNode.classList.toggle('ev-text-selected',wantsSelected);
+      /* This is the outer text-clip compositor: fading it applies equally to fill, stroke,
+         shadow and the independent text-background/highlight plate. */
+      const overallOpacity=Math.max(0,Math.min(100,Number(ov.textOverallOpacity==null?100:ov.textOverallOpacity)))/100;
+      if(el.style.opacity!==String(overallOpacity))el.style.opacity=String(overallOpacity);
+    }
+    // The shared helper is the sole owner of transform/mirror/animation/mask styling.
+    // The fallback keeps the base renderer safe if called before the visual-toolkit script loads.
+    if(typeof window.ethvelleApplyOverlayVisualStyle==='function'){
+      window.ethvelleApplyOverlayVisualStyle(el,ov,tSecAbsolute,el,false);
+    }else{
+      const trackedTransform = window.ethvelleGetTrackedOverlayTransform ? window.ethvelleGetTrackedOverlayTransform(ov) : ov.transform;
+      const t = ethvelleObjectKeyframeProperty(ov)==='transform' ? (ethvelleGetObjectKeyframeValue(ov,'transform',tSecAbsolute)||trackedTransform) : trackedTransform;
+      const elementTransform = t ? `translate(${t.offsetX||0}px, ${t.offsetY||0}px) rotate(${t.rotation||0}deg) scale(${t.scale||1})` : '';
+      if(el.style.transform!==elementTransform)el.style.transform = elementTransform;
+    }
+    if(ov.type==='video'){
+      const sameVideoStall=!!evVideoBufferStall&&String(evVideoBufferStall.id)===String(ov.id);
+      const framePresentable=evOverlayVideoFrameIsPresentable(ov,el,tSecAbsolute);
+      if(framePresentable&&el.videoWidth>0&&el.videoHeight>0){
+        el.dataset.evHasDecodedTimelineFrame='1';
+        // Capture the clip's last-good picture 150-250ms BEFORE its trim end, while the
+        // decoder is still presentable. freezeOutgoingOverlayVideoFrame reuses this canvas.
+        try{evCapturePreCutOverlayVideoFrame(ov,el,tSecAbsolute);}catch(_e){}
+      }
+      // During playback as well as scrubbing, a decoder hiccup must not hide a video that
+      // has already displayed a real frame. The scrub wrapper may place its retained canvas
+      // above the element; otherwise leave the last decoded video surface visible.
+      const keepLastDecodedFrame=evOverlayVideoHasDecodedTimelineFrame(el);
+      const keepLastScrubFrame=!!window.__ethvelleTimelineScrubbing&&keepLastDecodedFrame;
+      const hideIncoming=!framePresentable&&!keepLastScrubFrame&&!keepLastDecodedFrame;
+      const visibilityState=hideIncoming?'hidden':'';
+      if(el.dataset.evIncomingHidden!==(hideIncoming?'1':'0')){
+        if(window.__evVideoDebug)try{console.log('[evVideo]',hideIncoming?'HOLD (incoming hidden)':'LIVE (incoming shown)',ov.id,'scrubbing',!!window.__ethvelleTimelineScrubbing);}catch(_e){}
+        el.style.visibility=visibilityState;
+        el.dataset.evIncomingHidden=hideIncoming?'1':'0';
+      }
+
+      const speed = Math.max(0.05,Number(ov.speed)||1);
+      const enhancedPrimeUrl=String(ov.__evltRuntimeEnhancedSrc||'');
+      const enhancedPrimeActive=!!(enhancedPrimeUrl&&el.__evEnhPrimeInProgress===enhancedPrimeUrl);
+      const maxT = Math.max(0.05, (ov.sourceDuration || el.duration || (ov.trimEnd-ov.trimStart)) - 0.02);
+      // localT is measured in the SOURCE video's own time, so it advances `speed`x faster
+      // than timeline time elapses  -  at 2x, 1 second of timeline time covers 2 seconds of
+      // the actual source footage; at 0.5x, half a second of it. Combined with the clip's
+      // own trimEnd already being rescaled by speedPanelSetSpeed (shorter timeline
+      // footprint at higher speed), this keeps the WHOLE source clip playing out exactly
+      // once across the clip's new, shorter (or longer) span on the timeline.
+      const elapsed=Math.max(0,(tSecAbsolute-Number(ov.trimStart))*speed);
+      const span=Math.max(0,(Number(ov.trimEnd)-Number(ov.trimStart))*speed);
+      const rawLocal=ov.reversePlayback?(Number(ov.sourceOffset)||0)+span-elapsed:(Number(ov.sourceOffset)||0)+elapsed;
+      const localT=Math.max(0,Math.min(maxT,rawLocal));
+      if(ov.reversePlayback){
+        // Reverse preview is driven by timeline seeks because HTMLVideoElement does not
+        // support dependable negative playbackRate on Android WebView. Keep seeks bounded
+        // to ~15fps while playing; export below seeks every rendered frame for accuracy.
+        if(!el.paused){try{el.pause();}catch(_e){}}
+        el.muted=true;
+        const now=performance.now(),last=Number(el.dataset.evReverseSeekAt)||0;
+        const interval=isPlaying?66:0;
+        if((!isPlaying||!last||now-last>=interval)&&Math.abs(el.currentTime-localT)>(isPlaying?0.045:0.015)){
+          try{el.currentTime=localT;el.dataset.evReverseSeekAt=String(now);}catch(_e){}
+        }
+        el.playbackRate=1;
+      }else{
+        delete el.dataset.evReverseSeekAt;
+      }
+      // Only seek when meaningfully off (avoids fighting the video's own playback clock with
+      // constant tiny seeks every frame, which stutters); while actually playing, let it run
+      // and only correct drift beyond ~0.2s.
+      if(!ov.reversePlayback&&window.__ethvelleTimelineScrubbing&&!enhancedPrimeActive){
+        // Re-seeking an HTMLVideoElement 30+ times per second forces Android's decoder to
+        // flush and restart repeatedly; this was a major source of horizontal-drag stutter.
+        // Sample rough preview frames at <= ~12fps, then render the exact source time on release.
+        const now=performance.now();
+        const last=Number(el.dataset.evLastScrubSeekAt)||0;
+        if((!last||now-last>=84) && (!last||Math.abs(el.currentTime-localT)>.24)){
+          try{el.currentTime=localT;el.dataset.evLastScrubSeekAt=String(now);}catch(err){/* decode will retry on a later scrub frame */}
+        }
+      }else if(!ov.reversePlayback){
+        delete el.dataset.evLastScrubSeekAt;
+        const driftSigned=localT-el.currentTime;
+        const driftNow=Math.abs(driftSigned);
+        const nowMs=performance.now();
+        const effectiveSyncSource=String(window.evEffectiveVideoSrc?window.evEffectiveVideoSrc(ov):(ov.src||''));
+        const syncSignature=[effectiveSyncSource,Number(ov.trimStart)||0,Number(ov.trimEnd)||0,Number(ov.sourceOffset)||0,speed].join('|');
+        const sourceOrTrimChanged=!enhancedPrimeActive&&el.dataset.evClipSyncSignature!==syncSignature;
+        if(!enhancedPrimeActive)el.dataset.evClipSyncSignature=syncSignature;
+        let doSeek=false;
+        let seekTarget=localT;
+        const stableSince=Number(el.dataset.evStablePlayingSince)||0;
+        const stableForMs=stableSince>0?nowMs-stableSince:0;
+
+        if(!isPlaying){
+          el.dataset.evDriftNudge='1';
+          const lastSeekAt=Number(el.dataset.evPlaySeekAt)||0;
+          // A trim/split/sourceOffset edit bypasses the old 1000ms seek limiter.
+          doSeek=!el.seeking&&el.readyState>=1&&driftNow>0.04&&
+            (sourceOrTrimChanged||!lastSeekAt||nowMs-lastSeekAt>=1000);
+          if(doSeek){el.dataset.evPlaySeekAt=String(nowMs);el.dataset.evSeekRequestAt=String(nowMs);}
+        }else if(el.seeking||el.readyState<2){
+          el.dataset.evDriftNudge='1';
+        }else if(sourceOrTrimChanged&&driftNow>0.04&&el.readyState>=1){
+          el.dataset.evDriftNudge='1';doSeek=true;el.dataset.evPlaySeekAt=String(nowMs);el.dataset.evSeekRequestAt=String(nowMs);
+        }else if(!el.paused&&stableForMs>=300){
+          // Continuous playback is corrected with a gentle proportional playback-rate
+          // servo instead of repeated pause -> currentTime seek -> play cycles. Those hard
+          // seeks were visibly flashing frames and breaking the audio stream on mobile.
+          // Keep the correction small and enable pitch preservation below so normal drift
+          // recovery does not make the soundtrack sound warped.
+          const correction=Math.max(0.96,Math.min(1.04,1+(driftSigned*0.10)));
+          el.dataset.evDriftNudge=(driftNow>0.025?correction:1).toFixed(4);
+        }else{
+          // At start/resume, keep nominal speed. Safe play performs one exact muted seek
+          // before the first audible frame instead of using pitch-changing rate nudges.
+          el.dataset.evDriftNudge='1';
+        }
+
+        if(doSeek&&!el.seeking&&el.readyState>=1&&!enhancedPrimeActive){
+          if(isPlaying){evStopOverlayVideo(el,true);}
+          try{el.currentTime=seekTarget;}
+          catch(err){delete el.dataset.evSeekRequestAt;}
+        }
+      }
+      // playbackRate lets the video element itself advance at the matching rate during
+      // uninterrupted playback (so it doesn't rely purely on the periodic drift-correction
+      // seeks above to keep pace), and keeps audio pitch/speed in sync with the visual rate.
+      const stableSince=Number(el.dataset.evStablePlayingSince)||0;
+      const stableForMs=stableSince>0?performance.now()-stableSince:0;
+      const driftNudge=window.__ethvelleTimelineScrubbing||stableForMs<300?1:(Number(el.dataset.evDriftNudge)||1);
+      const targetPlaybackRate=speed*driftNudge;
+      if(!ov.reversePlayback){
+        try{if('preservesPitch' in el)el.preservesPitch=true;if('webkitPreservesPitch' in el)el.webkitPreservesPitch=true;if('mozPreservesPitch' in el)el.mozPreservesPitch=true;}catch(_e){}
+        if(Math.abs(el.playbackRate-targetPlaybackRate)>0.005)el.playbackRate=targetPlaybackRate;
+      }
+      // Reverse preview is video-only; the decoded image is stepped by reverse seeks.
+      // Clamp to [0,1]  -  HTMLMediaElement.volume only accepts that range; a clip's own
+      // `volume` can go up to 2 (a "boost") but anything above 1 is realized at export time
+      // via the Web Audio GainNode chain instead (see mixAudioForExport), which has no such
+      // upper limit. Live preview playback is correctly capped at "as loud as the source".
+      const animatedVideoVolume=ethvelleGetObjectKeyframeValue(ov,'volume',tSecAbsolute);
+      const vol = Math.max(0, Math.min(1, animatedVideoVolume==null?(ov.volume==null?1:ov.volume):animatedVideoVolume));
+      el.dataset.evTargetVolume=String(vol);
+      if(!el.dataset.evGainRampActive&&!el.muted&&el.volume!==vol)el.volume=vol;
+      if(ov.reversePlayback){
+        evStopOverlayVideo(el,true);
+      }else if(isPlaying&&!sameVideoStall){
+        evSafePlayVideo(el,ov);
+      }else{
+        evStopOverlayVideo(el,true);
+      }
+      const keyCfg = ov.chromaKey;
+      if(keyCfg && keyCfg.enabled){
+        let keyCanvas=overlayChromaCanvases[ov.id];
+        if(!keyCanvas){ keyCanvas=document.createElement('canvas'); keyCanvas.className='overlay-chroma-canvas'; overlayChromaCanvases[ov.id]=keyCanvas; layer.appendChild(keyCanvas); }
+        if(keyCanvas.style.transform!==el.style.transform)keyCanvas.style.transform=el.style.transform;
+        if(needsReorder) layer.appendChild(keyCanvas);
+        if(el.readyState>=2 && el.videoWidth>0){
+          if(window.__ethvelleTimelineScrubbing){
+            const now=performance.now(),last=Number(keyCanvas.dataset.evLastScrubPaintAt)||0;
+            if(!last||now-last>=100){keyCanvas.dataset.evKeyed=paintChromaKeyFrame(el,keyCanvas,keyCfg,480)?'1':'0';keyCanvas.dataset.evLastScrubPaintAt=String(now);}
+          }else{delete keyCanvas.dataset.evLastScrubPaintAt;keyCanvas.dataset.evKeyed=paintChromaKeyFrame(el,keyCanvas,keyCfg,640)?'1':'0';}
+        }
+        // Only hide the real video once a keyed frame exists; otherwise keep it visible so
+        // the clip can never disappear from the canvas.
+        const keyedReady=keyCanvas.dataset.evKeyed==='1';
+        el.style.opacity=keyedReady?'0':'1';
+        keyCanvas.style.visibility=keyedReady?'visible':'hidden';
+      }else{
+        el.style.opacity='1';
+        if(overlayChromaCanvases[ov.id]){overlayChromaCanvases[ov.id].remove();delete overlayChromaCanvases[ov.id];}
+      }
+    }
+  });
+  if(window.__ethvelleTimelineScrubbing){
+    // Audio doesn't need to seek on every preview position. Keep existing nodes paused and
+    // defer the exact seek/sync until pointer-up to avoid repeated media decoder work.
+    Object.keys(audioOverlayEls).forEach(id=>{try{if(audioOverlayEls[id]&&!audioOverlayEls[id].paused)audioOverlayEls[id].pause();}catch(_e){}});
+  }else{
+    renderAudioOverlayMedia(tSecAbsolute);
+  }
+  overlayMediaOrderKey = activeOrderKey;
+  try{ warmUpcomingOverlayVideos(tSecAbsolute); }catch(_e){}
+}
+// FEATURE (extract audio / control clip volume): companion to renderOverlayMedia's video/
+// image element lifecycle above, but for type==='audio' overlays  -  previously these only
+// ever drew a waveform on the timeline and produced no sound at all during preview or
+// export. Mirrors the exact same create/seek/play-pause/cleanup pattern (kept as a separate
+// function rather than folded into the `active` filter above, since audio has no on-stage
+// visual element and therefore none of the transform/thumb logic video or image need).
+let audioOverlayEls = {};
+let audioOverlayAudioCtx = null;
+let audioOverlayNodes = {};
+function ensureAudioOverlayContext(){
+  if(!audioOverlayAudioCtx){
+    const AC=window.AudioContext||window.webkitAudioContext;
+    if(AC) audioOverlayAudioCtx=new AC({latencyHint:'playback'});
+  }
+  return audioOverlayAudioCtx;
+}
+function evAudioOverlayById(id){
+  if(!Array.isArray(overlays))return null;
+  return overlays.find(item=>item&&item.type==='audio'&&String(item.id)===String(id))||null;
+}
+function evAudioOverlayIsActive(ov,timeSec){
+  if(!ov)return false;
+  const t=Number(timeSec);
+  return Number.isFinite(t)&&t>=Number(ov.trimStart||0)&&t<Number(ov.trimEnd||0);
+}
+function evAudioOverlayRate(ov){
+  const cfg=(typeof getEthvelleAudioSettings==='function')?getEthvelleAudioSettings(ov):{pitch:0};
+  const pitchRate=Math.pow(2,Math.max(-12,Math.min(12,Number(cfg.pitch)||0))/12);
+  return {cfg,rate:Math.max(.05,Number(ov.speed)||1)*pitchRate};
+}
+function evAudioOverlayLocalTime(ov,timeSec,el,rate){
+  const duration=Math.max(.05,Number(ov.sourceDuration)||Number(el&&el.duration)||((Number(ov.trimEnd)||0)-(Number(ov.trimStart)||0))*rate);
+  const maxT=Math.max(.05,duration-.02);
+  return Math.max(0,Math.min(maxT,(Number(ov.sourceOffset)||0)+(Number(timeSec)-Number(ov.trimStart||0))*rate));
+}
+function evAudioOverlayTryWarmSeek(ov,el){
+  if(!ov||!el||el.readyState<1||el.seeking)return;
+  const target=Math.max(0,Number(ov.sourceOffset)||0);
+  const prior=Number(el.dataset.evAudioWarmSourceOffset);
+  if(Number.isFinite(prior)&&Math.abs(prior-target)<.025)return;
+  if(Math.abs((Number(el.currentTime)||0)-target)<=.05){
+    el.dataset.evAudioWarmSourceOffset=String(target);
+    return;
+  }
+  try{
+    el.dataset.evAudioWarmSourceOffset=String(target);
+    el.currentTime=target;
+  }catch(_e){delete el.dataset.evAudioWarmSourceOffset;}
+}
+function evAudioOverlayEnsure(ov){
+  if(!ov||!ov.id||!ov.src)return null;
+  const id=String(ov.id);
+  let el=audioOverlayEls[id];
+  if(!el){
+    el=new Audio();
+    el.preload='auto';
+    el.autoplay=false;
+    el.loop=false;
+    el.dataset.evAudioOverlayId=id;
+    el.dataset.evAudioSource=String(ov.src);
+    audioOverlayEls[id]=el;
+    // These events also cover mobile browsers that finish loading only after a clip becomes
+    // active. They always resolve the latest clip/time instead of capturing a stale playhead.
+    const onReady=()=>{
+      const live=evAudioOverlayById(id);
+      if(!live)return;
+      const now=Number(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0)||0;
+      if(evAudioOverlayIsActive(live,now)&&isPlaying)evAudioOverlayStart(live,el,now);
+      else if(Number(live.trimStart)>now)evAudioOverlayTryWarmSeek(live,el);
+    };
+    el.addEventListener('loadedmetadata',onReady);
+    el.addEventListener('canplay',onReady);
+    el.addEventListener('seeked',onReady);
+    el.addEventListener('playing',()=>{delete el.dataset.evAudioPlayPending;});
+    el.addEventListener('pause',()=>{delete el.dataset.evAudioPlayPending;});
+    try{el.src=String(ov.src);el.load();}catch(_e){}
+  }else if(String(el.dataset.evAudioSource||'')!==String(ov.src)){
+    // Reuse the same element/source graph if a clip's media source is replaced.
+    try{el.pause();el.dataset.evAudioSource=String(ov.src);delete el.dataset.evAudioWarmSourceOffset;delete el.dataset.evAudioSyncing;el.src=String(ov.src);el.load();}catch(_e){}
+  }
+  // Create one persistent Web Audio source per element. Later audio-effect wrappers attach
+  // their filters to these same nodes; they are not disconnected at normal clip boundaries.
+  if(!audioOverlayNodes[id]){
+    try{
+      const ctx=ensureAudioOverlayContext();
+      if(ctx){
+        const source=ctx.createMediaElementSource(el),gain=ctx.createGain();
+        source.connect(gain);gain.connect(ctx.destination);
+        audioOverlayNodes[id]={source,gain};
+        el.volume=1;
+      }
+    }catch(err){console.warn('Ethvelle: Web Audio gain unavailable for this clip; using native volume.',err);}
+  }
+  return el;
+}
+function evAudioOverlayStart(ov,el,timeSec){
+  if(!ov||!el||!isPlaying||!evAudioOverlayIsActive(ov,timeSec))return;
+  if(evVideoBufferStall)return;
+  const {cfg,rate}=evAudioOverlayRate(ov);
+  const target=evAudioOverlayLocalTime(ov,timeSec,el,rate);
+  if(el.readyState<1||el.seeking)return;
+  // On clip entry / resume / timeline jump, perform one exact source seek before playback.
+  // During uninterrupted playback the media element remains its own clock; do not seek it
+  // on every animation frame, which caused the audible gaps at adjacent clip boundaries.
+  const needsInitialSync=el.dataset.evAudioNeedsSync==='1';
+  const drift=Math.abs((Number(el.currentTime)||0)-target);
+  if((needsInitialSync&&drift>.055)||(!needsInitialSync&&drift>.72)){
+    if(el.dataset.evAudioSyncing!=='1'){
+      el.dataset.evAudioSyncing='1';
+      el.dataset.evAudioSyncTarget=String(target);
+      try{el.currentTime=target;}catch(_e){delete el.dataset.evAudioSyncing;}
+    }
+    return;
+  }
+  if(needsInitialSync){delete el.dataset.evAudioNeedsSync;delete el.dataset.evAudioSyncing;}
+  if(el.readyState<2||!el.paused||el.dataset.evAudioPlayPending==='1')return;
+  if(audioOverlayAudioCtx&&audioOverlayAudioCtx.state==='suspended'){
+    try{audioOverlayAudioCtx.resume().catch(()=>{});}catch(_e){}
+  }
+  const token=(Number(el.__evAudioRunToken)||0)+1;
+  el.__evAudioRunToken=token;
+  el.dataset.evAudioPlayPending='1';
+  let p;
+  try{p=el.play();}catch(err){delete el.dataset.evAudioPlayPending;return;}
+  if(p&&typeof p.then==='function'){
+    p.then(()=>{
+      if(el.__evAudioRunToken!==token||!isPlaying||!evAudioOverlayIsActive(evAudioOverlayById(ov.id),Number(currentAbsoluteTimeSec)||0)){
+        try{el.pause();}catch(_e){}
+      }
+      delete el.dataset.evAudioPlayPending;
+    }).catch(()=>{delete el.dataset.evAudioPlayPending;});
+  }else{delete el.dataset.evAudioPlayPending;}
+}
+function renderAudioOverlayMedia(tSecAbsolute){
+  const time=Number.isFinite(Number(tSecAbsolute))?Number(tSecAbsolute):(Number(currentAbsoluteTimeSec)||0);
+  const allAudio=Array.isArray(overlays)?overlays.filter(o=>o&&o.type==='audio'&&o.id&&o.src):[];
+  const liveIds=new Set(allAudio.map(o=>String(o.id)));
+  const activeIds=new Set(allAudio.filter(o=>evAudioOverlayIsActive(o,time)).map(o=>String(o.id)));
+  const preloadAhead=10; // load the next audio clip before the playhead reaches its boundary
+
+  // A deleted audio clip is the only normal reason to destroy its element/graph. Merely
+  // crossing trimEnd pauses it but keeps it buffered and ready for later seeks/redo.
+  Object.keys(audioOverlayEls).forEach(id=>{
+    if(liveIds.has(String(id)))return;
+    const el=audioOverlayEls[id];
+    try{el.pause();}catch(_e){}
+    if(el){el.__evAudioRunToken=(Number(el.__evAudioRunToken)||0)+1;try{el.removeAttribute('src');el.load();}catch(_e){}}
+    const nodes=audioOverlayNodes[id];
+    if(nodes){try{nodes.source.disconnect();nodes.gain.disconnect();}catch(_e){}delete audioOverlayNodes[id];}
+    delete audioOverlayEls[id];
+  });
+
+  // Pre-create and buffer the next clips while the current audio is still playing.
+  allAudio.forEach(ov=>{
+    const start=Number(ov.trimStart)||0;
+    const active=activeIds.has(String(ov.id));
+    const upcoming=!active&&start>=time&&start-time<=preloadAhead;
+    if(!active&&!upcoming)return;
+    const el=evAudioOverlayEnsure(ov);
+    if(!el)return;
+    if(upcoming)evAudioOverlayTryWarmSeek(ov,el);
+  });
+
+  if(evVideoBufferStall&&isPlaying){
+    Object.keys(audioOverlayEls).forEach(id=>{
+      const el=audioOverlayEls[id];
+      if(el&&!el.paused){try{el.pause();}catch(_e){}}
+      if(el)el.dataset.evAudioNeedsSync='1';
+    });
+    return;
+  }
+
+  allAudio.forEach(ov=>{
+    const id=String(ov.id),el=audioOverlayEls[id];
+    if(!el)return;
+    const active=activeIds.has(id);
+    if(!active){
+      if(el.dataset.evAudioTimelineActive==='1'){
+        el.dataset.evAudioTimelineActive='0';
+        el.dataset.evAudioNeedsSync='1';
+        el.__evAudioRunToken=(Number(el.__evAudioRunToken)||0)+1;
+        if(!el.paused){try{el.pause();}catch(_e){}}
+      }
+      return;
+    }
+
+    if(el.dataset.evAudioTimelineActive!=='1'){
+      el.dataset.evAudioTimelineActive='1';
+      el.dataset.evAudioNeedsSync='1';
+    }
+    const {cfg,rate}=evAudioOverlayRate(ov);
+    if(Math.abs((Number(el.playbackRate)||1)-rate)>.001)el.playbackRate=rate;
+    const pitchShiftActive=Math.abs(Number(cfg.pitch)||0)>.001;
+    try{if('preservesPitch' in el)el.preservesPitch=!pitchShiftActive;if('webkitPreservesPitch' in el)el.webkitPreservesPitch=!pitchShiftActive;}catch(_e){}
+
+    const animated=ethvelleGetObjectKeyframeValue(ov,'volume',time);
+    const volume=Math.max(0,Math.min(2,animated==null?(ov.volume==null?1:Number(ov.volume)):Number(animated)));
+    const nodes=audioOverlayNodes[id];
+    if(nodes&&audioOverlayAudioCtx){
+      try{nodes.gain.gain.setTargetAtTime(volume,audioOverlayAudioCtx.currentTime,.025);}catch(_e){nodes.gain.gain.value=volume;}
+      el.volume=1;
+    }else{
+      const nativeVolume=Math.min(1,volume);
+      if(el.volume!==nativeVolume)el.volume=nativeVolume;
+    }
+
+    if(isPlaying){
+      if(Math.abs((Number(el.currentTime)||0)-evAudioOverlayLocalTime(ov,time,el,rate))>.72){
+        // Large drift is a recovery case only; normal clock drift never interrupts playback.
+        el.dataset.evAudioNeedsSync='1';
+      }
+      evAudioOverlayStart(ov,el,time);
+    }else{
+      el.__evAudioRunToken=(Number(el.__evAudioRunToken)||0)+1;
+      if(!el.paused){try{el.pause();}catch(_e){}}
+      if(el.readyState>=1&&!el.seeking){
+        const target=evAudioOverlayLocalTime(ov,time,el,rate);
+        if(Math.abs((Number(el.currentTime)||0)-target)>.055){
+          try{el.dataset.evAudioNeedsSync='1';el.currentTime=target;}catch(_e){}
+        }
+      }
+    }
+  });
+}
+
+// Start each evaluated timeline frame from the character's authored rest pose and its
+// user-chosen base placement. Pose/transform keyframes are then layered on for THIS instant.
+// This keeps a dragged pose, a previous clip, or an export frame from contaminating the next
+// frame's bind pose  -  especially important for edited Model Lab sheets whose limbs must line up
+// with the same rest skeleton used when the animation was authored.
+function resetCharacterForTimelineFrame(char){
+  if(!char) return;
+  const rigBones = char.bones || {};
+  const restAngles = char.baseAngles || {};
+  Object.keys(rigBones).forEach(k=>{
+    if(Number.isFinite(restAngles[k]) && rigBones[k]) rigBones[k].angle = restAngles[k];
+  });
+  if(rigBones.hip && Number.isFinite(char.hipRestY)) rigBones.hip.y = char.hipRestY;
+  if(char.modelTransform){
+    if(!char.restTransform) char.restTransform = { ...char.modelTransform };
+    Object.assign(char.modelTransform, char.restTransform);
+  }
+}
+
+// Poses every OTHER character (all except the active one, which renderFrame already poses
+// via the shared bones/activeClip/modelTransform variables) at the given absolute timeline
+// second, using each character's own clip/segments  -  so every character with an animation
+// on its own row now actually moves during playback/export, not just whichever one happens
+// to be selected. Each character's rig is independent, so this never touches the active
+// character's live pose or reads/writes the shared bones/baseAngles/modelTransform names.
+function animateAllCharacters(tSecAbsolute){
+  characters.forEach((c, idx)=>{
+    if(idx === activeCharIdx) return; // the active character is handled by renderFrame
+    if(!c.clip) return; // static rows need no per-frame rig reset
+    resetCharacterForTimelineFrame(c);
+    const pose = poseAtClipTime(tSecAbsolute, c.clip, c.segments);
+    if(pose) applyPoseToBones(pose, c.bones, c.baseAngles, c.hipRestY);
+    const clipTransform = transformAtClipTime(tSecAbsolute, c.clip, c.segments);
+    if(clipTransform) applyTransformToModel(clipTransform, c.modelTransform);
+  });
+  // v339: animation clips that track another clip (any section) get their tracked transform
+  // here  -  after every character has its authored pose/transform, before anything is painted.
+  if(typeof window.ethvelleApplyCharacterTracking==='function'){
+    try{ window.ethvelleApplyCharacterTracking(tSecAbsolute); }catch(trackErr){ /* tracking must never break rendering */ }
+  }
+}
+// Renders whatever the canonical clock (currentAbsoluteTimeSec) currently points at.
+// Evaluates pose/transform against the clip that ACTUALLY COVERS that absolute time
+// (via stickmanClipAt inside poseAtClipTime/transformAtClipTime), not always activeClip  - 
+// this is what makes split-segment keyframes evaluate correctly during playback/scrub
+// instead of only ever showing activeClip's animation. Also drives every OTHER character's
+// own pose from its own clip (see animateAllCharacters), so multiple characters with their
+// own animations all move together instead of only the active one animating while the rest
+// stand frozen in their rest pose.
+function renderTimelineScrubPreview(){
+  // Keep the visible composition frame-accurate during a finger scrub, but bypass the
+  // full editor refresh wrappers (text-effect decoration scans, palette/selection syncing)
+  // and nonessential toolbar state work. Those scans were being repeated at display rate on
+  // Android and were a major source of horizontal timeline stutter.
+  refreshCurrentBgFromPlayhead();
+  applyBackground();
+  const active = activeCharacter();
+  if(active) resetCharacterForTimelineFrame(active);
+  if(activeClip){
+    const pose = poseAtClipTime(currentAbsoluteTimeSec);
+    if(pose) applyPoseToBones(pose);
+    const clipTransform = transformAtClipTime(currentAbsoluteTimeSec);
+    if(clipTransform) applyTransformToModel(clipTransform);
+  }
+  animateAllCharacters(currentAbsoluteTimeSec);
+  renderOverlayMedia(currentAbsoluteTimeSec);
+  drawStick();
+  // Keep the timestamp responsive without running the more expensive keyframe/toolbar sync.
+  updateTimeReadout();
+  // scheduleTimelineScrub() has already positioned scrollLeft directly from this gesture.
+  // Rewriting scrollLeft here makes Android WebView perform another timeline scroll/layout pass
+  // while the finger is moving; leave that to the input path and keep this renderer preview-only.
+  // The keyframe button and final centered playhead are synchronized by the release render.
+}
+function renderFrame(){
+  // Resolve the background first; every character is then reset to the same authored rest
+  // pose/base transform before the active clip at this exact time is applied. This prevents
+  // stale transforms/poses from a previous frame or another clip from leaking into preview.
+  refreshCurrentBgFromPlayhead();
+  applyBackground();
+  const active = activeCharacter();
+  if(active) resetCharacterForTimelineFrame(active);
+  if(activeClip){
+    const pose = poseAtClipTime(currentAbsoluteTimeSec);
+    if(pose) applyPoseToBones(pose);
+    const clipTransform = transformAtClipTime(currentAbsoluteTimeSec);
+    if(clipTransform) applyTransformToModel(clipTransform);
+  }
+  animateAllCharacters(currentAbsoluteTimeSec);
+  renderOverlayMedia(currentAbsoluteTimeSec);
+  drawStick();
+  updateTimeReadout();
+  movePlayhead();
+  updateKeyButtonState();
+}
+
+// LEGACY ALIAS: togglePlay() used to mean "invert isPlaying" AND was also mis-used all
+// over the file as a pause helper (`if(isPlaying) togglePlay()`), which is exactly the
+// anti-pattern the PART 21 fix calls out. It now delegates straight to the centralized
+// controller and keeps the same name only so the existing onclick="togglePlay()" in the
+// HTML markup keeps working  -  every in-code call site below has been switched to call
+// pausePlayback()/startPlayback()/togglePlayback() directly instead.
+function togglePlay(){ togglePlayback(); }
+
+function seekFrame(dir){
+  // Tapping prev/next frame pauses FIRST (via the centralized controller, which freezes
+  // the EXACT real-elapsed-time instant, not "whatever frame the last rAF tick left
+  // behind"), and only then applies the seek  -  so it always lands exactly one step from
+  // the exact position you paused at, never a moving target.
+  pausePlayback();
+  const stepSec = Math.round(FPS*0.25)/FPS;
+  // Clamp against the FULL project's duration (every character, plus however far
+  // Background/Clips/Audio extend  -  see totalProjectDuration()), so stepping frame-by-frame
+  // can reach the end of a longer non-active character's clip, or a longer background/
+  // media/audio clip, too  -  not just the active character's own animation.
+  const dur = totalProjectDuration();
+  setCurrentAbsoluteTime(Math.max(0, Math.min(dur, currentAbsoluteTimeSec + dir*stepSec)));
+  renderFrame();
+}
+// v220: m:ss(.cc) clock so times past 60s read 1:10, 1:20 ... instead of 70s, 80s ...
+function evFormatClock(t,withCs){
+  t=Math.max(0,Number(t)||0);
+  const cs=Math.round(t*100),m=Math.floor(cs/6000),rem=cs%6000,sec=Math.floor(rem/100),c=rem%100;
+  const p=n=>String(n).padStart(2,'0');
+  return withCs?`${m}:${p(sec)}.${p(c)}`:`${m}:${p(sec)}`;
+}
+function updateTimeReadout(){
+  // The transport's total-time label is an export/content endpoint, not the padded
+  // timeline width used to size the ruler and scrollable track area.
+  const dur = getExportContentDurationSec();
+  const nowSec = (activeClip ? currentAbsoluteTimeSec - activeClip.trimStart : currentAbsoluteTimeSec);
+  document.getElementById('timeReadout').textContent = `${evFormatClock(nowSec,true)} / ${evFormatClock(dur,true)}`;
+}
+// CapCut-style: the playhead line is FIXED at the horizontal center of the timeline viewport.
+// The track content scrolls underneath it instead. We scroll the container so that
+// "current time" always lands under that fixed center line.
+//
+// ROOT CAUSE #3 (scroll-seek feedback loop): movePlayhead() scrolls the container
+// programmatically to follow the playhead; the timeline's native 'scroll' event listener
+// (initTimelineScrub, below) ALSO seeks time from scrollLeft, because that's how genuine
+// user drag-scrubbing is detected. Without a way to tell those two apart, a programmatic
+// scroll re-triggers the scroll listener, which re-seeks time, which re-triggers
+// movePlayhead  -  a feedback loop, previously patched with fragile
+// suppressScrollSeek/timing-window flags. FIX: an explicit ownership flag. Only the
+// timeline's own pointer state machine sets timelineScrollOwner='user' while actively
+// dragging; movePlayhead() (and any other programmatic scroll) leaves it alone, and the
+// scroll listener only ever seeks time when it IS 'user'. This is not a timing race; it's
+// a direct state check.
+let timelineScrollOwner = 'programmatic'; // 'user' | 'programmatic'
+function movePlayhead(){
+  const scroller = document.getElementById('timelineScroll');
+  if(!scroller) return;
+  const pps = pxPerSecond();
+  // currentAbsoluteTimeSec IS the absolute timeline position already  -  no trimStart
+  // arithmetic needed here anymore (that used to be re-derived from clip-relative `frame`,
+  // which is what caused keyframes/scrubbing to land in the wrong spot whenever trimStart
+  // > 0 or the wrong clip's trimStart got used).
+  const absSec = currentAbsoluteTimeSec;
+  // .timeline-inner has left/right padding == scroller.clientWidth/2 (see syncTimelineInnerWidth),
+  // so content at absSec sits at pixel (pad + absSec*pps) inside it. To land that pixel under the
+  // sticky center line, scrollLeft must equal absSec*pps exactly (the two half-widths cancel out).
+  const targetScroll = Math.max(0, absSec*pps);
+  const wasOwner = timelineScrollOwner;
+  timelineScrollOwner = 'programmatic';
+  if(Math.abs(scroller.scrollLeft-targetScroll)>0.5) scroller.scrollLeft = targetScroll;
+  timelineScrollOwner = wasOwner === 'user' ? 'user' : 'programmatic';
+}
+// Keeps the playhead line exactly as tall as the visible timeline viewport, so it is
+// always fully visible top-to-bottom and never clipped, cut short, or left floating
+// after layers are added/removed or the panel is resized.
+function syncPlayheadHeight(){
+  const scroller = document.getElementById('timelineScroll');
+  const line = document.getElementById('playhead');
+  if(!scroller || !line) return;
+  line.style.height = scroller.clientHeight + 'px';
+}
+
+/* ---------------- Timeline clip rendering (drag-trim + cut) ---------------- */
+const PPS_BASE = 90; // fixed px-per-second zoom level, CapCut-style (content scrolls, doesn't stretch)
+// FEATURE (two-finger pinch on a clip zooms the timeline for finer editing): a second
+// finger landing on a clip while a first is already down scales every clip/ruler/handle
+// wider on screen (never taller  -  this only ever changes horizontal px-per-second), the same
+// way editors like CapCut let you pinch the timeline open to get more room on a short clip.
+// timelineZoom is a session-only multiplier (not saved  -  it resets to 1 on reload, same as
+// any other "current view" state like scroll position) applied on top of PPS_BASE. Every one
+// of this file's 20+ callers of pxPerSecond() automatically respects it since they all read
+// through this single function  -  no other call site needed to change.
+let timelineZoom = 1;
+const TIMELINE_ZOOM_MIN = 0.2, TIMELINE_ZOOM_MAX = 6; // v279: min lowered from 1 so pinching IN can shrink the timeline (zoom out)
+function pxPerSecond(){
+  return PPS_BASE * timelineZoom;
+}
+
+/* ---------------- Double-tap + drag to extend a clip (all timeline clip types) ----------------
+   A quick double press on the same clip arms edge-trim mode. The second press is captured here
+   before a clip's normal move/scrub handler sees it, so horizontal dragging changes trimEnd and
+   cannot accidentally slide the clip. A normal tap/drag and the existing visible edge handles
+   keep their original behavior. */
+let _doubleTapClipDown = null;
+let _lastClipTap = null;
+let _doubleTapTrimGesture = null;
+function timelineClipTargetAt(node){
+  if(!node || !node.closest) return null;
+  if(node.closest('.kf-marker, .anim-clip-handle, [data-ov-handle], [data-bg-handle], [data-seg-handle]')) return null;
+  const mainEl = node.closest('#animClipEl');
+  if(mainEl && activeClip) return {key:'main', type:'main', model:activeClip, el:mainEl};
+  const segEl = node.closest('.anim-clip[data-seg-idx]');
+  if(segEl){
+    const idx = Number(segEl.dataset.segIdx);
+    const model = splitStickmanSegments[idx];
+    if(model) return {key:'seg:'+idx, type:'seg', index:idx, model, el:segEl};
+  }
+  const overlayEl = node.closest('.overlay-clip[data-overlay-id]');
+  if(overlayEl){
+    const model = overlays.find(o=>String(o.id)===String(overlayEl.dataset.overlayId));
+    if(model) return {key:'ov:'+model.id, type:'overlay', model, el:overlayEl};
+  }
+  const bgEl = node.closest('.track-clip[data-bg-id]');
+  if(bgEl){
+    const model = backgrounds.find(b=>String(b.id)===String(bgEl.dataset.bgId));
+    if(model) return {key:'bg:'+model.id, type:'background', model, el:bgEl};
+  }
+  return null;
+}
+function ensureDoubleTapClipTrimWired(){
+  const scroller = document.getElementById('timelineScroll');
+  if(!scroller || scroller.dataset.doubleTapTrimWired) return;
+  scroller.dataset.doubleTapTrimWired = '1';
+  scroller.addEventListener('pointerdown', e=>{
+    // A second simultaneous touch belongs to the pinch recognizer, never double-tap trim.
+    if(e.pointerType === 'touch' && e.isPrimary === false){
+      _lastClipTap = null; _doubleTapClipDown = null;
+      if(_doubleTapTrimGesture){
+        const old = _doubleTapTrimGesture;
+        old.target.model.trimEnd = old.origEnd;
+        old.target.el.classList.remove('trim-gesture-active');
+        if(old.target.type === 'background') bgHandleDragActive = false;
+        _doubleTapTrimGesture = null; disarmClipDrag(); hideTrimFrameBadge();
+      }
+      return;
+    }
+    if(_doubleTapTrimGesture){ e.preventDefault(); e.stopImmediatePropagation(); return; }
+    const target = timelineClipTargetAt(e.target);
+    if(!target || e.button > 0) { _doubleTapClipDown = null; _lastClipTap = null; return; }
+    const now = Date.now();
+    if(_lastClipTap && _lastClipTap.key===target.key && now-_lastClipTap.time < 550){
+      _lastClipTap = null;
+      e.preventDefault(); e.stopImmediatePropagation();
+      if(isPlaying) pausePlayback();
+      const liveTarget = timelineClipTargetAt(e.target) || target;
+      try{ selectClipForChrome(liveTarget.type==='main'?'main':liveTarget.type==='seg'?'seg'+liveTarget.index:liveTarget.model.id); }catch(_){}
+      _doubleTapTrimGesture = {
+        pointerId:e.pointerId, target:liveTarget, startX:e.clientX,
+        origStart:liveTarget.model.trimStart, origEnd:liveTarget.model.trimEnd,
+        moved:false, startedAt:now
+      };
+      _doubleTapClipDown = null;
+      try{ scroller.setPointerCapture(e.pointerId); }catch(_){}
+      liveTarget.el.classList.add('trim-gesture-active');
+      if(liveTarget.type==='background') bgHandleDragActive = true;
+      armClipDrag();
+      if(navigator.vibrate) navigator.vibrate(8);
+      return;
+    }
+    _doubleTapClipDown = { key:target.key, time:now, startX:e.clientX, startY:e.clientY, pointerId:e.pointerId, moved:false };
+  }, {capture:true});
+  scroller.addEventListener('pointermove', e=>{
+    if(!_doubleTapTrimGesture){
+      if(_doubleTapClipDown && e.pointerId===_doubleTapClipDown.pointerId && Math.hypot(e.clientX-_doubleTapClipDown.startX,e.clientY-_doubleTapClipDown.startY)>9) _doubleTapClipDown.moved=true;
+      return;
+    }
+    const g = _doubleTapTrimGesture;
+    if(e.pointerId!==g.pointerId) return;
+    e.preventDefault(); e.stopImmediatePropagation();
+    const model = g.target.model;
+    const pps = pxPerSecond();
+    let newEnd = Math.max(g.origStart + MIN_CLIP_SEC, g.origEnd + (e.clientX-g.startX)/pps);
+    newEnd = Math.min(newEnd, g.origStart + 120);
+    if(g.target.type==='background'){
+      const next = backgrounds.filter(b=>b.id!==model.id && b.trimStart>=g.origEnd-0.001).reduce((m,b)=>Math.min(m,b.trimStart), Infinity);
+      if(Number.isFinite(next)) newEnd = Math.min(newEnd, next-0.03);
+    }
+    model.trimEnd = Math.max(g.origStart+MIN_CLIP_SEC, newEnd);
+    g.moved = g.moved || Math.abs(e.clientX-g.startX)>1;
+    if(model.trimEnd > timelineDuration-0.3){ timelineDuration=model.trimEnd+1; syncTimelineInnerWidth(); renderRuler(); }
+    // Direct DOM width writes avoid replacing the captured element mid-gesture. Defer
+    // character collision resolution, background neighbour shifts and overlay lane packing
+    // until the gesture ends; these full-row passes must never run inside pointermove.
+    g.target.el.style.width = Math.max(MIN_CLIP_SEC*pps,(model.trimEnd-model.trimStart)*pps)+'px';
+    updateTimeReadout();
+    showTrimFrameBadge(g.target.el, model.trimEnd-g.origEnd, e.clientX);
+  }, {capture:true, passive:false});
+  const finish = (e, cancelled=false)=>{
+    if(_doubleTapTrimGesture && e.pointerId===_doubleTapTrimGesture.pointerId){
+      e.preventDefault(); e.stopImmediatePropagation();
+      const g = _doubleTapTrimGesture;
+      _doubleTapTrimGesture = null;
+      if(cancelled) g.target.model.trimEnd = g.origEnd;
+      g.target.el.classList.remove('trim-gesture-active');
+      if(g.target.type==='background') bgHandleDragActive = false;
+      disarmClipDrag(); hideTrimFrameBadge();
+      if(g.moved || cancelled){
+        if(g.target.type==='main' || g.target.type==='seg'){
+          applyCharClipLanes(g.target.type==='main'?'main':'seg'+g.target.index);
+          renderTimelineClip();
+        }
+        else if(g.target.type==='background'){
+          resolveBgClipOverlaps(g.target.model.id);
+          renderBackgroundTrack(); syncTimelineInnerWidth();
+        }
+        else if(g.target.type==='overlay'){ renderOverlayLayers(); selectClipForChrome(g.target.model.id); }
+        setCurrentAbsoluteTime(currentAbsoluteTimeSec);
+        renderFrame();
+        if(!cancelled) persistProjectState();
+      }
+      try{ scroller.releasePointerCapture(e.pointerId); }catch(_){}
+      _lastClipTap = null; _doubleTapClipDown = null;
+      return;
+    }
+    if(_doubleTapClipDown && e.pointerId===_doubleTapClipDown.pointerId){
+      if(!_doubleTapClipDown.moved) _lastClipTap = {key:_doubleTapClipDown.key,time:Date.now()};
+      else _lastClipTap = null;
+      _doubleTapClipDown = null;
+    }
+  };
+  scroller.addEventListener('pointerup', e=>finish(e,false), {capture:true});
+  scroller.addEventListener('pointercancel', e=>finish(e,true), {capture:true});
+}
+// Stable timeline-level two-finger zoom. The old per-clip handler allowed normal scrub/drag
+// handlers to keep running during a pinch and called syncTimelineInnerWidth() on every move,
+// which rebuilt the background row and let scrollLeft jump as browser layout clamped the width.
+// This handler owns both pointers globally for the duration of the pinch and updates clip widths
+// in place. It works even when the fingers land on different child elements of the same track.
+let timelineZoomGesture = null;
+let timelinePinchCandidate = null;
+let _timelinePinchPointers = new Map();
+let _timelinePinchEnding = false;
+function wireClipZoomGesture(el){
+  // Retained so existing render paths need no rewriting. Pinch zoom is now handled once by
+  // ensureTimelinePinchZoomWired() on #timelineScroll, not independently on each clip.
+  if(el) el.dataset.zoomWired = '1';
+}
+function dispatchTimelinePointerCancel(pointer){
+  if(!pointer || !pointer.target || typeof PointerEvent === 'undefined') return;
+  try{
+    pointer.target.dispatchEvent(new PointerEvent('pointercancel', {
+      bubbles:true, cancelable:false, pointerId:pointer.id, pointerType:'touch',
+      clientX:pointer.x, clientY:pointer.y, buttons:0, isPrimary:false
+    }));
+  }catch(_){}
+}
+function setTimelineWidthForPinch(cachedClientWidth){
+  const inner = document.getElementById('timelineInner');
+  const scroller = document.getElementById('timelineScroll');
+  if(!inner || !scroller) return;
+  const clientWidth = Number.isFinite(cachedClientWidth) ? cachedClientWidth : scroller.clientWidth;
+  const pad = clientWidth / 2;
+  const pps = pxPerSecond();
+  inner.style.width = (timelineDuration * pps + pad * 2) + 'px';
+  inner.style.paddingLeft = Math.max(0, pad - TRACK_LEAD_PX) + 'px';
+  inner.style.paddingRight = pad + 'px';
+}
+function ensureTimelinePinchZoomWired(){
+  const scroller = document.getElementById('timelineScroll');
+  if(!scroller || scroller.dataset.stablePinchWired) return;
+  scroller.dataset.stablePinchWired = '1';
+  // Accept both fingers anywhere inside the timeline canvas. Split clips can become too
+  // narrow for two fingers to fit on the same chip, so requiring two clip-surface hits made
+  // pinch zoom fail specifically on short first/second split pieces.
+  const isTimelineSurface = node => !!(node && node.closest && node.closest('#timelineInner, #timelineScroll'));
+  const isTrackedPair = g => g && g.pointerIds && g.pointerIds.length===2 &&
+    g.pointerIds.every(id=>_timelinePinchPointers.has(id));
+  let pinchMoveRaf = 0;
+  const processLatestPinchMove = ()=>{
+    pinchMoveRaf = 0;
+    const candidate = timelinePinchCandidate;
+    const g = timelineZoomGesture || candidate;
+    if(!g || !isTrackedPair(g)) return;
+    const a = _timelinePinchPointers.get(g.pointerIds[0]);
+    const b = _timelinePinchPointers.get(g.pointerIds[1]);
+    if(!a || !b) return;
+    const dist = Math.max(1,Math.hypot(a.x-b.x,a.y-b.y));
+
+    if(!timelineZoomGesture){
+      if(!candidate || Math.abs(dist-candidate.startDist)<8) return;
+      timelineZoomGesture = candidate;
+      timelinePinchCandidate = null;
+      if(navigator.vibrate) navigator.vibrate(8);
+    }
+    const zoomGesture = timelineZoomGesture;
+    const newZoom = Math.max(TIMELINE_ZOOM_MIN,Math.min(TIMELINE_ZOOM_MAX,zoomGesture.startZoom*(dist/zoomGesture.startDist)));
+    const midX = (a.x+b.x)/2;
+    let zoomChanged = false;
+    if(Math.abs(newZoom-timelineZoom)>=0.004){
+      timelineZoom = newZoom;
+      // Reposition existing nodes in place once per display frame.
+      repositionAllClipsForZoom(false);
+      setTimelineWidthForPinch(zoomGesture.scrollerClientWidth);
+      zoomChanged = true;
+    }
+    const pad = zoomGesture.scrollerClientWidth / 2;
+    const nextScrollLeft = Math.max(0,zoomGesture.anchorSec*pxPerSecond()+pad-(midX-zoomGesture.scrollerRect.left));
+    if(zoomChanged){
+      // v279 FIX (ruler/frame text stretched sideways while pinching): the old code scaled the whole
+      // ruler with CSS scaleX, which also stretched every label. Instead the ruler is redrawn at the
+      // new zoom with normal-width text, but only for the part of the ruler that is on screen
+      // (plus a margin), so it stays cheap enough to run once per display frame.
+      const ppsNow = pxPerSecond(), marginSec = (pad + 80) / ppsNow + 1;
+      renderRuler({
+        from: Math.max(0,(nextScrollLeft - pad) / ppsNow - marginSec),
+        to: (nextScrollLeft + zoomGesture.scrollerClientWidth - pad) / ppsNow + marginSec
+      });
+    }
+    zoomGesture.scroller.scrollLeft = nextScrollLeft;
+  };
+  const schedulePinchMoveFrame = ()=>{
+    if(pinchMoveRaf) return;
+    pinchMoveRaf = requestAnimationFrame(processLatestPinchMove);
+  };
+
+  // Any interaction in the timeline pauses playback immediately. Child clip handlers
+  // still own selection, scrubbing, trimming and moving; this capture listener only ensures
+  // the playhead cannot continue running underneath a touch on a badge/blank track/clip.
+  scroller.addEventListener('pointerdown', e=>{
+    if(isPlaying) pausePlayback();
+    if(e.pointerType && e.pointerType !== 'touch' && e.pointerType !== 'pen') return;
+    if(_timelinePinchEnding){
+      _timelinePinchPointers.set(e.pointerId, {id:e.pointerId, x:e.clientX, y:e.clientY, target:e.target});
+      e.preventDefault(); e.stopImmediatePropagation();
+      return;
+    }
+    _timelinePinchPointers.set(e.pointerId, {id:e.pointerId, x:e.clientX, y:e.clientY, target:e.target});
+    if(_timelinePinchPointers.size < 2) return;
+
+    const points = [..._timelinePinchPointers.values()].slice(0,2);
+    // Zoom belongs to a genuine two-touch gesture inside the timeline. This still excludes
+    // touches outside the timeline while allowing short split clips to be pinched reliably.
+    if(!isTimelineSurface(points[0].target) || !isTimelineSurface(points[1].target)){
+      _timelinePinchPointers.delete(e.pointerId);
+      return;
+    }
+
+    // A two-touch candidate cancels the first touch's pending scrub/move state, but zoom
+    // does not begin until the distance actually changes by 8px. Thus two fingers merely
+    // touching a clip do not cause a zoom; spreading/pinching them does.
+    e.preventDefault(); e.stopImmediatePropagation();
+    const first=points[0], second=points[1];
+    try{ scroller.setPointerCapture(first.id); }catch(_){}
+    try{ scroller.setPointerCapture(second.id); }catch(_){}
+    _lastClipTap = null; _doubleTapClipDown = null;
+    if(_doubleTapTrimGesture){

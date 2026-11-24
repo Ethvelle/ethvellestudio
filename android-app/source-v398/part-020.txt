@@ -1,0 +1,1000 @@
+      ethvelleMediaKeyframes:(Array.isArray(ov.ethvelleMediaKeyframes)?ov.ethvelleMediaKeyframes:[]).filter(k=>Number(k.t)>=absPlayheadSec).map(k=>({...k,value:ethvelleCloneObjectKeyframeValue(k.value,k.property)}))
+    };
+    ov.splitPart = true;
+    ov.trimEnd = absPlayheadSec;
+    ov.ethvelleMediaKeyframes=(Array.isArray(ov.ethvelleMediaKeyframes)?ov.ethvelleMediaKeyframes:[]).filter(k=>Number(k.t)<absPlayheadSec);
+    overlays.push(secondHalf);
+    // BUGFIX: same fix as the main-clip branch above  -  select the new second half so
+    // repeated splits don't keep re-cutting the same already-finished first half.
+    selectedClip = id2;
+    renderOverlayLayers();
+    selectClipForChrome(selectedClip);
+  }
+  // Keep the playhead exactly where the cut just happened instead of snapping back to 0  - 
+  // `frame` is clip-relative to activeClip.trimStart, which the split above does NOT change
+  // for the first half, so re-deriving frame from the same absolute second keeps the visual
+  // playhead glued to the cut point (matches CapCut: splitting never moves your position).
+  seekAbsoluteTimelineSeconds(absPlayheadSec);
+  showToast('Clip split', {icon: toastIcons.check, duration:1200});
+  persistProjectState();
+}
+
+// Tapping a layer's badge/icon (Stickman / Background) highlights that row in the
+// timeline and arms the contextual clip toolbar underneath. It no longer force-opens a
+// tool panel  -  that's a separate, explicit action now (matching CapCut: selecting a clip
+// and opening its properties are two different taps).
+// BUGFIX: this used to be wired to onclick on the ENTIRE .layer-row, not just the badge.
+// Because .layer-track is flex:1, that row spans the full (often very wide/scrollable)
+// timeline width  -  so clicking ANY empty timeline space in that row, not just the actual
+// clip, was bubbling up to this and selecting+pausing. That's what looked like "playback
+// pauses when I click anywhere on screen". The clip body itself already selects on its
+// own onpointerdown (see wireClipInteractions/wireOverlayInteractions) and stops the event
+// from bubbling here, so this handler only needs to live on the small badge icon now  - 
+// empty track space no longer does anything, and playback only pauses when you actually
+// tap a clip/layer, exactly like CapCut.
+let selectedLayer = null;
+function selectLayer(which){
+  selectedLayer = which;
+  document.querySelectorAll('.layer-row').forEach(row=>{
+    row.classList.toggle('selected', row.dataset.layer === which);
+  });
+  if(which === 'stickman'){
+    // There's no separate "stickman" row anymore  -  each character has its own row and own
+    // clip. Selecting "Stickman" from the Media panel now means "the active character's
+    // clip", so re-highlight that character's row (data-char-idx, not data-layer) and select
+    // its main clip exactly like before.
+    const activeRow = document.querySelector(`.layer-row[data-char-idx="${activeCharIdx}"]`);
+    if(activeRow) activeRow.classList.add('selected');
+    selectClipForChrome('main');
+  } else if(which === 'background'){
+    // FEATURE (multiple sequential backgrounds): "Background" here means "whichever
+    // background clip is currently under the playhead" if one exists, otherwise there's
+    // nothing yet to select  -  fall through to the normal empty-row "Add background" tap
+    // behavior instead of selecting a nonexistent clip.
+    const bg = currentBackgroundClip(getCurrentAbsoluteTime());
+    if(bg) selectClipForChrome(bg.id);
+    else openPanel('bg');
+  }
+}
+function selectOverlayLayer(id){
+  selectedLayer = null;
+  document.querySelectorAll('.layer-row').forEach(row=>row.classList.remove('selected'));
+  const ov = overlays.find(o=>o.id===id);
+  const groupKey = ov && ov.type==='audio' ? 'audio' : (ov && ov.type==='text' ? 'text' : 'clips');
+  const row = document.querySelector(`.overlay-track-row[data-group="${groupKey}"]`);
+  if(row) row.classList.add('selected');
+  selectClipForChrome(id);
+  // BUGFIX (thin white line on select): selectClipForChrome only toggles .selected classes,
+  // it never recomputes left/width/background. If anything upstream left stale geometry on
+  // this clip, a plain class toggle would just keep showing it collapsed. Re-running the
+  // overlay render here makes selecting a layer always paint fresh geometry, not just fresh
+  // selection chrome.
+  renderOverlayLayers();
+}
+
+/* ---------------- Overlays (CapCut-style extra layer tracks, add / drag / trim / delete) ---------------- */
+const OVERLAY_COLORS = ['#F5A623','#FF6B9D','#7C9CFF','#C08CFF','#FFD166'];
+function addOverlayLayer(){
+  const id='ov'+Date.now(),color=OVERLAY_COLORS[overlays.length%OVERLAY_COLORS.length],len=2;
+  const group=overlays.filter(o=>o&&o.type!=='audio'&&o.type!=='text').sort((a,b)=>(Number(a.trimStart)||0)-(Number(b.trimStart)||0));
+  let playhead=0;try{playhead=Math.max(0,Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():currentAbsoluteTimeSec)||0);}catch(_e){}
+  let at=group.length;
+  for(let i=0;i<group.length;i++){
+    const c=group[i],st=Number(c.trimStart)||0,l=Math.max(MIN_CLIP_SEC,(Number(c.trimEnd)||st+MIN_CLIP_SEC)-st),en=st+l;
+    if(playhead<=st+.001){at=i;break;}
+    if(playhead<en-.001){at=playhead<(st+en)/2?i:i+1;break;}
+  }
+  const newClip={id,name:'Shape '+(overlays.length+1),color,type:'shape',trimStart:0,trimEnd:len};
+  const ordered=[...group.slice(0,at),newClip,...group.slice(at)];let cursor=0;
+  ordered.forEach(c=>{
+    const oldStart=Number(c.trimStart)||0;
+    const oldKeyframeTimes=Array.isArray(c.ethvelleMediaKeyframes)?c.ethvelleMediaKeyframes.map(k=>Number(k&&k.t)||0):[];
+    const l=c===newClip?len:Math.max(MIN_CLIP_SEC,(Number(c.trimEnd)||0)-(Number(c.trimStart)||0));
+    c.trimStart=cursor;c.trimEnd=cursor+l;
+    const movedBy=c.trimStart-oldStart;
+    if(c!==newClip&&Math.abs(movedBy)>0.000001)shiftTimelineKeyframesOnce(c.ethvelleMediaKeyframes,oldKeyframeTimes,movedBy);
+    cursor=c.trimEnd;
+  });
+  overlays.push(newClip);timelineDuration=Math.max(Number(timelineDuration)||0,cursor);
+  renderOverlayLayers();syncTimelineInnerWidth();renderRuler();selectClipForChrome(id);renderOverlayListPanel();
+  showToast('Shape layer added',{icon:toastIcons.check,duration:1200});persistProjectState();closePanel();
+}
+function renderOverlayListPanel(){
+  const container = document.getElementById('overlayListBody');
+  if(!container) return;
+  if(!overlays.length){container.innerHTML='';return;}
+  container.innerHTML = overlays.map(ov=>{
+    const selected = String(selectedClip) === String(ov.id);
+    const isVisual=ov.type==='image'||ov.type==='video';
+    const thumb=(Array.isArray(ov.thumbs)&&ov.thumbs.length?ov.thumbs[0]:(ov.type==='image'?ov.src:''));
+    // Video previews are filled by the V8 src-keyed filmstrip job. Do not start a
+    // second, per-clip one-frame decoder here (split halves share the same source).
+    const thumbMarkup=isVisual&&thumb
+      ? `<div class="anim-play-mini ev-media-list-thumb"><img src="${escapeHtml(thumb)}" alt="${escapeHtml(ov.name||'Media thumbnail')}" loading="lazy" decoding="async"></div>`
+      : `<div class="anim-play-mini ev-media-list-thumb ev-media-list-placeholder" aria-hidden="true">${layerBadgeIcon(ov.type)}</div>`;
+    return `
+      <div class="anim-item ${selected?'selected':''}" onclick="selectClipForChrome('${ov.id}');renderOverlayListPanel();">
+        ${thumbMarkup}
+        <div class="anim-item-name">${escapeHtml(ov.name)}</div>
+        ${selected ? '<span class="anim-item-badge">SELECTED</span>' : ''}
+      </div>`;
+  }).join('');
+}
+// ---------------- Trim panel: shown for the currently-selected overlay/background/media
+// clip via the contextual bottom toolbar's "Trim" button (see syncBottomToolsMode). Lets
+// the person nudge trimStart/trimEnd numerically instead of only via the drag handles on
+// the timeline  -  handy for fine adjustments the finger can't hit precisely on a small
+// screen. Not shown for the main stickman clip, which already has its own Split-based flow.
+function trimPanelTargetClip(){
+  if(!selectedClip || selectedClip==='main' || String(selectedClip).startsWith('seg')) return null;
+  const bg = backgroundClipForSelection();
+  if(bg) return bg;
+  return overlays.find(o=>o.id===selectedClip) || null;
+}
+function renderTrimPanel(){
+  const body = document.getElementById('trimPanelBody');
+  if(!body) return;
+  const ov = trimPanelTargetClip();
+  if(!ov){
+    body.innerHTML = `<p class="field-label">Select a media or overlay clip on the timeline to trim it.</p>`;
+    return;
+  }
+  const isBg = !!backgrounds.find(b=>b.id===ov.id);
+  const len = (ov.trimEnd - ov.trimStart).toFixed(2);
+  const label = isBg ? 'Background' : ov.name;
+  // Background images have no fixed source duration to cap End at (unlike video/audio,
+  // which can only be trimmed up to how much footage actually exists)  -  allow a generous
+  // fixed ceiling instead of ov.sourceDuration, which background clips don't have.
+  const endMax = isBg ? (ov.trimStart + 60) : (ov.trimStart + (ov.sourceDuration||30));
+  body.innerHTML = `
+    <p class="field-label">${escapeHtml(label)} · ${len}s</p>
+    <div class="trim-row">
+      <label>Start</label>
+      <input type="range" min="0" max="${Math.max(MIN_CLIP_SEC, ov.trimEnd-MIN_CLIP_SEC).toFixed(2)}" step="0.05" value="${ov.trimStart.toFixed(2)}" oninput="trimPanelSetStart(this.value)">
+      <span class="trim-val" id="trimStartVal">${ov.trimStart.toFixed(2)}s</span>
+    </div>
+    <div class="trim-row">
+      <label>End</label>
+      <input type="range" min="${(ov.trimStart+MIN_CLIP_SEC).toFixed(2)}" max="${endMax.toFixed(2)}" step="0.05" value="${ov.trimEnd.toFixed(2)}" oninput="trimPanelSetEnd(this.value)">
+      <span class="trim-val" id="trimEndVal">${ov.trimEnd.toFixed(2)}s</span>
+    </div>
+    <button class="btn-primary-block" style="margin-top:14px;" onclick="closePanel()">Done</button>
+  `;
+}
+function trimPanelSetStart(val){
+  const ov = trimPanelTargetClip();
+  if(!ov) return;
+  const isBg = !!backgrounds.find(b=>b.id===ov.id);
+  const oldStart=ov.trimStart;
+  ov.trimStart = Math.min(ov.trimEnd-MIN_CLIP_SEC, Math.max(0, parseFloat(val)));
+  if(!isBg&&(ov.type==='audio'||ov.type==='video')) ov.sourceOffset=Math.max(0,(Number(ov.sourceOffset)||0)+(ov.trimStart-oldStart)*(Number(ov.speed)||1));
+  if(isBg) resolveBgClipOverlaps(ov.id); // hard wall  -  numeric entry can't overlap a neighbor either
+  document.getElementById('trimStartVal').textContent = ov.trimStart>=60?evFormatClock(ov.trimStart,true):ov.trimStart.toFixed(2)+'s';
+  if(isBg){ renderBackgroundTrack(); refreshCurrentBgFromPlayhead(); applyBackground(); }
+  else renderOverlayLayers();
+  persistProjectState({skipHistory:true});
+}
+function trimPanelSetEnd(val){
+  const ov = trimPanelTargetClip();
+  if(!ov) return;
+  const isBg = !!backgrounds.find(b=>b.id===ov.id);
+  ov.trimEnd = Math.max(ov.trimStart+MIN_CLIP_SEC, parseFloat(val));
+  if(isBg) resolveBgClipOverlaps(ov.id); // hard wall  -  numeric entry can't overlap a neighbor either
+  if(ov.trimEnd > timelineDuration - 0.3){ timelineDuration = ov.trimEnd+1; syncTimelineInnerWidth(); renderRuler(); }
+  document.getElementById('trimEndVal').textContent = ov.trimEnd>=60?evFormatClock(ov.trimEnd,true):ov.trimEnd.toFixed(2)+'s';
+  if(isBg){ renderBackgroundTrack(); refreshCurrentBgFromPlayhead(); applyBackground(); }
+  else renderOverlayLayers();
+  persistProjectState({skipHistory:true});
+}
+
+// ---------------- Speed panel: shown for the currently-selected clip via the contextual
+// bottom toolbar's "Speed" button (see syncBottomToolsMode). Works across every clip type
+// that actually plays back content over time  -  the stickman animation clip (main/segN),
+// and video/image/audio overlays  -  CapCut-style: raising speed shrinks the clip's footprint
+// on the timeline (it now takes less time to play through the same content), lowering speed
+// grows it. Not offered for the Background row (background clips can be trimmed/split/moved
+// but have no play-rate of their own  -  see renderBackgroundTrack/resolveBgClipOverlaps for
+// the actual "adjust how much of the timeline a background covers" controls) or for plain
+// shape overlays (solid color, nothing to play back).
+function speedTargetClip(){
+  if(!selectedClip) return null;
+  if(selectedClip==='main') return activeClip;
+  if(String(selectedClip).startsWith('seg')) return getClipByRef(selectedClip);
+  const ov = overlays.find(o=>o.id===selectedClip);
+  if(ov && ov.type!=='shape') return ov;
+  return null;
+}
+// Whether the currently-selected clip is a stickman animation clip (main or segN)  -  these
+// use preset.duration as their "1x length" reference instead of sourceDuration.
+function isStickmanSpeedTarget(clip){
+  return selectedClip==='main' || String(selectedClip).startsWith('seg');
+}
+// The clip's own "natural", 1x-speed length in seconds  -  for stickman clips this is however
+// long the clip currently spans (there's no fixed source length to fall back to, since a
+// looped preset can be stretched to any length); for real media (video/audio) it's the
+// uploaded file's own sourceDuration, so raising speed always shrinks toward however much
+// of the ACTUAL content plays, and lowering speed stretches it back out, exactly like CapCut.
+function speedTargetBaseLen(clip){
+  if(isStickmanSpeedTarget(clip)){
+    // Lazily remember the length this clip had the very first time its speed is ever
+    // touched, so repeated speed changes always scale from the same 1x reference instead of
+    // compounding off whatever the PREVIOUS speed setting happened to leave behind.
+    if(clip._speedBaseLen == null) clip._speedBaseLen = clip.trimEnd - clip.trimStart;
+    return clip._speedBaseLen;
+  }
+  return clip.sourceDuration || (clip.trimEnd - clip.trimStart);
+}
+// FEATURE (control any clip's own audio volume): only video/audio overlays can carry sound
+// (see the `volume` field added in addMediaOverlay)  -  the stickman, backgrounds, images and
+// shapes all return null here so the Volume tool/panel only ever appears for a clip that
+// actually has something to turn up or down.
+function volumeTargetClip(){
+  if(!selectedClip || typeof selectedClip !== 'string') return null;
+  const ov = overlays.find(o=>o.id===selectedClip);
+  if(ov && (ov.type==='video' || ov.type==='audio')) return ov;
+  return null;
+}
+function renderVolumePanel(){
+  const body = document.getElementById('volumePanelBody');
+  if(!body) return;
+  const clip = volumeTargetClip();
+  if(!clip){
+    body.innerHTML = `<p class="field-label">Select a video or audio clip on the timeline to change its volume.</p>`;
+    return;
+  }
+  const vol = clip.volume==null ? 1 : clip.volume;
+  const pct = Math.round(vol*100);
+  const presets = [0, 50, 100, 150, 200];
+  body.innerHTML = `
+    <p class="field-label" id="volumePanelHeader">${escapeHtml(clip.name || 'Clip')} \u00b7 ${pct}%</p>
+    <div class="speed-preset-row">
+      ${presets.map(p=>`<button class="speed-preset-btn ${Math.abs(pct-p)<1?'active':''}" data-vol="${p}" onclick="volumePanelSetVolume(${p})">${p===0?'Mute':p+'%'}</button>`).join('')}
+    </div>
+    <div class="trim-row" style="margin-top:14px;">
+      <label>Volume</label>
+      <input type="range" min="0" max="200" step="5" value="${pct}" oninput="volumePanelSetVolume(this.value)">
+      <span class="trim-val" id="volumeVal">${pct}%</span>
+    </div>
+    <button class="sheet-btn-secondary" style="margin-top:10px;" onclick="extractAudioFromClip()">Extract audio to its own clip</button>
+    <button class="btn-primary-block" style="margin-top:14px;" onclick="closePanel()">Done</button>
+  `;
+}
+function volumePanelSetVolume(val){
+  const clip = volumeTargetClip();
+  if(!clip) return;
+  const pct = Math.max(0, Math.min(200, parseFloat(val)));
+  clip.volume = pct/100;
+  if(clip.type==='audio'&&audioOverlayNodes[clip.id]&&audioOverlayAudioCtx){
+    try{audioOverlayNodes[clip.id].gain.gain.setTargetAtTime(Math.max(0,Math.min(2,clip.volume)),audioOverlayAudioCtx.currentTime,0.015);}catch(e){audioOverlayNodes[clip.id].gain.gain.value=Math.max(0,Math.min(2,clip.volume));}
+  }
+  const label = document.getElementById('volumeVal');
+  if(label) label.textContent = Math.round(pct)+'%';
+  const slider = document.querySelector('#volumePanelBody input[type="range"]');
+  if(slider) slider.value = pct;
+  const header = document.getElementById('volumePanelHeader');
+  if(header) header.textContent = `${clip.name || 'Clip'} \u00b7 ${Math.round(pct)}%`;
+  document.querySelectorAll('#volumePanelBody .speed-preset-btn').forEach(btn=>{
+    btn.classList.toggle('active', Math.abs(parseFloat(btn.dataset.vol)-pct) < 1);
+  });
+  // Live preview should reflect the new volume immediately, not just on the next natural
+  // per-frame update  -  renderOverlayMedia/renderAudioOverlayMedia both read clip.volume
+  // fresh every call, so simply re-running the current frame is enough; no separate "apply"
+  // step is needed the way, say, a canvas redraw would require for a visual property.
+  renderOverlayMedia(getCurrentAbsoluteTime());
+  persistProjectState();
+}
+// FEATURE (extract audio from any clip): pulls the audio track out of the selected VIDEO
+// clip into a brand new, independent audio-only overlay clip  -  same timeline position and
+// length as the source video, so the two start out perfectly in sync and can then be
+// trimmed/moved/volume-adjusted completely independently of one another (e.g. muting the
+// video's own sound via its Volume panel while keeping the extracted copy playing, or
+// sliding just the audio a few frames to fix sync). Re-uses the exact same source file  -  no
+// server-side transcoding exists in this app, so the "extraction" is really "treat this
+// video's own file as an audio source too", which works because <audio>/decodeAudioData
+// both happily read the audio track straight out of a video file's container; the ORIGINAL
+// video clip is left exactly as it was (still has its own sound, still visible) so this is
+// non-destructive and can be undone by just deleting the new audio clip.
+function extractAudioFromClip(){
+  const clip = volumeTargetClip();
+  if(!clip || clip.type !== 'video'){ showToast('Select a video clip to extract its audio', {icon: toastIcons.info}); return; }
+  const newClip = {
+    id: 'ov'+Date.now()+Math.random().toString(36).slice(2,5),
+    name: (clip.name||'Video') + ' (audio)',
+    color: clip.color,
+    type: 'audio', src: clip.src, sourceDuration: clip.sourceDuration, sourceOffset: Number(clip.sourceOffset)||0,
+    trimStart: clip.trimStart, trimEnd: clip.trimEnd,
+    thumbs: [], peaks: clip.peaks && clip.peaks.length ? clip.peaks : null,
+    speed: clip.speed || 1, volume: 1, transform: null
+  };
+  overlays.push(newClip);
+  timelineDuration = Math.max(timelineDuration, newClip.trimEnd);
+  // A freshly extracted clip with no waveform peaks yet (peaks are only generated at
+  // upload time, see generateAudioWaveform/triggerUpload  -  this clip never went through an
+  // upload) gets them generated now, same function, same async fill-in-when-ready pattern
+  // every other audio clip's waveform already uses.
+  if(!newClip.peaks && typeof generateAudioWaveform === 'function') generateAudioWaveform(newClip.src).then(result=>{ newClip.peaks = result.peaks; renderOverlayLayers(); }).catch(()=>{});
+  renderOverlayLayers();
+  syncTimelineInnerWidth();
+  renderRuler();
+  onClipSelected(newClip,'add');
+  renderOverlayListPanel();
+  showToast('Audio extracted as its own clip', {icon: toastIcons.check, duration:1600});
+  persistProjectState();
+}
+function renderSpeedPanel(){
+  const body = document.getElementById('speedPanelBody');
+  if(!body) return;
+  const clip = speedTargetClip();
+  if(!clip){
+    body.innerHTML = `<p class="field-label">Select an animation, video, image, or audio clip on the timeline to change its speed.</p>`;
+    return;
+  }
+  const speed = clip.speed || 1;
+  const len = (clip.trimEnd - clip.trimStart).toFixed(2);
+  const presets = [0.5, 1, 1.5, 2, 3];
+  body.innerHTML = `
+    <p class="field-label" id="speedPanelHeader">${escapeHtml(clip.name || (isStickmanSpeedTarget(clip) ? 'Animation' : 'Clip'))} · ${len}s at ${speed.toFixed(2)}x</p>
+    <div class="speed-preset-row">
+      ${presets.map(p=>`<button class="speed-preset-btn ${Math.abs(speed-p)<0.01?'active':''}" data-speed="${p}" onclick="speedPanelSetSpeed(${p})">${p}x</button>`).join('')}
+    </div>
+    <div class="trim-row" style="margin-top:14px;">
+      <label>Speed</label>
+      <input type="range" min="0.25" max="3" step="0.05" value="${speed.toFixed(2)}" oninput="speedPanelSetSpeed(this.value)">
+      <span class="trim-val" id="speedVal">${speed.toFixed(2)}x</span>
+    </div>
+    <button class="btn-primary-block" style="margin-top:14px;" onclick="closePanel()">Done</button>
+  `;
+}
+function speedPanelSetSpeed(val){
+  const clip = speedTargetClip();
+  if(!clip) return;
+  const newSpeed = Math.max(0.25, Math.min(3, parseFloat(val)));
+  const baseLen = speedTargetBaseLen(clip);
+  clip.speed = newSpeed;
+  // CapCut-style: the clip's own length ON THE TIMELINE rescales with speed (2x -> half as
+  // long, 0.5x -> twice as long), anchored at its current trimStart so it never jumps to a
+  // different position while you're mid-adjustment. sourceDuration/anim-preset content keeps
+  // playing at the new rate (see poseAtClipTime's speed-scaled clipLocalT, and
+  // renderOverlayMedia's speed-scaled localT / playbackRate for video & audio).
+  const newLen = Math.max(MIN_CLIP_SEC, baseLen / newSpeed);
+  clip.trimEnd = clip.trimStart + newLen;
+  if(clip.trimEnd > timelineDuration - 0.3){ timelineDuration = clip.trimEnd + 1; syncTimelineInnerWidth(); renderRuler(); }
+  // A speed change may make this animation overlap another character clip. That is
+  // represented as a separate vertical sub-lane by renderTimelineClip below; neither clip's
+  // timeline position is clamped or silently shifted.
+  const label = document.getElementById('speedVal');
+  if(label) label.textContent = newSpeed.toFixed(2)+'x';
+  const slider = document.querySelector('#speedPanelBody input[type="range"]');
+  if(slider) slider.value = newSpeed.toFixed(2);
+  const header = document.getElementById('speedPanelHeader');
+  if(header) header.textContent = `${clip.name || (isStickmanSpeedTarget(clip) ? 'Animation' : 'Clip')} · ${(clip.trimEnd-clip.trimStart).toFixed(2)}s at ${newSpeed.toFixed(2)}x`;
+  document.querySelectorAll('.speed-preset-btn').forEach(btn=>{
+    const btnVal = parseFloat(btn.dataset.speed);
+    btn.classList.toggle('active', Math.abs(btnVal-newSpeed) < 0.01);
+  });
+  const clipSpeedLabel = document.getElementById('clipSpeedLabel');
+  if(clipSpeedLabel) clipSpeedLabel.textContent = (Math.abs(newSpeed-1)<0.01) ? 'Speed' : newSpeed.toFixed(2).replace(/0+$/,'').replace(/\.$/,'')+'x';
+  if(isStickmanSpeedTarget(clip)){
+    renderTimelineClip();
+  } else {
+    renderOverlayLayers();
+  }
+  renderFrame();
+  persistProjectState({skipHistory:true});
+}
+/* removeSelectedOverlay() removed  -  overlay deletion now goes through the unified
+   deleteSelectedClip(), reachable from the contextual bottom-tools row for any
+   selected clip (main / background / overlay) rather than a bespoke per-type button. */
+
+// Small icon shown in the layer-badge for each overlay type, CapCut-style (identifies
+// the TRACK's content type at a glance instead of an arbitrary color dot).
+function layerBadgeIcon(type){
+  switch(type){
+    case 'video': return '<svg viewBox="0 0 24 24" style="fill:none;" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="15" height="14" rx="2"/><path d="M17 10l5-3v10l-5-3"/></svg>';
+    case 'audio': return '<svg viewBox="0 0 24 24" style="fill:none;" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+    case 'image': return '<svg viewBox="0 0 24 24" style="fill:none;" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><path d="M21 15l-5-5L5 21"/></svg>';
+    default: return '<svg viewBox="0 0 24 24" style="fill:none;" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="4" y="4" width="16" height="16" rx="2"/></svg>';
+  }
+}
+// Builds the inner fill of a clip body based on its media type: a real repeating
+// filmstrip for video, a single stretched thumbnail for images, a canvas-drawn
+// waveform for audio, or a flat tint for plain shape overlays.
+function clipFillMarkup(ov, widthPx){
+  const label = '';
+  // Videos have exactly one filmstrip owner: the lazy, time-positioned tile renderer.
+  // The empty strip is a neutral placeholder until visible source-time frames arrive.
+  // Saved legacy `thumbs` arrays are deliberately ignored; they are not a time map.
+  if(ov.type==='video'){
+    return `<div class="clip-thumb-strip ev-video-thumbs" data-ev-video-thumb-clip="${escapeHtml(String(ov.id))}" aria-hidden="true"></div>${label}`;
+  }
+  if(ov.type==='image'){
+    const imageSrc=(ov.thumbs&&ov.thumbs.length)?ov.thumbs[0]:ov.src;
+    if(imageSrc)return `<div class="clip-thumb-strip" style="background-image:url(&quot;${escapeHtml(String(imageSrc))}&quot;); background-size:auto 100%; background-repeat:repeat-x;"></div>${label}`;
+  }
+  if(ov.type==='audio'){
+    const audioLabel = `<div class="clip-media-label clip-media-label-audio">${escapeHtml(ov.name)}</div>`;
+    return `<canvas class="clip-waveform" data-waveform-for="${ov.id}"></canvas>${audioLabel}`;
+  }
+  if(ov.type==='text') return `<div class="overlay-clip-label">T · ${escapeHtml(ov.name||'Text')}</div>`;
+  if(ov.type==='video'||ov.type==='image') return '';
+  return `<div class="overlay-clip-label">${escapeHtml(ov.name)}</div>`;
+}
+// Draws ov.peaks (min/max pairs from generateAudioWaveform) onto its <canvas>, scaled to
+// however wide the clip currently is. Re-run after any resize/trim so it never looks stretched.
+function drawWaveform(ov){
+  const canvas = document.querySelector(`canvas[data-waveform-for="${ov.id}"]`);
+  if(!canvas || !ov.peaks || !ov.peaks.length) return;
+  const rect=canvas.getBoundingClientRect();
+  const w=Math.max(1,Math.round(rect.width));
+  const h=Math.max(1,Math.round(rect.height));
+  const dpr=Math.max(1,Math.min(2,window.devicePixelRatio||1));
+  const pw=Math.round(w*dpr), ph=Math.round(h*dpr);
+  // v189: a clip's waveform only changes when its size, peaks or trim change. Selecting a clip
+  // rebuilds the timeline rows and used to re-stroke every waveform bar-by-bar each time; now an
+  // unchanged waveform is blitted from a cached bitmap.
+  const cache=window.__evWaveCache||(window.__evWaveCache=new Map());
+  const key=[pw,ph,ov.peaks.length,ov.trimStart,ov.trimEnd,ov.speed,ov.sourceOffset,ov.sourceDuration].join('|');
+  const hit=cache.get(String(ov.id));
+  canvas.width=pw;
+  canvas.height=ph;
+  const cctx=canvas.getContext('2d');
+  if(hit && hit.key===key && hit.peaks===ov.peaks && hit.bmp){
+    cctx.setTransform(1,0,0,1,0,0);
+    cctx.drawImage(hit.bmp,0,0);
+    return;
+  }
+  cctx.setTransform(dpr,0,0,dpr,0,0);
+  cctx.clearRect(0,0,w,h);
+  // Ethvelle indigo waveform: thin, crisp sample strokes (not chunky filled bars).
+  cctx.fillStyle='rgba(102, 95, 255, 0.98)';
+  cctx.shadowColor='rgba(91, 82, 255, 0.22)';
+  cctx.shadowBlur=0.55;
+  const mid=h/2, scale=Math.max(1,(h-5)/2);
+  const sourceDuration=Math.max(0.01,Number(ov.sourceDuration)||((ov.trimEnd-ov.trimStart)*(Number(ov.speed)||1)));
+  const sourceStart=Math.max(0,Number(ov.sourceOffset)||0);
+  const sourceSpan=Math.max(0.01,(ov.trimEnd-ov.trimStart)*(Number(ov.speed)||1));
+  const startIndex=Math.max(0,Math.min(ov.peaks.length-1,Math.floor(sourceStart/sourceDuration*ov.peaks.length)));
+  const endIndex=Math.max(startIndex+1,Math.min(ov.peaks.length,Math.ceil((sourceStart+sourceSpan)/sourceDuration*ov.peaks.length)));
+  const visiblePeaks=ov.peaks.slice(startIndex,endIndex);
+  const barW=w/Math.max(1,visiblePeaks.length);
+  visiblePeaks.forEach((pk,i)=>{
+    const min=Math.max(-1,Math.min(0,Number(pk[0])||0));
+    const max=Math.max(0,Math.min(1,Number(pk[1])||0));
+    const strokeW=Math.min(1.25,Math.max(0.5,barW*0.34));
+    const x=i*barW+(barW-strokeW)/2;
+    const yTop=mid-max*scale;
+    const yBottom=mid-min*scale;
+    const bh=Math.max(1.8,yBottom-yTop);
+    cctx.fillRect(x,Math.max(1,yTop),strokeW,Math.min(h-2,bh));
+  });
+  cctx.shadowBlur=0;
+  try{
+    const bmp=document.createElement('canvas');bmp.width=pw;bmp.height=ph;
+    bmp.getContext('2d').drawImage(canvas,0,0);
+    cache.set(String(ov.id),{key,peaks:ov.peaks,bmp});
+    if(cache.size>60){cache.delete(cache.keys().next().value);}
+  }catch(_e){}
+}
+function redrawAllWaveforms(){
+  overlays.filter(o=>o.type==='audio').forEach(drawWaveform);
+}
+// ---------------- Groups: fixed "Clips" and "Audio" tracks ----------------
+// Per redesign: the timeline only ever shows 4 permanent rows total  -  Background, the
+// stickman/Animation track, one shared "Clips" row for every shape/image/video overlay, and
+// one "Audio" row for every audio overlay. A brand new row is never created per media item.
+// Within a group, clips that don't overlap in time render on the SAME visual line (packed
+// left-to-right like a normal single track). Clips only split onto a second/third sub-lane
+// INSIDE that one row when their time ranges actually overlap  -  the row's height grows just
+// enough to fit however many sub-lanes are concurrently in use, instead of ever spawning a
+// separate top-level row. Packing is fully automatic from each clip's trimStart/trimEnd  - 
+// dragging a clip so it overlaps another splits them onto two lines; dragging them apart in
+// time merges them back onto one, with no separate "assign to lane" step needed.
+// Generic sub-lane packer shared by the Clips/Text/Audio rows. Takes an array of
+// {trimStart, trimEnd} objects and returns the minimum number of non-overlapping horizontal
+// lanes, sorted left-to-right within each lane. Character animation clips use the equivalent
+// stable-ref packer in characterClipLaneLayout so their main/split elements can be updated live.
+function packIntoLanes(clips){
+  if(!clips.length) return [];
+  const sorted = [...clips].sort((a,b)=> a.trimStart-b.trimStart);
+  const subLanes = []; // each entry: array of clips already placed in that sub-lane, in order
+  sorted.forEach(ov=>{
+    let placed = false;
+    for(const lane of subLanes){
+      const last = lane[lane.length-1];
+      if(ov.trimStart >= last.trimEnd - 0.001){ lane.push(ov); placed = true; break; }
+    }
+    if(!placed) subLanes.push([ov]);
+  });
+  return subLanes; // array of arrays  -  outer index is sub-lane, 0 = top
+}
+function packOverlayGroup(clips){ return packIntoLanes(clips); }
+// Compatibility helper retained for older call sites that expect a laneOf/laneCount pair.
+// The active character renderer uses characterClipLaneLayout so lane assignments retain each
+// clip's stable main/segment reference while its DOM is updated live during a gesture.
+function packClipsIntoLanes(clip, segments){
+  const all = getAllStickmanClips(clip, segments); // [{ref, clip}], already time-sorted
+  const lanes = packIntoLanes(all.map(a=>a.clip));
+  const laneOf = new Map();
+  lanes.forEach((lane, laneIdx)=>{
+    lane.forEach(c=>{
+      const found = all.find(a=>a.clip===c);
+      if(found) laneOf.set(found.ref, laneIdx);
+    });
+  });
+  return { laneOf, laneCount: Math.max(1, lanes.length) };
+}
+function renderOverlayLayers(){
+  const rowScrollSnapshot=captureEthvelleRowScroll();
+  const container = document.getElementById('overlayRows');
+  if(!container) return;
+  const pps = pxPerSecond();
+  const SUB_LANE_H = OVERLAY_SUB_LANE_H;
+  // Badge starts as a "+" (matches Background/Add character) while the row is still
+  // empty  -  tapping it opens the upload picker directly for that group. Once real content
+  // exists on the row, the badge SWITCHES to a small icon identifying what's actually on
+  // that row (an image/film icon for Clips, a music note for Audio) instead of staying a
+  // plain "+" forever  -  same idea as the Background row's badge already showing a picture
+  // icon and the Character row's badge showing a little person, rather than every row's
+  // badge looking identical and generic no matter what it holds. Tapping the badge still
+  // opens the picker either way (see addOnclick below)  -  the icon swap is purely visual,
+  // there is still exactly one add affordance per row, not a second button.
+  const PLUS_BADGE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 5v14M5 12h14"/></svg>';
+  const CLIPS_BADGE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 15l5-5 4 4 3-3 6 6"/><circle cx="8.5" cy="8.5" r="1.5" fill="currentColor" stroke="none"/></svg>';
+  const AUDIO_BADGE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>';
+  const TEXT_BADGE_ICON = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16M12 5v14M8 19h8"/></svg>';
+  const groups = [
+    { key:'clips', label:'Clips', clips: overlays.filter(o=>o.type!=='audio'&&o.type!=='text'), uploadTarget:'overlay', filledIcon: CLIPS_BADGE_ICON },
+    { key:'text', label:'Text', clips: overlays.filter(o=>o.type==='text'), uploadTarget:'text', filledIcon: TEXT_BADGE_ICON },
+    { key:'audio', label:'Audio', clips: overlays.filter(o=>o.type==='audio'), uploadTarget:'audio', filledIcon: AUDIO_BADGE_ICON }
+  ];
+  container.innerHTML = groups.map(group=>{
+    const addOnclick = group.key==='text' ? `event.stopPropagation(); openEthvelleTextComposer('__ethvelle_new_text_layer__');` : `event.stopPropagation(); triggerUpload('${group.uploadTarget}', '${group.key}');`;
+    const rowSelected = group.clips.some(ov=>String(ov.id)===String(selectedClip));
+    const rowClass = `layer-row overlay-track-row ${rowSelected?'selected':''}`;
+    // BUGFIX (empty Clips/Audio rows looked ambiguous): with no overlay/audio added yet,
+    // this used to render a bare empty track with no visual cue at all  -  unlike "Add
+    // character" / "Add background", which show a dashed placeholder that's obviously
+    // tappable. Empty groups now render that same dashed "Add overlay" / "Add audio"
+    // placeholder (see .char-add-track / .track-clip-empty-label), tapping anywhere on the
+    // row opens the upload picker directly  -  no default item is ever seeded into `overlays`
+    // just to fill the row.
+    if(!group.clips.length){
+      const rowH = SUB_LANE_H;
+      const emptyLabel = group.key==='text' ? 'Add text' : group.label;
+      return `
+        <div class="${rowClass}" data-row-id="${group.key}" data-group="${group.key}" style="height:${rowH+4}px;">
+          <div class="layer-badge" title="${group.label}" ${group.key==='text'?'role="button" tabindex="0" aria-label="Add a new text layer" onclick="'+addOnclick+'"':''}>${group.filledIcon}</div>
+          <div class="layer-track char-add-track" style="height:${rowH}px; min-height:${rowH}px; max-height:${rowH}px;"><span>${emptyLabel}</span></div>
+        </div>
+      `;
+    }
+    const subLanes = packOverlayGroup(group.clips);
+    const laneCount = Math.max(1, subLanes.length);
+    const rowH = laneCount * SUB_LANE_H + (laneCount-1)*4 + 4;
+    const clipsHtml = subLanes.map((lane, laneIdx)=> lane.map(ov=>{
+      const left = ov.trimStart*pps;
+      const width = Math.max(MIN_CLIP_SEC*pps, (ov.trimEnd-ov.trimStart)*pps);
+      const bg = ov.type==='audio' ? '#568FEF' : ((ov.type==='video'||ov.type==='image') ? '#34343D' : ov.color);
+      const top = 3 + laneIdx*(SUB_LANE_H+4);
+      return `
+        <div class="overlay-clip ${String(selectedClip)===String(ov.id)?'selected':''}" data-overlay-id="${ov.id}" data-group="${group.key}" style="left:${left}px; width:${width}px; top:${top}px; height:${SUB_LANE_H}px; background:${bg};">
+          <div class="anim-clip-handle left" data-ov-handle="left" data-ov-id="${ov.id}"></div>
+          ${clipFillMarkup(ov, width)}
+          <div class="anim-clip-handle right" data-ov-handle="right" data-ov-id="${ov.id}"></div>
+          <div class="keyframe-track object-keyframe-track" data-object-kf-track="${ov.id}">${ethvelleObjectKeyframeMarkersHtml(ov.id,ov)}</div>
+          ${SEL_EDGE_HTML}
+        </div>
+      `;
+    }).join('')).join('');
+    return `
+      <div class="${rowClass}" data-row-id="${group.key}" data-group="${group.key}" style="height:${rowH+4}px;">
+        <div class="layer-badge" title="${group.label}" ${group.key==='text'?'role="button" tabindex="0" aria-label="Add a new text layer" onclick="'+addOnclick+'"':''}>${group.filledIcon}</div>
+        <div class="layer-track" style="height:${rowH}px; min-height:${rowH}px; max-height:${rowH}px;">
+          ${clipsHtml}
+        </div>
+      </div>
+    `;
+  }).join('');
+  // Force a synchronous layout flush right after the innerHTML write (reading a layout
+  // property forces the browser to commit final geometry immediately) instead of letting it
+  // happen lazily before whatever paint happens to come next  -  see BUGFIX note above.
+  void container.offsetHeight;
+  // One container layout flush above is sufficient. Reading offsetHeight once per clip
+  // caused N additional synchronous style/layout checks on every row rebuild, which became
+  // expensive on projects with many media/text clips on low-memory Android devices.
+  wireOverlayInteractions();
+  syncPlayheadHeight();
+  restoreEthvelleRowScroll(rowScrollSnapshot);
+  requestAnimationFrame(redrawAllWaveforms);
+}
+// Overlay-group sub-lane vertical geometry  -  matches renderOverlayLayers' compact 30px clip
+// / 3px top inset / 4px lane gap exactly, so the live-drag repack below (applyOverlayLanes)
+// always agrees with a full rebuild. Named here (not just a local inside renderOverlayLayers)
+// so both places share one source of truth for the numbers.
+const OVERLAY_SUB_LANE_H = 30;
+const OVERLAY_LANE_GAP = 4;
+function overlayLaneTop(laneIdx){ return 3 + laneIdx*(OVERLAY_SUB_LANE_H+OVERLAY_LANE_GAP); }
+function overlayRowHeightForLanes(laneCount){ return laneCount*OVERLAY_SUB_LANE_H + (laneCount-1)*OVERLAY_LANE_GAP + 4; }
+// FIX (dragging one overlay clip onto another only slid it into its own lane AFTER the
+// finger lifted, not during the drag  -  see wireOverlayInteractions' reposition()): re-packs
+// and re-applies every clip's `top` (and this row's own height) for the given group LIVE, on
+// every pointermove, exactly like applyCharClipLanes already does for character rows. Only
+// touches top/height  -  left/width for the actively-dragged clip is handled separately by its
+// own reposition() call right before this runs.
+function applyOverlayLanes(groupKey){
+  const row = document.querySelector(`.overlay-track-row[data-group="${groupKey}"]`);
+  if(!row) return;
+  const track = row.querySelector('.layer-track');
+  if(!track) return;
+  const groupClips = overlays.filter(o=> groupKey==='audio' ? o.type==='audio' : (groupKey==='text' ? o.type==='text' : o.type!=='audio'&&o.type!=='text'));
+  const subLanes = packIntoLanes(groupClips);
+  const laneCount = Math.max(1, subLanes.length);
+  const rowH = overlayRowHeightForLanes(laneCount);
+  // Match renderOverlayLayers(): the row uses a compact 4px outer gutter around the track.
+  // Keeping these numbers shared prevents the row height from jumping during a live drag.
+  setTimelineInlineStyle(row,'height',(rowH+4)+'px');
+  setTimelineInlineStyle(row,'minHeight',(rowH+4)+'px');
+  setTimelineInlineStyle(row,'maxHeight','none');
+  setTimelineInlineStyle(track,'height',rowH+'px');
+  setTimelineInlineStyle(track,'minHeight',rowH+'px');
+  setTimelineInlineStyle(track,'maxHeight',rowH+'px');
+  subLanes.forEach((lane, laneIdx)=>{
+    lane.forEach(ov=>{
+      const el = track.querySelector(`.overlay-clip[data-overlay-id="${ov.id}"]`);
+      if(el)setTimelineInlineStyle(el,'top',overlayLaneTop(laneIdx)+'px');
+    });
+  });
+}
+// Selecting the group badge itself (tapping the icon, not a specific clip) just highlights
+// the row  -  actual clip selection/chrome still comes from tapping an individual clip.
+function selectOverlayGroup(groupKey){
+  document.querySelectorAll('.layer-row').forEach(row=>row.classList.remove('selected'));
+  const row = document.querySelector(`.overlay-track-row[data-group="${groupKey}"]`);
+  if(row) row.classList.add('selected');
+}
+function wireOverlayInteractions(){
+  overlays.forEach(ov=>{
+    const clipEl = document.querySelector(`.overlay-clip[data-overlay-id="${ov.id}"]`);
+
+    if(!clipEl) return;
+    const groupKey = ov.type==='audio' ? 'audio' : (ov.type==='text' ? 'text' : 'clips');
+    wireClipZoomGesture(clipEl); // FEATURE: two-finger pinch on this clip zooms the timeline
+
+    function reposition(){
+      // FIX ("doesn't slide down in real time dragging, only slides after"): this used to
+      // only ever move THIS element's own left/width, and left the sub-lane repacking (which
+      // is what actually pushes a NEIGHBOR up/down when they start overlapping) to a full
+      // renderOverlayLayers() rebuild that only ran once, on pointerup. That's exactly why a
+      // neighbor visually "jumped" into place only after the finger lifted instead of
+      // sliding live under it. applyOverlayLanes() below re-packs every clip in this group
+      // and re-applies each one's `top` (and the row's own height) on every single
+      // pointermove  -  cheap (just style writes, no innerHTML rebuild) so it can't lose
+      // pointer capture mid-gesture the way a full DOM rebuild would.
+      const pps = pxPerSecond();
+      setTimelineInlineStyle(clipEl,'left',(ov.trimStart*pps)+'px');
+      setTimelineInlineStyle(clipEl,'width',Math.max(MIN_CLIP_SEC*pps,(ov.trimEnd-ov.trimStart)*pps)+'px');
+      // Repack the group now so a neighboring clip changes sub-lane on the same drag frame
+      // that creates/removes the overlap. This writes only top/row geometry; it does not
+      // rebuild innerHTML or replace the active pointer-capture element.
+      if(typeof window.applyOverlayLanes==='function') window.applyOverlayLanes(groupKey);
+    }
+    function selectRowForGroup(){
+      document.querySelectorAll('.layer-row:not(.char-row)').forEach(row=>row.classList.remove('selected'));
+      const groupKey = ov.type==='audio' ? 'audio' : (ov.type==='text' ? 'text' : 'clips');
+      const row = document.querySelector(`.overlay-track-row[data-group="${groupKey}"]`);
+      if(row) row.classList.add('selected');
+    }
+
+    // A quick touch-and-slide on an overlay/background clip ALWAYS scrubs the playhead,
+    // never moves the clip  -  matches the stickman clip/segments exactly. Only holding still
+    // for LONG_PRESS_MS, before any sliding starts, arms move mode; once armed, every
+    // pointermove repositions the clip live in real time, tracking the finger 1:1. Dragging
+    // the held clip so it overlaps another clip in the same group (Clips or Audio)
+    // automatically packs them onto separate sub-lanes so BOTH stay fully visible (see
+    // packOverlayGroup)  -  no separate drop step needed.
+    const OV_DRAG_TOLERANCE = 7;
+    const LONG_PRESS_MS = 240;
+    let dragState = null; // null | {type:'pending'|'move'|'scroll', ...}
+    let longPressTimer = null;
+    function clearLongPressTimer(){ if(longPressTimer){ clearTimeout(longPressTimer); longPressTimer=null; } }
+    function applyOverlayMoveAt(clientX){
+      if(!dragState||dragState.type!=='move')return;
+      const pps=pxPerSecond();
+      const deltaSec=timelineDragDeltaPixels(dragState,clientX)/pps;
+      const len=dragState.origEnd-dragState.origStart;
+      const newStart=Math.max(0,dragState.origStart+deltaSec);
+      const shift=newStart-dragState.origStart;
+      ov.trimStart=newStart;ov.trimEnd=newStart+len;
+      // Compositor-only X movement during drag; keyframe timestamps are committed once
+      // at release so this path does not walk all keyframes on every touch frame.
+      paintTimelineDragX(clipEl,shift*pps);
+      // Update sub-lanes on this same animation frame. applyOverlayLanes keeps its lane
+      // signature cache, so unchanged lane assignments cost no DOM writes.
+      if(typeof window.applyOverlayLanes==='function') window.applyOverlayLanes(groupKey);
+    }
+    clipEl.addEventListener('pointerdown', (e)=>{
+      // Preserve marker selection: a keyframe tap is not a clip-drag gesture.
+      if((e.target.closest&&e.target.closest('.kf-marker'))||e.target.hasAttribute('data-ov-handle')) return;
+      e.stopPropagation();
+      if(isPlaying) pausePlayback();
+      /* v231: do not rerun the full selection stack when this clip is already selected. */
+      if(String(selectedClip)!==String(ov.id))selectClipForChrome(ov.id);
+      selectRowForGroup();
+      const timelineScroller=document.getElementById('timelineScroll');
+      dragState = { type:'pending', pointerId:e.pointerId, startScrollLeft:timelineScroller?timelineScroller.scrollLeft:0, startX:e.clientX, startY:e.clientY, lastX:e.clientX, startTime: getCurrentAbsoluteTime(), origStart:ov.trimStart, origEnd:ov.trimEnd, origKfTimes:(Array.isArray(ov.ethvelleMediaKeyframes)?ov.ethvelleMediaKeyframes:[]).map(k=>Number(k.t)||0), scrollTopStart:timelineScroller?timelineScroller.scrollTop:0 };
+      clipEl.setPointerCapture(e.pointerId);
+      clearLongPressTimer();
+      longPressTimer=setTimeout(()=>{
+        longPressTimer=null;
+        if(!dragState||dragState.type!=='pending')return;
+        dragState.type='move';clipEl.classList.add('dragging');if(window.ethvelleNotifyClipMoveReady)window.ethvelleNotifyClipMoveReady();armClipDrag();
+        startTimelineEdgeAutoScroll(dragState.pointerId,dragState.lastX,()=>{if(dragState&&dragState.type==='move')applyOverlayMoveAt(dragState.lastX);});
+        if(Number.isFinite(dragState.lastX))applyOverlayMoveAt(dragState.lastX);
+      },LONG_PRESS_MS);
+    });
+    clipEl.addEventListener('pointermove', (e)=>{
+      if(!dragState) return;
+      dragState.lastX=e.clientX;
+      if(dragState.type==='scroll'){ applyClipVerticalScrollHandoff(dragState, e.clientY); return; }
+      const movedPx = Math.abs(e.clientX - dragState.startX);
+      if(dragState.type==='pending'){
+        // A dominantly-vertical slide before the long-press fires means "scroll the row
+        // list", not "interact with this clip"  -  hand off to the shared scroller, same as
+        // sliding on empty timeline space (see applyClipVerticalScrollHandoff above).
+        const movedPy = Math.abs(e.clientY - dragState.startY);
+        // Treat a clearly vertical (including slightly diagonal) finger gesture as a
+        // request to scroll the layer list. The old strict movedPy>movedPx test rejected
+        // ordinary thumb movement on narrow audio lanes, making vertical scrolling seem
+        // intermittent depending on a few pixels of horizontal drift.
+        if(movedPy >= OV_DRAG_TOLERANCE && movedPy >= Math.max(1,movedPx*0.82)){
+          clearLongPressTimer();
+          dragState.type = 'scroll';
+          applyClipVerticalScrollHandoff(dragState, e.clientY);
+          return;
+        }
+        // Quick horizontal movement scrubs; clip movement is armed only by a stationary
+        // long press. After arming, translation follows the finger in real time.
+        if(movedPx > 6 && movedPx >= Math.max(1, movedPy*0.72)){
+          clearLongPressTimer();dragState.type='scrub';
+          scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        }
+        return;
+      }
+      if(dragState.type==='scrub'){
+        scheduleTimelineScrub(timeFromDragAnchor(dragState.startX,dragState.startTime,e.clientX));
+        return;
+      }
+      updateTimelineEdgeAutoScroll(e.pointerId,e.clientX,()=>{if(dragState&&dragState.type==='move')applyOverlayMoveAt(dragState.lastX);});
+      scheduleTimelineDragFrame(clipEl,e,point=>applyOverlayMoveAt(point.clientX));
+      return;
+    });
+    clipEl.addEventListener('pointerup', (e)=>{
+      if(!dragState) return;
+      stopTimelineEdgeAutoScroll(e.pointerId);
+      clearLongPressTimer();
+      const wasMove = dragState.type==='move';
+      const wasScroll = dragState.type==='scroll';
+      const wasScrub = dragState.type==='scrub';
+      const anchorX=dragState.startX,anchorTime=dragState.startTime;
+      if(wasMove)flushTimelineDragFrame(clipEl,e,point=>applyOverlayMoveAt(point.clientX));else cancelTimelineDragFrame(clipEl);
+      if(wasMove){const movedBy=ov.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(ov.ethvelleMediaKeyframes,dragState.origKfTimes,movedBy);if(window.ethvelleNotifyClipMoved)window.ethvelleNotifyClipMoved(movedBy);clearTimelineDragX(clipEl);}
+      dragState=null;clipEl.releasePointerCapture(e.pointerId);
+      clipEl.classList.remove('dragging');
+      if(wasMove) disarmClipDrag();
+      if(wasMove){
+        ensureTimelineRoomForDraggedClip(ov);
+        if(ov.trimEnd > timelineDuration - 0.3){ timelineDuration = ov.trimEnd+1; syncTimelineInnerWidth(); renderRuler(); }
+        renderOverlayLayers();
+        selectClipForChrome(ov.id);
+      } else if(wasScrub&&!wasScroll){
+        const t = timeFromDragAnchor(anchorX, anchorTime, e.clientX);
+        flushTimelineScrub(t);
+      }
+      persistProjectState({skipHistory:true});
+    });
+    clipEl.addEventListener('pointercancel', ()=>{
+      const wasMove=dragState&&dragState.type==='move';
+      if(dragState)stopTimelineEdgeAutoScroll(dragState.pointerId);
+      clearLongPressTimer();cancelTimelineDragFrame(clipEl);
+      if(wasMove){const movedBy=ov.trimStart-dragState.origStart;shiftTimelineKeyframesOnce(ov.ethvelleMediaKeyframes,dragState.origKfTimes,movedBy);clearTimelineDragX(clipEl);}
+      dragState=null;
+      clipEl.classList.remove('dragging');
+      if(wasMove){
+        disarmClipDrag();
+        renderOverlayLayers();
+        selectClipForChrome(ov.id);
+        renderFrame();
+      }
+    });
+
+
+  });
+}
+
+/* ==================================================================================
+   CENTRALIZED TIMELINE POINTER STATE MACHINE (Scrub the timeline by dragging tracks
+   under the fixed playhead, CapCut-style)
+   ==================================================================================
+   Previously, whether a touch anywhere in the timeline region paused/seeked correctly
+   depended on WHICH element it landed on: clip bodies had their own onpointerdown that
+   stopPropagation()'d past this listener, empty space only ever deselected (never
+   scrubbed), and the scroll event doubled as a seek source with its own separate
+   suppression timing. That's the "different parts of the timeline behave differently"
+   bug. FIX: one state machine, on the scroller itself, using capture-phase listeners so
+   it always sees every pointerdown in the region FIRST  -  even ones that land on a child
+   clip/keyframe/handle  -  before that child's own handler runs and (possibly) stops
+   propagation. Every gesture is classified into exactly one of TAP / SCRUB / CHILD:
+     - CHILD: pointerdown target is a clip/handle/keyframe -> this state machine gets out
+       of the way entirely and lets that element's own drag logic run (still paused first,
+       see below), matching PART 32: only stickman clips use bone/transform keyframes, but
+       ALL clip types (background/overlay/segments) get correct pause+select behavior.
+     - TAP: pointerdown on empty timeline space, pointerup without exceeding the move
+       threshold -> seek exactly to the tapped time (PART 20: never deselects, resets, or
+       leaves playback running).
+     - SCRUB: pointerdown on empty timeline space, then moved past the threshold -> live
+       drag-seek every pointermove, matching finger position exactly (PART 25: canvas
+       redraws immediately on every move, doesn't wait for a render tick).
+   ==================================================================================== */
+// Converts a pointer's clientX into an absolute timeline second, using the timeline
+// scroller's OWN geometry (its scrollLeft + the pointer's offset from the fixed center
+// line)  -  never estimated from DOM child positions (PART 7). This is the exact inverse of
+// movePlayhead()'s own math, so "time under the finger" always equals "playhead time".
+// Standalone top-level helper (not just an initTimelineScrub closure) so any future
+// pointer-driven seek path can reuse the exact same math instead of re-deriving it.
+function getAbsoluteTimeFromPointer(clientX){
+  const scroller = document.getElementById('timelineScroll');
+  if(!scroller) return currentAbsoluteTimeSec;
+  const rect = scroller.getBoundingClientRect();
+  const pps = pxPerSecond();
+  const deltaPx = clientX - (rect.left + rect.width/2);
+  const targetPx = scroller.scrollLeft + deltaPx;
+  // Scrub range spans the FULL project  -  every character's own clips AND however far the
+  // Background/Clips/Audio rows extend (see totalProjectDuration())  -  so you can always
+  // reach the end of a longer non-active character's animation, or of a background/media/
+  // audio clip, even before any animation has been added at all.
+  const cachedScrubDuration = window.__ethvelleTimelineScrubbing ? Number(window.__ethvelleTimelineScrubMaxDuration) : NaN;
+  const dur = Number.isFinite(cachedScrubDuration) && cachedScrubDuration>0 ? cachedScrubDuration : totalProjectDuration();
+  return Math.max(0, Math.min(dur, targetPx/pps));
+}
+// BUGFIX (scrub over-speed / wrong-direction / snap-back): getAbsoluteTimeFromPointer() is
+// an ABSOLUTE screen-position-to-time conversion  -  correct for a single tap (content hasn't
+// moved, so "distance from the center playhead" directly tells you the tapped time). It is
+// WRONG for a live drag: every pointermove re-reads scroller.scrollLeft, which the very last
+// movePlayhead() call (triggered by the previous pointermove) just changed to match the
+// previous move's result. Re-adding "current distance from the fixed center line" on top of
+// that on every single event  -  instead of the finger's actual movement since the drag
+// started  -  turns each move into a compounding jump instead of a 1:1 follow, which is
+// exactly the "slides way faster than my finger" / "jumps then snaps back" behavior. FIX:
+// every live-drag call site now anchors to the exact time+pointer-position recorded once at
+// gesture start (dragState.startX/startTime, gesture.startX/startTime, etc.) and computes
+// time purely from how far the finger has moved since THEN  -  a direct, stable 1:1 mapping,
+// matching natural touch-scroll direction (drag left -> time moves forward/later, drag right
+// -> time moves backward/earlier, exactly like content sliding under a fixed playhead).
+function timeFromDragAnchor(anchorX, anchorTimeSec, clientX){
+  const pps = pxPerSecond();
+  // BUGFIX: was combinedStickmanDuration()  -  same 2s-hard-cap issue as setCurrentAbsoluteTime
+  // above (see totalProjectDuration()'s comment) whenever no animation was selected/added yet.
+  const cachedScrubDuration = window.__ethvelleTimelineScrubbing ? Number(window.__ethvelleTimelineScrubMaxDuration) : NaN;
+  const dur = Number.isFinite(cachedScrubDuration) && cachedScrubDuration>0 ? cachedScrubDuration : totalProjectDuration();
+  const deltaPx = clientX - anchorX;
+  return Math.max(0, Math.min(dur, anchorTimeSec - deltaPx/pps));
+}
+
+// Smooth timeline scrubbing: pointer events can arrive faster than Android WebView can
+// redraw the canvas and every overlay. Keep the newest requested time and render at most
+// once per display frame. Pointer-up flushes the exact final position synchronously.
+let timelineScrubRenderRaf = 0;
+let timelineScrubPendingTime = null;
+// The old 2.5-4x idle backing surface could exceed 18 million pixels on a phone.
+// That made every character-joint repaint expensive even though drawStick was RAF-limited.
+// Keep the live preview crisp at up to 2.2x density and use 1.5x while scrubbing; export
+// uses its own full-resolution renderer and is not affected by this display-only budget.
+// The resting scale MUST be the same one the stage resize uses (min(4,max(2.5,dpr)) within the pixel
+// budget). The old release path restored a lower 1.75-2.2x surface, so after any timeline slide/scrub
+// the humanoid stayed permanently soft until the stage was resized. Rest quality now matches exactly,
+// scrubbing only drops to a mild cap, and a restore repaints immediately.
+function ethvelleStageRestScale(){
+  const dpr=Math.max(1,Number(window.devicePixelRatio)||1);
+  const wrap=document.querySelector('#screen-editor .canvas-wrap');
+  const zoomPreview=!!((wrap&&wrap.classList.contains('evca-inline-zoom'))||window.__ethvelleInlineZoomFullscreen);
+  const requested=zoomPreview?Math.min(1.65,dpr):Math.min(4,Math.max(2.5,dpr));
+  const budget=Math.sqrt((zoomPreview?7000000:18000000)/Math.max(1,stageW*stageH));
+  return Math.max(1,Math.min(requested,budget));
+}
+function setTimelineScrubCanvasQuality(scrubbing){
+  const canvas=document.getElementById('stickCanvas');
+  if(!canvas || !(stageW>0) || !(stageH>0)) return;
+  const rest=ethvelleStageRestScale();
+  const scale=scrubbing?Math.min(rest,2.25):rest;
+  const width=Math.max(1,Math.round(stageW*scale));
+  const height=Math.max(1,Math.round(stageH*scale));
+  if(canvas.width===width && canvas.height===height) return;
+  canvas.width=width;canvas.height=height;
+  ctx=canvas.getContext('2d',{alpha:true});
+  ctx.setTransform(canvas.width/Math.max(1,stageW),0,0,canvas.height/Math.max(1,stageH),0,0);
+  ctx.imageSmoothingEnabled=true;
+  try{ctx.imageSmoothingQuality='high';}catch(_e){}
+  ctx.lineCap='round';ctx.lineJoin='round';ctx.miterLimit=2;
+  // Resizing a canvas clears it; repaint right away so the restored crisp surface is never left blank/soft.
+  if(!scrubbing){ try{ if(typeof drawStick==='function') drawStick(); }catch(_e){} }
+}
+let timelineScrubLastPreviewAt = 0;
+function scheduleTimelineScrub(tSec){
+  const nextTime=Number(tSec);
+  if(!Number.isFinite(nextTime))return;
+  if(!window.__ethvelleTimelineScrubbing){
+    window.__ethvelleTimelineScrubMaxDuration=totalProjectDuration();
+    setTimelineScrubCanvasQuality(true);
+    timelineScrubLastPreviewAt=0;
+  }
+  window.__ethvelleTimelineScrubbing=true;
+  timelineScrubPendingTime=nextTime;
+  // One write per display frame. Writing scrollLeft for every high-frequency pointer event
+  // forced Android to repeatedly update the timeline's scroll/paint tree between frames.
+  if(timelineScrubRenderRaf)return;
+  timelineScrubRenderRaf=requestAnimationFrame(()=>{
+    timelineScrubRenderRaf=0;
+    const latestTime=timelineScrubPendingTime;
+    timelineScrubPendingTime=null;
+    if(latestTime===null||!Number.isFinite(latestTime))return;
+    const scrubScroller=document.getElementById('timelineScroll');
+    if(scrubScroller){
+      const priorOwner=timelineScrollOwner;
+      timelineScrollOwner='programmatic';
+      const wantedScroll=Math.max(0,latestTime*pxPerSecond());
+      if(Math.abs(scrubScroller.scrollLeft-wantedScroll)>.35)scrubScroller.scrollLeft=wantedScroll;
+      timelineScrollOwner=priorOwner;
+    }
+    setCurrentAbsoluteTime(latestTime);
+    const now=performance.now();
+    const hasActiveVideo=overlays.some(o=>o&&o.type==='video'&&latestTime>=Number(o.trimStart||0)&&latestTime<Number(o.trimEnd||0));
+    // The playhead and scroll are updated every display frame; the heavier canvas preview below
+    // is budgeted separately so it cannot block the finger-driven timeline movement.
+    // The playhead/time/scroll continue to follow the finger on every display frame.
+    // Only the expensive stage composition is budgeted separately: ~33fps for still/rig
+    // content and ~20fps while a video decoder is active on compact phones. This keeps the
+    // timeline interaction responsive without forcing a full canvas+overlay redraw at 60Hz.
+    const compactAndroid=/(Android)/i.test(navigator.userAgent||'')&&Math.min(window.innerWidth||0,window.innerHeight||0)<=480;
+    const minInterval=hasActiveVideo?(compactAndroid?54:48):(compactAndroid?30:24);
+    if(timelineScrubLastPreviewAt&&now-timelineScrubLastPreviewAt<minInterval){
+      timelineScrubPendingTime=latestTime;
+      return;
+    }
+    timelineScrubLastPreviewAt=now;
+    renderTimelineScrubPreview();
+  });
+}
+function cancelScheduledTimelineScrub(){
+  if(timelineScrubRenderRaf) cancelAnimationFrame(timelineScrubRenderRaf);
+  timelineScrubRenderRaf = 0;
+  timelineScrubPendingTime = null;
+  window.__ethvelleTimelineScrubbing = false;
+  delete window.__ethvelleTimelineScrubMaxDuration;
+  setTimelineScrubCanvasQuality(false);
+}
+function setTimelineInlineStyle(el, property, value){
+  if(el && el.style[property] !== value) el.style[property] = value;
+}
+// During clip-body movement update only the active clip's compositor translation, once per
+// animation frame. The timeline data and layout position are left untouched until release,
+// avoiding repeated track reflow and leaving markers/thumbnails/canvas out of the drag loop.
+function paintTimelineDragX(el, deltaPx){
+  if(!el)return;
+  const rawX=Number.isFinite(Number(deltaPx))?Number(deltaPx):0;
+  const dpr=Math.max(1,Number(window.devicePixelRatio)||1);
+  const x=Math.round(rawX*dpr)/dpr; // physical-pixel alignment keeps clip text/edges crisp
+  if(!el.dataset.evV87DragBaseLeft){
+    const base=parseFloat(el.style.left);
+    el.dataset.evV87DragBaseLeft=String(Number.isFinite(base)?base:0);
+  }
+  // Keep the timeline's layout position untouched while dragging. A translate3d on
+  // just the active clip is composited by the GPU and avoids relaying out the track
+  // on every pointer frame (especially important on Android Chrome/WebView).
+  el.classList.add('evv-timeline-transform-dragging');
+  const value=x.toFixed(3)+'px';
+  if(el.style.getPropertyValue('--evv-timeline-drag-x')!==value)el.style.setProperty('--evv-timeline-drag-x',value);
+}
+function clearTimelineDragX(el){
+  if(!el)return;
+  delete el.dataset.evV87DragBaseLeft;
+  el.classList.remove('evv-timeline-transform-dragging');
