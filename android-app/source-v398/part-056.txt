@@ -1,0 +1,1000 @@
+    if(profileButton)profileButton.style.display=currentUser?'flex':'none';if(!planEl||!balanceEl||!button)return;
+    if(!currentUser){planEl.textContent='Login';balanceEl.textContent='Sign in to view credits';button.setAttribute('aria-label','Login to view your plan and credits');renderHomeProfileAvatar();return;}
+    const owned=typeof getMyOwnedPlansForBilling==='function'?getMyOwnedPlansForBilling():[];
+    const names=[...new Set((owned||[]).map(p=>String(p&&p.name||'').trim()).filter(Boolean))];
+    const planLabel=(names.length?names.join(' + '):getMyActivePlanName())+' plan';
+    const available=Math.max(0,Number(myCreditsBalance)||0),monthly=typeof getMyCombinedCreditAllowance==='function'?Math.max(0,Number(getMyCombinedCreditAllowance(owned))||0):0;
+    planEl.textContent=planLabel;
+    balanceEl.innerHTML=`<span class="home-credit-available">${available.toLocaleString()}</span><span class="home-credit-divider">/</span><span class="home-credit-monthly">${monthly.toLocaleString()}</span><span class="home-credit-unit">credits</span>`;
+    button.setAttribute('aria-label',planLabel+', '+available.toLocaleString()+' credits available out of '+monthly.toLocaleString()+' monthly credits. Open billing and plan');
+    renderHomeProfileAvatar();
+  };
+  function rgbCss(c){return `rgb(${Math.max(0,Math.min(255,Math.round(c[0])))}, ${Math.max(0,Math.min(255,Math.round(c[1])))}, ${Math.max(0,Math.min(255,Math.round(c[2])))})`;}
+  function applyHomeAvatarAccent(rgb){rgb=[47,92,232];
+    const b=$('homeAccountSummary');if(!b)return;const [r,g,bl]=rgb;const accent=rgbCss(rgb);const glow=`rgba(${r},${g},${bl},.22)`;b.style.setProperty('--home-avatar-accent',accent);b.style.setProperty('--home-avatar-glow',glow);b.style.setProperty('--home-account-bg',`linear-gradient(150deg,rgba(${r},${g},${bl},.18),#17171D 78%)`);
+    const p=$('homeProfileBtn');if(p&&!p.querySelector('img'))p.style.background=`linear-gradient(155deg,rgba(${r},${g},${bl},.95),rgba(${Math.round(r*.55)},${Math.round(g*.55)},${Math.round(bl*.7)},.98))`;
+  }
+  window.renderHomeProfileAvatar=function(){
+    const btn=$('homeProfileBtn');if(!btn)return;
+    const photo=typeof getLocalProfilePhoto==='function'?getLocalProfilePhoto():null;
+    if(photo){
+      btn.innerHTML=`<img class="home-avatar-image" alt="" src="${String(photo).replace(/"/g,'%22')}">`;
+      const image=btn.querySelector('img');image.onload=()=>{try{const canvas=document.createElement('canvas');canvas.width=10;canvas.height=10;const ctx=canvas.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,10,10);const data=ctx.getImageData(0,0,canvas.width,canvas.height).data;let r=0,g=0,b=0,n=0;for(let i=0;i<data.length;i+=4){if(data[i+3]<30)continue;r+=data[i];g+=data[i+1];b+=data[i+2];n++;}if(n)applyHomeAvatarAccent([r/n,g/n,b/n]);}catch(e){applyHomeAvatarAccent([47,92,232]);}};image.onerror=()=>applyHomeAvatarAccent([47,92,232]);
+    }else{
+      btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.5-3.6 3.2-5.8 7.5-5.8s7 2.2 7.5 5.8"/></svg>';
+      btn.style.fontSize='';btn.style.fontWeight='';
+      applyHomeAvatarAccent([47,92,232]);
+    }
+    btn.setAttribute('aria-label','Open profile');
+  };
+  const priorAvatarRender=window.renderProfileAvatarPhoto;
+  if(typeof priorAvatarRender==='function'&&!priorAvatarRender.__evv123){const wrapped=function(){const result=priorAvatarRender.apply(this,arguments);window.renderHomeProfileAvatar();return result;};wrapped.__evv123=true;window.renderProfileAvatarPhoto=wrapped;}
+  const priorProfileUpdate=window.updateProfileUI;
+  if(typeof priorProfileUpdate==='function'&&!priorProfileUpdate.__evv123){const wrapped=function(){const result=priorProfileUpdate.apply(this,arguments);window.renderHomeProfileAvatar();window.renderHomeCreditSummary();return result;};wrapped.__evv123=true;window.updateProfileUI=wrapped;}
+  // Refresh the home identity/credits when the home screen becomes active.
+  const priorGoTo=window.goTo;
+  if(typeof priorGoTo==='function'&&!priorGoTo.__evv123){const wrapped=function(){const result=priorGoTo.apply(this,arguments);if(arguments[0]==='home'){window.renderHomeProfileAvatar();window.renderHomeCreditSummary();}return result;};wrapped.__evv123=true;window.goTo=wrapped;}
+  window.renderHomeProfileAvatar();window.renderHomeCreditSummary();
+})();
+</script>
+
+
+<style id="ethvelle-v124-home-credit-logo-smoothing">
+  /* Stronger profile-coloured credit capsule and explicit contrast for both sides. */
+  #screen-home .home-account-summary{
+    border-width:2px!important;
+    border-style:solid!important;
+    border-color:var(--home-avatar-accent,#2F5CE8)!important;
+    box-shadow:0 0 0 1px var(--home-avatar-glow,rgba(47,92,232,.25)),0 0 16px var(--home-avatar-glow,rgba(47,92,232,.16)),inset 0 1px 0 rgba(255,255,255,.07)!important;
+  }
+  #screen-home .home-account-balance .home-credit-available{color:#D7D9E2!important;font-weight:900!important;}
+  #screen-home .home-account-balance .home-credit-divider{color:#B8BBC6!important;font-weight:800!important;}
+  #screen-home .home-account-balance .home-credit-monthly,
+  #screen-home .home-account-balance .home-credit-unit{color:#FFFFFF!important;font-weight:850!important;}
+  #screen-home .home-profile-trigger{border-width:2px!important;overflow:hidden!important;}
+  #screen-home .home-profile-trigger svg{width:22px;height:22px;display:block;}
+  #screen-home .home-profile-trigger .home-avatar-image{width:100%;height:100%;display:block;object-fit:cover;border-radius:50%;}
+
+  /* Android WebView was rasterizing the animated/transformed transparent PNG in layers.
+     Use native smooth interpolation and fade only; avoid contrast optimization, blur and GPU transforms. */
+  #screen-splash .splash-logo{
+    opacity:0;transform:none!important;filter:none!important;
+    animation:ethvelleCleanLogoFade .55s ease-out .05s forwards!important;
+    will-change:opacity;
+  }
+  #screen-splash .splash-logo-img,
+  #screen-home .home-brand-logo-only{
+    image-rendering:auto!important;
+    -ms-interpolation-mode:bicubic;
+    transform:none!important;-webkit-transform:none!important;
+    filter:none!important;backface-visibility:visible!important;-webkit-backface-visibility:visible!important;
+    object-fit:contain!important;object-position:center!important;
+    -webkit-font-smoothing:antialiased;
+  }
+  #screen-splash .splash-logo-img{width:100%;height:100%;}
+  #screen-home .home-brand-logo-only{height:44px;width:auto;max-width:170px;display:block;}
+  @keyframes ethvelleCleanLogoFade{from{opacity:0}to{opacity:1}}
+  /* The startup loading flash belongs only to the logo mask, never the splash backdrop. */
+  #screen-splash::before,#screen-splash::after,
+  #screen-splash .splash-mark::before,#screen-splash .splash-mark::after{content:none!important;animation:none!important;filter:none!important;}
+  #screen-splash .splash-logo-shimmer{
+    pointer-events:none!important;-webkit-mask-mode:luminance!important;mask-mode:luminance!important;
+  }
+  #screen-splash .splash-logo-img,
+  #screen-home .home-brand-logo-only,
+  #screen-login .admin-login-logo,
+  .ev-login-consent-mark img{mix-blend-mode:screen!important;}
+  #screen-splash .splash-logo-shimmer::before{animation:splashShimmer 1.3s ease-out 1.05s 1 both!important;}
+  @media(prefers-reduced-motion:reduce){#screen-splash .splash-logo{animation:none!important;opacity:1!important;}#screen-splash .splash-logo-shimmer::before{animation:none!important;display:none!important;}}
+</style>
+<script id="ethvelle-v124-home-avatar-and-admin-model-lockdown">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  function rgbCss(rgb){return `rgb(${rgb.map(v=>Math.max(0,Math.min(255,Math.round(v)))).join(',')})`;}
+  function setHomeAccent(rgb){rgb=[47,92,232];
+    const [r,g,b]=rgb.map(v=>Math.max(0,Math.min(255,Math.round(v))));
+    const summary=$('homeAccountSummary');
+    if(summary){summary.style.setProperty('--home-avatar-accent',rgbCss([r,g,b]));summary.style.setProperty('--home-avatar-glow',`rgba(${r},${g},${b},.24)`);summary.style.setProperty('--home-account-bg',`linear-gradient(150deg,rgba(${r},${g},${b},.2),#17171D 78%)`);}
+    const profile=$('homeProfileBtn');
+    if(profile&&!profile.querySelector('img'))profile.style.background=`linear-gradient(155deg,rgba(${r},${g},${b},.98),rgba(${Math.round(r*.55)},${Math.round(g*.55)},${Math.round(b*.7)},.99))`;
+  }
+  window.renderHomeProfileAvatar=function(){
+    const btn=$('homeProfileBtn');if(!btn)return;
+    const photo=typeof getLocalProfilePhoto==='function'?getLocalProfilePhoto():null;
+    if(photo){
+      btn.innerHTML=`<img class="home-avatar-image" alt="" src="${String(photo).replace(/"/g,'%22')}">`;
+      const image=btn.querySelector('img');
+      image.onload=()=>{try{const cv=document.createElement('canvas');cv.width=12;cv.height=12;const ctx=cv.getContext('2d',{willReadFrequently:true});ctx.drawImage(image,0,0,12,12);const px=ctx.getImageData(0,0,12,12).data;let r=0,g=0,b=0,n=0;for(let i=0;i<px.length;i+=4){if(px[i+3]<32)continue;r+=px[i];g+=px[i+1];b+=px[i+2];n++;}setHomeAccent(n?[r/n,g/n,b/n]:[47,92,232]);}catch(e){setHomeAccent([47,92,232]);}};
+      image.onerror=()=>setHomeAccent([47,92,232]);
+    }else{
+      btn.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.5-3.6 3.2-5.8 7.5-5.8s7 2.2 7.5 5.8"/></svg>';
+      btn.style.color='#FFFFFF';setHomeAccent([47,92,232]);
+    }
+    btn.setAttribute('aria-label','Open profile');
+  };
+  // Keep the summary split as available/monthly, with a clear white monthly amount and unit.
+  const priorSummary=window.renderHomeCreditSummary;
+  if(typeof priorSummary==='function'&&!priorSummary.__evv124){
+    const wrapped=function(){const out=priorSummary.apply(this,arguments);const el=$('homeAccountBalance');if(el){el.querySelector('.home-credit-available')?.style.setProperty('color','#D7D9E2','important');el.querySelector('.home-credit-monthly')?.style.setProperty('color','#FFFFFF','important');el.querySelector('.home-credit-unit')?.style.setProperty('color','#FFFFFF','important');}window.renderHomeProfileAvatar();return out;};
+    wrapped.__evv124=true;window.renderHomeCreditSummary=wrapped;
+  }
+  // Defensive: admin-published models can be added to projects, but never edited or deleted by a customer.
+  const isAdminPublished=id=>Array.isArray(publishedModelAssets)&&publishedModelAssets.some(m=>String(m.id)===String(id));
+  const priorOpenModelEditor=window.openModelAssetEditor;
+  if(typeof priorOpenModelEditor==='function'&&!priorOpenModelEditor.__evv124){
+    const wrapped=function(id){if(isAdminPublished(id)){showToast('Admin-published models can only be managed from the Admin Panel.',{icon:toastIcons.info});return;}return priorOpenModelEditor.apply(this,arguments);};wrapped.__evv124=true;window.openModelAssetEditor=wrapped;
+  }
+  const priorDeleteModel=window.deleteModelAsset;
+  if(typeof priorDeleteModel==='function'&&!priorDeleteModel.__evv124){
+    const wrapped=function(id){if(isAdminPublished(id)){showToast('Admin-published models can only be deleted from the Admin Panel.',{icon:toastIcons.info});return;}return priorDeleteModel.apply(this,arguments);};wrapped.__evv124=true;window.deleteModelAsset=wrapped;
+  }
+  const priorRenameModel=window.renameModelAsset;
+  if(typeof priorRenameModel==='function'&&!priorRenameModel.__evv124){
+    const wrapped=function(id){if(isAdminPublished(id)){showToast('Admin-published models can only be renamed from the Admin Panel.',{icon:toastIcons.info});return;}return priorRenameModel.apply(this,arguments);};wrapped.__evv124=true;window.renameModelAsset=wrapped;
+  }
+  window.renderHomeProfileAvatar();
+  if(typeof window.renderHomeCreditSummary==='function')window.renderHomeCreditSummary();
+})();
+</script>
+
+
+
+<!-- Ethvelle v125: volume slider, durable extracted audio, stable video transforms,
+     timeline release/tap handling, enhancement playback and homepage loading polish. -->
+<style id="ethvelle-v125-media-volume-timeline-css">
+  #volumePanelBody .evv-volume-panel{display:flex;flex-direction:column;gap:15px;padding:2px 0 6px;}
+  #volumePanelBody .evv-volume-head{display:flex;align-items:center;justify-content:space-between;gap:12px;min-width:0;}
+  #volumePanelBody .evv-volume-name{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#D9DCE8;font-size:12px;font-weight:700;}
+  #volumePanelBody .evv-volume-value{flex:0 0 auto;color:#AFC4FF;font-size:13px;font-weight:800;font-variant-numeric:tabular-nums;}
+  #volumePanelBody .evv-volume-slider-wrap{position:relative;padding:7px 0 3px;}
+  #volumePanelBody .evv-volume-slider{display:block!important;width:100%!important;height:22px!important;margin:0!important;padding:0!important;appearance:none!important;-webkit-appearance:none!important;background:transparent!important;outline:none!important;cursor:pointer!important;touch-action:pan-x!important;}
+  #volumePanelBody .evv-volume-slider::-webkit-slider-runnable-track{height:4px;border-radius:99px;background:linear-gradient(to right,#3F6FFF 0%,#3F6FFF var(--evv-volume-fill,50%),#3A3A45 var(--evv-volume-fill,50%),#3A3A45 100%);}
+  #volumePanelBody .evv-volume-slider::-webkit-slider-thumb{appearance:none;-webkit-appearance:none;width:16px;height:16px;margin-top:-6px;border-radius:50%;background:#F5F7FF;border:3px solid #4776FF;box-shadow:0 0 0 2px rgba(71,118,255,.16);}
+  #volumePanelBody .evv-volume-slider::-moz-range-track{height:4px;border-radius:99px;background:#3A3A45;}
+  #volumePanelBody .evv-volume-slider::-moz-range-progress{height:4px;border-radius:99px;background:#3F6FFF;}
+  #volumePanelBody .evv-volume-slider::-moz-range-thumb{width:11px;height:11px;border-radius:50%;background:#F5F7FF;border:3px solid #4776FF;box-shadow:0 0 0 2px rgba(71,118,255,.16);}
+  #volumePanelBody .evv-volume-stop-points{position:absolute;left:0;right:0;top:50%;height:0;display:flex;justify-content:space-between;pointer-events:none;}
+  #volumePanelBody .evv-volume-stop-points i{width:5px;height:5px;border-radius:50%;background:#777D91;border:1px solid #20242F;transform:translateY(-50%);}
+  #volumePanelBody .evv-volume-marks{display:flex;justify-content:space-between;align-items:center;margin-top:-2px;color:#8B91A2;font-size:9.5px;font-weight:700;font-variant-numeric:tabular-nums;}
+  #volumePanelBody .evv-volume-marks span{min-width:20px;text-align:center;}
+  #volumePanelBody .evv-volume-legend{display:flex;justify-content:space-between;gap:8px;margin-top:-7px;color:#747B8C;font-size:10px;font-weight:600;}
+  #volumePanelBody .evv-volume-extract{display:flex;align-items:center;justify-content:center;gap:8px;width:100%;min-height:44px;padding:11px 14px;border-radius:12px;border:1px solid rgba(83,126,255,.42);background:rgba(47,92,232,.12);color:#DCE6FF;font-size:13px;font-weight:750;}
+  #volumePanelBody .evv-volume-extract:active{background:rgba(47,92,232,.22);transform:scale(.99);}
+  #volumePanelBody .evv-volume-extract svg{width:17px;height:17px;stroke:currentColor;flex:0 0 auto;}
+  #volumePanelBody .evv-volume-done{width:100%;min-height:44px;border-radius:12px;background:linear-gradient(165deg,#4E7CFF,#1E46C4);color:#fff;font-size:14px;font-weight:800;}
+  #volumePanelBody .evv-volume-done:active{transform:scale(.99);}
+
+  /* Keep all editor bottom-tool modes on one stable height, including the keyframe row. */
+  #screen-editor .bottom-tools,
+  #screen-editor #bottomToolsDefault,
+  #screen-editor #bottomToolsClip,
+  #screen-editor #bottomToolsKeyframe{
+    min-height:calc(72px + env(safe-area-inset-bottom,0px))!important;
+    height:calc(72px + env(safe-area-inset-bottom,0px))!important;
+    flex:0 0 calc(72px + env(safe-area-inset-bottom,0px))!important;
+    box-sizing:border-box!important;align-items:stretch!important;overflow-y:hidden!important;
+  }
+  #screen-editor #bottomToolsDefault>.tool-item,
+  #screen-editor #bottomToolsClip>.tool-item,
+  #screen-editor #bottomToolsKeyframe>.tool-item,
+  #screen-editor #bottomToolsKeyframe>.evv-kf-mirror{
+    min-height:72px!important;box-sizing:border-box!important;align-items:center!important;justify-content:flex-start!important;
+  }
+  #screen-editor #bottomToolsKeyframe .evv-kf-mirror{padding-top:10px!important;padding-bottom:8px!important;}
+
+  /* Give the home lockup a little breathing room and let the original raster interpolate naturally. */
+  #screen-home .home-topbar .home-brand-logo-only{
+    height:48px!important;width:auto!important;max-width:min(180px,48vw)!important;min-width:0!important;
+    display:block!important;flex:0 0 auto!important;object-fit:contain!important;object-position:left center!important;
+    overflow:visible!important;clip-path:none!important;padding:2px!important;margin:0!important;
+    image-rendering:auto!important;filter:none!important;transform:none!important;-webkit-transform:none!important;
+  }
+  #screen-home .home-brand{min-width:0!important;overflow:visible!important;align-items:center!important;}
+  #screen-home .home-account-balance{min-height:12px;}
+</style>
+
+<script id="ethvelle-v125-media-volume-timeline-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const clamp=(v,min,max)=>Math.max(min,Math.min(max,Number(v)||0));
+  const safeTransform=t=>({scale:Number(t&&t.scale!=null?t.scale:1)||1,offsetX:Number(t&&t.offsetX)||0,offsetY:Number(t&&t.offsetY)||0,rotation:Number(t&&t.rotation)||0});
+  const selectedOverlay=()=>{
+    try{return Array.isArray(overlays)?overlays.find(o=>String(o.id)===String(selectedClip))||null:null;}catch(_e){return null;}
+  };
+
+  /* VOLUME  -  continuous CapCut-style range with labelled stops, not preset cards. */
+  window.volumeTargetClip=function(){
+    if(typeof selectedClip!=='string'||!Array.isArray(overlays))return null;
+    const clip=overlays.find(o=>String(o.id)===String(selectedClip));
+    return clip&&(clip.type==='video'||clip.type==='audio')?clip:null;
+  };
+  function volumePanelPaint(clip,pct){
+    const slider=$('evvVolumeSlider');
+    if(slider){slider.value=String(pct);slider.style.setProperty('--evv-volume-fill',(pct/2)+'%');}
+    const value=$('volumeVal');if(value)value.textContent=Math.round(pct)+'%';
+    const header=$('volumePanelHeader');if(header)header.textContent=(clip.name||'Clip')+' · '+Math.round(pct)+'%';
+    document.querySelectorAll('#volumePanelBody .evv-volume-marks span').forEach((el)=>{
+      const v=Number(el.dataset.stop)||0;el.style.color=Math.abs(v-pct)<1?'#AFC4FF':'#8B91A2';
+    });
+  }
+  window.renderVolumePanel=function(){
+    const body=$('volumePanelBody');if(!body)return;
+    const clip=window.volumeTargetClip();
+    if(!clip){body.innerHTML='<p class="field-label">Select a video or audio clip on the timeline to change its volume.</p>';return;}
+    const pct=clamp(Math.round((clip.volume==null?1:Number(clip.volume))*100),0,200);
+    const marks=[0,50,100,150,200];
+    const isVideo=clip.type==='video';
+    body.innerHTML=`<div class="evv-volume-panel">
+      <div class="evv-volume-head"><span class="evv-volume-name" id="volumePanelHeader">${typeof escapeHtml==='function'?escapeHtml(clip.name||'Clip'):(clip.name||'Clip')}</span><output class="evv-volume-value" id="volumeVal">${pct}%</output></div>
+      <div class="evv-volume-slider-wrap">
+        <input id="evvVolumeSlider" class="evv-volume-slider" type="range" min="0" max="200" step="1" value="${pct}" style="--evv-volume-fill:${pct/2}%" oninput="window.volumePanelSetVolume(this.value)" aria-label="Clip volume">
+        <div class="evv-volume-stop-points" aria-hidden="true">${marks.map(()=>'<i></i>').join('')}</div>
+      </div>
+      <div class="evv-volume-marks">${marks.map(v=>`<span data-stop="${v}">${v}%</span>`).join('')}</div>
+      ${isVideo?'<button type="button" class="evv-volume-extract" onclick="window.extractAudioFromClip()"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12m0 0 4-4m-4 4-4-4M4 17v3h16v-3"/></svg><span>Extract audio to its own clip</span></button>':''}
+      <button type="button" class="evv-volume-done" onclick="closePanel()">Done</button>
+    </div>`;
+    volumePanelPaint(clip,pct);
+  };
+  window.volumePanelSetVolume=function(value){
+    const clip=window.volumeTargetClip();if(!clip)return;
+    const pct=clamp(value,0,200),volume=pct/100;
+    const wasExtractMuted=!!clip.__ethvelleExtractedAudioMuted;
+    clip.volume=volume;
+    if(wasExtractMuted&&pct>0){
+      clip.__ethvelleExtractedAudioMuted=false;
+      if(Array.isArray(clip.ethvelleMediaKeyframes))clip.ethvelleMediaKeyframes.forEach(k=>{if(k&&k.property==='volume')k.value=volume;});
+      if(clip.ethvelleMediaKeyframeBase&&Object.prototype.hasOwnProperty.call(clip.ethvelleMediaKeyframeBase,'volume'))clip.ethvelleMediaKeyframeBase.volume=volume;
+    }
+    if(clip.ethvelleMediaKeyframeBase&&Object.prototype.hasOwnProperty.call(clip.ethvelleMediaKeyframeBase,'volume'))clip.ethvelleMediaKeyframeBase.volume=volume;
+    const chosen=window.__ethvelleSelectedObjectKeyframe;
+    if(chosen&&String(chosen.id)===String(clip.id)&&Array.isArray(clip.ethvelleMediaKeyframes)){
+      const k=clip.ethvelleMediaKeyframes[Number(chosen.index)];if(k&&k.property==='volume')k.value=volume;
+    }
+    if(clip.type==='audio'&&typeof audioOverlayNodes!=='undefined'&&audioOverlayNodes[clip.id]&&typeof audioOverlayAudioCtx!=='undefined'&&audioOverlayAudioCtx){
+      try{audioOverlayNodes[clip.id].gain.gain.setTargetAtTime(volume,audioOverlayAudioCtx.currentTime,0.015);}catch(_e){try{audioOverlayNodes[clip.id].gain.gain.value=volume;}catch(__e){}}
+    }
+    const video=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[clip.id]:null;
+    if(video&&clip.type==='video'){try{video.muted=false;video.volume=Math.min(1,volume);}catch(_e){}}
+    volumePanelPaint(clip,pct);
+    try{if(typeof renderOverlayMedia==='function')renderOverlayMedia(getCurrentAbsoluteTime());}catch(_e){}
+    if(typeof debouncedPersist==='function')debouncedPersist();else if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+    if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();
+  };
+
+  /* Extract the same source at the same timeline position, while retaining durable IndexedDB refs. */
+  window.extractAudioFromClip=function(){
+    const clip=window.volumeTargetClip();
+    if(!clip||clip.type!=='video'){if(typeof showToast==='function')showToast('Select a video clip to extract its audio',{icon:toastIcons.info});return;}
+    let id='ov'+Date.now()+Math.random().toString(36).slice(2,6);
+    while(overlays.some(o=>String(o.id)===String(id)))id='ov'+Math.random().toString(36).slice(2,9);
+    const newClip={
+      id,name:(clip.name||'Video')+' (audio)',color:clip.color,type:'audio',src:clip.src,
+      deviceMediaKey:clip.deviceMediaKey||undefined,
+      deviceMediaName:clip.deviceMediaName||clip.name||undefined,
+      deviceMediaSize:Number(clip.deviceMediaSize)||undefined,
+      deviceMediaLastModified:Number(clip.deviceMediaLastModified)||undefined,
+      sourceDuration:Number(clip.sourceDuration)||Math.max(MIN_CLIP_SEC,Number(clip.trimEnd)-Number(clip.trimStart)),
+      sourceOffset:Math.max(0,Number(clip.sourceOffset)||0),
+      trimStart:Number(clip.trimStart)||0,trimEnd:Number(clip.trimEnd)||MIN_CLIP_SEC,
+      thumbs:[],peaks:Array.isArray(clip.peaks)&&clip.peaks.length?clip.peaks.slice():null,
+      speed:Number(clip.speed)||1,volume:1,transform:null,
+      audioSettings:clip.audioSettings&&typeof clip.audioSettings==='object'?{...clip.audioSettings}:undefined
+    };
+    overlays.push(newClip);
+    timelineDuration=Math.max(Number(timelineDuration)||0,newClip.trimEnd);
+    /* Mute the original independently; the extracted audio remains at 100%. */
+    clip.volume=0;clip.__ethvelleExtractedAudioMuted=true;
+    if(clip.ethvelleMediaKeyframeBase&&Object.prototype.hasOwnProperty.call(clip.ethvelleMediaKeyframeBase,'volume'))clip.ethvelleMediaKeyframeBase.volume=0;
+    if(Array.isArray(clip.ethvelleMediaKeyframes))clip.ethvelleMediaKeyframes.forEach(k=>{if(k&&k.property==='volume')k.value=0;});
+    const originalEl=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[clip.id]:null;
+    if(originalEl){try{originalEl.muted=false;originalEl.volume=0;}catch(_e){}}
+    if(!newClip.peaks&&typeof generateAudioWaveform==='function'){
+      const waveformSource=newClip.src;
+      generateAudioWaveform(waveformSource).then(result=>{
+        if(!overlays.includes(newClip))return;
+        newClip.peaks=Array.from(result&&result.peaks||[]);
+        if(typeof renderOverlayLayers==='function')renderOverlayLayers();
+        if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+      }).catch(err=>console.warn('Ethvelle: extracted audio waveform could not be generated',err));
+    }
+    renderOverlayLayers();syncTimelineInnerWidth();renderRuler();
+    selectClipForChrome(newClip.id);renderOverlayListPanel();renderFrame();
+    if(typeof showToast==='function')showToast('Audio extracted · original video muted',{icon:toastIcons.check,duration:1800});
+    if(typeof persistProjectState==='function')persistProjectState();
+    if(typeof renderVolumePanel==='function')renderVolumePanel();
+  };
+
+  /* A muted clip is still a video/audio clip: keep Volume available and refresh its label. */
+  const priorBottomSync=window.syncBottomToolsMode;
+  if(typeof priorBottomSync==='function'&&!priorBottomSync.__evv125Volume){
+    const wrapped=function(){const out=priorBottomSync.apply(this,arguments);try{
+      const clip=window.volumeTargetClip(),tool=$('clipVolumeTool'),label=$('clipVolumeLabel');
+      const keyframeMode=typeof selectedKfIdx!=='undefined'&&selectedKfIdx!==null;
+      if(tool&&!keyframeMode)tool.style.display=clip?'flex':'none';
+      if(label&&clip){const p=Math.round((clip.volume==null?1:Number(clip.volume))*100);label.textContent=p===100?'Volume':(p===0?'Muted':p+'%');}
+    }catch(_e){}return out;};
+    wrapped.__evv125Volume=true;window.syncBottomToolsMode=wrapped;
+  }
+  const priorPanelOpen=window.openPanel;
+  if(typeof priorPanelOpen==='function'&&!priorPanelOpen.__evv125Volume){
+    const wrapped=function(key){const out=priorPanelOpen.apply(this,arguments);if(key==='volume')requestAnimationFrame(()=>window.renderVolumePanel());return out;};
+    wrapped.__evv125Volume=true;window.openPanel=wrapped;
+  }
+
+
+
+  /* Clip taps are selection-only. The timeline's own gesture handlers still scrub on a
+     deliberate horizontal drag, but a stationary tap never changes time or scroll position. */
+
+  /* Keep selected media transforms and their rendered picture/keyframe data in sync. */
+  function getLiveVisualTransform(clip,time){
+    try{const keyed=typeof window.ethvelleGetObjectKeyframeValue==='function'?window.ethvelleGetObjectKeyframeValue(clip,'transform',time):null;if(keyed)return safeTransform(keyed);}catch(_e){}
+    return safeTransform(clip&&clip.transform);
+  }
+  function shiftTransformValue(value,dx,dy,dr,scaleRatio){
+    const t=safeTransform(value);return {scale:Math.max(.001,t.scale*scaleRatio),offsetX:t.offsetX+dx,offsetY:t.offsetY+dy,rotation:t.rotation+dr};
+  }
+  function commitVisualTransform(clip,next,previous,time){
+    if(!clip)return;
+    next=safeTransform(next);previous=safeTransform(previous||clip.transform);
+    const keys=Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+    const transformKeys=keys.filter(k=>k&&k.property==='transform');
+    const tolerance=typeof window.ethvelleObjectKeyframeContactWindow==='function'?window.ethvelleObjectKeyframeContactWindow():.05;
+    let targetKey=null;
+    const selected=window.__ethvelleSelectedObjectKeyframe;
+    if(selected&&String(selected.id)===String(clip.id)){
+      const k=keys[Number(selected.index)];if(k&&k.property==='transform')targetKey=k;
+    }
+    if(!targetKey&&transformKeys.length){
+      targetKey=transformKeys.find(k=>Math.abs(Number(k.t)-Number(time))<=tolerance)||null;
+    }
+    if(targetKey){targetKey.value={...next};}
+    else if(transformKeys.length){
+      const dx=next.offsetX-previous.offsetX,dy=next.offsetY-previous.offsetY,dr=next.rotation-previous.rotation,ratio=previous.scale?next.scale/previous.scale:1;
+      transformKeys.forEach(k=>{k.value=shiftTransformValue(k.value,dx,dy,dr,ratio);});
+      if(clip.transform)clip.transform=shiftTransformValue(clip.transform,dx,dy,dr,ratio);
+      if(clip.ethvelleMediaKeyframeBase&&clip.ethvelleMediaKeyframeBase.transform)clip.ethvelleMediaKeyframeBase.transform=shiftTransformValue(clip.ethvelleMediaKeyframeBase.transform,dx,dy,dr,ratio);
+    }else{
+      clip.transform={...next};
+      if(clip.ethvelleMediaKeyframeBase&&Object.prototype.hasOwnProperty.call(clip.ethvelleMediaKeyframeBase,'transform'))clip.ethvelleMediaKeyframeBase.transform={...next};
+    }
+  }
+  const priorTransformUpdate=window.updateTransform;
+  if(typeof priorTransformUpdate==='function'&&!priorTransformUpdate.__evv125Sync){
+    const wrapped=function(){
+      const clip=selectedOverlay();
+      if(!clip||(clip.type!=='video'&&clip.type!=='image'))return priorTransformUpdate.apply(this,arguments);
+      const now=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():Number(currentAbsoluteTimeSec)||0;
+      const before=getLiveVisualTransform(clip,now);
+      const size=$('sizeSlider'),x=$('posXSlider'),y=$('posYSlider'),rot=$('rotSlider');
+      if(!size||!x||!y||!rot)return priorTransformUpdate.apply(this,arguments);
+      const next={scale:Number(size.value)/100,offsetX:(Number(x.value)/100)*(stageW*.75),offsetY:(Number(y.value)/100)*(stageH*.75),rotation:Number(rot.value)||0};
+      commitVisualTransform(clip,next,before,now);
+      $('sizeVal').textContent=Number(size.value)+'%';$('posXVal').textContent=String(x.value);$('posYVal').textContent=String(y.value);$('rotVal').textContent=String(rot.value)+'°';
+      renderFrame();if(typeof debouncedPersist==='function')debouncedPersist();else if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+    };
+    wrapped.__evv125Sync=true;window.updateTransform=wrapped;
+  }
+  const priorTransformSync=window.syncTransformSliders;
+  if(typeof priorTransformSync==='function'&&!priorTransformSync.__evv125Sync){
+    const wrapped=function(){const result=priorTransformSync.apply(this,arguments);try{
+      const clip=selectedOverlay();if(clip&&(clip.type==='video'||clip.type==='image')){
+        const t=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():Number(currentAbsoluteTimeSec)||0;
+        const live=getLiveVisualTransform(clip,t),size=$('sizeSlider'),x=$('posXSlider'),y=$('posYSlider'),rot=$('rotSlider');
+        if(size)size.value=Math.round(live.scale*100);
+        if(x)x.value=Math.round(live.offsetX/Math.max(1,stageW*.75));
+        if(y)y.value=Math.round(live.offsetY/Math.max(1,stageH*.75));
+        if(rot)rot.value=Math.round(live.rotation);
+        if($('sizeVal'))$('sizeVal').textContent=size.value+'%';if($('posXVal'))$('posXVal').textContent=x.value;if($('posYVal'))$('posYVal').textContent=y.value;if($('rotVal'))$('rotVal').textContent=rot.value+'°';
+      }
+    }catch(_e){}return result;};
+    wrapped.__evv125Sync=true;window.syncTransformSliders=wrapped;
+  }
+  const priorFinishSel=window.finishSelBoxEdit;
+  if(typeof priorFinishSel==='function'&&!priorFinishSel.__evv125Sync){
+    const wrapped=function(tg){const result=priorFinishSel.apply(this,arguments);try{
+      if(tg&&tg.kind==='overlay'){
+        const clip=selectedOverlay();if(clip&&(clip.type==='video'||clip.type==='image')){
+          const now=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():Number(currentAbsoluteTimeSec)||0;
+          const current=getLiveVisualTransform(clip,now);commitVisualTransform(clip,tg.obj,current,now);
+          if(typeof renderFrame==='function')renderFrame();if(typeof updateSelBox==='function')updateSelBox();
+          if(typeof persistProjectState==='function')persistProjectState({skipHistory:true});
+        }
+      }
+    }catch(err){console.warn('Ethvelle v125 transform commit:',err);}return result;};
+    wrapped.__evv125Sync=true;window.finishSelBoxEdit=wrapped;
+  }
+
+  /* Re-assert video frame readiness after each overlay render; no per-frame DOM rebuilding. */
+  const priorOverlayRender=window.renderOverlayMedia;
+  if(typeof priorOverlayRender==='function'&&!priorOverlayRender.__evv125Video){
+    const wrapped=function(time){const result=priorOverlayRender.apply(this,arguments);try{
+      const now=Number.isFinite(Number(time))?Number(time):(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():0);
+      (Array.isArray(overlays)?overlays:[]).forEach(ov=>{
+        if(!ov||ov.type!=='video')return;
+        const el=typeof overlayMediaEls!=='undefined'&&overlayMediaEls?overlayMediaEls[ov.id]:null;if(!el)return;
+        const active=now>=Number(ov.trimStart)&&now<Number(ov.trimEnd);
+        if(!active){if(!el.paused)try{el.pause();}catch(_e){}return;}
+        el.playsInline=true;el.setAttribute('playsinline','');el.preload='auto';
+        if(el.dataset.evv125ReadyHook!=='1'){
+          el.dataset.evv125ReadyHook='1';
+          el.addEventListener('loadeddata',()=>{
+            const t=typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():0;
+            if(t>=Number(ov.trimStart)&&t<Number(ov.trimEnd)){
+              try{if(typeof renderFrame==='function')renderFrame();}catch(_e){}
+            }
+          },{once:true});
+          el.addEventListener('error',()=>console.warn('Ethvelle: video clip failed to decode',ov.name||ov.id),{once:true});
+        }
+      });
+    }catch(_e){}return result;};
+    wrapped.__evv125Video=true;window.renderOverlayMedia=wrapped;
+  }
+
+  /* Credits: preserve the final split capsule during auth/Firestore loading; only the value is pending. */
+  window.__ethvelleCreditsLoading=!!currentUser;
+  window.renderHomeCreditSummary=function(){
+    const planEl=$('homeAccountPlan'),balanceEl=$('homeAccountBalance'),button=$('homeAccountSummary'),profileButton=$('homeProfileBtn');
+    if(profileButton)profileButton.style.display=currentUser?'flex':'none';if(!planEl||!balanceEl||!button)return;
+    if(!currentUser){planEl.textContent='Login';balanceEl.textContent='Sign in to view credits';button.setAttribute('aria-label','Login to view your plan and credits');if(typeof renderHomeProfileAvatar==='function')renderHomeProfileAvatar();return;}
+    const owned=typeof getMyOwnedPlansForBilling==='function'?getMyOwnedPlansForBilling():[];
+    const names=[...new Set((owned||[]).map(p=>String(p&&p.name||'').trim()).filter(Boolean))];
+    const planLabel=(names.length?names.join(' + '):getMyActivePlanName())+' plan';
+    const monthly=typeof getMyCombinedCreditAllowance==='function'?Math.max(0,Number(getMyCombinedCreditAllowance(owned))||0):0;
+    const available=Math.max(0,Number(myCreditsBalance)||0);
+    planEl.textContent=planLabel;
+    const availableText=window.__ethvelleCreditsLoading?'...':available.toLocaleString();
+    const monthlyText=window.__ethvelleCreditsLoading?'...':monthly.toLocaleString();
+    balanceEl.innerHTML=`<span class="home-credit-available">${availableText}</span><span class="home-credit-divider">/</span><span class="home-credit-monthly">${monthlyText}</span><span class="home-credit-unit">credits</span>`;
+    button.setAttribute('aria-label',planLabel+', '+(window.__ethvelleCreditsLoading?'loading credits':available.toLocaleString()+' credits available out of '+monthly.toLocaleString()+' monthly credits')+'. Open billing and plan');
+    if(typeof renderHomeProfileAvatar==='function')renderHomeProfileAvatar();
+  };
+  /* Replace only this listener setup so loading ends on the actual first Firestore snapshot. */
+  window.startMyCreditsSync=function(uid){
+    window.__ethvelleCreditsLoading=!!(uid&&firebaseReady&&fbDb);
+    try{if(typeof stopMyCreditsSync==='function')stopMyCreditsSync();}catch(_e){}
+    if(!(firebaseReady&&fbDb)||!uid){window.__ethvelleCreditsLoading=false;if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();return;}
+    if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+    try{
+      myCreditsUserUnsub=fbDb.collection('users').doc(uid).onSnapshot(doc=>{
+        const profile=doc.exists?(doc.data()||{}):{};
+        if(typeof ethvelleIsAdminBanActive==='function'&&ethvelleIsAdminBanActive(profile)&&ethvelleBanSignoutUid!==String(uid)){
+          ethvelleBanSignoutUid=String(uid);showToast(profile.adminBanReason?'Account access restricted: '+String(profile.adminBanReason).slice(0,100):'This account has been suspended',{icon:toastIcons.info,duration:3000});
+          if(fbAuth&&fbAuth.currentUser&&fbAuth.currentUser.uid===uid)fbAuth.signOut().catch(()=>{});return;
+        }
+        if(typeof ethvelleIsAdminBanActive==='function'&&!ethvelleIsAdminBanActive(profile)&&ethvelleBanSignoutUid===String(uid))ethvelleBanSignoutUid='';
+        myCreditsBalance=doc.exists?Math.max(0,Number(profile.creditsBalance)||0):0;
+        mergeHiddenCreditIds(uid,profile.hiddenCreditTransactionIds);
+        window.__ethvelleCreditsLoading=false;
+        if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+        if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+        if(typeof renderExportCreditEstimate==='function')renderExportCreditEstimate();
+      },err=>{console.warn('Ethvelle: credit balance sync failed',err);window.__ethvelleCreditsLoading=false;if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();});
+      myCreditTransactionsUnsub=fbDb.collection('creditTransactions').where('uid','==',uid).limit(100).onSnapshot(snap=>{
+        myCreditTransactions=snap.docs.map(d=>({id:d.id,...d.data()})).sort((a,b)=>creditTimestampMs(b.createdAt)-creditTimestampMs(a.createdAt));
+        if(typeof renderMyPlanScreen==='function')renderMyPlanScreen();
+        if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();
+      },err=>console.warn('Ethvelle: credit history sync failed',err));
+    }catch(err){console.warn('Ethvelle: could not start credit sync',err);window.__ethvelleCreditsLoading=false;if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();}
+  };
+
+  /* Repaint homepage logo on decode without changing its aspect ratio or clipping its edges. */
+  const homeLogo=$('screen-home')&&$('screen-home').querySelector('.home-brand-logo-only');
+  if(homeLogo){homeLogo.decoding='async';homeLogo.loading='eager';homeLogo.addEventListener('load',()=>{homeLogo.style.opacity='1';},{once:true});homeLogo.addEventListener('error',()=>{homeLogo.style.opacity='1';},{once:true});}
+  try{if(typeof syncBottomToolsMode==='function')syncBottomToolsMode();}catch(_e){}
+  try{if(currentUser&&currentUser.uid)window.startMyCreditsSync(currentUser.uid);else if(typeof renderHomeCreditSummary==='function')renderHomeCreditSummary();}catch(_e){}
+})();
+</script>
+
+
+
+<!-- Ethvelle v126: cross-row playhead anchoring, stable keyframe tap identity,
+     single-owner overlay trimming, and aligned keyframe media control. -->
+<style id="ethvelle-v126-timeline-polish-css">
+  /* Stop markers are percentage labels only; the slider itself has no black/dark dots. */
+  #volumePanelBody .evv-volume-stop-points{display:none!important;}
+  #volumePanelBody .evv-volume-slider-wrap{padding:7px 0 3px!important;}
+  #volumePanelBody .evv-volume-slider::-webkit-slider-runnable-track{
+    border-radius:999px!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.055)!important;
+  }
+  #volumePanelBody .evv-volume-slider::-moz-range-track{
+    border-radius:999px!important;
+    box-shadow:inset 0 1px 0 rgba(255,255,255,.055)!important;
+  }
+  /* Small pale end ticks replace the five dark dots without adding stop-point blocks. */
+  #volumePanelBody .evv-volume-slider-wrap::before,
+  #volumePanelBody .evv-volume-slider-wrap::after{
+    content:"";position:absolute;top:50%;width:2px;height:6px;border-radius:3px;
+    background:rgba(202,211,235,.55);transform:translateY(-50%);pointer-events:none;z-index:2;
+  }
+  #volumePanelBody .evv-volume-slider-wrap::before{left:0;}
+  #volumePanelBody .evv-volume-slider-wrap::after{right:0;}
+  #volumePanelBody .evv-volume-marks{padding-left:1px;padding-right:1px;}
+
+  /* The Media/Add control is a normal toolbar item, not a lower baseline item. */
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool{
+    position:relative!important;top:0!important;bottom:auto!important;transform:none!important;
+    align-self:stretch!important;margin:0!important;padding:10px 2px 8px!important;
+    min-height:72px!important;height:72px!important;box-sizing:border-box!important;
+    display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:flex-start!important;gap:5px!important;vertical-align:top!important;
+  }
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool svg{
+    width:22px!important;height:22px!important;flex:0 0 22px!important;margin:0!important;
+  }
+  #screen-editor #bottomToolsKeyframe #keyframeMediaAccessTool span{
+    display:block!important;line-height:1.15!important;margin:0!important;
+  }
+  #screen-editor #bottomToolsKeyframe>.tool-item,
+  #screen-editor #bottomToolsKeyframe>.evv-kf-mirror{
+    position:relative!important;top:0!important;bottom:auto!important;transform:none!important;
+    align-self:stretch!important;margin-top:0!important;margin-bottom:0!important;
+  }
+</style>
+<script id="ethvelle-v126-timeline-polish-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const finite=(v,fallback=0)=>Number.isFinite(Number(v))?Number(v):fallback;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,finite(v,a)));
+
+  /* Re-render the same slider without any decorative stop dots. */
+  const originalVolumeRender=window.renderVolumePanel;
+  if(typeof originalVolumeRender==='function'&&!originalVolumeRender.__evv126NoDots){
+    const wrapped=function(){
+      const result=originalVolumeRender.apply(this,arguments);
+      const stops=$('#volumePanelBody .evv-volume-stop-points');
+      if(stops)stops.remove();
+      return result;
+    };
+    wrapped.__evv126NoDots=true;window.renderVolumePanel=wrapped;
+  }
+
+  /* Cross-row clip taps use the same selection-only policy as taps within a row.
+     New-clip insertion is handled centrally by onClipSelected(clip,'add'). */
+
+  /* Resolve a tapped diamond by its on-screen time, not only a possibly stale array index.
+     The key object is retained through selection so sorting/re-rendering cannot select its
+     former neighbour after a keyframe is moved or another key is inserted. */
+  function nearestKeyByMarkerPosition(clip,keys,marker){
+    if(!clip||!Array.isArray(keys)||!keys.length||!marker)return null;
+    const x=parseFloat(marker.style.left),pps=Math.max(1,finite(typeof pxPerSecond==='function'?pxPerSecond():100,100));
+    if(!Number.isFinite(x))return null;
+    const target=(finite(clip.trimStart)+x/pps);
+    let best=null,distance=Infinity;
+    keys.forEach(key=>{const d=Math.abs(finite(key&&key.t,Infinity)-target);if(d<distance){distance=d;best=key;}});
+    return best&&distance<=Math.max(.16,14/pps)?best:null;
+  }
+  let pendingKeyTap=null;
+  window.addEventListener('pointerdown',function(e){
+    const marker=e.target&&e.target.closest?e.target.closest('#screen-editor #timelineInner .kf-marker'):null;
+    if(!marker||e.isPrimary===false)return;
+    const objectTrack=marker.closest('.object-keyframe-track'),rawObject=marker.getAttribute('data-object-kf-idx');
+    if(objectTrack&&rawObject!=null){
+      const id=String(objectTrack.dataset.objectKfTrack||'');
+      const clip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;
+      const keys=clip&&Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+      const key=nearestKeyByMarkerPosition(clip,keys,marker)||keys[Number(rawObject)]||null;
+      pendingKeyTap={kind:'object',id,index:Number(rawObject),key,at:Date.now(),pointerId:e.pointerId};
+      return;
+    }
+    const rawChar=marker.getAttribute('data-kf-idx');
+    if(rawChar!=null){
+      const clipEl=marker.closest('.anim-clip');
+      const ref=clipEl&&clipEl.id==='animClipEl'?'main':clipEl&&clipEl.dataset.segIdx!=null?'seg'+clipEl.dataset.segIdx:'';
+      const clip=ref==='main'?activeClip:(ref&&typeof getClipByRef==='function'?getClipByRef(ref):null);
+      const keys=clip&&Array.isArray(clip.keyframes)?clip.keyframes:[];
+      const key=nearestKeyByMarkerPosition(clip,keys,marker)||keys[Number(rawChar)]||null;
+      pendingKeyTap={kind:'character',id:ref,ref,index:Number(rawChar),key,at:Date.now(),pointerId:e.pointerId};
+    }
+  },true);
+  window.addEventListener('pointercancel',function(e){if(pendingKeyTap&&pendingKeyTap.pointerId===e.pointerId)pendingKeyTap=null;},true);
+
+  const priorSelectObjectKeyframe=window.selectObjectKeyframe;
+  if(typeof priorSelectObjectKeyframe==='function'&&!priorSelectObjectKeyframe.__evv126Stable){
+    const wrapped=function(id,index){
+      const clip=typeof window.ethvelleObjectClipById==='function'?window.ethvelleObjectClipById(id):null;
+      const keys=clip&&Array.isArray(clip.ethvelleMediaKeyframes)?clip.ethvelleMediaKeyframes:[];
+      const pending=pendingKeyTap;pendingKeyTap=null;
+      const stable=(pending&&pending.kind==='object'&&String(pending.id)===String(id)&&Date.now()-pending.at<1800&&pending.key&&keys.includes(pending.key))?pending.key:keys[Number(index)]||null;
+      const actual=stable?keys.indexOf(stable):Number(index);
+      const result=priorSelectObjectKeyframe.call(this,id,actual);
+      if(stable){
+        requestAnimationFrame(()=>{
+          try{
+            if(!clip||!keys.includes(stable)||String(selectedClip)!==String(id))return;
+            const nextIndex=keys.indexOf(stable);
+            window.__ethvelleSelectedObjectKeyframe={id:String(id),index:nextIndex,source:'pointer'};
+            if(typeof window.ethvelleRefreshObjectKeyframeTracks==='function')window.ethvelleRefreshObjectKeyframeTracks(id);
+            if(typeof window.updateKeyButtonState==='function')window.updateKeyButtonState();
+            if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+          }catch(err){console.warn('Ethvelle object keyframe selection repair:',err);}
+        });
+      }
+      return result;
+    };
+    wrapped.__evv126Stable=true;window.selectObjectKeyframe=wrapped;
+  }
+  const priorSelectCharacterKeyframe=window.selectKeyframe;
+  if(typeof priorSelectCharacterKeyframe==='function'&&!priorSelectCharacterKeyframe.__evv126Stable){
+    const wrapped=function(index,ref){
+      ref=ref||'main';
+      const clip=typeof getClipByRef==='function'?getClipByRef(ref):(ref==='main'?activeClip:null);
+      const keys=clip&&Array.isArray(clip.keyframes)?clip.keyframes:[];
+      const pending=pendingKeyTap;pendingKeyTap=null;
+      const stable=(pending&&pending.kind==='character'&&String(pending.ref)===String(ref)&&Date.now()-pending.at<1800&&pending.key&&keys.includes(pending.key))?pending.key:keys[Number(index)]||null;
+      const actual=stable?keys.indexOf(stable):Number(index);
+      const result=priorSelectCharacterKeyframe.call(this,actual,ref);
+      if(stable){
+        requestAnimationFrame(()=>{
+          try{
+            if(!clip||!keys.includes(stable)||String(selectedClip)!==String(ref))return;
+            const nextIndex=keys.indexOf(stable);selectedKfIdx=nextIndex;
+            const track=$(ref==='main'?'kfTrack':'kfTrack-'+ref);
+            if(track){track.querySelectorAll('.kf-marker').forEach(m=>m.classList.toggle('active',Number(m.dataset.kfIdx)===nextIndex));}
+            if(typeof window.syncBottomToolsMode==='function')window.syncBottomToolsMode();
+            if(typeof window.updateKeyButtonState==='function')window.updateKeyButtonState();
+          }catch(err){console.warn('Ethvelle character keyframe selection repair:',err);}
+        });
+      }
+      return result;
+    };
+    wrapped.__evv126Stable=true;window.selectKeyframe=wrapped;
+  }
+
+  /* SINGLE OWNER for overlay trim-handle gestures. The old row renderer registered a
+     second per-handle pointer state machine that could reapply its stale start/end snapshot
+     after a drag had already committed. Intercept the handle at Window capture, update the
+     model from one original snapshot, then rebuild the row exactly once on release. */
+  let overlayTrim=null,trimMoveRaf=0,trimLatestX=0;
+  /* v279: a handle only trims after a long press (gate). Until then the gesture is a plain
+     scrub / row-scroll, exactly like sliding on the clip body. */
+  let overlayTrimGate=null,overlayTrimPointerId=null,overlayTrimPendingHandle=null;
+  function trimGroup(clip){return clip&&clip.type==='audio'?'audio':clip&&clip.type==='text'?'text':'clips';}
+  function paintTrim(g,clientX){
+    if(!g||!g.clip)return;
+    const clip=g.clip,pps=Math.max(1,finite(typeof pxPerSecond==='function'?pxPerSecond():100,100));
+    const delta=(finite(clientX,g.startX)-g.startX)/pps,speed=Math.max(.05,finite(g.speed,1));
+    if(g.side==='left'){
+      let start=clamp(g.origStart+delta,0,g.origEnd-MIN_CLIP_SEC);
+      const duration=finite(clip.sourceDuration,0),offset=g.origSourceOffset;
+      if((clip.type==='video'||clip.type==='audio')&&duration>0){
+        const maxStart=g.origStart+Math.max(0,(duration-offset)/speed);
+        start=Math.min(start,maxStart);
+      }
+      clip.trimStart=start;
+      if(clip.type==='video'||clip.type==='audio')clip.sourceOffset=Math.max(0,g.origSourceOffset+(start-g.origStart)*speed);
+    }else{
+      let end=Math.max(g.origStart+MIN_CLIP_SEC,g.origEnd+delta);
+      const duration=finite(clip.sourceDuration,0),offset=g.origSourceOffset;
+      if((clip.type==='video'||clip.type==='audio')&&duration>0){
+        const maxEnd=g.origStart+Math.max(MIN_CLIP_SEC,(duration-offset)/speed);
+        end=Math.min(end,maxEnd);
+      }
+      clip.trimEnd=end;
+    }
+    const left=clip.trimStart*pps,width=Math.max(MIN_CLIP_SEC*pps,(clip.trimEnd-clip.trimStart)*pps);
+    if(g.el&&g.el.isConnected){g.el.style.left=left+'px';g.el.style.width=width+'px';}
+    try{if(typeof window.applyOverlayLanes==='function')window.applyOverlayLanes(trimGroup(clip));}catch(_e){}
+    try{if(typeof showTrimFrameBadge==='function')showTrimFrameBadge(g.handle,g.side==='left'?(clip.trimStart-g.origStart):(clip.trimEnd-g.origEnd));}catch(_e){}
+    // The video filmstrip painter uses the clip's live trimStart/trimEnd/sourceOffset to
+    // map each tile to its source frame. Schedule it during the gesture (not only after the
+    // row is rebuilt on pointerup) so newly exposed frames appear while the edge is moving.
+    if(clip.type==='video'){
+      try{const thumbs=window.__evTimelineVideoThumbs;if(thumbs&&typeof thumbs.schedule==='function')thumbs.schedule();}catch(_e){}
+    }
+  }
+  function flushTrimMove(){if(!overlayTrim)return;trimMoveRaf=0;paintTrim(overlayTrim,trimLatestX);}
+  window.addEventListener('pointerdown',function(e){
+    const handle=e.target&&e.target.closest?e.target.closest('#screen-editor #timelineInner .overlay-clip [data-ov-handle]'):null;
+    if(!handle||e.isPrimary===false||e.button>0)return;
+    const el=handle.closest('.overlay-clip'),id=el&&String(el.dataset.overlayId||'');
+    const clip=Array.isArray(overlays)?overlays.find(o=>o&&String(o.id)===id):null;if(!clip)return;
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    if(isPlaying&&typeof pausePlayback==='function')pausePlayback();
+    if(typeof selectClipForChrome==='function')selectClipForChrome(id);
+    try{if(typeof selectOverlayGroup==='function')selectOverlayGroup(trimGroup(clip));}catch(_e){}
+    const side=String(handle.dataset.ovHandle||'right');
+    overlayTrimPointerId=e.pointerId;overlayTrimPendingHandle=handle;
+    overlayTrimGate=window.ethvelleMakeHandleHoldGate(function(armX){
+      let liveEl=el;
+      if(!liveEl.isConnected){
+        try{liveEl=document.querySelector('#screen-editor #timelineInner .overlay-clip[data-overlay-id="'+String(id).replace(/"/g,'\\"')+'"]')||el;}catch(_e){liveEl=el;}
+      }
+      overlayTrim={pointerId:e.pointerId,clip,el:liveEl,handle,side,startX:armX,origStart:finite(clip.trimStart),origEnd:finite(clip.trimEnd),origSourceOffset:finite(clip.sourceOffset),speed:Math.max(.05,finite(clip.speed,1))};
+      trimLatestX=armX;liveEl.classList.add('dragging');
+      // Mark only this clip as a live trim preview. The shared filmstrip renderer can then
+      // bypass its normal drag freeze for this strip without changing ordinary move-drag.
+      liveEl.classList.add('ev-trim-preview-active');
+      try{if(typeof armClipDrag==='function')armClipDrag();}catch(_e){}
+    });
+    overlayTrimGate.down(e);
+    try{if(handle.setPointerCapture)handle.setPointerCapture(e.pointerId);}catch(_e){}
+  },true);
+  window.addEventListener('pointermove',function(e){
+    if(overlayTrimGate&&overlayTrimPointerId===e.pointerId){
+      const verdict=overlayTrimGate.move(e);
+      if(verdict==='handled'){e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();return;}
+    }
+    const g=overlayTrim;if(!g||g.pointerId!==e.pointerId)return;
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    trimLatestX=e.clientX;
+    if(!trimMoveRaf)trimMoveRaf=requestAnimationFrame(flushTrimMove);
+  },true);
+  window.addEventListener('pointerup',function(e){
+    if(overlayTrimGate&&overlayTrimPointerId===e.pointerId){
+      const kind=overlayTrimGate.up(e);
+      const pendingHandle=overlayTrimPendingHandle;
+      overlayTrimGate=null;overlayTrimPointerId=null;overlayTrimPendingHandle=null;
+      if(kind!=='trim'){
+        // Plain tap, quick slide (scrub) or row scroll: nothing was trimmed, so nothing to commit.
+        e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+        try{if(pendingHandle&&pendingHandle.hasPointerCapture&&pendingHandle.hasPointerCapture(e.pointerId))pendingHandle.releasePointerCapture(e.pointerId);}catch(_e){}
+        return;
+      }
+    }
+    const g=overlayTrim;if(!g||g.pointerId!==e.pointerId)return;
+    e.preventDefault();e.stopPropagation();if(e.stopImmediatePropagation)e.stopImmediatePropagation();
+    if(trimMoveRaf){cancelAnimationFrame(trimMoveRaf);trimMoveRaf=0;}
+    trimLatestX=e.clientX;paintTrim(g,trimLatestX);overlayTrim=null;
+    try{if(g.handle&&g.handle.hasPointerCapture&&g.handle.hasPointerCapture(e.pointerId))g.handle.releasePointerCapture(e.pointerId);}catch(_e){}
+    if(g.el){g.el.classList.remove('dragging');g.el.classList.remove('ev-trim-preview-active');}
+    try{if(typeof disarmClipDrag==='function')disarmClipDrag();}catch(_e){}
+    try{if(typeof hideTrimFrameBadge==='function')hideTrimFrameBadge();}catch(_e){}
+    if(g.clip.trimEnd>timelineDuration-.3){timelineDuration=g.clip.trimEnd+1;if(typeof syncTimelineInnerWidth==='function')syncTimelineInnerWidth();if(typeof renderRuler==='function')renderRuler();}
+    if(g.clip.type==='audio'&&typeof drawWaveform==='function')drawWaveform(g.clip);
+    if(typeof renderOverlayLayers==='function')renderOverlayLayers();
+    if(typeof selectClipForChrome==='function')selectClipForChrome(g.clip.id);
+    if(typeof persistProjectState==='function')persistProjectState();
+  },true);
+  window.addEventListener('pointercancel',function(e){
+    if(overlayTrimGate&&overlayTrimPointerId===e.pointerId){overlayTrimGate.cancel();overlayTrimGate=null;overlayTrimPointerId=null;overlayTrimPendingHandle=null;}
+    const g=overlayTrim;if(!g||g.pointerId!==e.pointerId)return;
+    if(trimMoveRaf){cancelAnimationFrame(trimMoveRaf);trimMoveRaf=0;}
+    g.clip.trimStart=g.origStart;g.clip.trimEnd=g.origEnd;g.clip.sourceOffset=g.origSourceOffset;overlayTrim=null;
+    if(g.el){g.el.classList.remove('dragging');g.el.classList.remove('ev-trim-preview-active');}
+    try{if(typeof disarmClipDrag==='function')disarmClipDrag();}catch(_e){}
+    try{if(typeof hideTrimFrameBadge==='function')hideTrimFrameBadge();}catch(_e){}
+    if(typeof renderOverlayLayers==='function')renderOverlayLayers();
+    if(typeof selectClipForChrome==='function')selectClipForChrome(g.clip.id);
+  },true);
+
+  /* Normalize the Media control after any keyframe toolbar mirror rebuild. */
+  function alignKeyframeMediaButton(){
+    const row=$('bottomToolsKeyframe'),button=$('keyframeMediaAccessTool');
+    if(!row||!button)return;
+    button.style.setProperty('position','relative','important');button.style.setProperty('top','0','important');
+    button.style.setProperty('transform','none','important');button.style.setProperty('margin','0','important');
+    button.style.setProperty('align-self','stretch','important');button.style.setProperty('height','72px','important');
+    button.style.setProperty('min-height','72px','important');button.style.setProperty('padding','10px 2px 8px','important');
+  }
+  const oldBottomSync=window.syncBottomToolsMode;
+  if(typeof oldBottomSync==='function'&&!oldBottomSync.__evv126Align){
+    const wrapped=function(){const r=oldBottomSync.apply(this,arguments);requestAnimationFrame(alignKeyframeMediaButton);return r;};
+    wrapped.__evv126Align=true;window.syncBottomToolsMode=wrapped;
+  }
+  alignKeyframeMediaButton();
+})();
+</script>
+
+
+<script id="ethvelle-v126-overlay-identity-guard">
+(function(){
+  'use strict';
+  /* IDs are the identity key used by the layer renderer, selectors and save model.
+     A repeated ID would render the same logical clip twice (often as an extra lane) while
+     both visual copies still resolve to the first matching object. Keep the first model
+     only; intentionally duplicated media still works because real duplicates have new IDs. */
+  const previousRender=window.renderOverlayLayers;
+  if(typeof previousRender==='function'&&!previousRender.__evv126UniqueIds){
+    const wrapped=function(){
+      if(Array.isArray(overlays)){
+        const seen=new Set(),kept=[];
+        for(const clip of overlays){
+          if(!clip||clip.id==null){kept.push(clip);continue;}
+          const id=String(clip.id);
+          if(seen.has(id))continue;
+          seen.add(id);kept.push(clip);
+        }
+        if(kept.length!==overlays.length){overlays.length=0;for(const clip of kept)overlays.push(clip);}
+      }
+      return previousRender.apply(this,arguments);
+    };
+    wrapped.__evv126UniqueIds=true;window.renderOverlayLayers=wrapped;
+  }
+})();
+</script>
+
+<style id="ethvelle-v128-model-parts-held-items-css">
+  #screen-editor .evca-char-actions-sheet{max-height:min(88dvh,760px)!important;padding-left:16px!important;padding-right:16px!important;}
+  #screen-editor .evpa-section{margin:14px 0 16px;}
+  #screen-editor .evpa-section-title{font-size:11px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#9EB7F7;margin:0 0 9px;}
+  #screen-editor .evpa-choice-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:8px;}
+  #screen-editor .evpa-choice{min-width:0;min-height:82px;border:1px solid #343746;border-radius:12px;background:linear-gradient(160deg,#242632,#191A21);padding:7px 5px 8px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;color:#D6D8E0;}
+  #screen-editor .evpa-choice.active{border:1.5px solid #4F7CFF;background:linear-gradient(160deg,rgba(47,92,232,.26),#1B1C25);box-shadow:inset 0 0 0 1px rgba(79,124,255,.18);color:#fff;}
+  #screen-editor .evpa-choice-preview{width:100%;height:48px;display:flex;align-items:center;justify-content:center;overflow:hidden;border-radius:7px;background:rgba(0,0,0,.14);}
+  #screen-editor .evpa-choice-preview img{max-width:100%;max-height:46px;object-fit:contain;display:block;}
+  #screen-editor .evpa-choice-preview .evpa-choice-icon{font-size:25px;line-height:1;}
+  #screen-editor .evpa-choice-label{font-size:10px;font-weight:700;line-height:1.15;text-align:center;white-space:normal;overflow-wrap:anywhere;}
+  #screen-editor .evpa-action-side{display:flex;gap:8px;margin:6px 0 12px;}
+  #screen-editor .evpa-action-side button{flex:1;min-height:38px;border:1px solid #343746;border-radius:10px;background:#20212A;color:#AEB2C0;font-size:12px;font-weight:800;}
+  #screen-editor .evpa-action-side button.active{border-color:#4F7CFF;background:rgba(47,92,232,.2);color:#fff;}
+  #screen-editor .evpa-close-btn{width:100%;height:44px;border-radius:12px;background:var(--accent);color:#fff;font-size:13px;font-weight:800;margin-top:6px;}
+  #screen-editor .evca-species-movement-note{display:none!important;margin:4px 0 12px;padding:10px 12px;border:1px solid rgba(79,124,255,.24);border-radius:10px;background:rgba(47,92,232,.08);color:#AEB8D4;font-size:11px;line-height:1.45;}
+  #screen-editor .evpa-props-sheet{max-height:min(88dvh,760px);overflow-y:auto;overscroll-behavior:contain;padding-bottom:calc(24px + env(safe-area-inset-bottom));}
+  #screen-editor .evpa-prop-upload{width:100%;min-height:46px;border:1px solid #426BE8;border-radius:12px;background:linear-gradient(160deg,rgba(47,92,232,.22),rgba(25,28,41,.96));display:flex;align-items:center;justify-content:center;gap:8px;color:#fff;font-size:13px;font-weight:800;margin:12px 0;}
+  #screen-editor .evpa-prop-preview{height:148px;border:1px solid #323440;border-radius:14px;background:radial-gradient(circle at 50% 40%,#292D40,#18191F 72%);display:flex;align-items:center;justify-content:center;overflow:hidden;margin:10px 0;}
+  #screen-editor .evpa-prop-preview img{max-width:88%;max-height:88%;object-fit:contain;}
+  #screen-editor .evpa-prop-preview .evpa-prop-empty{font-size:12px;font-weight:700;color:#7E8498;}
+  #screen-editor .evpa-prop-stage-wrap{border:1px solid #323440;border-radius:14px;background:radial-gradient(circle at 50% 35%,#252A3C,#111217 75%);padding:8px;margin:10px 0 14px;overflow:hidden;}
+  #screen-editor .evpa-prop-stage-title{font-size:10px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;color:#9EB7F7;margin:0 0 6px;}
+  #screen-editor #evpaPropStagePreview{display:block;width:100%;height:190px;object-fit:contain;}
+  #screen-editor .evpa-prop-controls{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin:12px 0;}
+  #screen-editor .evpa-prop-field{display:flex;flex-direction:column;gap:6px;min-width:0;}
+  #screen-editor .evpa-prop-field label{font-size:11px;font-weight:700;color:#B8B8C2;display:flex;justify-content:space-between;gap:6px;}
+  #screen-editor .evpa-prop-field output{color:#AFC5FF;font-variant-numeric:tabular-nums;}
+  #screen-editor .evpa-prop-field input[type=range]{width:100%;accent-color:#4F7CFF;margin:0;}
+  #screen-editor .evpa-prop-toggle-row{display:flex;gap:8px;margin:6px 0 12px;}
+  #screen-editor .evpa-prop-toggle-row button{flex:1;min-height:40px;border:1px solid #343746;border-radius:10px;background:#20212A;color:#C3C7D2;font-size:11px;font-weight:800;}
+  #screen-editor .evpa-prop-toggle-row button.active{border-color:#4F7CFF;background:rgba(47,92,232,.2);color:#fff;}
+  #screen-editor .evpa-prop-remove{width:100%;min-height:42px;border:1px solid rgba(255,107,107,.45);border-radius:11px;background:rgba(255,107,107,.08);color:#FF9B9B;font-size:12px;font-weight:800;margin:4px 0 10px;}
+  #screen-editor #clipCharacterActionsTool{flex:0 0 88px!important;width:88px!important;min-width:88px!important;}
+  #screen-editor #clipModelPartsTool,#screen-editor #clipHeldItemsTool{flex:0 0 76px!important;width:76px!important;min-width:76px!important;max-width:76px!important;}
+  @media(max-width:360px){#screen-editor .evpa-choice-grid{grid-template-columns:repeat(2,minmax(0,1fr));}#screen-editor .evpa-choice{min-height:76px;}}
+</style>
+
+<script id="ethvelle-v128-model-parts-held-items-runtime">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+  const safe=v=>String(v==null?'':v).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const currentAnimClip=()=>{
+    if(typeof selectedClip!=='string'||!(selectedClip==='main'||/^seg\d+$/.test(selectedClip)))return null;
+    return typeof getClipByRef==='function'?getClipByRef(selectedClip):null;
+  };
+  const currentChar=()=>typeof activeCharacter==='function'?activeCharacter():null;
+  const charParts=c=>c&&c.sheet&&c.sheet.parts?c.sheet.parts:{};
+  const actionDefaultsV128=()=>({expression:'none',mouth:'preset',blink:'auto',eyes:'auto',wings:'natural',leftHand:'none',rightHand:'none'});
+  const normalizeActionsV128=input=>{
+    const a={...actionDefaultsV128(),...(input&&typeof input==='object'?input:{})};
+    if(!['none','sad','angry','shock','laugh'].includes(a.expression))a.expression='none';
+    if(!['preset','talk','closed','hold'].includes(a.mouth))a.mouth='preset';
+    if(!['auto','ambient','off'].includes(a.blink))a.blink='auto';
+    if(!['auto','open','closed'].includes(a.eyes))a.eyes='auto';
+    if(!['natural','fly'].includes(a.wings))a.wings='natural';
+    ['leftHand','rightHand'].forEach(k=>{if(!['none','point','thumb','palm','fist','hold'].includes(a[k]))a[k]='none';});
+    return a;
+  };
+  function choiceTile(key,label,src,active,handler,icon,compose){
+    return `<button type="button" class="evpa-choice ${active?'active':''}" aria-pressed="${active?'true':'false'}"${compose?` data-compose="${safe(compose)}"`:''} onclick="${handler}"><span class="evpa-choice-preview">${src?`<img src="${safe(src)}" alt="">`:`<span class="evpa-choice-icon">${icon||'◌'}</span>`}</span><span class="evpa-choice-label">${safe(label)}</span></button>`;
+  }
+  /* v330: the face/hand panel reads the CURRENT humanoid (14 + 19 part) and bird (7 + 7 part) sheet structure. */
+  const typeOfChar=c=>String(c&&(c.modelType||(c.sheet&&c.sheet.modelType))||'humanoid');
+  const hasBirdKit=p=>!!(p&&p.bird_eye&&p.bird_brow&&p.beak_closed&&p.beak_open);
+  const hasHumanoidKit=p=>!!(p&&p.mouth_inner&&p.eye_L&&p.eye_R&&p.brow_L&&p.brow_R);
+  function faceChoiceGrid(c,a){
+    const parts=charParts(c),type=typeOfChar(c),birdKit=type==='bird'&&hasBirdKit(parts),humKit=type==='humanoid'&&hasHumanoidKit(parts);
+    const compose=e=>(birdKit||humKit)?'emo:'+e+'|mouth:'+(birdKit&&['angry','shock','laugh'].includes(e)?'open':'closed')+'|eyes:open':'';
+    const defs=[['none','Original',parts.head,'🙂'],['sad','Sad',parts.head_sad,'🙁'],['angry','Angry',parts.head_angry,'😠'],['shock','Surprised',parts.head_shock,'😮'],['laugh','Laughing',parts.head_laugh,'😄']];
+    /* Birds have no swap-heads: their expressions are drawn from the brow + beak + eye parts, so all four are offered. */
+    return defs.filter(([v,l,part])=>v==='none'||birdKit||!!part).map(([v,l,part,ico])=>choiceTile('face-'+v,l,part&&part.src,a.expression===v,`updateClipFaceAction('expression','${v}')`,ico,compose(v))).join('');
+  }
+  function eyeChoiceGrid(c,a){
+    const p=charParts(c),type=typeOfChar(c);
+    if(type==='bird'&&p.bird_eye){
+      return [
+        choiceTile('eyes-auto','Auto',p.bird_eye.src,a.eyes==='auto',"updateClipFaceAction('eyes','auto')",'◉'),
+        choiceTile('eyes-open','Eyes open',p.bird_eye.src,a.eyes==='open',"updateClipFaceAction('eyes','open')",'◉'),
+        choiceTile('eyes-closed','Eyes closed',p.bird_eye_closed&&p.bird_eye_closed.src,a.eyes==='closed',"updateClipFaceAction('eyes','closed')",' - ')
+      ].join('');
+    }
+    if((type==='animal'||type==='humanoid')&&p.eye_L&&p.eye_R){
+      const closedPreview=p.eye_closed_L&&p.eye_closed_R&&p.eye_closed_L.src;
+      const items=[
+        choiceTile('eyes-auto','Auto',p.eye_L.src,a.eyes==='auto',"updateClipFaceAction('eyes','auto')",'◉'),
+        choiceTile('eyes-open','Eyes open',p.eye_L.src,a.eyes==='open',"updateClipFaceAction('eyes','open')",'◉'),
+        ...(closedPreview?[choiceTile('eyes-closed','Eyes closed',closedPreview,a.eyes==='closed',"updateClipFaceAction('eyes','closed')",' - ')]:[])
+      ];
+      return items.join('');
+    }
+    const items=[choiceTile('eyes-auto','Auto',p.head&&p.head.src,a.eyes==='auto',"updateClipFaceAction('eyes','auto')",'◉')];
+    if(p.head_open)items.push(choiceTile('eyes-open','Eyes open',p.head_open.src,a.eyes==='open',"updateClipFaceAction('eyes','open')",'◉'));
+    if(p.head_blink)items.push(choiceTile('eyes-closed','Eyes closed',p.head_blink.src,a.eyes==='closed',"updateClipFaceAction('eyes','closed')",' - '));
+    return items.join('');
+  }
+  function blinkChoiceGrid(a){
+    return [
+      choiceTile('blink-auto','Clip blinking',null,a.blink==='auto',"updateClipFaceAction('blink','auto')",'◉'),
+      choiceTile('blink-ambient','Ambient',null,a.blink==='ambient',"updateClipFaceAction('blink','ambient')",'◌'),
+      choiceTile('blink-off','Off',null,a.blink==='off',"updateClipFaceAction('blink','off')",' - ')
+    ].join('');
+  }
+  function mouthChoiceGrid(c,a){
+    const p=charParts(c),type=typeOfChar(c);
+    if(type==='animal'&&p.mouth_inner){
+      return [
+        choiceTile('mouth-preset','Expression mouth',p.mouth_inner.src,a.mouth==='preset',"updateClipFaceAction('mouth','preset')",'◡'),
+        choiceTile('mouth-talk','Talk loop',p.mouth_inner.src,a.mouth==='talk',"updateClipFaceAction('mouth','talk')",'◉'),
+        choiceTile('mouth-closed','Hide inner mouth',null,a.mouth==='closed',"updateClipFaceAction('mouth','closed')",' - ')
+      ].join('');
+    }
+    if(type==='humanoid'&&hasHumanoidKit(p)){
+      /* Current humanoid kit: the mouth is the inner-mouth layer shown through the open expression heads (talk = laughing head). */
+      return [
+        choiceTile('mouth-preset','Animation',null,a.mouth==='preset',"updateClipFaceAction('mouth','preset')",'◡','emo:none|mouth:closed|eyes:open'),
+        ...(p.head_laugh?[choiceTile('mouth-talk','Talk loop',p.mouth_inner.src,a.mouth==='talk',"updateClipFaceAction('mouth','talk')",'◉','emo:laugh|mouth:open|eyes:open')]:[]),
+        choiceTile('mouth-closed','Closed',null,a.mouth==='closed',"updateClipFaceAction('mouth','closed')",' - ','emo:none|mouth:closed|eyes:open')
+      ].join('');
+    }
+    if(type==='bird'&&hasBirdKit(p)){
+      /* Current bird kit: closed beak and open beak are separate nested parts. */
+      return [
+        choiceTile('mouth-preset','Animation',p.beak_closed.src,a.mouth==='preset',"updateClipFaceAction('mouth','preset')",'◡','emo:none|mouth:closed|eyes:open'),
+        choiceTile('mouth-talk','Talk loop',p.beak_open.src,a.mouth==='talk',"updateClipFaceAction('mouth','talk')",'◉','emo:none|mouth:open|eyes:open'),
+        choiceTile('mouth-closed','Closed',p.beak_closed.src,a.mouth==='closed',"updateClipFaceAction('mouth','closed')",' - ','emo:none|mouth:closed|eyes:open')
+      ].join('');
+    }
+    return [
+      choiceTile('mouth-preset','Animation',p.mouth_closed&&p.mouth_closed.src,a.mouth==='preset',"updateClipFaceAction('mouth','preset')",'◡'),
+      ...(p.mouth_open?[choiceTile('mouth-talk','Talk loop',p.mouth_open.src,a.mouth==='talk',"updateClipFaceAction('mouth','talk')",'◉')]:[]),
+      choiceTile('mouth-closed','Closed',p.mouth_closed&&p.mouth_closed.src,a.mouth==='closed',"updateClipFaceAction('mouth','closed')",' - ')
+    ].join('');
+  }
+  function wingChoiceGrid(c,a){
+    const p=charParts(c),near=p.armL_upper||p.armR_upper,fly=p.wingL_fly||p.wingR_fly;
+    return [
+      choiceTile('wings-natural','Default wings',near&&near.src,(a.wings||'natural')==='natural',"updateClipFaceAction('wings','natural')",'🪽'),
+      ...(fly?[choiceTile('wings-fly','Flying wings',fly.src,a.wings==='fly',"updateClipFaceAction('wings','fly')",'🕊')]:[])
+    ].join('');
+  }
+  function mouthItemSection(c){
+    return ''; /* v298: "Hold an item with the mouth" section removed */
+    const type=String(c&&(c.modelType||(c.sheet&&c.sheet.modelType))||'humanoid');if(type!=='animal'&&type!=='bird')return '';
+    const item=c.mouthProp,scale=Math.round((Number(item&&item.scale)||1)*100),rotation=Math.round(Number(item&&item.rotation)||0),x=Math.round(Number(item&&item.offsetX)||0),y=Math.round(Number(item&&item.offsetY)||0);
+    return `<section class="evpa-section evca-mouth-item-section"><p class="evpa-section-title">Hold an item with the ${type==='bird'?'beak':'mouth'}</p><input id="evcaMouthItemFile" type="file" accept="image/png,image/webp,image/jpeg,image/*" hidden onchange="setCharacterMouthItemFile(this)"><button type="button" class="evpa-prop-upload" onclick="document.getElementById('evcaMouthItemFile').click()">＋ ${item?'Replace mouth item':'Add mouth item'}</button>${item?`<div class="evca-mouth-item-preview"><img src="${safe(item.src)}" alt="Mouth-held item"><button type="button" onclick="removeCharacterMouthItem()">Remove</button></div>`:''}<div class="evca-mouth-item-controls" ${item?'':'style="opacity:.45;pointer-events:none"'}><label>Size <output id="evcaMouthScaleVal">${scale}%</output><input type="range" min="20" max="220" value="${scale}" oninput="setCharacterMouthItemValue('scale',Number(this.value)/100)"></label><label>Rotate <output id="evcaMouthRotationVal">${rotation}°</output><input type="range" min="-180" max="180" value="${rotation}" oninput="setCharacterMouthItemValue('rotation',Number(this.value))"></label><label>Move X <output id="evcaMouthXVal">${x}</output><input type="range" min="-100" max="100" value="${x}" oninput="setCharacterMouthItemValue('offsetX',Number(this.value))"></label><label>Move Y <output id="evcaMouthYVal">${y}</output><input type="range" min="-100" max="100" value="${y}" oninput="setCharacterMouthItemValue('offsetY',Number(this.value))"></label></div></section>`;
+  }
+  window.setCharacterMouthItemFile=function(input){
+    const file=input&&input.files&&input.files[0];if(input)input.value='';if(!file)return;const c=currentChar();if(!c)return;
+    const type=String(c.modelType||(c.sheet&&c.sheet.modelType)||'humanoid');if(type!=='animal'&&type!=='bird')return;
+    const reader=new FileReader();reader.onerror=()=>{if(typeof showToast==='function')showToast('Could not read the mouth item image',{icon:toastIcons.info});};
+    reader.onload=()=>{const img=new Image();img.onerror=()=>{if(typeof showToast==='function')showToast('Could not decode the mouth item image',{icon:toastIcons.info});};img.onload=()=>{
+      const max=640,ratio=Math.min(1,max/Math.max(img.naturalWidth,img.naturalHeight)),w=Math.max(1,Math.round(img.naturalWidth*ratio)),h=Math.max(1,Math.round(img.naturalHeight*ratio)),cv=document.createElement('canvas');cv.width=w;cv.height=h;const ctx=cv.getContext('2d');if(!ctx)return;ctx.clearRect(0,0,w,h);ctx.drawImage(img,0,0,w,h);
+      c.mouthProp={src:cv.toDataURL('image/png'),name:file.name||'Mouth item',scale:1,rotation:0,offsetX:0,offsetY:0,flipX:false,flipY:false};
+      const clip=currentAnimClip();if(clip){const a=normalizeActionsV128(clip.faceActions);clip.faceActions={...a,mouth:'hold'};}
+      if(!c.expr)c.expr=typeof sheetExprFresh==='function'?sheetExprFresh():{};c.expr.mouth='hold';
+      if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();window.openClipCharacterActions();
+      if(typeof showToast==='function')showToast('Item attached to the '+(type==='bird'?'beak':'mouth'),{icon:toastIcons.check,duration:1500});
+    };img.src=String(reader.result||'');};reader.readAsDataURL(file);
+  };
+  window.setCharacterMouthItemValue=function(field,value){const c=currentChar(),item=c&&c.mouthProp;if(!item||!['scale','rotation','offsetX','offsetY'].includes(field)||!Number.isFinite(Number(value)))return;item[field]=Number(value);const id={scale:'evcaMouthScaleVal',rotation:'evcaMouthRotationVal',offsetX:'evcaMouthXVal',offsetY:'evcaMouthYVal'}[field],out=$(id);if(out)out.textContent=field==='scale'?Math.round(item.scale*100)+'%':field==='rotation'?Math.round(item.rotation)+'°':String(Math.round(item[field]));if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();};
+  window.removeCharacterMouthItem=function(){const c=currentChar();if(!c)return;c.mouthProp=null;const clip=currentAnimClip();if(clip){const a=normalizeActionsV128(clip.faceActions);clip.faceActions={...a,mouth:'closed'};}if(typeof drawStick==='function')drawStick();if(typeof persistProjectState==='function')persistProjectState();window.openClipCharacterActions();};
+  function handChoiceGrid(c,a,side){
+    const p=charParts(c),field=side==='L'?'leftHand':'rightHand',base='hand'+side;
+    const items=[['none','Natural',p[base],'✋'],['fist','Fist',p[base+'_fist'],'✊'],['point','Point',p[base+'_point'],'☝'],['thumb','Thumbs up',p[base+'_thumb'],'👍'],['palm','Open palm',p[base+'_palm'],'🖐'],['hold','Holding grip',p[base+'_hold'],'🤏']];
+    return items.filter(([v,l,part])=>v==='none'||!!part).map(([v,l,part,ico])=>choiceTile('hand'+side+'-'+v,l,part&&part.src,a[field]===v,`updateClipFaceAction('${field}','${v}')`,ico)).join('');
+  }
+  function ensureFaceBackdrop(){
+    let el=$('ethvelleClipFaceActionsBackdrop');
+    if(!el){const host=$('screen-editor')||document.body;el=document.createElement('div');el.id='ethvelleClipFaceActionsBackdrop';el.className='modal-backdrop evca-char-actions-backdrop';host.appendChild(el);el.addEventListener('click',e=>{if(e.target===el)closeClipCharacterActions();});}
+    return el;
+  }
+  window.openClipCharacterActions=function(){
+    const clip=currentAnimClip(),c=currentChar();
+    if(!clip||!c){if(typeof showToast==='function')showToast('Select a character animation clip first',{icon:toastIcons.info,duration:1700});return;}
+    const p=charParts(c),a=normalizeActionsV128(clip.faceActions);clip.faceActions=a;
+    const type=String(c.modelType||(c.sheet&&c.sheet.modelType)||'humanoid'),species=type==='animal'||type==='bird';
+    const back=ensureFaceBackdrop(),oldSheet=back.querySelector('.modal-sheet'),oldScroll=oldSheet?oldSheet.scrollTop:0;
+    const title=species?'Face &amp; mouth actions':'Model parts &amp; hands';
+    const moveNote=species?`<p class="evca-species-movement-note">${type==='bird'?'Wing flaps, hops and bird movement':'Walking, running and four-legged movement'} are controlled by the matching animation presets in the Animations section.</p>`:'';
+    const wingSection=(type==='bird'&&(p.wingL_fly||p.wingR_fly))?`<section class="evpa-section evpa-wings-section"><p class="evpa-section-title">Wings</p><div class="evpa-choice-grid">${wingChoiceGrid(c,a)}</div></section>`:'';
+    const handSections=species?'':`<section class="evpa-section"><p class="evpa-section-title">Left hand</p><div class="evpa-choice-grid">${handChoiceGrid(c,a,'L')}</div></section><section class="evpa-section"><p class="evpa-section-title">Right hand</p><div class="evpa-choice-grid">${handChoiceGrid(c,a,'R')}</div></section>`;
+    back.innerHTML=`<div class="modal-sheet evca-char-actions-sheet" role="dialog" aria-modal="true" aria-label="${species?'Face and mouth actions':'Model parts and hand gestures'}">
+      <div class="sheet-handle"></div><p class="sheet-title">${title}</p>
+      <section class="evpa-section"><p class="evpa-section-title">Face expression</p><div class="evpa-choice-grid">${faceChoiceGrid(c,a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Eyes</p><div class="evpa-choice-grid">${eyeChoiceGrid(c,a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Blink mode</p><div class="evpa-choice-grid">${blinkChoiceGrid(a)}</div></section>
+      <section class="evpa-section"><p class="evpa-section-title">Mouth</p><div class="evpa-choice-grid">${mouthChoiceGrid(c,a)}</div></section>
