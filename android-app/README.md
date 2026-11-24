@@ -10,10 +10,17 @@ GitHub Actions runs on every push to `android-apk` and on manual dispatch. It in
 
 1. In Firebase Console → Project settings → Your apps, register an Android app with package name `com.ethvelle.app`.
 2. In Firebase Authentication → Sign-in method, enable Google.
-3. Add the app signing SHA-1 and SHA-256 fingerprints to the Firebase Android app. For the current fallback build, obtain the debug certificate with `keytool -list -v -alias androiddebugkey -keystore ~/.android/debug.keystore -storepass android`. Add the fingerprints of the future release keystore too when signing is switched.
+3. Add the app signing SHA-1 and SHA-256 fingerprints to the Firebase Android app. For the current fallback build, obtain the debug certificate with `keytool -list -v -alias androiddebugkey -keystore ~/.android/debug.keystore -storepass android -keypass android`. Add the fingerprints of the future release keystore too when signing is switched.
 4. Download `google-services.json` and place it at `android-app/google-services.json` on the `android-apk` branch. The workflow copies it to the generated Android app before syncing.
 5. Firebase Authentication → Settings → Authorized domains: add `localhost` for the email/password Web SDK running at the Capacitor origin.
 6. Re-run the Android workflow. The native Google provider uses the Firebase Authentication Capacitor plugin with `skipNativeAuth: true`, then signs the returned Google credential into the existing Firebase JS Auth instance.
+
+## Install on your Android phone
+
+1. Open the APK Release link from the GitHub Actions release.
+2. Download `Ethvelle-v399.apk` to your phone.
+3. Open the downloaded APK. When Android blocks it, choose Settings and enable **Allow from this source** for the browser or file manager you used.
+4. Return to the installer and tap **Install**. This debug-signed build can install as a fresh app. A later build signed with a different key cannot update this app in place; uninstalling first removes its private app data, so export an Ethvelle backup before uninstalling.
 
 ## Signing
 

@@ -28,6 +28,7 @@
 
   var flushTimer = 0;
   function scheduleFlush() {
+    if (window.__ethvelleNativeStorageBootError) { reportFailure(new Error(window.__ethvelleNativeStorageBootError)); return; }
     clearTimeout(flushTimer);
     flushTimer = setTimeout(function () {
       flushTimer = 0;

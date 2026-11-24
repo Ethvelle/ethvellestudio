@@ -549,19 +549,32 @@ if (native) {
     $('ethvelle-share-export').onclick = async () => { if (currentExportUri) try { await EthvelleMedia.shareExport({ uri: currentExportUri }); } catch (e) { toast('Share failed: ' + e.message); } };
   }
   function setupMissingMediaRelink() {
-    const mark = el => {
-      const wrapper = el.closest('.overlay-media-item,[data-overlay-id]');
-      if (!wrapper || wrapper.querySelector('.ev-native-relink')) return;
-      const id = wrapper.getAttribute('data-overlay-id') || wrapper.getAttribute('data-id');
-      if (!id) return;
+    const showButton = (wrapper, id) => {
+      if (!wrapper || !id || wrapper.querySelector('.ev-native-relink')) return;
       const button = document.createElement('button'); button.className = 'ev-native-relink'; button.type = 'button';
       button.textContent = 'Media missing — Relink';
       button.style.cssText = 'position:absolute;z-index:2147480;left:8px;bottom:8px;background:#8d2938;color:white;border:1px solid #ffb7c0;border-radius:9px;padding:8px 10px;font:600 12px system-ui';
       button.onclick = () => window.__ethvelleRelinkClip(id);
       wrapper.style.position = wrapper.style.position || 'relative'; wrapper.appendChild(button);
     };
+    const mark = el => {
+      const wrapper = el?.closest?.('.overlay-media-item,[data-overlay-id]');
+      const id = wrapper?.getAttribute('data-overlay-id') || wrapper?.getAttribute('data-id');
+      showButton(wrapper, id);
+    };
+    const scan = () => {
+      document.querySelectorAll('.overlay-media-item,[data-overlay-id]').forEach(wrapper => {
+        const id = wrapper.getAttribute('data-overlay-id') || wrapper.getAttribute('data-id');
+        if (!id) return;
+        const clip = [...getOverlays(), ...getBackgrounds()].find(item => String(item.id) === String(id));
+        if (clip && (clip.nativeMediaMissing || (!clip.src && (clip.deviceMediaKey || clip.nativeMediaRef)))) showButton(wrapper, id);
+      });
+    };
     document.addEventListener('error', e => { if (e.target && /^(VIDEO|IMG|AUDIO)$/.test(e.target.tagName)) mark(e.target); }, true);
     document.addEventListener('loadeddata', e => { const w=e.target?.closest?.('.overlay-media-item'); w?.querySelector('.ev-native-relink')?.remove(); }, true);
+    try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true }); } catch (_) {}
+    setInterval(scan, 1600);
+    scan();
   }
   function installDiagnosticsGesture() {
     let count = 0, timer = 0;
@@ -581,6 +594,8 @@ if (native) {
     try { new MutationObserver(scan).observe(document.documentElement, { childList: true, subtree: true, characterData: true }); } catch (_) {}
     scan();
   }
+  window.addEventListener('pagehide', () => { window.__ethvelleNativeFlush().catch(announceWriteFailure); });
+  document.addEventListener('visibilitychange', () => { if (document.visibilityState === 'hidden') window.__ethvelleNativeFlush().catch(announceWriteFailure); });
   document.addEventListener('DOMContentLoaded', () => {
     installLateWrappers();
     installBackupControls(); installDiagnosticsGesture(); setupMissingMediaRelink(); suppressBrowserQuotaWarnings();

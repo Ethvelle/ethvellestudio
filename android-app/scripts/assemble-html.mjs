@@ -17,6 +17,7 @@ if (!/^\s*<!doctype html/i.test(html) || !/<\/html>\s*$/i.test(html)) {
 }
 
 const bootstrap = await fs.readFile(path.join(root, 'src', 'native-bootstrap.js'), 'utf8');
+const webBackup = await fs.readFile(path.join(root, 'src', 'web-backup-addon.js'), 'utf8');
 const injection = `\n<!-- Ethvelle Android-only bootstrap; skipped completely in normal browsers. -->\n<script id="ethvelle-native-bootstrap">\n${bootstrap}\n</script>\n<script src="./native-runtime.js"></script>\n`;
 html = html.replace(/<head\b[^>]*>/i, match => match + injection);
 const out = path.join(root, 'www');
