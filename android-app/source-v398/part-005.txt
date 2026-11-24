@@ -1,0 +1,1000 @@
+  .myplan-quality-option.unavailable{background:#17171C;opacity:.8;}
+  .myplan-quality-option.unavailable .myplan-quality-status{color:#8E8E9B;}
+  .myplan-stat-caption{display:none!important;}
+  .myplan-sub{display:none!important;}
+  @media(max-width:360px){
+    .myplan-stats-grid{gap:8px;}
+    .myplan-stat-card{padding:12px 10px;}
+    .myplan-stat-value{font-size:22px;}
+    .myplan-quality-card{align-items:flex-start;}
+    .myplan-quality-grid{gap:8px;}
+    .myplan-quality-option{padding:11px 9px;align-items:flex-start;flex-direction:column;}
+    .myplan-order-top{flex-direction:column;align-items:flex-start;}
+    .myplan-order-status{max-width:100%;}
+  }
+</style>
+
+
+<style id="ethvelle-v3-toolbar-slider-fixes">
+  #bottomToolsClip{display:flex;flex-wrap:nowrap!important;justify-content:flex-start!important;overflow-x:auto!important;overflow-y:hidden!important;scrollbar-width:none;white-space:nowrap;gap:0;}
+  #bottomToolsClip::-webkit-scrollbar{display:none;}
+  #bottomToolsClip #clipForwardTool,#bottomToolsClip #clipBackwardTool{position:relative!important;overflow:visible!important;}
+  #bottomToolsClip .evlt-move-count-badge{position:absolute;top:3px;right:5px;display:none;min-width:14px;height:14px;padding:0 3px;border-radius:8px;background:#2F5CE8;color:#fff;font:800 9px/14px Inter,Arial,sans-serif;text-align:center;pointer-events:none;z-index:10;}
+  #bottomToolsClip .evlt-move-count-badge.active{display:block;}
+  #bottomToolsClip .tool-item.evlt-inline-tool{display:flex;flex:0 0 66px;min-width:66px;max-width:78px;align-items:center;justify-content:center;overflow:visible;padding-left:3px;padding-right:3px;}
+  #bottomToolsClip .tool-item.evlt-inline-tool span{display:block;max-width:100%;white-space:nowrap;word-break:keep-all;overflow:visible;text-overflow:clip;font-size:10px;line-height:1.12;letter-spacing:-.025em;text-align:center;}
+  #bottomToolsClip .tool-item.evlt-inline-tool svg{width:21px;height:21px;flex:0 0 21px;}
+  .evlt-field .text-range-line{display:flex;align-items:center;width:100%;min-width:0;gap:0;}
+  .evlt-field .text-range-line input[type=range]{display:block;flex:1 1 auto;width:100%;min-width:0;margin:0;}
+  .evlt-field .evlt-field-head output{min-width:42px;text-align:right;}
+  /* Native-looking checkbox with a clearly visible tick when enabled. */
+  .evlt-chroma-enable-row{display:flex;align-items:center;justify-content:space-between;gap:12px;min-height:44px;padding:6px 0;border-bottom:0;}
+  .evlt-chroma-enable-row>span:first-child{font-size:13px;font-weight:700;color:var(--text);}
+  .evlt-chroma-check{-webkit-appearance:none;appearance:none;display:grid;place-items:center;width:23px;height:23px;flex:0 0 23px;margin:0;border:1.5px solid #777B8D;border-radius:6px;background:#202027;cursor:pointer;}
+  .evlt-chroma-check::after{content:'✓';font-size:17px;line-height:1;font-weight:900;color:white;transform:scale(.55);opacity:0;transition:opacity .12s,transform .12s;}
+  .evlt-chroma-check:checked{background:var(--accent);border-color:var(--accent);}
+  .evlt-chroma-check:checked::after{opacity:1;transform:scale(1);}
+  .evlt-chroma-check:focus-visible{outline:2px solid #fff;outline-offset:3px;}
+  .evlt-chroma-color-line{display:flex;flex-direction:column;gap:9px;min-width:0;padding:8px 0 4px;}
+  .evlt-chroma-color-top{display:flex;align-items:center;justify-content:space-between;gap:10px;}
+  .evlt-chroma-color-top label{font-size:12px;font-weight:700;color:var(--text);}
+  .evlt-chroma-current{width:27px;height:27px;border-radius:50%!important;border:1px solid rgba(255,255,255,.6);box-shadow:0 0 0 1px rgba(255,255,255,.12);}
+  .evlt-chroma-palette{display:flex;align-items:center;gap:10px;overflow-x:auto;overflow-y:visible;padding:5px 3px 8px;scrollbar-width:none;}
+  .evlt-chroma-palette::-webkit-scrollbar{display:none;}
+  #evltChromaPalette .evlt-chroma-swatch{position:relative;flex:0 0 31px;width:31px;min-width:31px;height:31px;min-height:31px;aspect-ratio:1/1;border-radius:50%!important;border:0;padding:0;box-shadow:none;overflow:hidden;clip-path:none;}
+  #evltChromaPalette .evlt-chroma-swatch.active{border:2px solid #2F5CE8!important;outline:none!important;outline-offset:0!important;box-shadow:0 0 0 1px rgba(15,15,18,.9)!important;z-index:1;}
+  #evltChromaPalette .evlt-chroma-custom{width:31px;height:31px;min-width:31px;min-height:31px;flex:0 0 31px;aspect-ratio:1/1;border:0;border-radius:50%!important;overflow:hidden;position:relative;background:conic-gradient(#ff1744,#ffb600,#d7ff00,#00d889,#00c9ff,#2f5ce8,#a855f7,#ff35b9,#ff1744);box-shadow:0 0 0 1px rgba(255,255,255,.45);}
+  .evlt-chroma-range .chroma-range-top{align-items:center;}
+  .evlt-chroma-range input[type=range]{display:block;margin-top:5px;}
+  .evlt-compare-after{will-change:clip-path;}
+</style>
+
+
+<style id="ethvelle-v3-inline-label-fit">
+  #bottomToolsClip #clipChromaTool,#bottomToolsClip #clipExtractAudioTool{display:flex;flex:0 0 78px;min-width:78px;max-width:82px;align-items:center;justify-content:center;padding-left:2px;padding-right:2px;overflow:visible;}
+  #bottomToolsClip #clipChromaTool span,#bottomToolsClip #clipExtractAudioTool span{display:block;white-space:nowrap;word-break:keep-all;overflow:visible;text-overflow:clip;font-size:10px;line-height:1.12;letter-spacing:-.035em;text-align:center;max-width:none;}
+  #bottomToolsClip #clipChromaTool svg,#bottomToolsClip #clipExtractAudioTool svg{width:21px;height:21px;flex:0 0 21px;}
+  .chroma-controls .evlt-chroma-enable-row input.evlt-chroma-check{appearance:none;-webkit-appearance:none;width:23px;height:23px;flex:0 0 23px;accent-color:auto;padding:0;}
+</style>
+
+
+<style id="ethvelle-v119-face-gesture-and-assets-css">
+  /* Asset search clear control: round near-black button and a genuinely centered white X. */
+  #screen-editor .editor-asset-search{padding-right:44px!important;}
+  #screen-editor .editor-asset-search::-webkit-search-cancel-button,
+  #screen-editor .editor-asset-search::-webkit-search-decoration{-webkit-appearance:none!important;display:none!important;}
+  #screen-editor .editor-asset-search-clear{
+    position:absolute;right:8px;top:50%;transform:translateY(-50%);
+    width:25px;height:25px;min-width:25px;min-height:25px;padding:0;margin:0;
+    display:none;align-items:center;justify-content:center;box-sizing:border-box;
+    border:1px solid rgba(255,255,255,.12);border-radius:50%;background:#09090D;color:#FFFFFF;
+    line-height:0;font-size:0;box-shadow:none;
+  }
+  #screen-editor .editor-asset-search-wrap.has-query .editor-asset-search-clear{display:flex;}
+  #screen-editor .editor-asset-search-clear svg{width:13px;height:13px;display:block;flex:0 0 13px;stroke:#FFFFFF;stroke-width:2.3;stroke-linecap:round;}
+  #screen-editor .editor-asset-filter,
+  #screen-editor .editor-asset-filter.active,
+  #screen-editor .editor-asset-filter.user-selected{
+    color:#A8A8B2!important;-webkit-text-fill-color:#A8A8B2!important;
+  }
+  #screen-editor .editor-asset-filter.user-selected{color:#A8A8B2!important;-webkit-text-fill-color:#A8A8B2!important;}
+  /* Frame Capture toolbar keeps its original muted icon colour; only sheet action icons are blue. */
+  #screen-editor .evca-frame-capture-tool svg{stroke:currentColor!important;}
+  #clipCharacterActionsTool{flex:0 0 88px!important;width:88px!important;min-width:88px!important;}
+  #clipCharacterActionsTool svg{width:21px;height:21px;}
+  .evca-char-actions-backdrop{z-index:85!important;}
+  .evca-char-actions-sheet{max-height:min(82dvh,680px);overflow-y:auto;overscroll-behavior:contain;}
+  .evca-char-actions-sheet .evca-face-actions-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px 10px;margin:10px 0 16px;}
+  .evca-char-actions-sheet .evca-face-actions-field{min-width:0;display:flex;flex-direction:column;gap:6px;}
+  .evca-char-actions-sheet .evca-face-actions-field.full{grid-column:1/-1;}
+  .evca-char-actions-sheet .evca-face-actions-field label{font-size:11.5px;font-weight:700;color:#B8B8C2;}
+  .evca-char-actions-sheet .evca-face-actions-field select{width:100%;min-width:0;min-height:42px;padding:9px 10px;border-radius:10px;border:1px solid var(--line);background:var(--elevated);color:var(--text);font:600 12.5px Inter,Arial,sans-serif;outline:none;}
+  .evca-char-actions-sheet .evca-face-actions-field select:focus{border:1.5px solid #2F5CE8;}
+  .evca-char-actions-sheet .evca-face-actions-note{font-size:11px;color:var(--text-dim);line-height:1.45;margin:0 0 12px;}
+  .evca-char-actions-sheet .evca-face-actions-save{width:100%;min-height:44px;border-radius:12px;background:var(--accent);color:#fff;font-size:13px;font-weight:800;}
+  @media(max-width:360px){.evca-char-actions-sheet .evca-face-actions-grid{grid-template-columns:1fr;}}
+</style>
+
+
+<style id="ethvelle-v123-panel-home-avatar-css">
+  /* Editor panels keep the close control but no longer show the small white title at top-left. */
+  #toolPanel .tool-panel-header h3{display:none!important;}
+  #toolPanel .tool-panel-header{justify-content:flex-end!important;min-height:42px!important;padding-top:5px!important;padding-bottom:5px!important;}
+  /* Consistent thicker blue selection border for controls inside all slide-up and modal panels. */
+  #toolPanel .tool-panel-body input:not([type=range]):not([type=checkbox]):not([type=radio]):focus,
+  #toolPanel .tool-panel-body select:focus,#toolPanel .tool-panel-body textarea:focus,
+  .modal-backdrop .modal-sheet input:not([type=range]):not([type=checkbox]):not([type=radio]):focus,
+  .modal-backdrop .modal-sheet select:focus,.modal-backdrop .modal-sheet textarea:focus{
+    outline:none!important;border:2px solid #4F7CFF!important;box-shadow:0 0 0 2px rgba(47,92,232,.18)!important;
+  }
+  #toolPanel input[type=range],.modal-backdrop input[type=range]{accent-color:#4F7CFF!important;}
+  .home-account-summary{border-color:var(--home-avatar-accent,#2F5CE8)!important;box-shadow:0 0 0 1px var(--home-avatar-glow,rgba(47,92,232,.25)),0 0 15px var(--home-avatar-glow,rgba(47,92,232,.16)),inset 0 1px 0 rgba(255,255,255,.055)!important;background:var(--home-account-bg,linear-gradient(160deg,#202027,#151519))!important;}
+  .home-profile-trigger{overflow:hidden;padding:0!important;border-color:var(--home-avatar-accent,#2F5CE8)!important;background:linear-gradient(155deg,#4E7CFF,#1E46C4)!important;color:#fff!important;}
+  .home-profile-trigger img{width:100%;height:100%;object-fit:cover;display:block;border-radius:50%;}
+  .home-profile-trigger svg{width:21px;height:21px;stroke:#fff;}
+  .home-account-balance{display:flex!important;align-items:center;gap:3px;white-space:nowrap!important;}
+  .home-account-balance .home-credit-available{color:#F5F7FF;font-weight:900;}
+  .home-account-balance .home-credit-divider{color:#8C94A8;font-weight:700;}
+  .home-account-balance .home-credit-monthly{color:#D1D7E5;font-weight:800;}
+  .home-account-balance .home-credit-unit{color:#AEB6C8;font-weight:700;}
+</style>
+
+
+<style id="ethvelle-audio-library-ui-v1">
+  .ethvelle-audio-library-head{display:flex;align-items:center;gap:9px;margin:2px 0 12px;}
+  .ethvelle-audio-library-back{width:34px;height:34px;flex:0 0 34px;border:1px solid var(--line);border-radius:10px;background:var(--panel);display:flex;align-items:center;justify-content:center;color:var(--text);}
+  .ethvelle-audio-library-back svg{width:17px;height:17px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .ethvelle-audio-library-heading{font-size:13px;font-weight:800;color:var(--text);min-width:0;}
+  .ethvelle-audio-library-sub{font-size:11px;color:var(--text-dim);line-height:1.4;margin:0 0 12px;}
+  .ethvelle-audio-library-list{display:grid;grid-template-columns:1fr;gap:9px;padding-bottom:8px;}
+  .ethvelle-audio-library-card{min-width:0;border:1px solid var(--line);border-radius:12px;background:var(--panel);padding:10px;display:grid;grid-template-columns:42px minmax(0,1fr);gap:10px;align-items:center;}
+  .ethvelle-audio-library-icon{width:42px;height:42px;border-radius:10px;background:var(--elevated-2);display:flex;align-items:center;justify-content:center;color:#D6DDF0;font-size:21px;}
+  .ethvelle-audio-library-info{min-width:0;}
+  .ethvelle-audio-library-name{display:block;font-size:12px;font-weight:800;line-height:1.35;color:var(--text);overflow-wrap:anywhere;}
+  .ethvelle-audio-library-meta{display:block;font-size:10.5px;line-height:1.35;color:var(--text-dim);margin-top:3px;}
+  .ethvelle-audio-library-card audio{display:block;width:100%;height:32px;margin-top:7px;max-width:100%;}
+  .ethvelle-audio-library-add{grid-column:1/-1;width:100%;min-height:36px;border:1px solid #2447B8;border-radius:9px;background:#2348C8;color:#fff;font-size:11.5px;font-weight:800;}
+  .ethvelle-audio-library-add:active{background:#1C3DAE;}
+  .ethvelle-audio-library-empty{padding:20px 13px;border:1px dashed var(--line);border-radius:12px;text-align:center;color:var(--text-dim);font-size:12px;line-height:1.5;}
+  .ethvelle-audio-library-empty b{display:block;color:var(--text);font-size:13px;margin-bottom:5px;}
+</style>
+
+<style id="ethvelle-v160-project-placeholder-clip-label-fixes">
+  /* Project name placeholder uses the same muted grey as standard editor field hints. */
+  #ratioModalBackdrop #projectNameInput::placeholder{
+    color:#8A8A94!important;-webkit-text-fill-color:#8A8A94!important;opacity:1!important;
+  }
+  /* Keep the Clip animations bottom-toolbar label on one line with a properly sized hit area. */
+  #screen-editor #bottomToolsClip #clipOverlayAnimationTool{
+    display:flex!important;flex:0 0 84px!important;width:84px!important;min-width:84px!important;max-width:84px!important;
+    flex-direction:column!important;align-items:center!important;justify-content:center!important;
+    gap:5px!important;padding:3px 3px!important;box-sizing:border-box!important;
+  }
+  #screen-editor #bottomToolsClip #clipOverlayAnimationTool>span{
+    display:block!important;width:max-content!important;max-width:none!important;
+    white-space:nowrap!important;word-break:keep-all!important;overflow:visible!important;text-overflow:clip!important;
+    font-size:9px!important;line-height:1.1!important;letter-spacing:-.025em!important;text-align:center!important;
+  }
+</style>
+<meta name="ethvelle-build" content="v309-tail-bone-tip-joint-2k-face">
+<style id="ethvelle-transparent-swatch-fix-css">
+  #ethvelleTextStylePanel .evts-transparent-swatch{
+    width:27px!important;height:27px!important;min-width:27px!important;flex:0 0 27px!important;
+    padding:0!important;border:1px solid #8b8d98!important;border-radius:50%!important;
+    background-color:#fff!important;
+    background-image:linear-gradient(45deg,#a7a9b2 25%,transparent 25%),linear-gradient(-45deg,#a7a9b2 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#a7a9b2 75%),linear-gradient(-45deg,transparent 75%,#a7a9b2 75%)!important;
+    background-size:8px 8px!important;background-position:0 0,0 4px,4px -4px,-4px 0!important;
+  }
+  #ethvelleTextStylePanel .evts-transparent-swatch.active{outline:2px solid #2F5CE8!important;outline-offset:2px!important;}
+</style>
+
+<style id="ethvelle-v222-textdock-fixes">
+/* v222-fix: the Font tab first renders the generic choice rows/wide button, and a later script hides them ~30ms after the dock opens.
+   Hide them from the very first paint so no dark block flashes when text editing opens. */
+#ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaControls > .evpa-choice-row,
+#ethvellePicsartTextDock.evpa-font-palette-mode:not(.evpa-in-composer) #evpaControls > .evpa-wide-btn{display:none!important;}
+</style>
+<meta name="ethvelle-build" content="v270-new-logo">
+</head>
+<body>
+<script id="ethvelle-v258-early-helpers">
+(function(){
+  'use strict';
+  /* ---- Timeline character icon follows the model type (same line style for all three) ---- */
+  var ICONS={
+    humanoid:'<circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/>',
+    animal:'<circle cx="11" cy="4" r="2"/><circle cx="18" cy="8" r="2"/><circle cx="20" cy="16" r="2"/><path d="M9 10a5 5 0 0 1 5 5v3.5a3.5 3.5 0 0 1-6.84 1.045Q6.52 17.48 4.46 16.84A3.5 3.5 0 0 1 5.5 10Z"/>',
+    beast:'<path d=\"M5 3.5 9 7h6l4-3.5V11a7 7 0 0 1-14 0z\"/><path d=\"M10 13.5h4l-2 2z\"/><path d=\"M9 11h.01M15 11h.01\"/>',
+    bird:'<path d="M16 7h.01"/><path d="M3.4 18H12a8 8 0 0 0 8-8V7a4 4 0 0 0-7.28-2.3L2 20"/><path d="m20 7 2 .5-2 .5"/><path d="M10 18v3"/><path d="M14 17.75V21"/><path d="M7 18a6 6 0 0 0 3.84-10.61"/>',
+    mermaid:'<circle cx="12" cy="3.6" r="2.1"/><path d="M9.5 6.2c-1.5.9-2.5 2.5-2.5 4.3v1.1c0 1.2.9 2.1 2.1 2.1h5.8c1.2 0 2.1-.9 2.1-2.1v-1.1c0-1.8-1-3.4-2.5-4.3"/><path d="M9.1 8.4 7.3 10.1M14.9 8.4l1.8 1.7"/><path d="M10 13.7c-.1 1.3-.9 2.1-1.9 3.1-1.2 1.2-.7 2.8.8 3.4 1.2.5 2.3.9 3.1 2 .8-1.1 1.9-1.5 3.1-2 1.5-.6 2-2.2.8-3.4-1-1-1.8-1.8-1.9-3.1"/><path d="M12 22.1c-.9-1.2-2.2-1.8-4.2-1.8.7-1.1 1.4-2 2.5-2.6M12 22.1c.9-1.2 2.2-1.8 4.2-1.8-.7-1.1-1.4-2-2.5-2.6"/>',
+    lamia:'<path d="M4.5 20c0-4.1 2.6-7.2 6.1-7.2 2.3 0 3.3 1.8 5.5 1.8 2.4 0 3.9-1.5 3.9-3.7 0-1.9-1.3-3.3-3.1-3.3-1.7 0-3 1.2-3 2.8"/><path d="m16.4 7.7 1.5-2.1 2.8.5-.5 2.8-2.3.8"/><path d="m20.1 8.4 1.7-.9m-1.7.9 1.2 1.4"/><circle cx="18.7" cy="7.2" r=".45" fill="currentColor" stroke="none"/><path d="M6.2 17.4h.01M8.7 15.4h.01M11.2 15.4h.01"/>'
+  };  window.evCharModelType=function(c){
+    var t=String(c&&(c.modelType||(c.sheet&&c.sheet.modelType))||'humanoid');
+    if(c&&((c.sheet&&c.sheet.beast)||c.beast))return 'beast';
+    return ['animal','bird','mermaid','lamia'].includes(t)?t:'humanoid';
+  };
+  window.evCharBadgeIconSvg=function(type){
+    type=ICONS[type]?type:'humanoid';
+    return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" data-char-icon="'+type+'">'+ICONS[type]+'</svg>';
+  };
+
+  /* ---- Animation search: keep the canvas at its original size while the keyboard is open ---- */
+  var SEL='#evcaAnimSearchInput,#clipAnimationSearchInput';
+  var locked=false,baseVisible=0,releaseTimer=0;
+  function visibleH(){var vv=window.visualViewport;return vv?vv.height:window.innerHeight;}
+  function isSearch(el){return !!(el&&el.matches&&el.matches(SEL));}
+  function lock(){
+    if(releaseTimer){clearTimeout(releaseTimer);releaseTimer=0;}
+    if(locked)return;
+    var wrap=document.querySelector('#screen-editor .canvas-wrap');
+    if(!wrap)return;
+    var h=wrap.getBoundingClientRect().height;
+    if(!(h>0))return;
+    baseVisible=visibleH();
+    document.documentElement.style.setProperty('--ev-kb-wrap-h',Math.round(h)+'px');
+    document.body.classList.add('ev-kb-lock');
+    locked=true;
+  }
+  function unlock(){
+    if(releaseTimer){clearTimeout(releaseTimer);releaseTimer=0;}
+    if(!locked)return;
+    locked=false;
+    document.body.classList.remove('ev-kb-lock');
+    document.documentElement.style.removeProperty('--ev-kb-wrap-h');
+    requestAnimationFrame(function(){try{window.dispatchEvent(new Event('resize'));}catch(e){}});
+  }
+  document.addEventListener('focusin',function(e){if(isSearch(e.target))lock();},true);
+  document.addEventListener('focusout',function(e){
+    if(!isSearch(e.target))return;
+    if(releaseTimer)clearTimeout(releaseTimer);
+    releaseTimer=setTimeout(function(){releaseTimer=0;if(!isSearch(document.activeElement))unlock();},350);
+  },true);
+  function guard(e){
+    if(!locked)return;
+    if(visibleH()>=baseVisible-2){unlock();return;}   /* keyboard is gone: allow the normal re-fit */
+    e.stopImmediatePropagation();                      /* keyboard is up: do not re-fit / shrink the canvas */
+  }
+  window.addEventListener('resize',guard,true);
+  if(window.visualViewport){
+    window.visualViewport.addEventListener('resize',guard,true);
+    window.visualViewport.addEventListener('scroll',guard,true);
+  }
+})();
+</script>
+<div id="app">
+
+  <!-- ============ SPLASH ============ -->
+  <div class="screen active" id="screen-splash">
+    <div class="splash-mark">
+      <div class="splash-logo" id="splashLogo" style="--splash-logo-src:none;">
+        <img class="splash-logo-img" id="splashLogoImg" src="https://i.ibb.co.com/pBy7qxjG/file-0000000097ac8211b2cf9825ab2e845f.png" alt="Ethvelle logo" decoding="async" fetchpriority="high" onerror="document.getElementById('splashLogo').classList.add('logo-fallback')">
+        <div class="splash-logo-fallback">
+          <svg viewBox="0 0 64 64" fill="none">
+            <circle cx="32" cy="14" r="7" fill="#2F5CE8"/>
+            <path d="M32 21 L32 40" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M32 26 L18 34" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M32 26 L46 34" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M32 40 L20 58" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+            <path d="M32 40 L44 58" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          </svg>
+        </div>
+        <div class="splash-logo-shimmer"></div>
+      </div>
+    </div>
+  </div>
+<script id="ethvelle-v265-highres-logo-binder">
+(function(){
+  'use strict';
+  var splash=document.getElementById('splashLogo');
+  var source=document.getElementById('splashLogoImg');
+  if(!source)return;
+  // Keep the logo externally hosted as requested; never inline/base64-embed this artwork.
+  var uri='https://i.ibb.co.com/pBy7qxjG/file-0000000097ac8211b2cf9825ab2e845f.png';
+  source.onerror=function(){if(splash)splash.classList.add('logo-fallback');};
+  source.src=uri;source.setAttribute('src',uri);
+  source.decoding='async';source.loading='eager';source.fetchPriority='high';
+  if(splash)splash.style.setProperty('--splash-logo-src','url("'+uri+'")');
+  function applyBrandLogo(){
+    document.querySelectorAll('.admin-login-logo,.home-brand-logo-only,.ev-login-consent-mark img').forEach(function(img){
+      if(img===source)return;
+      img.onerror=null;
+      img.src=uri;img.setAttribute('src',uri);
+      img.decoding='async';img.loading='eager';
+    });
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',applyBrandLogo,{once:true});
+  else applyBrandLogo();
+})();
+</script>
+
+  <!-- ============ LANDING ============ -->
+  <!-- ============ USER LOGIN ============ -->
+  <div class="screen" id="screen-login">
+    <div class="admin-login-card" style="margin:auto;">
+      <div class="admin-login-mark">
+        <img class="admin-login-logo" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Ethvelle logo" decoding="async" fetchpriority="high">
+      </div>
+      <h1 id="loginTitle">Sign in for Export</h1>
+      <p class="admin-login-sub" id="loginSub">Sign in to export your animations</p>
+      <p class="admin-login-error" id="loginError">Something went wrong</p>
+      <p class="login-auth-status" id="loginAuthStatus" aria-live="polite"></p>
+
+      <button class="google-btn" id="googleSignInBtn" onclick="handleGoogleSignIn()">
+        <svg viewBox="0 0 48 48" width="18" height="18"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.9 32.6 29.4 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.1 8 3l5.7-5.7C34.7 6.1 29.6 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.7-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.6 15.9 18.9 13 24 13c3.1 0 5.8 1.1 8 3l5.7-5.7C34.7 6.1 29.6 4 24 4c-7.5 0-13.9 4.2-17.3 10.4z"/><path fill="#4CAF50" d="M24 44c5.4 0 10.4-2.1 14.1-5.5l-6.5-5.5C29.5 34.7 26.9 36 24 36c-5.4 0-9.9-3.4-11.5-8.2l-6.6 5.1C9.9 39.7 16.4 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.3-2.3 4.3-4.2 5.7l6.5 5.5C40.9 36.6 44 30.8 44 24c0-1.3-.1-2.7-.4-3.5z"/></svg>
+        <span>Continue with Google</span>
+      </button>
+
+      <div class="login-divider"><span>or</span></div>
+
+      <div class="admin-field">
+        <label>Email</label>
+        <input type="email" class="admin-input" id="loginEmailInput" placeholder="you@example.com" autocomplete="username">
+      </div>
+      <div class="admin-field">
+        <div class="login-password-header">
+          <label for="loginPasswordInput">Password</label>
+          <a id="forgotPasswordLink" role="button" onclick="handleForgotPassword()">Forgot password?</a>
+        </div>
+        <input type="password" class="admin-input" id="loginPasswordInput" placeholder="••••••••" autocomplete="current-password">
+      </div>
+      <button class="admin-btn-primary" id="loginSubmitBtn" onclick="handleEmailAuthSubmit()">Sign in</button>
+      <p class="login-switch">
+        <span id="loginSwitchText">Don't have an account?</span>
+        <a onclick="toggleLoginMode()" id="loginSwitchLink">Sign up</a>
+      </p>
+      <a class="admin-back-link" onclick="cancelLoginFlow()">Back to app</a>
+    </div>
+  </div>
+
+  <!-- Legal acceptance is requested only after the user starts a login/signup action. -->
+  <div class="ev-login-consent-backdrop" id="loginConsentBackdrop" onclick="if(event.target===this)cancelLoginConsentPanel()">
+    <section class="ev-login-consent-card" role="dialog" aria-modal="true" aria-labelledby="loginConsentTitle">
+      <div class="ev-login-consent-mark"><img src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Ethvelle logo" decoding="async"></div>
+      <h2 id="loginConsentTitle">Before you <span>continue</span></h2>
+      <p class="ev-login-consent-copy" id="loginConsentCopy">Please accept both documents to create your Ethvelle account.</p>
+      <div class="ev-login-consent-options">
+        <label class="ev-login-consent-option" for="loginPrivacyConsent">
+          <input type="checkbox" id="loginPrivacyConsent" onchange="updateLoginConsentContinueButton()">
+          <span>I have read and accept the <a href="#" onclick="event.preventDefault();openLoginLegalPage('privacy')">Privacy Policy</a><i class="ev-consent-stop">.</i></span>
+        </label>
+        <label class="ev-login-consent-option" for="loginTermsConsent">
+          <input type="checkbox" id="loginTermsConsent" onchange="updateLoginConsentContinueButton()">
+          <span>I agree to the <a href="#" onclick="event.preventDefault();openLoginLegalPage('terms')">Terms &amp; Conditions</a><i class="ev-consent-stop">.</i></span>
+        </label>
+      </div>
+      <p class="ev-login-consent-error" id="loginConsentError" role="alert"></p>
+      <div class="ev-login-consent-actions">
+        <button type="button" class="ev-login-consent-cancel" onclick="cancelLoginConsentPanel()">Cancel</button>
+        <button type="button" class="ev-login-consent-continue" id="loginConsentContinueBtn" onclick="acceptLoginConsentAndContinue()" disabled>Continue</button>
+      </div>
+    </section>
+  </div>
+
+  <div class="screen" id="screen-landing">
+    <div class="landing-hero">
+      <div class="brand-row">
+        <img class="brand-logo" src="https://i.ibb.co.com/pBy7qxjG/file-0000000097ac8211b2cf9825ab2e845f.png" alt="Ethvelle" onerror="this.outerHTML='<svg class=&quot;brand-logo&quot; viewBox=&quot;0 0 64 64&quot; fill=&quot;none&quot;><circle cx=&quot;32&quot; cy=&quot;14&quot; r=&quot;7&quot; fill=&quot;#2F5CE8&quot;/><path d=&quot;M32 21 L32 40&quot; stroke=&quot;#2F5CE8&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot;/><path d=&quot;M32 26 L18 34&quot; stroke=&quot;#2F5CE8&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot;/><path d=&quot;M32 26 L46 34&quot; stroke=&quot;#2F5CE8&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot;/><path d=&quot;M32 40 L20 58&quot; stroke=&quot;#2F5CE8&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot;/><path d=&quot;M32 40 L44 58&quot; stroke=&quot;#2F5CE8&quot; stroke-width=&quot;4&quot; stroke-linecap=&quot;round&quot;/></svg>'">
+        <div class="brand-name">Ethvelle</div>
+      </div>
+      <div class="hero-eyebrow">Rig. Move. Export.</div>
+      <h1 class="hero-title">Bring flat characters to life, right from your phone.</h1>
+      <p class="hero-sub">A bone-based 2D animation editor for shorts, ads, and story panels  -  no desktop required.</p>
+      <button class="hero-cta" onclick="goTo('projects')">
+        Start animating
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.4" stroke-linecap="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+      </button>
+
+      <div class="stick-demo">
+        <svg width="120" height="170" viewBox="0 0 120 170" fill="none">
+          <circle cx="60" cy="26" r="14" stroke="#2F5CE8" stroke-width="4"/>
+          <path d="M60 40 L60 95" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          <path d="M60 55 L30 75" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          <path d="M60 55 L90 45" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          <path d="M60 95 L38 150" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          <path d="M60 95 L86 145" stroke="#2F5CE8" stroke-width="4" stroke-linecap="round"/>
+          <circle cx="60" cy="40" r="3" fill="#2F5CE8"/>
+          <circle cx="60" cy="95" r="3" fill="#2F5CE8"/>
+        </svg>
+      </div>
+    </div>
+
+    <div class="landing-section">
+      <div class="section-label">What you can do</div>
+      <div class="feature-list">
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg></div>
+          <div><p class="feature-title">Bone-based rigging</p><p class="feature-desc">Drop a skeleton onto any character and pose it joint by joint.</p></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1"/><rect x="14" y="3" width="7" height="7" rx="1"/><rect x="3" y="14" width="7" height="7" rx="1"/><rect x="14" y="14" width="7" height="7" rx="1"/></svg></div>
+          <div><p class="feature-title">Layers &amp; media</p><p class="feature-desc">Upload characters, props, and backgrounds as separate layers.</p></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+          <div><p class="feature-title">Keyframe timeline</p><p class="feature-desc">Scrub, key, and preview motion with a familiar editing timeline.</p></div>
+        </div>
+        <div class="feature-card">
+          <div class="feature-icon"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="14" rx="2"/><path d="M3 3l7.5 7L21 3"/></svg></div>
+          <div><p class="feature-title">Any aspect ratio</p><p class="feature-desc">16:9 for YouTube, 9:16 for Shorts, 1:1 for feed posts.</p></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="landing-footer-cta">
+      <div class="footer-card">
+        <h3>Your first rig takes two minutes.</h3>
+        <p>Start with the built-in test character, or upload your own art and snap a skeleton onto it.</p>
+        <button class="btn-primary-block" onclick="goTo('projects')">Create a project</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ HOME ============ -->
+  <div class="screen" id="screen-home">
+    <div class="home-scroll">
+      <div class="home-topbar">
+        <div class="home-brand">
+          <img class="home-brand-logo-only" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=" alt="Ethvelle logo" decoding="async" fetchpriority="high">
+        </div>
+        <div class="home-account-actions">
+          <button class="home-account-summary" id="homeAccountSummary" type="button" onclick="openHomeAccountSummary()" aria-label="Login to view your plan and credits">
+            <span class="home-account-plan" id="homeAccountPlan">Login</span>
+            <span class="home-account-balance" id="homeAccountBalance"><span class="home-credit-available">...</span><span class="home-credit-divider">/</span><span class="home-credit-monthly">...</span><span class="home-credit-unit">credits</span></span>
+          </button>
+          <button class="home-profile-trigger" id="homeProfileBtn" style="display:none;" type="button" aria-label="Open profile" onclick="updateProfileUI();goTo('profile');">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="3.6"/><path d="M4.5 20c.5-3.6 3.2-5.8 7.5-5.8s7 2.2 7.5 5.8"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="home-banner-scroll" id="homeBannerScroll" aria-label="Featured banners" style="display:none;"></div>
+      <div class="home-banner-dots" id="homeBannerDots" aria-hidden="true" style="display:none;"></div>
+
+      <div class="home-section">
+        <div class="home-section-label">What would you create?</div>
+        <div class="home-tile-row" id="homeTileRow">
+          <div class="home-tile" onclick="goTo('projects'); setProjectsTab('models');">
+            <div class="home-tile-thumb"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="6" r="3"/><path d="M12 9v6M12 12l-5 4M12 12l5 3M12 15l-4 6M12 15l4 6"/></svg></div>
+            <span>Character</span>
+          </div>
+          <div class="home-tile" onclick="openRatioModal()">
+            <div class="home-tile-thumb"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg></div>
+            <span>Video</span>
+          </div>
+          <div class="home-tile" onclick="goTo('tutorials')">
+            <div class="home-tile-thumb"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="4" width="20" height="16" rx="3"/><path d="M10 9.5v5l4.5-2.5z" fill="currentColor" stroke="none"/></svg></div>
+            <span>Tutorial</span>
+          </div>
+          <div class="home-tile" onclick="goTo('keyframeInfo')">
+            <div class="home-tile-thumb"><svg viewBox="0 0 24 24" fill="none" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg></div>
+            <span>Keyframe</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="home-section">
+        <div class="home-section-label">Example animations</div>
+        <div class="home-video-scroll" id="homeVideoScroll">
+          <div class="home-video-card">
+            <div class="home-video-glow"></div>
+            <div class="home-video-stage">
+              <svg class="stick-walk" viewBox="0 0 120 140" fill="none">
+                <circle cx="60" cy="20" r="11" stroke="#4E7CFF" stroke-width="4"/>
+                <path d="M60 31 L60 75" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-armL" d="M60 45 L38 60" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-armR" d="M60 45 L82 60" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-legL" d="M60 75 L42 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-legR" d="M60 75 L78 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="home-video-label">Walk cycle</div>
+          </div>
+          <div class="home-video-card">
+            <div class="home-video-glow"></div>
+            <div class="home-video-stage">
+              <svg class="stick-wave" viewBox="0 0 120 140" fill="none">
+                <circle cx="60" cy="20" r="11" stroke="#4E7CFF" stroke-width="4"/>
+                <path d="M60 31 L60 75" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-armL" d="M60 45 L40 65" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-armR" d="M60 45 L82 30" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 75 L44 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 75 L76 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="home-video-label">Talking head</div>
+          </div>
+          <div class="home-video-card">
+            <div class="home-video-glow"></div>
+            <div class="home-video-stage">
+              <svg class="stick-bounce" viewBox="0 0 120 140" fill="none">
+                <circle cx="60" cy="20" r="11" stroke="#4E7CFF" stroke-width="4"/>
+                <path d="M60 31 L60 75" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 45 L38 62" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 45 L82 62" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 75 L42 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 75 L78 115" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="home-video-label">Product ad</div>
+          </div>
+          <div class="home-video-card">
+            <div class="home-video-glow"></div>
+            <div class="home-video-stage">
+              <svg class="stick-jump" viewBox="0 0 120 140" fill="none">
+                <circle cx="60" cy="20" r="11" stroke="#4E7CFF" stroke-width="4"/>
+                <path d="M60 31 L60 75" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 45 L36 55" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path d="M60 45 L84 55" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-legL" d="M60 75 L40 105" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+                <path class="sw-legR" d="M60 75 L80 105" stroke="#4E7CFF" stroke-width="4" stroke-linecap="round"/>
+              </svg>
+            </div>
+            <div class="home-video-label">Story panel</div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div class="home-bottom-nav">
+      <div class="home-nav-item active" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PAYMENT (demo UI, more features next update) ============ -->
+  <div class="screen" id="screen-payment">
+    <div class="demo-topbar">
+      <h1>Payment</h1>
+    </div>
+    <div class="demo-scroll">
+      <div class="plan-card" data-plan="free" data-name="Free" onclick="selectPlan(this, true)">
+        <div class="plan-card-top">
+          <div class="plan-radio"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+        </div>
+        <div class="plan-name">Free</div>
+        <p class="plan-price">৳0<span>/month</span></p>
+        <p class="plan-desc">For trying Ethvelle out.</p>
+        <div class="plan-feature-list">
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>3 projects</div>
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>720p export</div>
+        </div>
+        <button class="plan-cta" onclick="event.stopPropagation(); confirmPlan('free')">Current plan</button>
+      </div>
+      <div class="plan-card featured" data-plan="pro" data-name="Pro" onclick="selectPlan(this, true)">
+        <div class="plan-card-top">
+          <div class="plan-badge">Popular</div>
+          <div class="plan-radio"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+        </div>
+        <div class="plan-name">Pro</div>
+        <p class="plan-price">৳499<span>/month</span></p>
+        <p class="plan-desc">For creators who publish regularly.</p>
+        <div class="plan-feature-list">
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Unlimited projects</div>
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>1080p export</div>
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>No watermark</div>
+        </div>
+        <button class="plan-cta" onclick="event.stopPropagation(); confirmPlan('pro')">Upgrade to Pro</button>
+      </div>
+      <div class="plan-card" data-plan="studio" data-name="Studio" onclick="selectPlan(this, true)">
+        <div class="plan-card-top">
+          <div class="plan-radio"><svg viewBox="0 0 24 24" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg></div>
+        </div>
+        <div class="plan-name">Studio</div>
+        <p class="plan-price">৳1499<span>/month</span></p>
+        <p class="plan-desc">For teams and heavy production.</p>
+        <div class="plan-feature-list">
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>Everything in Pro</div>
+          <div class="plan-feature"><svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M20 6L9 17l-5-5"/></svg>4K export</div>
+        </div>
+        <button class="plan-cta" onclick="event.stopPropagation(); confirmPlan('studio')">Upgrade to Studio</button>
+      </div>
+    </div>
+    <div class="home-bottom-nav">
+      <div class="home-nav-item" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item active" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ CHECKOUT (bKash / Nagad manual payment) ============ -->
+  <div class="screen" id="screen-checkout">
+    <div class="demo-topbar">
+      <div class="checkout-back-btn" onclick="closeCheckout()">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
+      <h1 style="font-size:19px;">পেমেন্ট সম্পন্ন করুন</h1>
+    </div>
+    <div class="demo-scroll" id="checkoutForm">
+      <div class="checkout-summary-card">
+        <div>
+          <p class="cs-eyebrow">Selected plan</p>
+          <p class="cs-name cs-name-only" id="checkoutPlanName">Pro plan</p>
+        </div>
+        <p class="cs-price" id="checkoutPlanPrice">৳499<span>/মাস</span></p>
+      </div>
+
+      <div class="checkout-section">
+        <p class="checkout-section-label">পেমেন্ট মেথড বাছাই করুন</p>
+        <div class="checkout-method-row">
+          <div class="checkout-method-card" id="checkoutMethodBkash" onclick="selectCheckoutMethod('bkash')">
+            <img src="https://i.ibb.co.com/4wV5hGBR/1701670291b-Kash-App-Logo-PNG-2.png" alt="bKash">
+            <span>bKash</span>
+          </div>
+          <div class="checkout-method-card" id="checkoutMethodNagad" onclick="selectCheckoutMethod('nagad')">
+            <img src="https://i.ibb.co.com/qYhtz6yB/images-34.jpg" alt="Nagad">
+            <span>Nagad</span>
+          </div>
+        </div>
+      </div>
+
+      <div class="checkout-section">
+        <div class="checkout-number-card">
+          <div>
+            <p class="cn-label" id="checkoutNumberLabel">এই bKash নাম্বারে টাকা পাঠান</p>
+            <p class="cn-value">01947913700</p>
+          </div>
+          <button class="checkout-copy-btn" onclick="copyCheckoutNumber()">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1"/></svg>
+            কপি
+          </button>
+        </div>
+      </div>
+
+      <div class="checkout-section">
+        <div class="checkout-steps">
+          <div class="checkout-step"><div class="checkout-step-num">1</div><p><b id="checkoutMethodStepName">bKash</b> দিয়ে উপরের নাম্বারে প্ল্যানের টাকা পাঠান (Send Money অপশনে, Payment নয়)।</p></div>
+          <div class="checkout-step"><div class="checkout-step-num">2</div><p>পেমেন্ট সম্পন্ন হওয়ার পর স্ক্রিনশট নিন।</p></div>
+          <div class="checkout-step"><div class="checkout-step-num">3</div><p>নিচে স্ক্রিনশট আপলোড করে সাবমিট করুন  -  যাচাই করার পর আপনার প্ল্যান চালু হয়ে যাবে।</p></div>
+        </div>
+      </div>
+
+      <div class="checkout-section">
+        <p class="checkout-section-label">পেমেন্টের প্রুফ স্ক্রিনশট <em id="checkoutProofCount"></em></p>
+        <input type="file" id="checkoutProofInput" accept="image/*" multiple style="display:none;" onchange="onCheckoutProofPicked(event)">
+        <div class="checkout-upload-area" id="checkoutUploadArea" onclick="document.getElementById('checkoutProofInput').click()">
+          <div class="cu-plus-badge">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2.4" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+          </div>
+          <b>স্ক্রিনশট আপলোড করুন</b>
+          <span>পেমেন্ট সম্পন্ন হওয়ার পর সেই স্ক্রিনশট এখানে ট্যাপ করে আপলোড করুন (PNG বা JPG)</span>
+        </div>
+        <div class="checkout-proof-grid" id="checkoutProofGrid" style="display:none;"></div>
+      </div>
+
+      <div class="checkout-field">
+        <label>ট্রানজেকশন আইডি (ঐচ্ছিক)</label>
+        <input type="text" class="admin-input" id="checkoutTrxInput" placeholder="যেমন 9F2K8LQ1XY">
+      </div>
+
+      <button class="checkout-submit-btn" id="checkoutSubmitBtn" onclick="submitCheckoutOrder()">প্ল্যানটি নিশ্চিত করুন</button>
+      <p class="demo-note" id="checkoutError" style="display:none; color:var(--danger);"></p>
+    </div>
+
+    <div class="demo-scroll" id="checkoutPendingView" style="display:none;">
+      <div class="checkout-pending-card">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 3"/></svg>
+        <h2>পেমেন্ট সাবমিট হয়েছে</h2>
+        <p>আপনার <b id="checkoutPendingPlanName">Pro</b> প্ল্যানের পেমেন্ট যাচাই করা হচ্ছে। এতে কিছুটা সময় লাগতে পারে  -  অনুমোদনের পর এটি আপনার প্রোফাইলে দেখা যাবে।</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ PROFILE (demo UI, more features next update) ============ -->
+  <div class="screen" id="screen-profile">
+    <div class="demo-scroll" style="padding-top:20px;">
+      <div class="profile-header">
+        <div class="profile-avatar-wrap">
+          <div class="profile-avatar" id="profileAvatar">U</div>
+        </div>
+        <p class="profile-name" id="profileName">Guest</p>
+        <p class="profile-handle" id="profileHandle">Not signed in · Free plan</p>
+        <p class="profile-headline" id="profileHeadline" style="display:none;"></p>
+        <p class="profile-bio" id="profileBio" style="display:none;"></p>
+      </div>
+      <div class="profile-stat-row">
+        <div class="profile-stat"><b id="profileStatCount">0</b><span>Projects</span></div>
+        <div class="profile-stat"><b>0</b><span>Exports</span></div>
+        <div class="profile-stat"><b id="profileStatPlan">Free</b><span>Plan</span></div>
+      </div>
+      <div class="profile-menu">
+        <div class="profile-menu-item" onclick="openMyPlanScreen()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+          <span>Billing &amp; plan</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="openCreditsHistoryScreen()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+          <span>Credits history</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="openSettingsScreen()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 11-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09A1.65 1.65 0 009 19.4a1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 11-2.83-2.83l.06-.06A1.65 1.65 0 004.6 15a1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09A1.65 1.65 0 004.6 9a1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 112.83-2.83l.06.06A1.65 1.65 0 009 4.6a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51 1.65 1.65 0 001.82-.33l.06-.06a2 2 0 112.83 2.83l-.06.06A1.65 1.65 0 0019.4 9a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z"/></svg>
+          <span>Settings</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="showNotificationsFrom('profile')">
+          <span class="profile-notif-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M18 8a6 6 0 00-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.73 21a2 2 0 01-3.46 0"/></svg>
+            <span class="notif-menu-badge" id="notifMenuBadge"></span>
+          </span>
+          <span>Notifications</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="goTo('help')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="9"/><path d="M9.09 9a3 3 0 015.83 1c0 2-3 2-3 4M12 17h.01"/></svg>
+          <span>Help &amp; support</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="openEthvelleLegalPage('privacy')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3 20 6v5c0 5-3.4 8.2-8 10-4.6-1.8-8-5-8-10V6l8-3Z"/><path d="m9 12 2 2 4-4"/></svg>
+          <span>Privacy policy</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" onclick="openEthvelleLegalPage('terms')">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h9l4 4v14H6a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2Z"/><path d="M14 3v5h5M8 12h8M8 16h8"/></svg>
+          <span>Terms &amp; conditions</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+        <div class="profile-menu-item" id="profileAuthMenuItem" onclick="onProfileAuthTap()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 012 2v14a2 2 0 01-2 2h-4"/><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/></svg>
+          <span id="profileAuthLabel">Sign in</span>
+          <svg class="chev" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round"><path d="M9 18l6-6-6-6"/></svg>
+        </div>
+      </div>
+    </div>
+    <div class="home-bottom-nav">
+      <div class="home-nav-item" onclick="goTo('home')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-8 9 8"/><path d="M5 10v10a1 1 0 001 1h4v-6h4v6h4a1 1 0 001-1V10"/></svg>
+        <span>Home</span>
+      </div>
+      <div class="home-nav-item" onclick="goTo('payment')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/></svg>
+        <span>Payment</span>
+      </div>
+      <div class="home-nav-create">
+        <button class="home-nav-create-btn" onclick="openRatioModal()">
+          <svg viewBox="0 0 24 24" fill="none" stroke="#F2F5FF" stroke-width="2.6" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+        </button>
+      </div>
+      <div class="home-nav-item" onclick="goTo('projects')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19V5a2 2 0 012-2h9l5 5v11a2 2 0 01-2 2H6a2 2 0 01-2-2z"/></svg>
+        <span>Project</span>
+      </div>
+      <div class="home-nav-item active" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4.4 3.6-7 8-7s8 2.6 8 7"/></svg>
+        <span>Profile</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ SETTINGS / EDIT PROFILE (FULL PAGE) ============ -->
+  <div class="screen" id="screen-settings">
+    <header class="settings-edit-header">
+      <button type="button" class="settings-close-btn" onclick="cancelProfileSettings()" aria-label="Back to profile">
+        <svg viewBox="0 0 24 24" fill="none" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6"/></svg>
+      </button>
+      <h1>Edit profile</h1>
+      <span class="settings-header-spacer" aria-hidden="true"></span>
+    </header>
+    <div class="demo-scroll settings-scroll">
+      <div class="settings-avatar-center">
+        <div class="profile-avatar-wrap settings-avatar-wrap">
+          <div class="profile-avatar" id="settingsAvatar">U</div>
+        </div>
+        <input type="file" id="profilePhotoInput" accept="image/*" hidden onchange="if(this.files&&this.files[0]) onProfilePhotoChosen(this.files[0]); this.value='';">
+        <button type="button" class="profile-photo-upload-btn" onclick="document.getElementById('profilePhotoInput').click()">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 16V4M7 9l5-5 5 5"/><path d="M5 14v5a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-5"/></svg>
+          Upload profile photo
+        </button>
+        <p class="profile-photo-note">Saved on this device only</p>
+      </div>
+      <div class="settings-profile-fields">
+        <div class="settings-edit-field">
+          <label for="settingsNameInput">Name</label>
+          <input type="text" class="admin-input" id="settingsNameInput" placeholder="Your name" autocomplete="name" maxlength="80">
+        </div>
+        <div class="settings-edit-field">
+          <label for="settingsUsernameInput">Username</label>
+          <input type="text" class="admin-input" id="settingsUsernameInput" placeholder="Choose a username" autocomplete="nickname" maxlength="30" spellcheck="false">
+        </div>
+        <div class="settings-edit-field">
+          <label for="settingsHeadlineInput">Headline</label>
+          <input type="text" class="admin-input" id="settingsHeadlineInput" placeholder="Type headline here" maxlength="100">
+        </div>
+        <div class="settings-edit-field settings-bio-field">
+          <label for="settingsBioInput">Bio</label>
+          <textarea class="admin-input" id="settingsBioInput" rows="4" placeholder="Type bio text here" maxlength="500"></textarea>
+        </div>
+        <p class="settings-edit-error" id="settingsNameNote" aria-live="polite"></p>
+      </div>
+      <section class="settings-notification-prefs" aria-labelledby="settingsNotificationsTitle">
+        <div class="settings-notification-heading">
+          <div class="settings-notification-icon" aria-hidden="true">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M10 21h4"/><path d="M13.7 3.2a2 2 0 0 0-3.4 0"/></svg>
+          </div>
+          <div>
+            <h2 id="settingsNotificationsTitle">Notification settings</h2>
+          </div>
+        </div>
+        <div class="settings-notification-card">
+          <label class="settings-notification-row" for="settingsNotifBadges">
+            <span class="settings-notification-copy"><b>Unread message badges</b><small>Show a dot when you have unseen inbox messages.</small></span>
+            <input class="settings-notification-toggle" type="checkbox" id="settingsNotifBadges" onchange="saveProfileNotificationPref('badges',this.checked)">
+            <span class="settings-notification-switch" aria-hidden="true"></span>
+          </label>
+          <label class="settings-notification-row" for="settingsNotifFeatures">
+            <span class="settings-notification-copy"><b>Feature announcements</b><small>Remember your preference for new Ethvelle features.</small></span>
+            <input class="settings-notification-toggle" type="checkbox" id="settingsNotifFeatures" onchange="saveProfileNotificationPref('featureUpdates',this.checked)">
+            <span class="settings-notification-switch" aria-hidden="true"></span>
+          </label>
+          <label class="settings-notification-row" for="settingsNotifTips">
+            <span class="settings-notification-copy"><b>Creator tips and tutorials</b><small>Remember your preference for animation tips.</small></span>
+            <input class="settings-notification-toggle" type="checkbox" id="settingsNotifTips" onchange="saveProfileNotificationPref('creatorTips',this.checked)">
+            <span class="settings-notification-switch" aria-hidden="true"></span>
+          </label>
+        </div>
+      </section>
+    </div>
+    <div class="settings-floating-actions">
+      <button type="button" class="settings-cancel-btn" onclick="cancelProfileSettings()">Cancel</button>
+      <button type="button" class="settings-save-btn" id="settingsSaveBtn" onclick="saveProfileSettings()">Save</button>
+    </div>
+  </div>
+
+  <!-- ============ PRIVACY POLICY ============ -->
+  <div class="screen" id="screen-privacy">
+    <div class="sub-topbar">
+      <button type="button" class="sub-back-btn" onclick="returnFromEthvelleLegalPage()" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h1>Privacy policy</h1>
+    </div>
+    <div class="demo-scroll legal-scroll">
+      <article class="legal-document">
+        <h2>How Ethvelle handles your information</h2>
+        <p class="legal-updated">Effective date: 7 November 2026</p>
+        <p>This Privacy Policy explains what information Ethvelle processes when you use the Ethvelle animation studio, website, account, payment and support features. We aim to collect only information needed to operate the service, maintain accounts, verify orders, protect the platform and respond to support requests.</p>
+        <section><h3>1. Information we process</h3>
+          <ul>
+            <li><b>Account and profile information:</b> email address and sign-in identity, plus profile details you choose to enter such as name, username, headline, biography and profile image.</li>
+            <li><b>Orders and payment verification:</b> selected plan, payment method, transaction/reference ID and the payment-proof image(s) you submit. Ethvelle currently provides manual bKash/Nagad payment verification in the Bangladesh checkout flow.</li>
+            <li><b>Usage and security events:</b> randomly generated visitor/session identifiers and service events such as screen visits, plan interactions, project/model actions and export activity. These help us understand usage, protect the service and improve reliability.</li>
+            <li><b>Projects and media on your device:</b> project records, animation work, character/model data and imported images, video and audio may be stored in your browser's local storage or IndexedDB on the device you are using. This is device storage and is not automatically a cloud backup or cross-device sync.</li>
+            <li><b>Support messages:</b> information you include when contacting support through the contact options shown in the app.</li>
+          </ul>
+        </section>
+        <section><h3>2. How we use information</h3>
+          <p>We use information to create and secure accounts; provide editor, project, plan and support features; verify payments and activate eligible plans; maintain order and service records; investigate errors or misuse; measure general product usage; and comply with legal obligations.</p>
+        </section>
+        <section><h3>3. Where information is stored and service providers</h3>
+          <p>Ethvelle uses Firebase Authentication for account sign-in and Firebase/Firestore services for selected account, order, site-content and service records. Payment-proof images and order details are submitted for manual verification. Projects and imported media are also stored in your browser's local storage or IndexedDB when supported by your browser. The exact data stored in each place depends on the feature you use.</p>
+          <p>We may rely on infrastructure and technology providers needed to operate authentication, database, fonts, hosted media and embedded tutorial content. Those providers may process technical information under their own terms and privacy notices. We do not sell your personal information.</p>
+        </section>
+        <section><h3>4. When information may be shared</h3>
+          <p>We may make relevant information available to authorised Ethvelle personnel or payment reviewers who need it to verify an order or provide support; to service providers acting on our instructions; when required by law or a lawful request; or when reasonably necessary to protect users, the service or legal rights. We do not publish your private project files as public content merely because you use the editor.</p>
+        </section>
+        <section><h3>5. Device storage, backups and deletion</h3>
+          <p>Projects and imported media saved in browser storage may be lost if you clear site data, uninstall/reset the browser, change devices or use a browser that does not support the storage feature. Export important work and keep your own backup. Removing a project inside the editor may not remove account, order or transaction records that must be retained for operational or legal reasons.</p>
+          <p>You can request access to, correction of or deletion of personal information, or ask a question about its use, by emailing <a class="ev-support-email-link" href="mailto:support@ethvelle.com">support@ethvelle.com</a>. We may need to verify your identity and may retain information where the law permits or requires it.</p>
+        </section>
+        <section><h3>6. Security and retention</h3>
+          <p>We use reasonable technical and organisational safeguards appropriate to the information and service. No website, device or transmission method can be guaranteed completely secure. We keep information for as long as reasonably necessary for the purposes described above, account and order administration, dispute handling, security and applicable legal requirements.</p>
+        </section>
+        <section><h3>7. Your choices and rights</h3>
+          <p>You may update profile details through available settings, control whether you continue using optional features, and contact us to request access, correction or deletion where applicable. Where processing relies on consent, you may request to withdraw it; this does not affect processing already lawfully completed or processing that has another lawful basis. Requests are handled subject to identity checks and applicable law.</p>
+        </section>
+        <section><h3>8. Children and sensitive information</h3>
+          <p>Do not submit sensitive personal information through profile fields, project names or support messages unless it is necessary and you have a lawful reason to do so. Anyone under 18 should use the service with the involvement and guidance of a parent or legal guardian.</p>
+        </section>
+        <section><h3>9. Changes and contact</h3>
+          <p>We may update this Policy when the service, its data practices or applicable requirements change. The latest version and effective date will be shown on this page. For privacy questions or requests, contact <a class="ev-support-email-link" href="mailto:support@ethvelle.com">support@ethvelle.com</a>.</p>
+        </section>
+        <p class="legal-footnote">This notice is intended to describe the current Ethvelle website implementation. It does not limit rights that cannot lawfully be limited under applicable law.</p>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============ TERMS & CONDITIONS ============ -->
+  <div class="screen" id="screen-terms">
+    <div class="sub-topbar">
+      <button type="button" class="sub-back-btn" onclick="returnFromEthvelleLegalPage()" aria-label="Back"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg></button>
+      <h1>Terms &amp; conditions</h1>
+    </div>
+    <div class="demo-scroll legal-scroll">
+      <article class="legal-document">
+        <h2>Terms for using Ethvelle</h2>
+        <p class="legal-updated">Effective date: 7 November 2026</p>
+        <p>These Terms &amp; Conditions govern your access to and use of the Ethvelle website, animation editor, account, projects, plans and related features. By accessing or using Ethvelle, you agree to these Terms. Do not use the service if you do not agree.</p>
+        <section><h3>1. Accounts and eligibility</h3>
+          <p>Provide accurate account and payment details, keep your sign-in credentials secure and notify us if you suspect unauthorised access. You are responsible for activity carried out through your account, except where applicable law provides otherwise. If you are under 18, use the service with parent or legal-guardian involvement.</p>
+        </section>
+        <section><h3>2. Plans, prices and activation</h3>
+          <p>Plan features, limits, prices and billing terms are the details shown on the relevant plan and checkout screens at the time you place an order. For manual payments, submitting proof does not itself activate a plan: the order remains pending until the payment is reviewed and approved. Do not send payment to a number or account that is not displayed in the official Ethvelle checkout.</p>
+        </section>
+        <section class="legal-refund"><h3>3. Refunds and cancellations</h3>
+          <p><b>Plan purchases are final and non-refundable once the paid plan has been activated and its features, limits or benefits have been made available to your account.</b> A refund is not provided simply because you change your mind, do not use the plan, use fewer exports or projects than included, or decide to stop using the service after activation.</p>
+          <p>This policy does not remove any refund, cancellation, remedy or consumer right that cannot legally be excluded. If you are charged more than once, pay the wrong amount because of an Ethvelle checkout error, or a paid plan is not activated or supplied after payment has been verified, contact <a class="ev-support-email-link" href="mailto:support@ethvelle.com">support@ethvelle.com</a> with your order details so the issue can be investigated and corrected or refunded where required by law.</p>
+        </section>
+        <section><h3>4. Your projects and uploaded content</h3>
+          <p>You remain responsible for the images, video, audio, text, character sheets and other material you import or create. You must own or have permission to use that material and must not upload content that infringes another person's rights or violates applicable law. You grant Ethvelle only the limited permission reasonably needed to process material you submit for the feature you choose, support the service and verify related orders. Project files and imported media may be saved in browser storage on your device; keep independent backups.</p>
+        </section>
+        <section><h3>5. Acceptable use</h3>
+          <p>Do not attempt to disrupt, reverse engineer, exploit or gain unauthorised access to Ethvelle or its accounts and infrastructure; introduce malware; interfere with another user's work; misuse payment or support flows; or use the service to create, store or distribute unlawful, infringing, deceptive or harmful material.</p>
+        </section>
+        <section><h3>6. Availability, changes and support</h3>
+          <p>We aim to keep Ethvelle available and improve its tools, but features may be updated, limited or temporarily unavailable for maintenance, security, compatibility or operational reasons. We may revise plans and features for future purchases. We will not intentionally remove rights that applicable law requires us to preserve. Contact <a class="ev-support-email-link" href="mailto:support@ethvelle.com">support@ethvelle.com</a> for account, payment or technical support.</p>
+        </section>
+        <section><h3>7. Third-party services</h3>
+          <p>Some parts of Ethvelle rely on third-party services such as Firebase authentication/database infrastructure, hosted media, fonts or embedded tutorial providers. Their own terms and privacy notices may apply when you use those services. Ethvelle is not responsible for services or content controlled independently by third parties.</p>
+        </section>
+        <section><h3>8. Suspension and termination</h3>
+          <p>We may restrict or suspend access where reasonably necessary to protect the service, users, payment verification or legal compliance, including in response to serious or repeated breaches of these Terms. Where appropriate, we will provide notice and an opportunity to resolve the issue. Suspension does not remove rights that cannot legally be excluded.</p>
+        </section>
+        <section><h3>9. Disclaimers and liability</h3>
+          <p>To the maximum extent permitted by law, Ethvelle is provided on an “as available” basis and we do not guarantee uninterrupted operation, compatibility with every device or permanent preservation of device-stored projects. Nothing in these Terms excludes liability or consumer protections that cannot lawfully be excluded.</p>
+        </section>
+        <section><h3>10. Governing law and updates</h3>
+          <p>These Terms are governed by the laws of Bangladesh, subject to any mandatory consumer or other legal protections that apply to you. We may update these Terms as the service or law changes. The current version and effective date will be displayed here.</p>
+        </section>
+        <p class="legal-footnote">For questions about these Terms or a payment, contact <a class="ev-support-email-link" href="mailto:support@ethvelle.com">support@ethvelle.com</a>. The legal operator name and registered business address should be added to the site before commercial launch.</p>
+      </article>
+    </div>
+  </div>
+
+  <!-- ============ NOTIFICATIONS (inbox messages only) ============ -->
+  <div class="screen" id="screen-notifications">
+    <div class="sub-topbar">
+      <div class="sub-back-btn" onclick="notifGoBack()">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
+      <h1>Notifications</h1>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;">
+      <div class="settings-group-label" id="notifInboxLabel" style="display:none;">Inbox</div>
+      <div id="notifInboxList"></div>
+    </div>
+  </div>
+
+  <!-- ============ HELP & SUPPORT ============ -->
+  <div class="screen" id="screen-help">
+    <div class="sub-topbar">
+      <div class="sub-back-btn" onclick="goTo('profile')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 18l-6-6 6-6"/></svg>
+      </div>
+      <h1>Help &amp; support</h1>
+    </div>
+    <div class="demo-scroll" style="padding-top:4px;">
+      <div id="helpContactCards"></div>
+      <div class="settings-group-label">Frequently asked</div>
+      <div class="settings-card" id="helpFaqList"></div>
+
+      <div id="helpComposeWrap">
+        <div class="settings-group-label">Send us a message</div>
+        <div class="settings-card">
+          <div class="settings-field">
+            <textarea class="admin-textarea" id="supportMsgInput" aria-label="Support message" rows="4" placeholder="Describe the issue or question you have…"></textarea>
+          </div>
+        </div>
+        <button class="settings-save-btn" id="supportMsgSendBtn" onclick="openSupportWhatsApp()">Send message</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- ============ MY PLAN (Billing & plan detail  -  real usage, not a redirect) ============ -->
+  <div class="screen" id="screen-myplan">
+    <div class="sub-topbar">
