@@ -19,7 +19,7 @@ import android.webkit.MimeTypeMap;
 import androidx.activity.result.ActivityResult;
 import androidx.core.content.FileProvider;
 
-import com.getcapacitor.ActivityCallback;
+import com.getcapacitor.annotation.ActivityCallback;
 import com.getcapacitor.JSArray;
 import com.getcapacitor.JSObject;
 import com.getcapacitor.Plugin;
