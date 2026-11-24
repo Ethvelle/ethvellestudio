@@ -1,0 +1,206 @@
+    border-radius:12px!important;padding:13px 14px!important;font-size:14.5px!important;
+    border:1.5px solid transparent!important;box-sizing:border-box!important;width:100%!important;
+    box-shadow:none!important;
+  }
+  /* Login: "Back to app" matches the "Don't have an account?" text colour. */
+  html body #screen-login .admin-back-link{
+    color:var(--text-dim,#8A8A94)!important;-webkit-text-fill-color:var(--text-dim,#8A8A94)!important;
+  }
+
+  /* Home credits: numbers only. */
+  html body #screen-home .ev-v394-credit-col small{display:none!important;}
+  html body #screen-home .ev-v394-credit-pair{grid-template-columns:minmax(0,1fr) 10px minmax(0,1fr)!important;gap:4px!important;}
+  html body #screen-home .ev-v394-credit-col b{font-size:16px!important;font-weight:850!important;}
+  html body #screen-home .ev-v394-credit-slash{font-size:15px!important;}
+
+  /* Background tab: Upload image is a pure solid blue button, no border, no glow. */
+  html body #screen-editor .ev-bg-upload-row .bg-upload-plus{
+    background:#2F5CE8!important;background-image:none!important;border:0!important;
+    box-shadow:none!important;outline:none!important;color:#FFFFFF!important;
+    -webkit-tap-highlight-color:transparent!important;
+  }
+  html body #screen-editor .ev-bg-upload-row .bg-upload-plus:active{background:#264CCB!important;transform:scale(.98)!important;}
+  html body #screen-editor .ev-bg-upload-row .bg-upload-plus svg{stroke:#FFFFFF!important;}
+  html body #screen-editor .ev-bg-upload-row .bg-upload-plus span{color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;}
+
+  /* ===== Frame Capture panel: full redesign (flat, no glow) ===== */
+  html body #screen-editor #evcaFrameCaptureSheet{background:rgba(0,0,0,.45)!important;}
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{
+    display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    grid-auto-rows:auto!important;align-content:start!important;align-items:stretch!important;gap:10px!important;
+    width:100%!important;max-width:520px!important;min-height:0!important;height:auto!important;
+    padding:10px 14px calc(20px + env(safe-area-inset-bottom))!important;
+    background:#17181F!important;border:1px solid #2A2C37!important;border-bottom:0!important;
+    border-radius:22px 22px 0 0!important;box-shadow:none!important;
+  }
+  /* grab handle */
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet::before{
+    content:"";grid-column:1/-1;justify-self:center;width:38px;height:4px;border-radius:4px;
+    background:#3A3D4A;margin:0 0 4px;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet-head{
+    grid-column:1/-1!important;display:flex!important;align-items:center!important;justify-content:space-between!important;
+    margin:2px 2px 8px!important;font:800 17px/1.2 Inter,Arial,sans-serif!important;color:#F4F5F8!important;
+    letter-spacing:-.01em!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet-close{
+    width:34px!important;height:34px!important;min-width:34px!important;min-height:34px!important;flex:0 0 34px!important;
+    border:0!important;border-radius:50%!important;background:#262833!important;color:#C9CCD6!important;
+    box-shadow:none!important;outline:none!important;-webkit-tap-highlight-color:transparent!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet-close:active{background:#32354A!important;color:#FFFFFF!important;}
+
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{
+    appearance:none!important;-webkit-appearance:none!important;box-sizing:border-box!important;
+    position:relative!important;display:flex!important;flex-direction:column!important;
+    align-items:center!important;justify-content:center!important;gap:10px!important;
+    width:100%!important;min-width:0!important;height:auto!important;min-height:122px!important;aspect-ratio:auto!important;
+    margin:0!important;padding:16px 6px 14px!important;text-align:center!important;
+    background:#212330!important;background-image:none!important;
+    border:1px solid #2F3240!important;border-radius:16px!important;
+    color:#F4F5F8!important;box-shadow:none!important;outline:none!important;
+    cursor:pointer!important;touch-action:manipulation!important;-webkit-tap-highlight-color:transparent!important;
+    transition:background .14s ease,border-color .14s ease,transform .1s ease!important;
+  }
+  /* icon chip */
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action svg{
+    display:block!important;box-sizing:content-box!important;
+    width:22px!important;height:22px!important;flex:0 0 22px!important;padding:11px!important;
+    border-radius:13px!important;background:#2F5CE8!important;
+    stroke:#FFFFFF!important;color:#FFFFFF!important;fill:none!important;stroke-width:2!important;
+    filter:none!important;box-shadow:none!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action span.evca-fa-text{
+    display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:center!important;gap:3px!important;width:100%!important;min-width:0!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    display:block!important;color:#F4F5F8!important;-webkit-text-fill-color:#F4F5F8!important;
+    font:750 13px/1.2 Inter,Arial,sans-serif!important;text-align:center!important;white-space:nowrap!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{
+    display:block!important;margin:0!important;color:#8E91A0!important;-webkit-text-fill-color:#8E91A0!important;
+    font:500 10.5px/1.25 Inter,Arial,sans-serif!important;text-align:center!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:focus-visible,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action.ev-v393-selected,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action.ev-v394-selected{
+    background:#2A2D3E!important;border:1px solid #2F5CE8!important;box-shadow:none!important;outline:none!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active{transform:scale(.97)!important;}
+  @media(max-width:350px){
+    html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{gap:7px!important;padding-left:10px!important;padding-right:10px!important;}
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{min-height:112px!important;}
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{font-size:12px!important;}
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{font-size:9.5px!important;}
+  }
+</style>
+
+<style id="ethvelle-v396-requested-ui-css">
+  /* Home credits: "available / purchased credits" on one row, available number grayish white. */
+  html body #screen-home .home-account-summary{width:clamp(150px,50vw,196px)!important;}
+  html body #screen-home .ev-v394-credit-pair{
+    display:flex!important;grid-template-columns:none!important;align-items:baseline!important;
+    justify-content:center!important;gap:4px!important;width:100%!important;white-space:nowrap!important;
+    font-size:15px;line-height:1.1!important;
+  }
+  html body #screen-home .ev-v394-credit-pair b{
+    display:inline!important;font-size:1em!important;font-weight:850!important;line-height:1.1!important;overflow:visible!important;
+  }
+  html body #screen-home .ev-v394-credit-pair b.ev-v394-available-value{
+    color:#CDD0D9!important;-webkit-text-fill-color:#CDD0D9!important;
+  }
+  html body #screen-home .ev-v394-credit-pair b.ev-v394-purchased-value{
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+  }
+  html body #screen-home .ev-v394-credit-pair .ev-v394-credit-slash{
+    display:inline!important;font-size:1em!important;font-weight:700!important;
+    color:#858A98!important;-webkit-text-fill-color:#858A98!important;
+  }
+  html body #screen-home .ev-v394-credit-pair .ev-v394-credit-unit{
+    display:inline!important;margin-left:1px!important;font-size:.64em!important;font-weight:700!important;
+    color:#9DA1AE!important;-webkit-text-fill-color:#9DA1AE!important;
+  }
+
+  /* Frame Capture: titles only, shorter cards. */
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{min-height:104px!important;padding:16px 6px!important;}
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{display:none!important;}
+  @media(max-width:350px){
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{min-height:96px!important;}
+  }
+</style>
+
+<style id="ethvelle-v397-requested-ui-css">
+  /* Home credits: original capsule width, smaller text, white "credits" word. */
+  html body #screen-home .home-account-summary{width:clamp(128px,43vw,174px)!important;}
+  html body #screen-home .ev-v394-credit-pair{font-size:12px;gap:3px!important;}
+  html body #screen-home .ev-v394-credit-pair .ev-v394-credit-unit{
+    font-size:.7em!important;color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+  }
+
+  /* Frame Capture: option titles in grayish white. */
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    color:#D0D2DB!important;-webkit-text-fill-color:#D0D2DB!important;
+  }
+</style>
+
+<style id="ethvelle-v399-requested-ui-css">
+  /* Consent panel: logo with NO shadow / dim effect (overrides the v270 dark drop-shadow). */
+  html body .ev-login-consent-backdrop .ev-login-consent-mark,
+  html body .ev-login-consent-backdrop .ev-login-consent-mark img{
+    -webkit-filter:none!important;filter:none!important;box-shadow:none!important;
+    text-shadow:none!important;opacity:1!important;
+  }
+
+  /* Consent panel: Privacy Policy / Terms & Conditions links + their full stop use the exact
+     same bright blue as before (#0068FF). */
+  html body .ev-login-consent-backdrop .ev-login-consent-option a,
+  html body .ev-login-consent-backdrop .ev-login-consent-option a:visited,
+  html body .ev-login-consent-backdrop .ev-login-consent-option a:active,
+  html body .ev-login-consent-backdrop .ev-login-consent-option .ev-consent-stop{
+    color:#0068FF!important;-webkit-text-fill-color:#0068FF!important;
+  }
+  html body .ev-login-consent-backdrop .ev-login-consent-option .ev-consent-stop{
+    display:inline!important;font-style:normal!important;font-weight:800!important;text-decoration:none!important;
+  }
+  html body .ev-login-consent-backdrop .ev-login-consent-option a:focus-visible{outline-color:#0068FF!important;}
+
+  /* Home credits capsule: when credits are low (under 100) or 0, shrink it to fit the text. */
+  html body #screen-home .home-account-summary.ev-v399-credit-compact{
+    width:auto!important;min-width:0!important;max-width:clamp(96px,36vw,150px)!important;
+    flex:0 0 auto!important;height:38px!important;min-height:38px!important;padding:0 13px!important;
+  }
+  html body #screen-home .home-account-summary.ev-v399-credit-compact .home-account-balance{
+    width:auto!important;flex:0 0 auto!important;
+  }
+  html body #screen-home .home-account-summary.ev-v399-credit-compact .ev-v394-credit-pair{
+    width:auto!important;justify-content:center!important;
+  }
+</style>
+<script id="ethvelle-v399-requested-ui-js">
+(function(){
+  'use strict';
+  var LOW_CREDITS=100; /* available credits below this (including 0) = compact capsule */
+  function syncCreditCapsule(){
+    var button=document.getElementById('homeAccountSummary');
+    var balance=document.getElementById('homeAccountBalance');
+    if(!button||!balance)return;
+    var value=balance.querySelector('.ev-v394-available-value');
+    var compact=false;
+    if(value){
+      var n=parseInt(String(value.textContent).replace(/[^0-9]/g,''),10);
+      compact=(isNaN(n)?0:n)<LOW_CREDITS;
+    }
+    button.classList.toggle('ev-v399-credit-compact',compact);
+  }
+  var balanceEl=document.getElementById('homeAccountBalance');
+  if(balanceEl&&typeof MutationObserver==='function'){
+    new MutationObserver(syncCreditCapsule).observe(balanceEl,{childList:true,subtree:true,characterData:true});
+  }
+  syncCreditCapsule();
+})();
+</script>
+
+</body>
+</html>

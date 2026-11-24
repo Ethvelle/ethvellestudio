@@ -1,0 +1,1000 @@
+    ts.forEach(T=>{
+      const x = T.x0, y = T.y0, w = T.x1-T.x0+1, h = T.y1-T.y0+1, aw = T.art.w;
+      const before = T.ctx.createImageData(w, h), after = T.ctx.getImageData(x, y, w, h);
+      for(let row = 0; row < h; row++){ const so = ((y+row)*aw+x)*4; before.data.set(T.orig.subarray(so, so+w*4), row*w*4); }
+      const v = (ED.pxVer[T.ak]||0)+1;
+      (ED.pxPatch[T.ak] = ED.pxPatch[T.ak] || {})[v] = { x, y, w, h, before, after };
+      ED.pxVer[T.ak] = v;
+      refreshArt(T.art, x, y, after);
+    });
+    edAfterChange(true);
+  }
+
+  /* ---------- undo / redo: keep brush versions in step with the editor's own history ---------- */
+  const tag = (j, ver)=>{ try{ return j.slice(0, -1) + ',"px":' + JSON.stringify(ver || {}) + '}'; }catch(_e){ return j; } };
+  const readPx = j=>{ try{ return JSON.parse(j).px || null; }catch(_e){ return null; } };
+  function applyPx(target){
+    if(!target) return;
+    const keys = new Set(Object.keys(target).concat(Object.keys(ED.pxVer)));
+    keys.forEach(ak=>{
+      const art = ED.arts[ak]; if(!art || !art.canvas) return;
+      const ctx = art.canvas.getContext('2d'), patches = ED.pxPatch[ak] || {}, t = target[ak] || 0; let c = ED.pxVer[ak] || 0;
+      while(c > t){ const p = patches[c]; if(p){ ctx.putImageData(p.before, p.x, p.y); refreshArt(art, p.x, p.y, p.before); } c--; }
+      while(c < t){ const p = patches[c+1]; if(p){ ctx.putImageData(p.after, p.x, p.y); refreshArt(art, p.x, p.y, p.after); } c++; }
+      if(c) ED.pxVer[ak] = c; else delete ED.pxVer[ak];
+    });
+  }
+  const oPush = window.edPush, oUndo = window.edUndo, oRedo = window.edRedo;
+  window.edPush = function(){
+    const r = oPush.apply(this, arguments);
+    const i = ED.undo.length-1; if(i >= 0) ED.undo[i] = tag(ED.undo[i], ED.pxVer);
+    return r;
+  };
+  window.edUndo = function(){
+    if(!ED.undo.length) return oUndo.apply(this, arguments);
+    const cur = Object.assign({}, ED.pxVer), target = readPx(ED.undo[ED.undo.length-1]);
+    const r = oUndo.apply(this, arguments);
+    if(ED.redo.length) ED.redo[ED.redo.length-1] = tag(ED.redo[ED.redo.length-1], cur);
+    if(target){ applyPx(target); edAfterChange(true); }
+    return r;
+  };
+  window.edRedo = function(){
+    if(!ED.redo.length) return oRedo.apply(this, arguments);
+    const cur = Object.assign({}, ED.pxVer), target = readPx(ED.redo[ED.redo.length-1]);
+    const r = oRedo.apply(this, arguments);
+    if(ED.undo.length) ED.undo[ED.undo.length-1] = tag(ED.undo[ED.undo.length-1], cur);
+    if(target){ applyPx(target); edAfterChange(true); }
+    return r;
+  };
+
+  /* ---------- canvas gestures (only while the brush is on) ---------- */
+  function bDown(e){
+    try{ ED.cv.setPointerCapture(e.pointerId); }catch(_e){}
+    const p = pos(e); bp.set(e.pointerId, p); B.pt = p; B.show = true;
+    if(e.pointerType === 'mouse' && (e.button === 1 || e.button === 2)){ cancelStroke(); pinch = { type:'pan', p0:p, vx:ED.cam.x, vy:ED.cam.y }; return; }
+    if(bp.size >= 2){
+      cancelStroke(); const [a, b] = [...bp.values()];
+      pinch = { type:'pinch', d:Math.hypot(a.x-b.x, a.y-b.y)||1, z:ED.cam.z, c:{ x:(a.x+b.x)/2, y:(a.y+b.y)/2 }, vx:ED.cam.x, vy:ED.cam.y }; return;
+    }
+    if(pinch) return;
+    startStroke(); addPoint(p);
+  }
+  function bMove(e){
+    const p = pos(e);
+    if(!bp.has(e.pointerId)){ if(e.pointerType === 'mouse'){ B.pt = p; B.show = true; edDraw(); } return; }
+    bp.set(e.pointerId, p); B.pt = p;
+    if(pinch){
+      if(pinch.type === 'pan'){ ED.cam.x = pinch.vx+p.x-pinch.p0.x; ED.cam.y = pinch.vy+p.y-pinch.p0.y; edDraw(); return; }
+      if(bp.size < 2) return;
+      const [a, b] = [...bp.values()], d = Math.hypot(a.x-b.x, a.y-b.y), c = { x:(a.x+b.x)/2, y:(a.y+b.y)/2 };
+      const z = Math.max(0.08, Math.min(8, pinch.z*d/pinch.d)), k = z/pinch.z;
+      ED.cam.z = z; ED.cam.x = c.x-(pinch.c.x-pinch.vx)*k; ED.cam.y = c.y-(pinch.c.y-pinch.vy)*k; edSyncZoom(); edDraw(); return;
+    }
+    if(S) addPoint(p);
+  }
+  function bUp(e){
+    bp.delete(e.pointerId);
+    if(!bp.size){ commit(); pinch = null; if(e.pointerType !== 'mouse') B.show = false; edDraw(); }
+  }
+  function hookCanvas(){
+    const cv = ED.cv; if(!cv || cv.__v374) return; cv.__v374 = true;
+    const oD = cv.onpointerdown, oM = cv.onpointermove, oU = cv.onpointerup;
+    cv.onpointerdown = function(e){ return B.on ? bDown(e) : (oD && oD.call(this, e)); };
+    cv.onpointermove = function(e){ return (B.on || bp.size) ? bMove(e) : (oM && oM.call(this, e)); };
+    cv.onpointerup = cv.onpointercancel = function(e){ return (B.on || bp.has(e.pointerId)) ? bUp(e) : (oU && oU.call(this, e)); };
+    cv.addEventListener('pointerleave', ()=>{ if(B.on && !bp.size){ B.show = false; edDraw(); } });
+  }
+
+  /* ---------- brush ring + lifecycle hooks ---------- */
+  const oDraw = window.edDraw;
+  window.edDraw = function(){
+    const r = oDraw.apply(this, arguments);
+    if(B.on && B.pt && B.show && ED.g){
+      const g = ED.g; g.save(); g.setTransform(ED.dpr, 0, 0, ED.dpr, 0, 0);
+      g.beginPath(); g.arc(B.pt.x, B.pt.y, B.size/2, 0, Math.PI*2);
+      g.lineWidth = 2.5; g.strokeStyle = 'rgba(0,0,0,.6)'; g.stroke(); g.lineWidth = 1.25; g.strokeStyle = '#fff'; g.stroke(); g.restore();
+    }
+    return r;
+  };
+  const oOpen = window.edOpen;
+  window.edOpen = function(){
+    if(B.on) setBrush(false);
+    const r = oOpen.apply(this, arguments);
+    ED.pxVer = {}; ED.pxPatch = {}; S = null; bp.clear(); pinch = null;
+    hookCanvas(); syncPanel();
+    return r;
+  };
+  const oClose = window.edClose;
+  window.edClose = function(){ if(B.on) setBrush(false); return oClose.apply(this, arguments); };
+  if(ED.cv) hookCanvas();
+  syncPanel();
+})();
+</script>
+
+
+<style id="ethvelle-v380-ui-polish-css">
+  /* Prompts & Templates sheet: taller Guidance (2x) and Prompt (same as reference image) blocks. */
+  html body #promptDetailBackdrop .prompt-detail-copy.prompt-guidance-copy{min-height:84px!important;}
+  html body #promptDetailBackdrop #promptBodyText{min-height:260px;}
+
+  /* Asset filters + Audio tabs: blue underline spans the full width of the tab text. */
+  html body #screen-editor #editorAssetFilters .editor-asset-filter::after,
+  html body #toolPanel .ethvelle-audio-tab::after{
+    left:0!important;right:auto!important;transform:none!important;width:0!important;
+    height:3px!important;border-radius:999px!important;background:#0068FF!important;
+  }
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.active::after,
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.user-selected::after,
+  html body #screen-editor #editorAssetFilters .editor-asset-filter.active.user-selected::after,
+  html body #toolPanel .ethvelle-audio-tab.active::after{width:100%!important;}
+
+  /* Help & support message box: gray by default, blue only while focused (touch / typing). */
+  html body #screen-help textarea#supportMsgInput{
+    border:1px solid #4A4E5A!important;box-shadow:none!important;outline:none!important;
+  }
+  html body #screen-help textarea#supportMsgInput:focus,
+  html body #screen-help textarea#supportMsgInput:focus-visible{
+    border-color:#0068FF!important;box-shadow:none!important;outline:none!important;
+  }
+
+  /* Tutorials: card corner no longer clips the Ethvelle label. */
+  html body .tutorial-card{overflow:visible!important;}
+  html body .tutorial-meta{padding:10px 2px 6px!important;}
+  html body .tutorial-sub{line-height:1.4!important;padding-bottom:2px!important;}
+
+  /* Help & support box: thicker (2px) blue focus border. */
+  html body #screen-help textarea#supportMsgInput:focus,
+  html body #screen-help textarea#supportMsgInput:focus-visible{
+    box-shadow:inset 0 0 0 1px #0068FF!important;
+  }
+
+  /* Prompt sheet: text wraps and scrolls up/down only, never sideways. */
+  html body #promptDetailBackdrop .modal-sheet,
+  html body #promptDetailBackdrop .prompt-detail-scroll{overflow-x:hidden!important;max-width:100%!important;}
+  html body #promptDetailBackdrop .prompt-detail-copy{
+    box-sizing:border-box;max-width:100%;min-width:0;overflow-x:hidden!important;
+    white-space:pre-wrap!important;overflow-wrap:anywhere!important;word-break:break-word!important;
+    touch-action:pan-y;
+  }
+  html body #promptDetailBackdrop #promptBodyText{
+    max-height:260px;overflow-y:auto!important;-webkit-overflow-scrolling:touch;
+  }
+</style>
+<style id="ethvelle-v384-css">
+  .home-video-card .home-video-preview{pointer-events:none;}
+  .home-video-card canvas.home-gif-freeze.hv-hide{visibility:hidden;}
+  .home-video-card canvas.home-gif-freeze{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;display:block;}
+  /* Admin models: "Ethvelle" badge (same pill as the admin panel plan badges) + lock corner */
+  .model-asset-item,.model-grid-card{position:relative;}
+  .ev-model-badge{position:absolute;left:8px;top:8px;z-index:3;display:inline-flex;align-items:center;justify-content:center;min-height:23px;padding:4px 10px;border-radius:999px;pointer-events:none;
+    background:rgba(47,92,232,.16);border:1px solid rgba(47,92,232,.38);color:#5F8BFF;font-size:10px;font-weight:850;line-height:1;letter-spacing:.01em;white-space:nowrap;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px);}
+  .ev-model-lock{position:absolute;right:8px;top:8px;z-index:3;width:26px;height:26px;border-radius:50%;display:flex;align-items:center;justify-content:center;pointer-events:none;
+    background:rgba(10,10,12,.72);border:0;color:#F5B942;}
+  .ev-model-lock svg{width:14px;height:14px;display:block;fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round;}
+  .ev-model-locked .model-asset-thumb,.ev-model-locked .model-grid-thumb{opacity:.55;}
+</style>
+<style id="ethvelle-v385-css">
+  /* Example clips: centred pause icon, shown only while a clip is paused by a tap */
+  .home-video-card .hv-pause-badge{position:absolute;left:50%;top:50%;width:72px;height:72px;margin:-36px 0 0 -36px;border-radius:50%;display:flex;align-items:center;justify-content:center;z-index:2;pointer-events:none;
+    background:none;-webkit-backdrop-filter:none;backdrop-filter:none;border:0;opacity:0;transform:scale(.8);transition:opacity .18s ease,transform .18s ease;}
+  .home-video-card .hv-pause-badge svg{width:42px;height:42px;fill:#fff;display:block;filter:drop-shadow(0 1px 3px rgba(0,0,0,.55));}
+  .home-video-card.hv-user-paused .hv-pause-badge{opacity:1;transform:scale(1);}
+
+  /* Audio library: locked rows (same gold lock as the animation clips) */
+  #toolPanel .ethvelle-audio-row.is-locked .ethvelle-audio-name{color:#9DA3B1!important;}
+  #toolPanel .ethvelle-audio-row.is-locked .ethvelle-audio-preview{color:#F5B942!important;}
+  #toolPanel .ethvelle-audio-row.is-locked .ethvelle-audio-action.download{opacity:.4!important;}
+  #toolPanel .ethvelle-audio-lock{justify-self:end!important;align-self:center!important;margin:0!important;}
+  #toolPanel .ethvelle-audio-action.download.is-busy{opacity:.45!important;pointer-events:none!important;}
+  #toolPanel .ethvelle-audio-row.on-device .ethvelle-audio-action.download{color:#FFFFFF!important;}
+
+  /* Audio download popup */
+  #evAudioDl{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(5,6,10,.5);opacity:0;pointer-events:none;transition:opacity .2s ease;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);}
+  #evAudioDl.show{opacity:1;pointer-events:auto;}
+  #evAudioDl .evad-card{width:min(264px,calc(100vw - 48px));padding:22px 20px 18px;border-radius:20px;background:#17181F;border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55);text-align:center;transform:translateY(14px) scale(.96);transition:transform .22s cubic-bezier(.2,.9,.3,1.2);}
+  #evAudioDl.show .evad-card{transform:none;}
+  #evAudioDl .evad-ring{position:relative;width:76px;height:76px;margin:0 auto 14px;border-radius:50%;background:radial-gradient(circle at 50% 40%,rgba(47,92,232,.35),rgba(47,92,232,.08));border:2px solid rgba(111,155,255,.55);display:flex;align-items:center;justify-content:center;overflow:hidden;transition:border-color .25s,background .25s;}
+  #evAudioDl .evad-arrow{position:absolute;width:30px;height:30px;fill:none;stroke:#8FB0FF;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;animation:evadDrop 1.1s ease-in infinite;}
+  #evAudioDl .evad-check{position:absolute;width:34px;height:34px;fill:none;stroke:#3DDC97;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:30;stroke-dashoffset:30;opacity:0;}
+  #evAudioDl .evad-tray{position:absolute;left:50%;bottom:14px;width:30px;height:4px;margin-left:-15px;border-radius:3px;background:#8FB0FF;opacity:.85;}
+  @keyframes evadDrop{0%{transform:translateY(-34px);opacity:0}25%{opacity:1}75%{transform:translateY(6px);opacity:1}100%{transform:translateY(12px);opacity:0}}
+  #evAudioDl .evad-title{font-size:14px;font-weight:800;color:#fff;margin-bottom:4px;}
+  #evAudioDl .evad-name{font-size:11.5px;color:#9AA1B2;margin-bottom:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #evAudioDl .evad-bar{height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;position:relative;}
+  #evAudioDl .evad-bar b{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#2F5CE8,#6F9BFF);transition:width .15s linear;}
+  #evAudioDl.indet .evad-bar b{width:38%!important;animation:evadSlide 1s ease-in-out infinite alternate;}
+  @keyframes evadSlide{from{transform:translateX(-10%)}to{transform:translateX(160%)}}
+  #evAudioDl .evad-pct{margin-top:8px;font-size:11px;font-weight:700;color:#C9D4F5;min-height:14px;font-variant-numeric:tabular-nums;}
+  #evAudioDl.done .evad-ring{border-color:#3DDC97;background:rgba(61,220,151,.12);}
+  #evAudioDl.done .evad-arrow,#evAudioDl.done .evad-tray{display:none;}
+  #evAudioDl.done .evad-check{opacity:1;animation:evadCheck .45s ease forwards;}
+  #evAudioDl.done .evad-bar b{background:#3DDC97;}
+  @keyframes evadCheck{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){#evAudioDl .evad-arrow{animation:none;transform:translateY(0);opacity:1}}
+
+  /* v387: audio loading circle uses one single blue (no second light-blue tone). */
+  #evAudioDl .evad-ring{background:transparent!important;border-color:#2F5CE8!important;}
+  #evAudioDl .evad-arrow{stroke:#2F5CE8!important;}
+  #evAudioDl .evad-tray{background:#2F5CE8!important;opacity:1!important;}
+  #evAudioDl .evad-bar b{background:#2F5CE8!important;}
+  #evAudioDl .evad-pct{color:#2F5CE8!important;}
+  #evAudioDl.done .evad-ring{border-color:#3DDC97!important;background:rgba(61,220,151,.12)!important;}
+  #evAudioDl.done .evad-bar b{background:#3DDC97!important;}
+</style>
+<style id="ethvelle-v389-css">
+  /* Login: the Sign in / Sign up button uses the exact same box as the email and password fields
+     (12px corners, 13px/14px padding, 1.5px edge, 14.5px text) instead of a pill. */
+  #screen-login #loginSubmitBtn{
+    border-radius:12px!important;padding:13px 14px!important;font-size:14.5px!important;
+    border:1.5px solid transparent!important;box-sizing:border-box!important;width:100%!important;
+  }
+</style>
+
+<style id="ethvelle-v391-requested-ui-polish-css">
+  /* Frame Capture: keep the three real buttons visibly pressable instead of flat panels. */
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{
+    appearance:none!important;-webkit-appearance:none!important;
+    box-sizing:border-box!important;position:relative!important;
+    min-height:68px!important;margin:9px 0 0!important;padding:12px 14px!important;
+    display:flex!important;align-items:center!important;gap:13px!important;text-align:left!important;
+    cursor:pointer!important;touch-action:manipulation!important;
+    border:1px solid rgba(73,112,238,.72)!important;border-radius:14px!important;
+    background:linear-gradient(145deg,#222F50 0%,#171F35 100%)!important;
+    color:#FFFFFF!important;
+    box-shadow:0 5px 12px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.07)!important;
+    transition:transform .12s ease,border-color .12s ease,background .12s ease,box-shadow .12s ease!important;
+    -webkit-tap-highlight-color:transparent!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action svg{
+    width:34px!important;height:34px!important;flex:0 0 34px!important;
+    box-sizing:border-box!important;padding:7px!important;border-radius:10px!important;
+    background:rgba(47,92,232,.2)!important;stroke:#7FA0FF!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    color:#FFFFFF!important;font-size:12.5px!important;font-weight:800!important;line-height:1.25!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{
+    color:#C5CAD8!important;font-size:10.5px!important;line-height:1.35!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active{
+    transform:translateY(1px) scale(.99)!important;
+    border-color:#2F5CE8!important;background:linear-gradient(145deg,#263B70 0%,#1A2747 100%)!important;
+    box-shadow:0 2px 6px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.08)!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:focus-visible{
+    outline:2px solid #2F5CE8!important;outline-offset:2px!important;
+  }
+
+  /* Crop: white action labels and a solid deep-blue selected aspect-ratio button. */
+  html body #screen-editor #toolPanel .ev-v89-crop-panel .ev-v89-crop-reset,
+  html body #screen-editor #toolPanel .ev-v89-crop-panel .ev-v89-crop-done{
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+  }
+  html body #screen-editor #toolPanel .ev-v89-crop-panel .ev-v89-ratio.active,
+  html body #screen-editor #toolPanel .ev-v89-crop-panel .ev-v89-ratio[aria-pressed="true"]{
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+    background:#2F5CE8!important;background-image:none!important;
+    border-color:#2F5CE8!important;
+    box-shadow:inset 0 0 0 1px rgba(255,255,255,.08)!important;
+  }
+
+  /* Profile: hide the handle/email-like line and soften the three stat captions. */
+  html body #screen-profile #profileHandle{display:none!important;}
+  html body #screen-profile .profile-stat>span{
+    color:#C8CBD5!important;-webkit-text-fill-color:#C8CBD5!important;
+  }
+  html body #screen-profile #profileStatPlan{
+    display:block!important;min-height:30px!important;
+    font-size:10px!important;line-height:1.08!important;font-weight:800!important;
+    white-space:pre-line!important;overflow-wrap:anywhere!important;word-break:normal!important;
+    text-align:center!important;margin:0 0 2px!important;
+  }
+
+  /* Deep-blue section names on Help, Billing/plan, and checkout/payment-method pages. */
+  html body #screen-help .settings-group-label,
+  html body #screen-myplan .settings-group-label,
+  html body #screen-payment .settings-group-label,
+  html body #screen-checkout .checkout-section-label,
+  html body #screen-checkout .checkout-section-label em{
+    color:#2F5CE8!important;-webkit-text-fill-color:#2F5CE8!important;
+    font-weight:800!important;
+  }
+</style>
+
+
+<style id="ethvelle-v392-followup-polish-css">
+  /* Payment screen only: restore its section names to the previous soft gray-white. */
+  html body #screen-payment .settings-group-label{
+    color:#C8CBD5!important;-webkit-text-fill-color:#C8CBD5!important;
+  }
+
+  /* Crop panel heading: pure white rather than blue-white. */
+  html body #screen-editor #toolPanel .ev-v89-crop-panel .ev-v89-ratio-label{
+    color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+  }
+
+  /* Login field names: brighter gray-white. */
+  html body #screen-login .admin-field label,
+  html body #screen-login .login-password-header label{
+    color:#D8DAE2!important;-webkit-text-fill-color:#D8DAE2!important;
+  }
+
+  /* Frame capture: solid deep-blue actions, white icon and concise one/two-word labels. */
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{
+    min-height:62px!important;padding:12px 16px!important;gap:14px!important;
+    border:1px solid #416BEA!important;border-radius:13px!important;
+    background:#2F5CE8!important;background-image:none!important;
+    color:#FFFFFF!important;box-shadow:0 4px 10px rgba(0,0,0,.22)!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action svg{
+    width:29px!important;height:29px!important;flex:0 0 29px!important;
+    padding:0!important;border-radius:0!important;background:transparent!important;
+    stroke:#FFFFFF!important;color:#FFFFFF!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    color:#FFFFFF!important;font-size:15px!important;font-weight:850!important;line-height:1.2!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{display:none!important;}
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active{
+    background:#244BC6!important;border-color:#244BC6!important;
+    transform:translateY(1px) scale(.99)!important;
+  }
+
+  /* Profile plan: larger single-name display with a small vertical slide animation. */
+  html body #screen-profile #profileStatPlan{
+    display:block!important;min-height:27px!important;width:100%!important;
+    padding:0 2px!important;margin:0 0 2px!important;
+    color:#F0F1F5!important;-webkit-text-fill-color:#F0F1F5!important;
+    font-size:clamp(15px,4.3vw,18px)!important;font-weight:850!important;
+    line-height:1.18!important;white-space:nowrap!important;
+    overflow:hidden!important;text-overflow:ellipsis!important;word-break:normal!important;
+    text-align:center!important;
+  }
+  html body #screen-profile #profileStatPlan.ev-v392-plan-slide{
+    animation:evV392PlanSlide .34s ease both;
+  }
+  @keyframes evV392PlanSlide{
+    from{opacity:0;transform:translateY(-5px)}
+    to{opacity:1;transform:translateY(0)}
+  }
+
+  /* Background sample colour buttons. */
+  #screen-editor .ev-bg-sample-panel{padding:8px 2px 4px;}
+  #screen-editor .ev-bg-sample-title{
+    margin:0 0 10px;color:#D9DCE6;font-size:12px;font-weight:800;letter-spacing:.02em;
+  }
+  #screen-editor .ev-bg-sample-grid{
+    display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;
+  }
+  #screen-editor .ev-bg-sample{
+    min-width:0;display:flex;flex-direction:column;align-items:stretch;gap:6px;
+    padding:6px;border:1px solid #343B4C;border-radius:11px;
+    background:#191C25;color:#DDE0E9;text-align:center;cursor:pointer;
+    touch-action:manipulation;-webkit-tap-highlight-color:transparent;
+  }
+  #screen-editor .ev-bg-sample i{
+    display:block;width:100%;height:37px;border-radius:7px;
+    background:var(--ev-bg-sample);border:1px solid rgba(255,255,255,.16);
+    box-sizing:border-box;
+  }
+  #screen-editor .ev-bg-sample span{font-size:10px;font-weight:750;line-height:1.15;}
+  #screen-editor .ev-bg-sample:active{transform:scale(.97);border-color:#2F5CE8;background:#202A45;}
+  #screen-editor .ev-bg-upload-row{min-height:66px!important;padding:12px 2px 2px!important;}
+  #screen-editor .ev-bg-upload-row .bg-upload-plus{
+    width:100%!important;height:48px!important;min-height:48px!important;
+    flex-direction:row!important;gap:9px!important;border-style:solid!important;
+    border-color:#3B4D79!important;border-radius:11px!important;background:#1C2438!important;
+    color:#FFFFFF!important;
+  }
+  #screen-editor .ev-bg-upload-row .bg-upload-plus svg{width:19px!important;height:19px!important;}
+  #screen-editor .ev-bg-upload-row .bg-upload-plus span{font-size:12px!important;font-weight:800!important;}
+  @media(max-width:360px){#screen-editor .ev-bg-sample-grid{grid-template-columns:repeat(4,minmax(0,1fr));gap:6px;}#screen-editor .ev-bg-sample{padding:5px;}}
+</style>
+
+<script id="ethvelle-v392-followup-polish-js">
+(function(){
+  'use strict';
+
+  /* Solid-colour presets use the same real Background clip pipeline as uploaded images. */
+  window.ethvelleAddSolidBackground=function(color,label){
+    const value=String(color||'').trim();
+    if(!/^#[0-9a-f]{6}$/i.test(value))return;
+    if(typeof window.addBackgroundClip==='function')window.addBackgroundClip(value);
+    else if(typeof addBackgroundClip==='function')addBackgroundClip(value);
+    else {if(typeof window.showToast==='function')window.showToast('Background is not ready yet',{duration:1500});return;}
+    if(typeof window.showToast==='function')window.showToast((String(label||'Solid colour'))+' background added',{icon:window.toastIcons&&window.toastIcons.check,duration:1300});
+  };
+
+  /* Profile: approved plans shown in a horizontal, left-right looping carousel. */
+  let planNames=[];
+  let planResizeObserver=null;
+  function getPlanNames(){
+    let names=[];
+    try{
+      const owned=(typeof currentUser!=='undefined'&&currentUser&&typeof getMyOwnedPlansForBilling==='function')?getMyOwnedPlansForBilling():[];
+      names=[...new Set((owned||[]).filter(p=>p&&Number(p.price)>0)
+        .map(p=>String(p.name||p.id||'').trim()).filter(Boolean))];
+    }catch(_e){}
+    if(!names.length){
+      try{names=[String((typeof currentUser!=='undefined'&&currentUser&&typeof getMyActivePlanName==='function')?getMyActivePlanName():'Free').trim()||'Free'];}
+      catch(_e){names=['Free'];}
+    }
+    return names;
+  }
+  function sizePlanCarousel(){
+    const el=document.getElementById('profileStatPlan');
+    const viewport=el&&el.querySelector('.ev-v393-plan-window');
+    const track=viewport&&viewport.querySelector('.ev-v393-plan-track');
+    if(!viewport||!track)return;
+    track.style.animation='none';
+    track.style.removeProperty('--ev-v393-distance');
+    const distance=Math.max(0,track.scrollWidth-viewport.clientWidth);
+    if(distance>3&&planNames.length>1){
+      track.style.setProperty('--ev-v393-distance',(-distance)+'px');
+      track.style.animationDuration=Math.max(4,Math.min(12,distance/20))+'s';
+      track.style.animation='evV393PlanCarousel var(--ev-v393-duration, 6s) ease-in-out infinite alternate';
+      track.style.setProperty('--ev-v393-duration',Math.max(4,Math.min(12,distance/20))+'s');
+      track.classList.add('is-moving');
+    }else{
+      track.classList.remove('is-moving');
+      track.style.animation='none';
+      track.style.justifyContent='center';
+    }
+  }
+  function restartPlanCarousel(){
+    const el=document.getElementById('profileStatPlan');if(!el)return;
+    planNames=getPlanNames();
+    if(planResizeObserver){try{planResizeObserver.disconnect();}catch(_e){}}
+    el.classList.remove('ev-v392-plan-slide');
+    const viewport=document.createElement('span');viewport.className='ev-v393-plan-window';
+    const track=document.createElement('span');track.className='ev-v393-plan-track';
+    planNames.forEach(function(name,index){
+      if(index){
+        const plus=document.createElement('span');plus.className='ev-v393-plan-plus';plus.setAttribute('aria-hidden','true');
+        plus.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.8" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>';
+        track.appendChild(plus);
+      }
+      const item=document.createElement('span');item.className='ev-v393-plan-item';item.textContent=name;track.appendChild(item);
+    });
+    viewport.appendChild(track);el.replaceChildren(viewport);
+    const measure=function(){sizePlanCarousel();};
+    requestAnimationFrame(measure);
+    if(typeof ResizeObserver==='function'){
+      planResizeObserver=new ResizeObserver(measure);
+      planResizeObserver.observe(viewport);
+    }else window.addEventListener('resize',measure,{passive:true});
+  }
+  const oldUpdateProfile=window.updateProfileUI;
+  if(typeof oldUpdateProfile==='function'&&!oldUpdateProfile.__evV393PlanCarousel){
+    const wrappedUpdateProfile=function(){
+      const result=oldUpdateProfile.apply(this,arguments);
+      restartPlanCarousel();
+      return result;
+    };
+    wrappedUpdateProfile.__evV393PlanCarousel=true;
+    window.updateProfileUI=wrappedUpdateProfile;
+  }
+  restartPlanCarousel();
+
+  /* Normalize long dash punctuation in dynamic admin-published notification copy too. */
+  function cleanNotificationText(value){
+    return String(value==null?'':value)
+      .replace(/\s*[\u2013\u2014\u2015\u2E3A\u2E3B]\s*/g,' - ')
+      .replace(/\s*-{3,}\s*/g,' - ');
+  }
+  /* Apply the same copy cleanup to notification inbox cards as well as pop-up notices. */
+  const previousVisibleNotifications=window.visibleNotifications;
+  if(typeof previousVisibleNotifications==='function'&&!previousVisibleNotifications.__evV392DashCopy){
+    const wrappedVisibleNotifications=function(){
+      return previousVisibleNotifications.apply(this,arguments).map(function(item){
+        const copy=Object.assign({},item||{});
+        ['title','subject','body','message','description'].forEach(function(key){
+          if(copy[key]!=null)copy[key]=cleanNotificationText(copy[key]);
+        });
+        return copy;
+      });
+    };
+    wrappedVisibleNotifications.__evV392DashCopy=true;
+    window.visibleNotifications=wrappedVisibleNotifications;
+  }
+
+  const previousNotificationShow=window.maybeShowLocationNotification;
+  if(typeof previousNotificationShow==='function'&&!previousNotificationShow.__evV392DashCopy){
+    const wrappedNotificationShow=function(){
+      const result=previousNotificationShow.apply(this,arguments);
+      const title=document.getElementById('notificationPopupTitle');
+      const body=document.getElementById('notificationPopupBody');
+      const backdrop=document.getElementById('notificationPopupBackdrop');
+      if(backdrop&&backdrop.classList.contains('active')){
+        if(title)title.textContent=cleanNotificationText(title.textContent);
+        if(body)body.textContent=cleanNotificationText(body.textContent);
+      }
+      return result;
+    };
+    wrappedNotificationShow.__evV392DashCopy=true;
+    window.maybeShowLocationNotification=wrappedNotificationShow;
+  }
+})();
+</script>
+
+
+
+<style id="ethvelle-v393-requested-ui-css">
+  /* Home: show only the available credit balance in the capsule beside the profile icon. */
+  html body #screen-home .home-account-plan{display:none!important;}
+  html body #screen-home .home-account-summary{
+    width:clamp(112px,38vw,166px)!important;min-width:0!important;
+    height:42px!important;min-height:42px!important;padding:0 9px!important;
+    display:flex!important;flex-direction:row!important;align-items:center!important;
+    justify-content:center!important;gap:0!important;overflow:hidden!important;
+  }
+  html body #screen-home .home-account-balance{
+    display:block!important;flex:1 1 auto!important;width:100%!important;max-width:100%!important;
+    min-width:0!important;margin:0!important;padding:0!important;
+    text-align:center!important;white-space:nowrap!important;overflow:hidden!important;
+    text-overflow:clip!important;line-height:1.1!important;font-size:16px!important;
+    font-weight:850!important;color:#F0F1F5!important;font-variant-numeric:tabular-nums!important;
+  }
+  html body #screen-home .home-account-balance .home-credit-available,
+  html body #screen-home .home-account-balance .home-credit-unit{color:#F0F1F5!important;font-weight:850!important;}
+  html body #screen-home .home-account-balance .home-credit-divider,
+  html body #screen-home .home-account-balance .home-credit-monthly{display:none!important;}
+
+  /* Profile > Settings: return blue-tinted field/section labels to grayish white. */
+  html body #screen-settings .settings-group-label,
+  html body #screen-settings .settings-field label,
+  html body #screen-settings .settings-edit-field label,
+  html body #screen-settings .settings-note,
+  html body #screen-settings .settings-row-sub,
+  html body #screen-settings .settings-avatar-row-sub{
+    color:#D0D2DB!important;-webkit-text-fill-color:#D0D2DB!important;
+  }
+
+  /* Frame Capture: three large square black action tiles with a gray border. */
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{
+    display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    align-items:stretch!important;gap:9px!important;
+    padding:15px 12px calc(18px + env(safe-area-inset-bottom))!important;
+    min-height:0!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet-head{
+    grid-column:1/-1!important;margin:0 2px 5px!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{
+    appearance:none!important;-webkit-appearance:none!important;
+    box-sizing:border-box!important;width:100%!important;min-width:0!important;
+    min-height:0!important;height:auto!important;aspect-ratio:1/1!important;
+    margin:0!important;padding:9px 6px!important;
+    display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:center!important;gap:9px!important;text-align:center!important;
+    border:1.5px solid #626875!important;border-radius:9px!important;
+    background:#050608!important;background-image:none!important;
+    color:#FFFFFF!important;box-shadow:none!important;cursor:pointer!important;
+    touch-action:manipulation!important;-webkit-tap-highlight-color:transparent!important;
+    transition:border-color .12s ease,box-shadow .12s ease,transform .12s ease!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action svg{
+    display:block!important;width:31px!important;height:31px!important;flex:0 0 31px!important;
+    padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;
+    stroke:#FFFFFF!important;color:#FFFFFF!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action span{
+    display:block!important;min-width:0!important;width:100%!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    display:block!important;color:#FFFFFF!important;-webkit-text-fill-color:#FFFFFF!important;
+    font-size:11px!important;font-weight:800!important;line-height:1.25!important;
+    white-space:normal!important;overflow-wrap:anywhere!important;text-align:center!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{display:none!important;}
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:focus-visible,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action.ev-v393-selected{
+    border:2px solid #2F5CE8!important;
+    box-shadow:0 0 0 1px rgba(47,92,232,.28)!important;
+    outline:none!important;transform:scale(.985)!important;
+  }
+  @media(max-width:350px){
+    html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{gap:6px!important;padding-left:9px!important;padding-right:9px!important;}
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{font-size:10px!important;}
+  }
+
+  /* Profile plan carousel: larger white names, left/right travel, plus icon separators. */
+  html body #screen-profile #profileStatPlan{
+    display:block!important;width:100%!important;min-width:0!important;min-height:27px!important;
+    margin:0 0 2px!important;padding:0 2px!important;overflow:hidden!important;
+    color:#F0F1F5!important;-webkit-text-fill-color:#F0F1F5!important;
+    font-size:16px!important;font-weight:850!important;line-height:1.2!important;
+    white-space:nowrap!important;text-align:center!important;text-overflow:clip!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-window{
+    display:block!important;width:100%!important;max-width:100%!important;overflow:hidden!important;
+    white-space:nowrap!important;text-align:center!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-track{
+    display:inline-flex!important;width:max-content!important;max-width:none!important;
+    align-items:center!important;justify-content:flex-start!important;gap:8px!important;
+    white-space:nowrap!important;will-change:transform!important;
+    color:#F0F1F5!important;-webkit-text-fill-color:#F0F1F5!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-track.is-moving{
+    animation:evV393PlanCarousel var(--ev-v393-duration,6s) ease-in-out infinite alternate!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-item{
+    display:inline-block!important;flex:0 0 auto!important;
+    color:#F0F1F5!important;-webkit-text-fill-color:#F0F1F5!important;
+    font-size:16px!important;font-weight:850!important;line-height:1.2!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-plus{
+    display:inline-flex!important;flex:0 0 17px!important;width:17px!important;height:17px!important;
+    align-items:center!important;justify-content:center!important;color:#2F5CE8!important;
+  }
+  html body #screen-profile #profileStatPlan .ev-v393-plan-plus svg{
+    display:block!important;width:15px!important;height:15px!important;stroke:#2F5CE8!important;
+  }
+  @keyframes evV393PlanCarousel{
+    from{transform:translateX(0);}
+    to{transform:translateX(var(--ev-v393-distance,0px));}
+  }
+  @media(prefers-reduced-motion:reduce){
+    html body #screen-profile #profileStatPlan .ev-v393-plan-track.is-moving{animation:none!important;}
+  }
+</style>
+<script id="ethvelle-v393-requested-ui-js">
+(function(){
+  'use strict';
+
+  /* Keep the homepage capsule synchronized with the live balance, never with plan names. */
+  const originalCreditRender=window.renderHomeCreditSummary;
+  function fitCreditText(){
+    const button=document.getElementById('homeAccountSummary');
+    const balance=document.getElementById('homeAccountBalance');
+    if(!button||!balance)return;
+    let size=18;
+    balance.style.fontSize=size+'px';
+    const available=Math.max(20,balance.clientWidth||button.clientWidth-18);
+    while(size>8.5&&balance.scrollWidth>available){size-=.5;balance.style.fontSize=size+'px';}
+    if(balance.scrollWidth<=available&&size<18){
+      while(size<18){
+        const next=Math.min(18,size+.5);balance.style.fontSize=next+'px';
+        if(balance.scrollWidth>available){balance.style.fontSize=size+'px';break;}
+        size=next;
+      }
+    }
+  }
+  function applyCreditsOnly(){
+    const plan=document.getElementById('homeAccountPlan');
+    const balance=document.getElementById('homeAccountBalance');
+    const button=document.getElementById('homeAccountSummary');
+    if(plan)plan.style.setProperty('display','none','important');
+    if(!balance||!button)return;
+    const signedIn=!!(typeof currentUser!=='undefined'&&currentUser);
+    if(!signedIn){
+      balance.textContent='Sign in for credits';
+      button.setAttribute('aria-label','Sign in to view credits');
+    }else{
+      const amount=(window.__ethvelleCreditsLoading)?'...':Math.max(0,Number(typeof myCreditsBalance!=='undefined'?myCreditsBalance:0)||0).toLocaleString();
+      balance.innerHTML='<span class="home-credit-available">'+amount+'</span><span class="home-credit-unit"> credits</span>';
+      button.setAttribute('aria-label',amount+' credits available. Open billing and plan');
+    }
+    requestAnimationFrame(fitCreditText);
+  }
+  if(typeof originalCreditRender==='function'&&!originalCreditRender.__evV393CreditsOnly){
+    const wrappedCreditRender=function(){
+      const result=originalCreditRender.apply(this,arguments);
+      applyCreditsOnly();
+      return result;
+    };
+    wrappedCreditRender.__evV393CreditsOnly=true;
+    window.renderHomeCreditSummary=wrappedCreditRender;
+  }
+  applyCreditsOnly();
+  window.addEventListener('resize',fitCreditText,{passive:true});
+  if(typeof ResizeObserver==='function'){
+    const homeBalance=document.getElementById('homeAccountBalance');
+    if(homeBalance){const ro=new ResizeObserver(fitCreditText);ro.observe(homeBalance);}
+  }
+
+  /* Frame Capture: show the blue selection edge on the tile being pressed. */
+  document.addEventListener('pointerdown',function(event){
+    const button=event.target&&event.target.closest?event.target.closest('#evcaFrameCaptureSheet .evca-frame-action'):null;
+    if(!button)return;
+    const sheet=button.closest('#evcaFrameCaptureSheet');
+    if(sheet)sheet.querySelectorAll('.evca-frame-action').forEach(function(item){
+      item.classList.remove('ev-v393-selected');item.setAttribute('aria-pressed','false');
+    });
+    button.classList.add('ev-v393-selected');button.setAttribute('aria-pressed','true');
+  },true);
+  const oldOpenFrame=window.openEthvelleFrameCapture;
+  if(typeof oldOpenFrame==='function'&&!oldOpenFrame.__evV393FrameSelection){
+    const wrappedOpenFrame=function(){
+      const sheet=document.getElementById('evcaFrameCaptureSheet');
+      if(sheet)sheet.querySelectorAll('.evca-frame-action').forEach(function(item){item.classList.remove('ev-v393-selected');item.setAttribute('aria-pressed','false');});
+      return oldOpenFrame.apply(this,arguments);
+    };
+    wrappedOpenFrame.__evV393FrameSelection=true;
+    window.openEthvelleFrameCapture=wrappedOpenFrame;
+  }
+})();
+</script>
+
+
+
+<!-- Ethvelle v394: available/purchased credits, single-plan slide carousel, Inbox label,
+     and screenshot-matched text-only Frame Capture cards. -->
+<style id="ethvelle-v394-requested-ui-css">
+  /* Home account capsule: show Available credits and approved-plan Purchased credits. */
+  html body #screen-home .home-account-plan{display:none!important;}
+  html body #screen-home .home-account-summary{
+    box-sizing:border-box!important;width:clamp(128px,43vw,174px)!important;
+    min-width:0!important;height:46px!important;min-height:46px!important;
+    padding:3px 8px!important;display:flex!important;align-items:center!important;
+    justify-content:center!important;overflow:hidden!important;gap:0!important;
+  }
+  html body #screen-home .home-account-balance{
+    display:block!important;flex:1 1 auto!important;width:100%!important;max-width:100%!important;
+    min-width:0!important;margin:0!important;padding:0!important;overflow:hidden!important;
+    white-space:normal!important;text-overflow:clip!important;text-align:center!important;
+    color:#F0F1F5!important;line-height:1.05!important;font-variant-numeric:tabular-nums!important;
+  }
+  html body #screen-home .ev-v394-credit-pair{
+    display:grid!important;grid-template-columns:minmax(0,1fr) 8px minmax(0,1fr)!important;
+    align-items:center!important;justify-items:center!important;width:100%!important;min-width:0!important;
+    gap:2px!important;white-space:nowrap!important;
+  }
+  html body #screen-home .ev-v394-credit-col{
+    display:flex!important;flex-direction:column!important;align-items:center!important;
+    justify-content:center!important;min-width:0!important;width:100%!important;overflow:hidden!important;
+  }
+  html body #screen-home .ev-v394-credit-col b{
+    display:block!important;max-width:100%!important;overflow:hidden!important;text-overflow:clip!important;
+    white-space:nowrap!important;color:#F2F3F7!important;-webkit-text-fill-color:#F2F3F7!important;
+    font-size:14px!important;font-weight:850!important;line-height:1.05!important;
+  }
+  html body #screen-home .ev-v394-credit-col small{
+    display:block!important;margin-top:3px!important;color:#B9BDC8!important;
+    -webkit-text-fill-color:#B9BDC8!important;font-size:8px!important;font-weight:750!important;
+    line-height:1!important;white-space:nowrap!important;
+  }
+  html body #screen-home .ev-v394-credit-slash{
+    display:block!important;color:#858A98!important;-webkit-text-fill-color:#858A98!important;
+    font-size:13px!important;font-weight:700!important;line-height:1!important;
+  }
+  html body #screen-home .home-account-balance.ev-v394-credit-loading{
+    font-size:11px!important;font-weight:750!important;white-space:nowrap!important;
+  }
+
+  /* Inbox heading only: grayish white, without changing other profile/settings labels. */
+  html body #screen-notifications #notifInboxLabel{
+    color:#D0D2DB!important;-webkit-text-fill-color:#D0D2DB!important;
+  }
+
+  /* Frame Capture cards: same dark tile, gray edge and deep-blue selected border as Layer Effects.
+     No pictograms - the three short labels are the only content inside each tile. */
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{
+    display:grid!important;grid-template-columns:repeat(3,minmax(0,1fr))!important;
+    align-items:stretch!important;gap:9px!important;
+    padding:15px 12px calc(18px + env(safe-area-inset-bottom))!important;
+    min-height:0!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet-head{
+    grid-column:1/-1!important;margin:0 2px 5px!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action{
+    appearance:none!important;-webkit-appearance:none!important;box-sizing:border-box!important;
+    display:flex!important;flex-direction:column!important;align-items:center!important;justify-content:center!important;
+    width:100%!important;min-width:0!important;min-height:0!important;height:auto!important;aspect-ratio:1/1!important;
+    margin:0!important;padding:8px 5px!important;gap:0!important;text-align:center!important;
+    border:1.5px solid #363943!important;border-radius:13px!important;
+    background:#202127!important;background-image:none!important;color:#F1F2F6!important;
+    box-shadow:none!important;outline:none!important;cursor:pointer!important;
+    touch-action:manipulation!important;-webkit-tap-highlight-color:transparent!important;
+    transition:border-color .14s ease,box-shadow .14s ease,background .14s ease!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action svg{display:none!important;}
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action span{
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    width:100%!important;min-width:0!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{
+    display:block!important;color:#F1F2F6!important;-webkit-text-fill-color:#F1F2F6!important;
+    font-size:12px!important;font-weight:800!important;line-height:1.2!important;
+    white-space:normal!important;overflow-wrap:anywhere!important;text-align:center!important;
+  }
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action small{display:none!important;}
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:active,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action:focus-visible,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action.ev-v393-selected,
+  html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action.ev-v394-selected{
+    border:2px solid #2F5CE8!important;
+    box-shadow:0 0 0 1px rgba(47,92,232,.26)!important;
+    background:#202127!important;outline:none!important;
+  }
+  @media(max-width:350px){
+    html body #screen-editor #evcaFrameCaptureSheet .evca-frame-sheet{gap:6px!important;padding-left:9px!important;padding-right:9px!important;}
+    html body #screen-editor #evcaFrameCaptureSheet button.evca-frame-action strong{font-size:11px!important;}
+  }
+
+  /* Profile: show one purchased plan at a time, moving out left and entering from right. */
+  html body #screen-profile #profileStatPlan{
+    display:block!important;position:relative!important;width:100%!important;min-width:0!important;
+    min-height:27px!important;margin:0 0 2px!important;padding:0 2px!important;overflow:hidden!important;
+    color:#F0F1F5!important;-webkit-text-fill-color:#F0F1F5!important;
+    font-size:clamp(15px,4.3vw,18px)!important;font-weight:850!important;line-height:1.18!important;
+    white-space:nowrap!important;text-align:center!important;text-overflow:ellipsis!important;
+  }
+  html body #screen-profile #profileStatPlan.ev-v394-plan-out{
+    animation:evV394PlanOut .26s ease-in both!important;
+  }
+  html body #screen-profile #profileStatPlan.ev-v394-plan-in{
+    animation:evV394PlanIn .32s ease-out both!important;
+  }
+  @keyframes evV394PlanOut{
+    from{opacity:1;transform:translateX(0)}
+    to{opacity:0;transform:translateX(-20px)}
+  }
+  @keyframes evV394PlanIn{
+    from{opacity:0;transform:translateX(20px)}
+    to{opacity:1;transform:translateX(0)}
+  }
+  @media(prefers-reduced-motion:reduce){
+    html body #screen-profile #profileStatPlan.ev-v394-plan-out,
+    html body #screen-profile #profileStatPlan.ev-v394-plan-in{animation:none!important;}
+  }
+</style>
+<script id="ethvelle-v394-requested-ui-js">
+(function(){
+  'use strict';
+  const $=id=>document.getElementById(id);
+
+  /* The current wallet stores the live available balance. The purchased figure is the
+     combined credit allowance of the user's approved paid plans (the source has no separate
+     one-time top-up wallet field, so do not invent a second balance). */
+  function creditFigures(){
+    let available=0,purchased=0;
+    try{available=Math.max(0,Number(typeof myCreditsBalance!=='undefined'?myCreditsBalance:0)||0);}catch(_e){}
+    try{
+      const owned=(typeof currentUser!=='undefined'&&currentUser&&typeof getMyOwnedPlansForBilling==='function')?getMyOwnedPlansForBilling():[];
+      purchased=typeof getMyCombinedCreditAllowance==='function'
+        ?Math.max(0,Number(getMyCombinedCreditAllowance(owned))||0):0;
+    }catch(_e){}
+    return {available,purchased};
+  }
+  function paintHomeCreditPair(){
+    const plan=$('homeAccountPlan'),balance=$('homeAccountBalance'),button=$('homeAccountSummary');
+    if(plan)plan.style.setProperty('display','none','important');
+    if(!balance||!button)return;
+    const signedIn=!!(typeof currentUser!=='undefined'&&currentUser);
+    if(!signedIn){
+      balance.classList.remove('ev-v394-credit-loading');
+      balance.textContent='Sign in for credits';
+      button.setAttribute('aria-label','Sign in to view available and purchased credits');
+      return;
+    }
+    if(window.__ethvelleCreditsLoading){
+      balance.classList.add('ev-v394-credit-loading');
+      balance.textContent='Loading credits';
+      button.setAttribute('aria-label','Loading available and purchased credits');
+      return;
+    }
+    balance.classList.remove('ev-v394-credit-loading');
+    const values=creditFigures();
+    balance.innerHTML='<span class="ev-v394-credit-pair">'
+      +'<b class="ev-v394-available-value">'+values.available.toLocaleString()+'</b>'
+      +'<span class="ev-v394-credit-slash" aria-hidden="true">/</span>'
+      +'<b class="ev-v394-purchased-value">'+values.purchased.toLocaleString()+'</b>'
+      +'<span class="ev-v394-credit-unit">credits</span>'
+      +'</span>';
+    balance.title='Available credits / Purchased plan credits';
+    button.setAttribute('aria-label',values.available.toLocaleString()+' available credits / '+values.purchased.toLocaleString()+' purchased plan credits. Open billing and plan');
+    fitNumbers();
+  }
+  function fitNumbers(){
+    const balance=$('homeAccountBalance');if(!balance)return;
+    const pair=balance.querySelector('.ev-v394-credit-pair');if(!pair)return;
+    let size=12;pair.style.fontSize=size+'px';
+    const width=Math.max(40,balance.clientWidth||120);
+    while(size>8&&pair.scrollWidth>width){size-=.5;pair.style.fontSize=size+'px';}
+  }
+  const previousHomeRender=window.renderHomeCreditSummary;
+  if(typeof previousHomeRender==='function'&&!previousHomeRender.__evV394CreditPair){
+    const wrapped=function(){
+      const result=previousHomeRender.apply(this,arguments);
+      paintHomeCreditPair();
+      return result;
+    };
+    wrapped.__evV394CreditPair=true;
+    window.renderHomeCreditSummary=wrapped;
+  }
+  paintHomeCreditPair();
+  window.addEventListener('resize',fitNumbers,{passive:true});
+  if(typeof ResizeObserver==='function'){
+    const account=$('homeAccountSummary');
+    if(account){const creditObserver=new ResizeObserver(fitNumbers);creditObserver.observe(account);}
+  }
+
+  /* One-at-a-time plan carousel. No plus sign or simultaneous plan names. */
+  let planNames=[],planIndex=0,planTimer=0,planAnimationTimer=0;
+  function collectPlanNames(){
+    let names=[];
+    try{
+      const owned=(typeof currentUser!=='undefined'&&currentUser&&typeof getMyOwnedPlansForBilling==='function')?getMyOwnedPlansForBilling():[];
+      names=[...new Set((owned||[]).filter(p=>p&&Number(p.price)>0)
+        .map(p=>String(p.name||p.id||'').trim()).filter(Boolean))];
+    }catch(_e){}
+    if(!names.length){
+      try{names=[String((typeof currentUser!=='undefined'&&currentUser&&typeof getMyActivePlanName==='function')?getMyActivePlanName():'Free').trim()||'Free'];}
+      catch(_e){names=['Free'];}
+    }
+    return names;
+  }
+  function clearPlanTimers(){
+    if(planTimer)clearTimeout(planTimer);
+    if(planAnimationTimer)clearTimeout(planAnimationTimer);
+    planTimer=0;planAnimationTimer=0;
+  }
+  function scheduleNextPlan(){
+    if(planTimer)clearTimeout(planTimer);
+    if(planNames.length<2)return;
+    planTimer=setTimeout(advancePlan,2600);
+  }
+  function advancePlan(){
+    const el=$('profileStatPlan');if(!el||planNames.length<2)return;
+    el.classList.remove('ev-v394-plan-in','ev-v394-plan-out');
+    void el.offsetWidth;
+    el.classList.add('ev-v394-plan-out');
+    planAnimationTimer=setTimeout(function(){
+      planIndex=(planIndex+1)%planNames.length;
+      el.textContent=planNames[planIndex];
+      el.classList.remove('ev-v394-plan-out');
+      void el.offsetWidth;
+      el.classList.add('ev-v394-plan-in');
+      planAnimationTimer=setTimeout(function(){
+        el.classList.remove('ev-v394-plan-in');
+        scheduleNextPlan();
+      },340);
+    },270);
+  }
+  function refreshPlanCarousel(force){
+    const el=$('profileStatPlan');if(!el)return;
+    const next=collectPlanNames();
+    if(!force&&JSON.stringify(next)===JSON.stringify(planNames))return;
+    clearPlanTimers();planNames=next;planIndex=0;
+    el.classList.remove('ev-v392-plan-slide','ev-v393-plan-window','ev-v394-plan-out','ev-v394-plan-in');
+    el.textContent=planNames[0]||'Free';
+    scheduleNextPlan();
+  }
+  const previousUpdateProfile=window.updateProfileUI;
+  if(typeof previousUpdateProfile==='function'&&!previousUpdateProfile.__evV394SinglePlan){
+    const wrappedUpdateProfile=function(){
+      const result=previousUpdateProfile.apply(this,arguments);
+      /* The previous v393 renderer rebuilds its multi-name carousel on each profile update.
+         Force a clean one-name render after it so no old plus separator can reappear. */
+      refreshPlanCarousel(true);
+      return result;
+    };
+    wrappedUpdateProfile.__evV394SinglePlan=true;
+    window.updateProfileUI=wrappedUpdateProfile;
+  }
+  refreshPlanCarousel(true);
+
+  /* Frame Capture action tiles retain their active blue outline while pressed/selected. */
+  document.addEventListener('pointerdown',function(event){
+    const button=event.target&&event.target.closest?event.target.closest('#evcaFrameCaptureSheet .evca-frame-action'):null;
+    if(!button)return;
+    const sheet=button.closest('#evcaFrameCaptureSheet');
+    if(sheet)sheet.querySelectorAll('.evca-frame-action').forEach(function(item){
+      item.classList.remove('ev-v393-selected','ev-v394-selected');
+      item.setAttribute('aria-pressed','false');
+    });
+    button.classList.add('ev-v394-selected');
+    button.setAttribute('aria-pressed','true');
+  },true);
+})();
+</script>
+
+<!-- Ethvelle v395: login button shape/colour, redesigned Frame Capture panel,
+     numbers-only Home credits, solid blue background upload button. -->
+<style id="ethvelle-v395-requested-ui-css">
+  /* Login: Continue with Google uses the same rounded-square shape as the Sign in button. */
+  html body #screen-login #googleSignInBtn{

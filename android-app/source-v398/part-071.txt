@@ -1,0 +1,1000 @@
+    return clip;
+  }
+  function afterClipChange(clip,select){
+    try{if(typeof renderOverlayLayers==='function')renderOverlayLayers();}catch(_e){}
+    try{if(typeof syncTimelineInnerWidth==='function')syncTimelineInnerWidth();if(typeof renderRuler==='function')renderRuler();}catch(_e){}
+    try{if(typeof renderOverlayListPanel==='function')renderOverlayListPanel();}catch(_e){}
+    if(select){try{if(typeof window.selectClipForChrome==='function')window.selectClipForChrome(clip.id);}catch(_e){}}
+    try{if(typeof renderFrame==='function')renderFrame();}catch(_e){}
+    try{if(typeof persistProjectState==='function')persistProjectState();}catch(_e){}
+    requestAnimationFrame(()=>{try{if(typeof window.renderVisualPanel==='function'&&$('evvVisualPanel'))window.renderVisualPanel('visualEffects');}catch(_e){}});
+  }
+
+  /* Picking a character effect (from a character OR from an existing character-effect clip). */
+  const prevSet=window.setEthvelleVisualEffect;
+  window.setEthvelleVisualEffect=function(type){
+    type=String(type||'');
+    const sel=selOverlay();
+    if(isCharEffectClip(sel)){
+      if(lib.has(type))return retypeCharacterEffectClip(sel,type);
+      return sel;
+    }
+    if(lib.has(type)){
+      const idx=selectedCharIndex();
+      if(idx>=0)return addCharacterEffectClip(idx,type);
+    }
+    return typeof prevSet==='function'?prevSet.apply(this,arguments):undefined;
+  };
+
+  /* ---------- styling for the real-animation frames in the timeline clip ---------- */
+  const st=document.createElement('style');st.id='ethvelle-v334-char-effect-frames-css';
+  st.textContent=[
+    '#timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame{overflow:hidden!important;}',
+    '#timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame img.ev-v334-frame-img{display:block!important;width:100%!important;height:100%!important;object-fit:contain!important;pointer-events:none!important;-webkit-user-drag:none;user-select:none;}',
+    '.evv-choice-grid{max-height:none;}'
+  ].join('\n');
+  document.head.appendChild(st);
+
+  /* Re-label timeline strips already on screen once the library is available. */
+  try{if(window.__ethvelleV249EffectFrames&&window.__ethvelleV249EffectFrames.schedule)window.__ethvelleV249EffectFrames.schedule();}catch(_e){}
+  window.__ethvelleV334={addCharacterEffectClip,retypeCharacterEffectClip,charVisibleAt};
+})();
+
+</script>
+
+<style id="ethvelle-v335-character-effect-selection-css">
+  /* v335: the selected character-effect clip gets its own compact on-canvas white frame.
+     It is separate from the general image selection box, so it hugs the effect artwork only. */
+  #evvCharFxSelectionLayer{
+    position:absolute!important;display:none;pointer-events:none!important;z-index:23!important;
+    overflow:visible!important;contain:layout style!important;
+  }
+  #evvCharFxSelectionFrame{
+    position:absolute!important;display:block!important;box-sizing:border-box!important;
+    border:1.6px solid rgba(255,255,255,.99)!important;border-radius:2px!important;
+    background:transparent!important;outline:0!important;
+    box-shadow:0 0 0 1px rgba(7,9,16,.9),0 0 8px rgba(255,255,255,.2)!important;
+    transform-origin:50% 50%!important;pointer-events:none!important;
+  }
+  #timelineInner .overlay-clip.ev-v246-effect-clip.selected{
+    border:1px solid rgba(255,255,255,.96)!important;
+    box-shadow:0 0 0 1px rgba(10,12,22,.75)!important;
+  }
+</style>
+<script id="ethvelle-v335-character-effect-polish-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV335CharacterEffects)return;
+  window.__ethvelleV335CharacterEffects=true;
+  const $=id=>document.getElementById(id);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const lib=window.ethvelleCharFxLib;
+  if(!lib||!lib._fx||!Array.isArray(lib.types))return;
+
+  /* ---------------- Add four distinct, reusable character effects ---------------- */
+  const FX=lib._fx,TAU=Math.PI*2;
+  const fr=x=>x-Math.floor(x);
+  const ease=t=>{t=clamp(t,0,1);return t*t*(3-2*t);};
+  const rgba=(r,g,b,a)=>'rgba('+r+','+g+','+b+','+clamp(a,0,1)+')';
+  const addType=(id,label,draw)=>{
+    if(!FX[id])FX[id]=draw;
+    if(!lib.types.some(x=>x[0]===id))lib.types.push([id,label]);
+    if(Array.isArray(lib.ids)&&!lib.ids.includes(id))lib.ids.push(id);
+  };
+
+  /* One clear, glossy tear on a single eye. The drop travels down one cheek and loops. */
+  addType('tearOne','Single Tear',function(ctx,t,k,H){
+    const x=.43,phase=fr(t*.62),travel=ease(phase),y=.14+travel*1.86;
+    ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.fillStyle='rgba(112,191,255,.42)';ctx.beginPath();ctx.ellipse(x,.12,.25,.16,-.1,0,TAU);ctx.fill();
+    ctx.strokeStyle='#267BC5';ctx.lineWidth=.11;ctx.beginPath();ctx.moveTo(x,.25);ctx.bezierCurveTo(x+.03,.62,x-.05,1.03,x-.015,y+.12);ctx.stroke();
+    ctx.strokeStyle='rgba(235,249,255,.95)';ctx.lineWidth=.035;ctx.beginPath();ctx.moveTo(x-.045,.32);ctx.quadraticCurveTo(x-.08,.8,x-.07,y-.05);ctx.stroke();
+    const size=.135+.035*Math.sin(phase*Math.PI);
+    ctx.save();ctx.shadowColor='#4CB7FF';ctx.shadowBlur=.12;
+    const g=ctx.createLinearGradient(x-size,y-size*1.7,x+size,y+size);
+    g.addColorStop(0,'#F5FCFF');g.addColorStop(.36,'#8ED4FF');g.addColorStop(1,'#247DDB');
+    ctx.fillStyle=g;ctx.strokeStyle='#155A9D';ctx.lineWidth=.035;
+    ctx.beginPath();ctx.moveTo(x,y-size*1.7);ctx.bezierCurveTo(x-size*.2,y-size*.7,x-size,y-size*.1,x-size,y+size*.35);ctx.bezierCurveTo(x-size,y+size,x+size,y+size,x+size,y+size*.35);ctx.bezierCurveTo(x+size,y-size*.1,x+size*.2,y-size*.7,x,y-size*1.7);ctx.closePath();ctx.fill();ctx.stroke();
+    ctx.fillStyle='#FFFFFF';ctx.beginPath();ctx.ellipse(x-size*.36,y+size*.1,size*.17,size*.32,-.25,0,TAU);ctx.fill();ctx.restore();
+    ctx.restore();
+  });
+
+  /* Two independent tear streams, one beneath each eye, with offset timing for natural motion. */
+  addType('tearTwo','Double Tears',function(ctx,t,k,H){
+    for(let side of [-1,1]){
+      const x=side*.43,phase=fr(t*.58+(side>0?.22:0)),travel=ease(phase),y=.18+travel*1.72;
+      ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+      ctx.fillStyle='rgba(120,198,255,.58)';ctx.beginPath();ctx.ellipse(x,.12,.27,.17,0,0,TAU);ctx.fill();
+      ctx.strokeStyle='#176DB7';ctx.lineWidth=.115;ctx.beginPath();ctx.moveTo(x,.24);ctx.bezierCurveTo(x-side*.04,.68,x+side*.06,1.08,x,y+.1);ctx.stroke();
+      ctx.strokeStyle='rgba(245,252,255,.98)';ctx.lineWidth=.035;ctx.beginPath();ctx.moveTo(x-side*.05,.32);ctx.quadraticCurveTo(x-side*.09,.82,x-side*.055,y-.05);ctx.stroke();
+      const sz=.125+.025*Math.sin(phase*Math.PI);
+      const g=ctx.createLinearGradient(x-sz,y-sz*1.7,x+sz,y+sz);g.addColorStop(0,'#FFFFFF');g.addColorStop(.4,'#93D8FF');g.addColorStop(1,'#287ED8');
+      ctx.fillStyle=g;ctx.strokeStyle='#155A9D';ctx.lineWidth=.035;
+      ctx.beginPath();ctx.moveTo(x,y-sz*1.7);ctx.bezierCurveTo(x-sz*.18,y-sz*.7,x-sz,y-sz*.1,x-sz,y+sz*.35);ctx.bezierCurveTo(x-sz,y+sz,x+sz,y+sz,x+sz,y+sz*.35);ctx.bezierCurveTo(x+sz,y-sz*.1,x+sz*.18,y-sz*.7,x,y-sz*1.7);ctx.closePath();ctx.fill();ctx.stroke();
+      ctx.fillStyle='#FFFFFF';ctx.beginPath();ctx.ellipse(x-sz*.36,y+sz*.1,sz*.17,sz*.32,-.25,0,TAU);ctx.fill();
+      ctx.restore();
+    }
+  });
+
+  /* Strong circular blood ring with glossy crimson highlights and individual droplets. */
+  addType('bloodHalo','Circular Blood',function(ctx,t,k,H){
+    const pulse=1+.045*Math.sin(t*4.2),r=1.28*pulse;
+    ctx.save();ctx.lineCap='round';ctx.lineJoin='round';
+    ctx.strokeStyle='#5A0710';ctx.lineWidth=.2;ctx.beginPath();ctx.arc(0,0,r,Math.PI*.08,Math.PI*1.94);ctx.stroke();
+    ctx.strokeStyle='#C81425';ctx.lineWidth=.115;ctx.beginPath();ctx.arc(0,0,r-.015,Math.PI*.1,Math.PI*1.92);ctx.stroke();
+    ctx.strokeStyle='#FF5660';ctx.lineWidth=.035;ctx.beginPath();ctx.arc(-.025,-.025,r-.11,Math.PI*.22,Math.PI*1.76);ctx.stroke();
+    for(let i=0;i<15;i++){
+      const a=i*TAU/15+t*.12, wob=.08*Math.sin(t*2.6+i*1.7),rr=r+.15+wob;
+      const x=Math.cos(a)*rr,y=Math.sin(a)*rr;
+      const sz=.045+.045*((Math.sin(i*2.7)+1)/2);
+      ctx.fillStyle=i%3===0?'#720914':'#D7192B';ctx.strokeStyle='#690912';ctx.lineWidth=.025;
+      ctx.beginPath();ctx.arc(x,y,sz,0,TAU);ctx.fill();ctx.stroke();
+      if(i%4===0){ctx.strokeStyle='#B51222';ctx.lineWidth=.075;ctx.beginPath();ctx.moveTo(x,y);ctx.quadraticCurveTo(x+.05,y+.16,x+.07,y+.29);ctx.stroke();}
+    }
+    /* Two short drops fall from the lower rim on alternating beats. */
+    for(let side of [-1,1]){
+      const p=fr(t*.72+(side>0?.35:0)),yy=.94+ease(p)*.92,alpha=1-clamp((p-.8)/.2,0,1);
+      ctx.globalAlpha=alpha;ctx.strokeStyle='#700B15';ctx.lineWidth=.11;ctx.beginPath();ctx.moveTo(side*.72,.88);ctx.quadraticCurveTo(side*.82,yy*.65,side*.88,yy);ctx.stroke();
+      ctx.fillStyle='#D7192B';ctx.beginPath();ctx.arc(side*.88,yy,.075,0,TAU);ctx.fill();
+    }
+    ctx.restore();
+  });
+
+  /* Separate cheek plaster: a padded gauze patch with visible weave, stitching and a medical cross. */
+  addType('bandagePatch','Bandage Patch',function(ctx,t,k,H){
+    const pop=ease(t/.28),breath=1+.018*Math.sin(t*3.2);
+    ctx.save();ctx.translate(.43,.28);ctx.rotate(-.18);ctx.scale(pop*breath,pop*breath);
+    const round=(x,y,w,h,r)=>{ctx.beginPath();if(ctx.roundRect)ctx.roundRect(x,y,w,h,r);else ctx.rect(x,y,w,h);};
+    ctx.shadowColor='rgba(35,22,12,.32)';ctx.shadowBlur=.08;
+    const g=ctx.createLinearGradient(-.52,-.28,.5,.28);g.addColorStop(0,'#FFFDF4');g.addColorStop(.52,'#F1E5CE');g.addColorStop(1,'#DCC9A8');
+    ctx.fillStyle=g;ctx.strokeStyle='#9D8060';ctx.lineWidth=.045;round(-.52,-.27,1.04,.54,.12);ctx.fill();ctx.stroke();ctx.shadowBlur=0;
+    ctx.save();round(-.4,-.18,.8,.36,.07);ctx.clip();
+    ctx.strokeStyle='rgba(147,117,83,.62)';ctx.lineWidth=.018;
+    for(let x=-.5;x<.55;x+=.09){ctx.beginPath();ctx.moveTo(x,-.28);ctx.lineTo(x+.24,.28);ctx.stroke();ctx.beginPath();ctx.moveTo(x+.24,-.28);ctx.lineTo(x,.28);ctx.stroke();}
+    ctx.restore();
+    ctx.strokeStyle='#B49771';ctx.lineWidth=.025;ctx.setLineDash([.04,.055]);round(-.45,-.21,.9,.42,.07);ctx.stroke();ctx.setLineDash([]);
+    /* Small central gauze pad and muted red medical cross. */
+    ctx.fillStyle='#FFFCF2';ctx.strokeStyle='#D9C6A8';ctx.lineWidth=.025;round(-.16,-.13,.32,.26,.045);ctx.fill();ctx.stroke();
+    ctx.fillStyle='#C43A43';ctx.fillRect(-.035,-.085,.07,.17);ctx.fillRect(-.095,-.025,.19,.055);
+    ctx.restore();
+  });
+
+  /* Give every effect the same crisp, slightly richer colour treatment. */
+  const oldDraw=lib.draw;
+  if(typeof oldDraw==='function'&&!oldDraw.__evv335RichPaint){
+    const richDraw=function(ctx,frame,type,tt,cfg){
+      if(!ctx)return oldDraw.apply(this,arguments);
+      ctx.save();
+      try{if('filter' in ctx)ctx.filter='saturate(1.28) contrast(1.13) brightness(1.07)';}catch(_e){}
+      try{return oldDraw.apply(this,arguments);}finally{ctx.restore();}
+    };
+    richDraw.__evv335RichPaint=true;lib.draw=richDraw;
+  }
+
+  /* ---------------- Individual on-canvas selection frame ---------------- */
+  const isEffect=o=>!!(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character');
+  const selectedId=()=>{try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');}catch(_e){return '';}};
+  const overlaysList=()=>{try{return Array.isArray(overlays)?overlays:[];}catch(_e){return [];}};
+  const getSelectedFx=()=>overlaysList().find(o=>o&&String(o.id)===selectedId()&&isEffect(o))||null;
+  function ensureBox(){
+    const stage=$('canvasStage');if(!stage||!stage.parentElement)return null;
+    let layer=$('evvCharFxSelectionLayer');
+    if(!layer){
+      layer=document.createElement('div');layer.id='evvCharFxSelectionLayer';
+      const frame=document.createElement('div');frame.id='evvCharFxSelectionFrame';layer.appendChild(frame);
+      const wrap=stage.parentElement;wrap.appendChild(layer);
+    }
+    return layer;
+  }
+  const FX_BOUNDS={
+    anger:{x0:-1.55,x1:1.55,y0:-1.85,y1:.72},fire:{x0:-1.85,x1:1.85,y0:-2.65,y1:.92},
+    tears:{x0:-.82,x1:.82,y0:-.1,y1:2.85},tearOne:{x0:.12,x1:.82,y0:-.05,y1:2.55},
+    tearTwo:{x0:-.86,x1:.86,y0:-.05,y1:2.55},bandage:{x0:-1.5,x1:1.48,y0:-.95,y1:.72},
+    bandagePatch:{x0:-.16,x1:1.04,y0:-.1,y1:.72},blood:{x0:-1.8,x1:1.2,y0:-1.15,y1:2.15},
+    bloodHalo:{x0:-1.95,x1:1.95,y0:-1.95,y1:1.95},nosebleed:{x0:-.75,x1:.75,y0:.1,y1:1.55},
+    sweat:{x0:-1.5,x1:1.72,y0:-1.0,y1:1.75},chi:{x0:-2.15,x1:2.15,y0:-2.15,y1:2.15},
+    bruise:{x0:-1.18,x1:.42,y0:-.72,y1:.82},dizzy:{x0:-1.45,x1:1.45,y0:-1.75,y1:-.48},
+    hearts:{x0:-1.8,x1:1.8,y0:-3.0,y1:.8},sleep:{x0:.35,x1:2.05,y0:-2.8,y1:.65},
+    electric:{x0:-1.9,x1:1.9,y0:-1.9,y1:1.9},sparkle:{x0:-1.95,x1:1.95,y0:-1.95,y1:1.85}
+  };
+  function hideBox(){const l=$('evvCharFxSelectionLayer');if(l)l.style.display='none';}
+  function paintSelectionBox(){
+    const layer=ensureBox();if(!layer)return;
+    const frameEl=$('evvCharFxSelectionFrame');
+    const clip=getSelectedFx();
+    if(!clip){hideBox();return;}
+    let playing=false;try{playing=!!isPlaying;}catch(_e){}
+    if(playing){hideBox();return;}
+    const t=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0))||0;
+    if(t<Number(clip.trimStart||0)||t>=Number(clip.trimEnd||0)){hideBox();return;}
+    const ch=(Array.isArray(characters)?characters:[]).find(c=>c&&String(c.id)===String(clip.ethvelleEffectCharId));
+    if(!ch||!window.__ethvelleCharFrame){hideBox();return;}
+    try{if(window.__ethvelleV334&&typeof window.__ethvelleV334.charVisibleAt==='function'&&!window.__ethvelleV334.charVisibleAt(ch,t)){hideBox();return;}}catch(_e){}
+    const f=window.__ethvelleCharFrame(ch);if(!f||!(Number(f.r)>0)){hideBox();return;}
+    const type=String(clip.visualEffects&&clip.visualEffects.type||clip.ethvelleEffectType||'');
+    if(!lib.has(type)){hideBox();return;}
+    const cfg=window.__ethvelleCharFxCfg?window.__ethvelleCharFxCfg(clip.visualEffects||{}):{size:1,ox:0,oy:0};
+    const tr=clip.transform||{};
+    const scale=clamp(cfg.size==null?1:cfg.size,.25,2.5)*clamp(tr.scale==null?1:tr.scale,.1,6);
+    const R=f.r*scale*(FX[type]&&FX[type].atHand?.85:1);
+    const anchor=(FX[type]&&FX[type].atHand&&f.hand)?f.hand:{x:f.x,y:f.y};
+    const cx0=anchor.x+(Number(cfg.ox)||0)*f.r+(Number(tr.offsetX)||0);
+    const cy0=anchor.y+(Number(cfg.oy)||0)*f.r+(Number(tr.offsetY)||0);
+    let b=FX_BOUNDS[type]||{x0:-1.8,x1:1.8,y0:-1.9,y1:1.9};
+    let x0=b.x0,x1=b.x1,y0=b.y0,y1=b.y1;
+    if(f.flip){const old=x0;x0=-x1;x1=-old;}
+    const localX=(x0+x1)*.5*R,localY=(y0+y1)*.5*R;
+    const a=Number(f.rot)||0,cs=Math.cos(a),sn=Math.sin(a);
+    const cx=cx0+localX*cs-localY*sn,cy=cy0+localX*sn+localY*cs;
+    const w=Math.max(8,(x1-x0)*R),h=Math.max(8,(y1-y0)*R);
+    const stage=$('canvasStage'),wrap=stage&&stage.parentElement;if(!stage||!wrap){hideBox();return;}
+    layer.style.left=(stage.offsetLeft||0)+'px';layer.style.top=(stage.offsetTop||0)+'px';
+    layer.style.width=Math.max(1,Number(typeof stageW!=='undefined'?stageW:stage.clientWidth)||stage.clientWidth)+'px';
+    layer.style.height=Math.max(1,Number(typeof stageH!=='undefined'?stageH:stage.clientHeight)||stage.clientHeight)+'px';
+    frameEl.style.left=(cx-w/2)+'px';frameEl.style.top=(cy-h/2)+'px';
+    frameEl.style.width=w+'px';frameEl.style.height=h+'px';frameEl.style.transform='rotate('+a+'rad)';
+    layer.style.display='block';
+  }
+  let boxRaf=0;
+  function scheduleBox(){if(boxRaf)return;boxRaf=requestAnimationFrame(()=>{boxRaf=0;try{paintSelectionBox();}catch(err){console.warn('Character-effect selection frame:',err);hideBox();}});}
+
+  /* Character effect image placeholders cover the whole stage; do not show the generic
+     full-stage image transform box. The dedicated frame above hugs the actual effect instead. */
+  const oldSelTarget=window.selBoxTarget;
+  if(typeof oldSelTarget==='function'&&!oldSelTarget.__evv335NoFullStageFxBox){
+    const wrapped=function(){if(getSelectedFx())return null;return oldSelTarget.apply(this,arguments);};
+    wrapped.__evv335NoFullStageFxBox=true;window.selBoxTarget=wrapped;
+    try{(0,eval)('selBoxTarget=window.selBoxTarget');}catch(_e){}
+  }
+
+  /* ---------------- Add the new buttons to the existing Character Effects panel ---------------- */
+  const EXTRA=[['tearOne','Single Tear'],['tearTwo','Double Tears'],['bloodHalo','Circular Blood'],['bandagePatch','Bandage Patch']];
+  function injectExtraChoices(){
+    const host=$('evvVisualPanel');if(!host)return;
+    const selected=getSelectedFx();
+    const id=selectedId();
+    const isCharContext=!!selected||id==='main'||id.startsWith('seg')||id.startsWith('char');
+    if(!isCharContext)return;
+    const grid=host.querySelector('.evv-choice-grid');if(!grid)return;
+    grid.querySelectorAll('[data-evv-v335-extra-fx]').forEach(n=>n.remove());
+    const active=selected&&selected.visualEffects?String(selected.visualEffects.type||''):'';
+    EXTRA.forEach(([type,label])=>{
+      const btn=document.createElement('button');btn.type='button';btn.className='evv-choice'+(active===type?' active':'');
+      btn.textContent=label;btn.dataset.evvV335ExtraFx=type;btn.title=label+' character effect';
+      btn.addEventListener('click',()=>{if(typeof window.setEthvelleVisualEffect==='function')window.setEthvelleVisualEffect(type);scheduleBox();});
+      grid.appendChild(btn);
+    });
+  }
+  const oldPanel=window.renderVisualPanel;
+  if(typeof oldPanel==='function'&&!oldPanel.__evv335ExtraFx){
+    const wrapped=function(key){const result=oldPanel.apply(this,arguments);if(key==='visualEffects')requestAnimationFrame(injectExtraChoices);return result;};
+    wrapped.__evv335ExtraFx=true;window.renderVisualPanel=wrapped;
+    try{(0,eval)('renderVisualPanel=window.renderVisualPanel');}catch(_e){}
+  }
+
+  /* Repaint the dedicated border after selections, slider changes, canvas renders and animation poses. */
+  function wrap(name,marker){
+    const base=window[name];if(typeof base!=='function'||base[marker])return;
+    const wrapped=function(){const result=base.apply(this,arguments);scheduleBox();return result;};
+    wrapped[marker]=true;window[name]=wrapped;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  }
+  ['updateSelBox','renderFrame','drawStick','renderOverlayLayers','selectClipForChrome','onClipSelected',
+   'setEthvelleEffectSetting','setEthvelleVisualEffect','deselectAllClips'].forEach((n,i)=>wrap(n,'__evv335_'+i));
+  window.addEventListener('resize',scheduleBox,{passive:true});
+  window.addEventListener('orientationchange',scheduleBox,{passive:true});
+  document.addEventListener('pointerup',scheduleBox,true);
+  document.addEventListener('pointercancel',scheduleBox,true);
+
+  /* If the panel is already open while this patch loads, render its extra choices once. */
+  requestAnimationFrame(()=>{injectExtraChoices();scheduleBox();});
+  window.__ethvelleV335={scheduleBox,paintSelectionBox,extraEffects:EXTRA.map(x=>x[0])};
+})();
+</script>
+
+
+
+<style id="ethvelle-v336-character-effect-native-selection-css">
+  /* Character effects use the editor's ORIGINAL CapCut-style selection layer.
+     This is the very same white .sb-frame + X + bottom-right resize/rotate handle
+     used by characters, text, image and video layers. Hide v335's temporary box. */
+  #evvCharFxSelectionLayer{
+    display:none!important;visibility:hidden!important;pointer-events:none!important;
+  }
+  /* Keep every frame cell and its image vertically centred in the 31px effect clip. */
+  #timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frames{
+    align-items:center!important;align-content:center!important;
+  }
+  #timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame{
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    align-self:center!important;min-height:0!important;overflow:hidden!important;
+  }
+  #timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame img.ev-v334-frame-img{
+    display:block!important;object-fit:contain!important;object-position:center center!important;
+    margin:auto!important;vertical-align:middle!important;
+  }
+</style>
+
+<script id="ethvelle-v336-character-effect-native-selection-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV336NativeFxSelection)return;
+  const $=id=>document.getElementById(id);
+  const lib=window.ethvelleCharFxLib;
+  if(!lib||!lib.has||!lib._fx)return;
+  const all=()=>{try{return Array.isArray(overlays)?overlays:[];}catch(_e){return [];}};
+  const chars=()=>{try{return Array.isArray(characters)?characters:[];}catch(_e){return [];}};
+  const selectedId=()=>{try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');}catch(_e){return '';}};
+  const isFx=o=>!!(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character');
+  const selectedFx=()=>all().find(o=>o&&String(o.id)===selectedId()&&isFx(o))||null;
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const normDeg=d=>((Number(d)||0)%360+540)%360-180;
+  const bounds={
+    anger:{x0:-1.55,x1:1.55,y0:-1.85,y1:.72},fire:{x0:-1.85,x1:1.85,y0:-2.65,y1:.92},
+    tears:{x0:-.82,x1:.82,y0:-.1,y1:2.85},tearOne:{x0:.12,x1:.82,y0:-.05,y1:2.55},
+    tearTwo:{x0:-.86,x1:.86,y0:-.05,y1:2.55},bandage:{x0:-1.5,x1:1.48,y0:-.95,y1:.72},
+    bandagePatch:{x0:-.16,x1:1.04,y0:-.1,y1:.72},blood:{x0:-1.8,x1:1.2,y0:-1.15,y1:2.15},
+    bloodHalo:{x0:-1.95,x1:1.95,y0:-1.95,y1:1.95},nosebleed:{x0:-.75,x1:.75,y0:.1,y1:1.55},
+    sweat:{x0:-1.5,x1:1.72,y0:-1.0,y1:1.75},chi:{x0:-2.15,x1:2.15,y0:-2.15,y1:2.15},
+    bruise:{x0:-1.18,x1:.42,y0:-.72,y1:.82},dizzy:{x0:-1.45,x1:1.45,y0:-1.75,y1:-.48},
+    hearts:{x0:-1.8,x1:1.8,y0:-3.0,y1:.8},sleep:{x0:.35,x1:2.05,y0:-2.8,y1:.65},
+    electric:{x0:-1.9,x1:1.9,y0:-1.9,y1:1.9},sparkle:{x0:-1.95,x1:1.95,y0:-1.95,y1:1.85}
+  };
+
+  function buildFxTarget(clip){
+    if(!clip||!window.__ethvelleCharFrame||!window.__ethvelleCharFxCfg)return null;
+    const t=Number(typeof getCurrentAbsoluteTime==='function'?getCurrentAbsoluteTime():(typeof currentAbsoluteTimeSec!=='undefined'?currentAbsoluteTimeSec:0))||0;
+    if(t<Number(clip.trimStart||0)||t>=Number(clip.trimEnd||0)||(typeof isPlaying!=='undefined'&&!!isPlaying))return null;
+    const ch=chars().find(c=>c&&String(c.id)===String(clip.ethvelleEffectCharId));
+    if(!ch)return null;
+    try{if(window.__ethvelleV334&&typeof window.__ethvelleV334.charVisibleAt==='function'&&!window.__ethvelleV334.charVisibleAt(ch,t))return null;}catch(_e){}
+    const frame=window.__ethvelleCharFrame(ch);if(!frame||!(Number(frame.r)>0))return null;
+    const type=String(clip.visualEffects&&clip.visualEffects.type||clip.ethvelleEffectType||'');
+    if(!lib.has(type))return null;
+    const cfg=window.__ethvelleCharFxCfg(clip.visualEffects||{});
+    const meta=lib._fx[type]||{};
+    const atHand=!!(meta.atHand&&frame.hand);
+    const b=bounds[type]||{x0:-1.8,x1:1.8,y0:-1.9,y1:1.9};
+    let x0=b.x0,x1=b.x1;
+    if(!atHand&&frame.flip){const old=x0;x0=-x1;x1=-old;}
+    const R=Math.max(1,Number(frame.r)*clamp(cfg.size==null?1:cfg.size,.25,2.5)*(atHand?.85:1));
+    const anchor=atHand?frame.hand:{x:frame.x,y:frame.y};
+    /* cfg.x/y and the transform offset move the effect's pivot, just like the drawing code. */
+    const pivot={x:anchor.x+(Number(cfg.ox)||0)*frame.r,y:anchor.y+(Number(cfg.oy)||0)*frame.r};
+    const baseRot=atHand?0:(Number(frame.rot)||0)*180/Math.PI;
+    const cx=(x0+x1)*.5*R,cy=(b.y0+b.y1)*.5*R;
+    const transform=clip.transform||(clip.transform={scale:1,offsetX:0,offsetY:0,rotation:0});
+    if(!Number.isFinite(Number(transform.scale)))transform.scale=1;
+    if(!Number.isFinite(Number(transform.offsetX)))transform.offsetX=0;
+    if(!Number.isFinite(Number(transform.offsetY)))transform.offsetY=0;
+    if(!Number.isFinite(Number(transform.rotation)))transform.rotation=0;
+    /* A mapped transform lets the native frame include the character's own head angle
+       without writing that angle back into the effect clip's separate rotation value. */
+    /* v339: when the effect follows another clip the frame shows where it is drawn (authored + tracked
+       delta); edits write back only the authored part so the delta is never baked in twice. */
+    const trk=(typeof window.ethvelleTrackingDelta==='function'?window.ethvelleTrackingDelta(clip,t):null)||{ds:1,dx:0,dy:0,dr:0};
+    const mapped={};
+    Object.defineProperties(mapped,{
+      scale:{enumerable:true,get:()=>(Number(transform.scale)||1)*trk.ds,set:v=>{transform.scale=clamp((Number(v)||1)/Math.max(.0001,trk.ds),.1,6);}},
+      offsetX:{enumerable:true,get:()=>(Number(transform.offsetX)||0)+trk.dx,set:v=>{transform.offsetX=(Number(v)||0)-trk.dx;}},
+      offsetY:{enumerable:true,get:()=>(Number(transform.offsetY)||0)+trk.dy,set:v=>{transform.offsetY=(Number(v)||0)-trk.dy;}},
+      rotation:{enumerable:true,get:()=>baseRot+(Number(transform.rotation)||0)+trk.dr,set:v=>{transform.rotation=normDeg((Number(v)||0)-baseRot-trk.dr);}}
+    });
+    return {
+      kind:'overlay',obj:mapped,
+      cB:{x:pivot.x+cx,y:pivot.y+cy},P0:pivot,
+      w0:Math.max(12,(x1-x0)*R),h0:Math.max(12,(b.y1-b.y0)*R),
+      canDelete:true,__evvCharacterEffectClipId:String(clip.id),
+      __evvCharacterEffectSource:clip
+    };
+  }
+
+  /* Install the same target contract the native selection frame already understands. */
+  const oldTarget=window.selBoxTarget;
+  if(typeof oldTarget==='function'&&!oldTarget.__evv336CharacterEffects){
+    const wrapped=function(){const clip=selectedFx();if(clip)return buildFxTarget(clip);return oldTarget.apply(this,arguments);};
+    wrapped.__evv336CharacterEffects=true;window.selBoxTarget=wrapped;
+    try{(0,eval)('selBoxTarget=window.selBoxTarget');}catch(_e){}
+  }
+
+  /* The effects are painted on the dedicated FX canvas, not on the transparent placeholder
+     image used to give the clip a timeline lane. So a native selection-frame drag must repaint
+     that FX canvas instead of moving the placeholder DOM image. */
+  function paintFxNow(){
+    try{
+      const api=window.__ethvelleV244Debug;
+      if(api&&typeof api.paintEffectPreview==='function')api.paintEffectPreview();
+      else if(typeof window.renderFrame==='function')window.renderFrame();
+    }catch(err){console.warn('Character effect transform preview:',err);}
+  }
+  const oldApply=window.selBoxApply;
+  if(typeof oldApply==='function'&&!oldApply.__evv336CharacterEffects){
+    const wrapped=function(tg){
+      if(tg&&tg.__evvCharacterEffectClipId){
+        paintFxNow();
+        try{if(typeof window.updateSelBox==='function')window.updateSelBox();}catch(_e){}
+        try{if(typeof window.scheduleSelBoxSliderSync==='function')window.scheduleSelBoxSliderSync();}catch(_e){}
+        return;
+      }
+      return oldApply.apply(this,arguments);
+    };
+    wrapped.__evv336CharacterEffects=true;window.selBoxApply=wrapped;
+    try{(0,eval)('selBoxApply=window.selBoxApply');}catch(_e){}
+  }
+
+  /* Add rotation to the same drawing call used by the live preview, thumbnails and export.
+     The rotation pivot is the exact translated origin used by the effect renderer. */
+  const baseDraw=lib.draw;
+  if(typeof baseDraw==='function'&&!baseDraw.__evv336ClipRotation){
+    const rotatedDraw=function(ctx,frame,type,tt,cfg){
+      const deg=Number(cfg&&cfg.rotation)||0;
+      if(!ctx||Math.abs(deg)<.0001)return baseDraw.apply(this,arguments);
+      const meta=lib._fx[type]||{},hand=!!(meta.atHand&&frame&&frame.hand);
+      const origin=hand?frame.hand:{x:frame.x,y:frame.y};
+      const px=origin.x+(Number(cfg.ox)||0)*frame.r,py=origin.y+(Number(cfg.oy)||0)*frame.r;
+      const clean=Object.assign({},cfg);delete clean.rotation;
+      ctx.save();ctx.translate(px,py);ctx.rotate(deg*Math.PI/180);ctx.translate(-px,-py);
+      try{return baseDraw.call(this,ctx,frame,type,tt,clean);}finally{ctx.restore();}
+    };
+    rotatedDraw.__evv336ClipRotation=true;lib.draw=rotatedDraw;
+  }
+
+  const oldDrawClip=window.ethvelleDrawCharacterEffectClip;
+  if(typeof oldDrawClip==='function'&&!oldDrawClip.__evv336Transform){
+    const drawClip=function(ctx,clip,t){
+      if(!ctx||!isFx(clip)||!clip.visualEffects)return oldDrawClip.apply(this,arguments);
+      const type=String(clip.visualEffects.type||'');if(!lib.has(type))return;
+      const time=Number(t)||0;
+      if(time<Number(clip.trimStart||0)||time>=Number(clip.trimEnd||0))return;
+      const ch=chars().find(c=>c&&String(c.id)===String(clip.ethvelleEffectCharId));if(!ch)return;
+      try{if(window.__ethvelleV334&&typeof window.__ethvelleV334.charVisibleAt==='function'&&!window.__ethvelleV334.charVisibleAt(ch,time))return;}catch(_e){}
+      const frame=window.__ethvelleCharFrame?window.__ethvelleCharFrame(ch):null;if(!frame)return;
+      let tr=null,keyedFx=null;
+      try{keyedFx=window.ethvelleGetObjectKeyframeValue?window.ethvelleGetObjectKeyframeValue(clip,'transform',time):null;}catch(_e){}
+      tr=keyedFx;
+      /* v339: a character effect can follow any clip  -  draw it at its tracked transform. */
+      try{if(clip.clipTracking&&clip.clipTracking.enabled&&clip.clipTracking.targetId&&typeof window.ethvelleGetTrackedOverlayTransform==='function')tr=window.ethvelleGetTrackedOverlayTransform(clip,time,keyedFx)||tr;}catch(_e){}
+      tr=tr||clip.transform||{};
+      const cfg=window.__ethvelleCharFxCfg(clip.visualEffects);
+      cfg.ox+=(Number(tr.offsetX)||0)/Math.max(1,frame.r);
+      cfg.oy+=(Number(tr.offsetY)||0)/Math.max(1,frame.r);
+      cfg.size*=Math.max(.1,Number(tr.scale)||1);
+      cfg.rotation=Number(tr.rotation)||0;
+      lib.draw(ctx,frame,type,Math.max(0,time-Number(clip.trimStart||0))*cfg.speed,cfg);
+    };
+    drawClip.__evv336Transform=true;window.ethvelleDrawCharacterEffectClip=drawClip;
+  }
+
+  /* Keep the effect itself topmost and prevent transparent placeholder taps from stealing
+     a drag that starts inside the visible effect's native transform frame. */
+  const oldPick=window.pickCanvasItemAt;
+  if(typeof oldPick==='function'&&!oldPick.__evv336CharacterEffects){
+    const wrapped=function(clientX,clientY){
+      const clip=selectedFx();
+      if(clip){
+        const tg=buildFxTarget(clip);
+        if(tg&&typeof window.selBoxGeom==='function'){
+          const g=window.selBoxGeom(tg),canvas=$('stickCanvas'),r=canvas&&canvas.getBoundingClientRect();
+          if(r&&r.width&&r.height){
+            const x=(clientX-r.left)*((typeof stageW!=='undefined'?Number(stageW):1)/r.width),y=(clientY-r.top)*((typeof stageH!=='undefined'?Number(stageH):1)/r.height);
+            if(typeof window.pointInSelGeom==='function'&&window.pointInSelGeom(g,x,y))return null;
+            const dx=x-g.cx,dy=y-g.cy,a=-g.rot*Math.PI/180,cs=Math.cos(a),sn=Math.sin(a);
+            const lx=dx*cs-dy*sn,ly=dx*sn+dy*cs,band=12;
+            if(Math.abs(lx)<=g.w/2+band&&Math.abs(ly)<=g.h/2+band)return null;
+          }
+        }
+      }
+      return oldPick.apply(this,arguments);
+    };
+    wrapped.__evv336CharacterEffects=true;window.pickCanvasItemAt=wrapped;
+    try{(0,eval)('pickCanvasItemAt=window.pickCanvasItemAt');}catch(_e){}
+  }
+
+  /* Refresh the native box whenever the playhead, selected clip or character pose changes. */
+  function refresh(){
+    try{if(typeof window.updateSelBox==='function')window.updateSelBox();}catch(_e){}
+    try{if(typeof window.__ethvelleV335==='object'&&window.__ethvelleV335.scheduleBox)window.__ethvelleV335.scheduleBox();}catch(_e){}
+  }
+  ['selectClipForChrome','onClipSelected','renderFrame','drawStick','renderOverlayLayers','setEthvelleEffectSetting','setEthvelleVisualEffect'].forEach((name,i)=>{
+    const base=window[name],marker='__evv336FxRefresh'+i;
+    if(typeof base!=='function'||base[marker])return;
+    const wrapped=function(){const r=base.apply(this,arguments);requestAnimationFrame(refresh);return r;};
+    wrapped[marker]=true;window[name]=wrapped;
+    try{(0,eval)(name+'=window.'+name);}catch(_e){}
+  });
+  window.addEventListener('resize',refresh,{passive:true});
+  window.addEventListener('orientationchange',refresh,{passive:true});
+  document.addEventListener('pointerup',refresh,true);
+  document.addEventListener('pointercancel',refresh,true);
+  requestAnimationFrame(refresh);
+  window.__ethvelleV336NativeFxSelection={buildFxTarget,refresh,paintFxNow};
+})();
+</script>
+
+
+<style id="ethvelle-v338-effect-frame-centered-css">
+  /* v338: effect filmstrip frames sit exactly in the vertical middle of the 31px clip. */
+  #timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame{
+    display:flex!important;align-items:center!important;justify-content:center!important;
+    padding:0!important;line-height:0!important;
+  }
+  #timelineInner .overlay-clip.ev-v246-effect-clip .ev-v248-effect-frame img.ev-v334-frame-img{
+    display:block!important;width:100%!important;height:100%!important;
+    object-fit:contain!important;object-position:50% 50%!important;
+    margin:0!important;transform:none!important;position:static!important;
+  }
+</style>
+
+
+<!-- Ethvelle v340: CapCut-style Transform panel.
+     Position (X axis / Y axis), Zoom and Rotate tabs with CapCut's tick-ruler sliders:
+     1 tick = 1 unit, a brighter tick every 10 units, a deep-blue centre marker that never moves,
+     drag the ruler (it follows the finger) with momentum, then it settles on a whole tick.
+     The four original range inputs (sizeSlider, posXSlider, posYSlider, rotSlider) and the value
+     labels (sizeVal, posXVal, posYVal, rotVal) are kept so updateTransform(), syncTransformSliders(),
+     resetTransform(), keyframes, tracking and undo keep working exactly as before. -->
+<style id="ethvelle-v340-capcut-transform-css">
+  /* The CapCut panel has no title bar: Reset / title / tick live in its own footer. */
+  #screen-editor #toolPanel.tool-panel.evcx-on .tool-panel-header{display:none!important;}
+  #screen-editor #toolPanel.tool-panel.evcx-on .tool-panel-body{
+    padding:0!important;overflow:hidden!important;display:flex!important;flex-direction:column!important;
+    min-height:0!important;
+  }
+  /* Compact like CapCut: the sheet hugs its content (tabs, rulers, footer) instead of stretching
+     up to the transport row, so the canvas and the Play button stay visible above it. */
+  #screen-editor #toolPanel.tool-panel.evcx-on,
+  #screen-editor #toolPanel.tool-panel.evcx-on.evv99-panel-fit,
+  #screen-editor #toolPanel.tool-panel.evcx-on.evv99-panel-fit.evv100-panel-fit{
+    top:auto!important;bottom:0!important;height:auto!important;min-height:0!important;
+    max-height:min(var(--evv99-panel-max-height,70vh),70%)!important;
+  }
+  .evcx-root{
+    flex:1 1 auto;min-height:0;display:flex;flex-direction:column;color:#fff;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;
+  }
+  .evcx-root *{box-sizing:border-box;}
+  .evcx-tabs{display:flex;align-items:center;gap:24px;padding:10px 17px 0;flex:0 0 auto;}
+  .evcx-tab{
+    appearance:none;-webkit-appearance:none;background:none;border:0;margin:0;padding:10px 0;
+    font:inherit;font-size:15px;font-weight:500;line-height:1.2;color:#8D8D93;cursor:pointer;
+    transition:color .12s ease;touch-action:manipulation;
+  }
+  .evcx-tab.active{color:#fff;}
+  .evcx-stage{flex:1 1 auto;min-height:132px;display:flex;align-items:center;justify-content:center;padding:14px 16px 16px;}
+  .evcx-pane{display:none;width:100%;}
+  .evcx-pane.active{display:grid;}
+  .evcx-pane[data-evcx-pane="position"]{grid-template-columns:50px minmax(0,1fr) 56px;grid-template-rows:44px 44px;}
+  .evcx-pane[data-evcx-pane="zoom"],
+  .evcx-pane[data-evcx-pane="rotate"]{grid-template-columns:minmax(0,1fr) 56px;grid-template-rows:44px;}
+  .evcx-lab{align-self:center;font-size:13.5px;color:#D2D2D6;white-space:nowrap;}
+  .evcx-val{
+    align-self:center;justify-self:end;font-size:14.5px;color:#DADADF;text-align:right;
+    font-variant-numeric:tabular-nums;white-space:nowrap;
+  }
+  /* v341: no lighter/glowing field behind the rulers any more  -  the rulers sit flat on the panel. */
+  .evcx-box{
+    position:relative;overflow:hidden;
+    background:none!important;box-shadow:none!important;border:0!important;
+  }
+  .evcx-pane[data-evcx-pane="position"] .evcx-box{grid-column:2;grid-row:1 / span 2;}
+  .evcx-pane[data-evcx-pane="zoom"] .evcx-box,
+  .evcx-pane[data-evcx-pane="rotate"] .evcx-box{grid-column:1;grid-row:1;}
+  .evcx-ruler{display:block;width:100%;height:44px;touch-action:none!important;cursor:ew-resize;outline:none;}
+  .evcx-ruler:focus-visible{box-shadow:inset 0 0 0 1px rgba(47,92,232,.7);}
+  .evcx-hidden{display:none!important;}
+  .evcx-foot{
+    flex:0 0 auto;display:grid;grid-template-columns:1fr auto 1fr;align-items:center;
+    min-height:56px;padding:0 12px calc(env(safe-area-inset-bottom,0px)) 12px;
+    border-top:1px solid rgba(255,255,255,.075);
+  }
+  .evcx-reset{
+    appearance:none;-webkit-appearance:none;background:none;border:0;margin:0;font:inherit;color:#fff;
+    display:inline-flex;align-items:center;gap:9px;justify-self:start;min-height:48px;padding:0 6px;
+    font-size:15px;font-weight:500;cursor:pointer;touch-action:manipulation;
+  }
+  .evcx-reset svg{width:22px;height:22px;flex:0 0 auto;}
+  .evcx-reset:active{opacity:.6;}
+  .evcx-title{font-size:14.5px;font-weight:600;color:#E4E4E8;text-align:center;white-space:nowrap;}
+  .evcx-ok{
+    appearance:none;-webkit-appearance:none;background:none;border:0;margin:0;color:#fff;justify-self:end;
+    min-width:48px;min-height:48px;display:grid;place-items:center;cursor:pointer;touch-action:manipulation;
+  }
+  .evcx-ok svg{width:30px;height:30px;}
+  .evcx-ok:active{opacity:.6;}
+  @media (prefers-reduced-motion:reduce){.evcx-tab{transition:none;}}
+</style>
+
+<script id="ethvelle-v340-capcut-transform-js">
+(function(){
+  'use strict';
+  if(window.__evcxTransform)return;
+  window.__evcxTransform=true;
+
+  const $=id=>document.getElementById(id);
+  const SP=7.4;            // CSS px between two ticks (CapCut: one tick = one unit)
+  const MAJOR=10;          // brighter tick every 10 units
+  const ROW_H=44;          // ruler height
+  const BLUE='#2F5CE8';    // deep blue centre marker (the site's primary blue)
+  const IND_TOP=12,IND_H=21,TICK_H=11,BASE_Y=IND_TOP+IND_H; // ticks sit on the same baseline as the marker
+
+  const RULERS=[
+    {key:'posX',  input:'posXSlider', label:'X axis'},
+    {key:'posY',  input:'posYSlider', label:'Y axis'},
+    {key:'size',  input:'sizeSlider', label:'Zoom'},
+    {key:'rot',   input:'rotSlider',  label:'Rotate'}
+  ];
+
+  const CHECK_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.5 12.6l4.8 4.8L19.5 6.8"/></svg>';
+  const RESET_SVG='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4.2 12a7.8 7.8 0 1 0 2.5-5.7"/><path d="M4.4 4v4.4h4.4"/></svg>';
+
+  function body(){
+    const hid=(id,min,max,val)=>`<input type="range" class="transform-slider evcx-hidden" id="${id}" min="${min}" max="${max}" step="1" value="${val}" tabindex="-1" aria-hidden="true">`;
+    const ruler=k=>`<canvas class="evcx-ruler" data-evcx-ruler="${k}" tabindex="0" role="slider"></canvas>`;
+    return `<div class="evcx-root" data-evcx-root="1">
+      <div class="evcx-tabs" role="tablist">
+        <button type="button" class="evcx-tab active" role="tab" data-evcx-tab="position">Position</button>
+        <button type="button" class="evcx-tab" role="tab" data-evcx-tab="zoom">Zoom</button>
+        <button type="button" class="evcx-tab" role="tab" data-evcx-tab="rotate">Rotate</button>
+      </div>
+      <div class="evcx-stage">
+        <div class="evcx-pane active" data-evcx-pane="position">
+          <span class="evcx-lab" style="grid-column:1;grid-row:1">X axis</span>
+          <span class="evcx-lab" style="grid-column:1;grid-row:2">Y axis</span>
+          <div class="evcx-box">${ruler('posX')}${ruler('posY')}</div>
+          <span class="evcx-val" id="posXVal" style="grid-column:3;grid-row:1">0</span>
+          <span class="evcx-val" id="posYVal" style="grid-column:3;grid-row:2">0</span>
+        </div>
+        <div class="evcx-pane" data-evcx-pane="zoom">
+          <div class="evcx-box">${ruler('size')}</div>
+          <span class="evcx-val" id="sizeVal">100%</span>
+        </div>
+        <div class="evcx-pane" data-evcx-pane="rotate">
+          <div class="evcx-box">${ruler('rot')}</div>
+          <span class="evcx-val" id="rotVal">0°</span>
+        </div>
+        ${hid('sizeSlider',10,400,100)}${hid('posXSlider',-200,200,0)}${hid('posYSlider',-200,200,0)}${hid('rotSlider',-180,180,0)}
+      </div>
+      <div class="evcx-foot">
+        <button type="button" class="evcx-reset" data-evcx-act="reset">${RESET_SVG}<span>Reset</span></button>
+        <div class="evcx-title" id="evcxTitle">Transform</div>
+        <button type="button" class="evcx-ok" data-evcx-act="ok" aria-label="Done">${CHECK_SVG}</button>
+      </div>
+    </div>`;
+  }
+
+  /* ---------- tick ruler (canvas) ---------- */
+  const instances=new Map();
+
+  function makeRuler(canvas){
+    const def=RULERS.find(r=>r.key===canvas.dataset.evcxRuler);
+    if(!def)return null;
+    const ctx=canvas.getContext('2d');
+    let w=0,dpr=1,pos=0,drag=null,raf=0,pending=null,anim=0,lastEmit=null;
+
+    const inputEl=()=>$(def.input);
+    const range=()=>{
+      const i=inputEl();
+      const min=i&&Number.isFinite(Number(i.min))?Number(i.min):-100;
+      const max=i&&Number.isFinite(Number(i.max))?Number(i.max):100;
+      return [min,max];
+    };
+    const clamp=v=>{const [a,b]=range();return Math.max(a,Math.min(b,v));};
+
+    function rr(x,y,ww,hh,r){
+      ctx.beginPath();
+      if(ctx.roundRect){ctx.roundRect(x,y,ww,hh,r);}
+      else{ctx.moveTo(x+r,y);ctx.arcTo(x+ww,y,x+ww,y+hh,r);ctx.arcTo(x+ww,y+hh,x,y+hh,r);ctx.arcTo(x,y+hh,x,y,r);ctx.arcTo(x,y,x+ww,y,r);ctx.closePath();}
+      ctx.fill();
+    }
+
+    function resize(){
+      const cw=canvas.clientWidth|0;
+      if(!cw)return false;
+      dpr=Math.min(3,window.devicePixelRatio||1);
+      if(cw!==w||canvas.width!==Math.round(cw*dpr)){
+        w=cw;canvas.width=Math.round(w*dpr);canvas.height=Math.round(ROW_H*dpr);
+      }
+      draw();return true;
+    }
+
+    function draw(){
+      if(!w)return;
+      ctx.setTransform(dpr,0,0,dpr,0,0);
+      ctx.clearRect(0,0,w,ROW_H);
+      const [min,max]=range();
+      const cx=w/2,half=cx/SP;
+      const lo=Math.max(Math.ceil(min),Math.floor(pos-half)-1);
+      const hi=Math.min(Math.floor(max),Math.ceil(pos+half)+1);
+      for(let v=lo;v<=hi;v++){
+        const x=cx+(v-pos)*SP;
+        if(x<-2||x>w+2)continue;
+        if(Math.abs(x-cx)<1.6)continue; // the blue marker takes this tick's place
+        const edge=Math.min(x,w-x);
+        const fade=Math.max(0,Math.min(1,(edge-SP*.4)/(SP*2.6)));
+        if(fade<=0)continue;
+        const major=(v%MAJOR===0);
+        ctx.fillStyle=major?`rgba(255,255,255,${(.93*fade).toFixed(3)})`:`rgba(255,255,255,${(.40*fade).toFixed(3)})`;
+        rr(x-.8,BASE_Y-TICK_H,1.6,TICK_H,.8);
+      }
+      ctx.fillStyle=BLUE;
+      rr(cx-1.3,IND_TOP,2.6,IND_H,1.3);
+    }
+
+    // Set the ruler position and push whole-number changes into the real slider.
+    function apply(v,emit){
+      pos=clamp(v);
+      const iv=Math.round(pos);
+      const input=inputEl();
+      if(emit&&input&&Number(input.value)!==iv){
+        input.value=iv;
+        try{window.updateTransform();}catch(err){console.warn('Ethvelle transform:',err);}
+        try{input.dispatchEvent(new Event('input',{bubbles:true}));}catch(_e){}
+        lastEmit=iv;
+      }
+      canvas.setAttribute('aria-valuenow',String(iv));
+      draw();
+    }
+    function finishChange(){
+      const input=inputEl();
+      if(input&&lastEmit!==null){try{input.dispatchEvent(new Event('change',{bubbles:true}));}catch(_e){}}
+      lastEmit=null;
+    }
+
+    function stopAnim(){if(anim){cancelAnimationFrame(anim);anim=0;}}
+    function settle(){
+      stopAnim();
+      const from=pos,to=Math.round(pos);
+      if(Math.abs(from-to)<.001){apply(to,true);finishChange();return;}
+      const t0=performance.now(),dur=130;
+      const step=now=>{
+        const k=Math.min(1,(now-t0)/dur),e=1-Math.pow(1-k,3);
+        apply(from+(to-from)*e,true);
+        if(k<1)anim=requestAnimationFrame(step);else{anim=0;apply(to,true);finishChange();}
+      };
+      anim=requestAnimationFrame(step);
+    }
+    function fling(vel){ // vel in units per ms
+      stopAnim();
+      let last=performance.now();
+      const [min,max]=range();
+      const step=now=>{
+        const dt=Math.min(34,now-last);last=now;
+        pos+=vel*dt;
+        vel*=Math.exp(-dt/240);
+        if(pos<=min||pos>=max){apply(pos<=min?min:max,true);anim=0;finishChange();return;}
+        apply(pos,true);
+        if(Math.abs(vel)<.0035){anim=0;settle();return;}
+        anim=requestAnimationFrame(step);
+      };
+      anim=requestAnimationFrame(step);
+    }
+
+    canvas.addEventListener('pointerdown',e=>{
+      if(drag||(e.pointerType==='mouse'&&e.button!==0))return;
+      stopAnim();
+      drag={id:e.pointerId,x0:e.clientX,p0:pos,s:[{t:e.timeStamp,x:e.clientX}]};
+      lastEmit=null;
+      try{canvas.setPointerCapture(e.pointerId);}catch(_e){}
+      e.preventDefault();e.stopPropagation();
+    },{passive:false});
+    canvas.addEventListener('pointermove',e=>{
+      if(!drag||drag.id!==e.pointerId)return;
+      drag.s.push({t:e.timeStamp,x:e.clientX});
+      if(drag.s.length>8)drag.s.shift();
+      // Content follows the finger: drag left -> ticks slide left -> value goes up.
+      pending=drag.p0-(e.clientX-drag.x0)/SP;
+      if(!raf)raf=requestAnimationFrame(()=>{raf=0;if(pending!==null){apply(pending,true);pending=null;}});
+      if(e.cancelable)e.preventDefault();e.stopPropagation();
+    },{passive:false});
+    const end=e=>{
+      if(!drag||drag.id!==e.pointerId)return;
+      if(raf){cancelAnimationFrame(raf);raf=0;}
+      if(pending!==null){apply(pending,true);pending=null;}
+      const s=drag.s,last=s[s.length-1];
+      let vel=0;
+      for(let i=s.length-2;i>=0;i--){ if(last.t-s[i].t>=70||i===0){const dt=Math.max(1,last.t-s[i].t);vel=-(last.x-s[i].x)/dt/SP;break;} }
+      if(e.type==='pointercancel'||e.timeStamp-last.t>90)vel=0; // paused before lifting: no fling
+      drag=null;
+      try{canvas.releasePointerCapture(e.pointerId);}catch(_e){}
+      if(Math.abs(vel)>.012)fling(Math.max(-2.2,Math.min(2.2,vel)));else settle();
+      e.stopPropagation();
+    };
+    canvas.addEventListener('pointerup',end,{passive:false});
+    canvas.addEventListener('pointercancel',end,{passive:false});
+    canvas.addEventListener('keydown',e=>{
+      const step=e.shiftKey?MAJOR:1;
+      if(e.key==='ArrowLeft'||e.key==='ArrowDown'){apply(Math.round(pos)-step,true);finishChange();e.preventDefault();}
+      else if(e.key==='ArrowRight'||e.key==='ArrowUp'){apply(Math.round(pos)+step,true);finishChange();e.preventDefault();}
+    });
+
+    const inst={
+      key:def.key,canvas,resize,draw,
+      busy:()=>!!drag||!!anim,
+      // Follow the real slider (opening the panel, playhead moved, reset, keyframes...). No emit.
+      refresh(){
+        if(drag||anim)return;
+        const i=inputEl();if(!i)return;
+        const [min,max]=range();
+        pos=Math.max(min,Math.min(max,Number(i.value)||0));
+        canvas.setAttribute('aria-valuemin',String(min));canvas.setAttribute('aria-valuemax',String(max));
+        canvas.setAttribute('aria-valuenow',String(Math.round(pos)));
+        canvas.setAttribute('aria-label',def.label);
+        draw();
+      }
+    };
+    if(typeof ResizeObserver==='function'){new ResizeObserver(()=>resize()).observe(canvas);}
+    return inst;
+  }
+
+  /* ---------- panel wiring ---------- */
+  function refreshAll(){instances.forEach(r=>{try{r.refresh();}catch(_e){}});}
+
+  function setTab(root,name){
+    root.querySelectorAll('.evcx-tab').forEach(b=>{
+      const on=b.dataset.evcxTab===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on?'true':'false');
+    });
+    root.querySelectorAll('.evcx-pane').forEach(p=>p.classList.toggle('active',p.dataset.evcxPane===name));
+    // Panes that were hidden have no width yet: measure once they are shown.
+    requestAnimationFrame(()=>{instances.forEach(r=>{r.resize();r.refresh();});});
+  }
+
+  function initRoot(root){
+    if(!root||root.dataset.evcxReady==='1')return;
+    root.dataset.evcxReady='1';
+    instances.clear();
+    root.querySelectorAll('canvas[data-evcx-ruler]').forEach(c=>{const r=makeRuler(c);if(r)instances.set(r.key,r);});
+    root.addEventListener('click',e=>{
+      const tab=e.target.closest&&e.target.closest('[data-evcx-tab]');
+      if(tab){setTab(root,tab.dataset.evcxTab);return;}
+      const act=e.target.closest&&e.target.closest('[data-evcx-act]');
+      if(!act)return;
+      if(act.dataset.evcxAct==='reset'){
+        try{window.resetTransform();}catch(err){console.warn('Ethvelle reset:',err);}
+        refreshAll();
+      }else if(act.dataset.evcxAct==='ok'){
+        try{window.closePanel();}catch(_e){}
+      }
+    });
+    const titleEl=$('panelTitle'),t=$('evcxTitle');
+    if(t&&titleEl&&titleEl.textContent.trim())t.textContent=titleEl.textContent.trim();
+    // Measure after layout, sync with the real slider values, then once more when the sheet has settled.
+    requestAnimationFrame(()=>{
+      try{if(typeof window.syncTransformSliders==='function')window.syncTransformSliders();}catch(_e){}
+      instances.forEach(r=>{r.resize();r.refresh();});
+      setTimeout(()=>{instances.forEach(r=>{r.resize();r.refresh();});},320);
+    });
+  }
+
+  function watchPanel(){
+    const panel=$('toolPanel'),bodyEl=$('panelBody');
+    if(!panel||!bodyEl)return;
+    const sync=()=>{
+      const root=bodyEl.querySelector('.evcx-root');
+      panel.classList.toggle('evcx-on',!!root);
+      if(root)initRoot(root);else instances.clear();
+    };
+    new MutationObserver(sync).observe(bodyEl,{childList:true});
+    sync();
+  }
+
+  // Keep the rulers in step with every place the app re-syncs the sliders.
+  const baseSync=window.syncTransformSliders;
+  if(typeof baseSync==='function'&&!baseSync.__evcx){
+    const wrapped=function(){const r=baseSync.apply(this,arguments);try{refreshAll();}catch(_e){}return r;};
+    wrapped.__evcx=true;window.syncTransformSliders=wrapped;
+  }
+
+  // The Transform panel now opens with the CapCut layout (always starts on Position, like CapCut).
+  if(typeof panelContent!=='undefined'&&panelContent&&panelContent.transform){
+    panelContent.transform.body=body();
+  }
+
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',watchPanel,{once:true});
+  else watchPanel();
+
+  window.addEventListener('resize',()=>instances.forEach(r=>r.resize()),{passive:true});
+  window.__evcxTransformApi={refresh:refreshAll};
+})();
+</script>
+
+
+<style id="ethvelle-v341-anim-tracking-css">
+  /* v341: when an ANIMATION clip is selected, the Track button sits right after the fixed
+     Delete / Done / Split / Duplicate buttons (order -5) so it is on screen without scrolling the toolbar. */
+  #bottomToolsClip.ev-v341-anim-clip #clipTrackingTool{
+    display:flex!important;order:-5;flex:0 0 64px;min-width:64px;max-width:64px;
+    align-items:center;justify-content:center;
+  }
+</style>
+<script id="ethvelle-v341-anim-tracking-js">
+(function(){
+  'use strict';
+  if(window.__evV341AnimTracking)return;
+  window.__evV341AnimTracking=true;
+  const $=id=>document.getElementById(id);
+  function animClipOfSelection(){
+    try{
+      const sel=(typeof selectedClip!=='undefined')?selectedClip:null;
+      if(sel==null)return null;
+      const key=String(sel);
+      if(key!=='main'&&!/^seg\d+$/.test(key))return null;
+      const clip=typeof getClipByRef==='function'?getClipByRef(key):null;
+      return clip&&typeof clip==='object'?clip:null;
+    }catch(_e){return null;}
+  }
+  function syncAnimTrackButton(){
+    const row=$('bottomToolsClip');if(!row)return;
+    const clip=animClipOfSelection();
+    row.classList.toggle('ev-v341-anim-clip',!!clip);
+    const btn=$('clipTrackingTool');
+    if(btn&&clip){
+      btn.classList.add('ev-v71-track-visible');
+      btn.setAttribute('aria-hidden','false');
+    }
+  }
+  const prior=window.syncBottomToolsMode;
+  if(typeof prior==='function'&&!prior.__evV341){
+    const wrapped=function(){const r=prior.apply(this,arguments);try{syncAnimTrackButton();}catch(_e){}return r;};
+    wrapped.__evV341=true;window.syncBottomToolsMode=wrapped;
+  }
+  if(document.readyState==='loading')document.addEventListener('DOMContentLoaded',syncAnimTrackButton,{once:true});
+  else syncAnimTrackButton();
+})();
+</script>
+
+<!-- Ethvelle v342:
+     (1) Character-effect "Editing" sliders now use the SAME CapCut tick-ruler sliders as the Transform panel
+         (flat rows: label | ruler | value, no card/block boxes).
+     (2) A character effect is now hidden underneath any clip that sits ABOVE it in the layer order
+         (live preview + export). Clips below the effect never hide it.
+     (3) Adjust panel: Perspective now also works on character effects; new "Wide" and "Length" options
+         (horizontal / vertical stretch) that work for video, image, background and character-effect clips,
+         in the live preview and in the exported video. -->
+<style id="ethvelle-v342-css">
+  /* ---- (1) flat tick-ruler rows inside the Character Effects panel ---- */
+  #evvVisualPanel .evv-fx-adjustments.evx-on{border-top:0!important;margin-top:6px!important;padding:0!important;gap:0!important;}
+  .evx-rows{display:grid;grid-template-columns:112px minmax(0,1fr) 56px;grid-auto-rows:44px;align-items:center;padding:2px 2px 12px;
+    -webkit-user-select:none;user-select:none;-webkit-touch-callout:none;-webkit-tap-highlight-color:transparent;}
+  .evx-rows *{box-sizing:border-box;}
+  .evx-lab{align-self:center;font-size:13.5px;color:#D2D2D6;white-space:nowrap;}
+  .evx-val{align-self:center;justify-self:end;font-size:14.5px;color:#DADADF;text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap;}
+  .evx-ruler{display:block;width:100%;height:44px;background:none!important;border:0!important;box-shadow:none!important;
+    touch-action:pan-y!important;cursor:ew-resize;outline:none;}
+  .evx-ruler:focus-visible{box-shadow:inset 0 0 0 1px rgba(47,92,232,.7)!important;}
+</style>
+<script id="ethvelle-v342-js">
+(function(){
+  'use strict';
+  if(window.__ethvelleV342)return;
+  window.__ethvelleV342=true;
+
+  const $=id=>document.getElementById(id);
+  const clamp=(v,a,b)=>Math.max(a,Math.min(b,Number(v)||0));
+  const list=()=>{try{return Array.isArray(overlays)?overlays:[];}catch(_e){return [];}};
+  const chars=()=>{try{return Array.isArray(characters)?characters:[];}catch(_e){return [];}};
+  const selId=()=>{try{return String(typeof selectedClip!=='undefined'&&selectedClip!=null?selectedClip:'');}catch(_e){return '';}};
+  const stageDims=()=>{try{return {W:Number(stageW)||0,H:Number(stageH)||0};}catch(_e){return {W:0,H:0};}};
+  const isFxClip=o=>!!(o&&o.ethvelleEffectClip&&o.ethvelleEffectKind==='character');
+
+  /* ======================================================================
+     (3a) Wide / Length stretch  -  shared by every media path.
+     The CSS transform suffix is now:  [scale3d(wide,length,1)] [perspective rotateX rotateY]
+     ====================================================================== */
+  const DIST=900,LIMIT=55;
+  const pers=v=>{v=Number(v);return Number.isFinite(v)?Math.max(-LIMIT,Math.min(LIMIT,v)):0;};
+  const strPct=v=>{v=Number(v);return(Number.isFinite(v)&&v>0)?Math.max(25,Math.min(300,v)):100;};
+  window.ethvelleMediaStretch=function(clip){return {w:strPct(clip&&clip.mediaWide)/100,l:strPct(clip&&clip.mediaLength)/100};};
+  const SUFFIX_RE=/(?:\s*scale3d\([^)]*\))?(?:\s*perspective\(\d+(?:\.\d+)?px\)\s*rotateX\([^)]*\)\s*rotateY\([^)]*\))?\s*$/;
+  window.ethvellePerspectiveSuffix=function(clip){
+    const x=pers(clip&&clip.mediaPerspectiveX),y=pers(clip&&clip.mediaPerspectiveY),s=window.ethvelleMediaStretch(clip);
+    let out='';
+    if(s.w!==1||s.l!==1)out+=` scale3d(${s.w.toFixed(4)}, ${s.l.toFixed(4)}, 1)`;
+    if(x||y)out+=` perspective(${DIST}px) rotateX(${y}deg) rotateY(${x}deg)`;
+    return out;
+  };
+  window.ethvelleStripPerspective=function(value){return String(value||'').replace(SUFFIX_RE,'');};
+
+  /* ======================================================================
+     Tick ruler (same look + behaviour as the Transform panel's rulers)
+     ====================================================================== */
+  const SP=7.4,MAJOR=10,ROW_H=44,BLUE='#2F5CE8',IND_TOP=12,IND_H=21,TICK_H=11,BASE_Y=IND_TOP+IND_H;
