@@ -393,6 +393,146 @@ if (native) {
     toast('Linked to the original device file — no media copy was made.');
   }
 
+  let nativeBackNavigationInstalled = false;
+  let nativeNavigationDepth = 0;
+  let nativeNavigationSuppressed = false;
+  const nativeScreenStack = [];
+
+  function activeAppScreen() {
+    const active = document.querySelector('.screen.active');
+    return active && active.id ? active.id.replace(/^screen-/, '') : '';
+  }
+
+  function visibleBackSurfaceSignature() {
+    const selector = '.active,[aria-modal="true"],[role="dialog"],#ethvelle-diagnostics';
+    return Array.from(document.querySelectorAll(selector)).filter(el => {
+      const style = window.getComputedStyle(el);
+      return style.display !== 'none' && style.visibility !== 'hidden' &&
+        Number(style.opacity || 1) > 0 && el.getAttribute('aria-hidden') !== 'true';
+    }).map(el => String(el.id || el.className || el.tagName) + '|' +
+      String(el.className || '') + '|' + String(el.getAttribute('aria-hidden') || '')).join('\n');
+  }
+
+  function dispatchBackKey(key) {
+    try {
+      const event = new KeyboardEvent('keydown', {
+        key, code: key === 'BrowserBack' ? 'BrowserBack' : 'Escape',
+        keyCode: key === 'BrowserBack' ?  BrowserBackCode : 27,
+        which: key === 'BrowserBack' ? BrowserBackCode : 27,
+        bubbles: true, cancelable: true
+      });
+      document.dispatchEvent(event);
+      return event.defaultPrevented;
+    } catch (error) {
+      log('could not dispatch back key', error);
+      return false;
+    }
+  }
+  const BrowserBackCode = 4;
+
+  function installNativeBackHandler() {
+    if (nativeBackNavigationInstalled) return;
+    nativeBackNavigationInstalled = true;
+
+    if (typeof window.goTo === 'function' && !window.goTo.__ethvelleNativeBackHistory) {
+      const originalGoTo = window.goTo;
+      const trackedGoTo = function () {
+        if (nativeNavigationDepth > 0) return originalGoTo.apply(this, arguments);
+        const before = activeAppScreen();
+        let result;
+        nativeNavigationDepth++;
+        try { result = originalGoTo.apply(this, arguments); }
+        finally { nativeNavigationDepth--; }
+        const after = activeAppScreen();
+        if (!nativeNavigationSuppressed && before && after && before !== after) {
+          nativeScreenStack.push(before);
+          if (nativeScreenStack.length > 24) nativeScreenStack.shift();
+        }
+        return result;
+      };
+      trackedGoTo.__ethvelleNativeBackHistory = true;
+      window.goTo = trackedGoTo;
+    }
+
+    if (typeof window.exitEditor === 'function' && !window.exitEditor.__ethvelleNativeBackHistory) {
+      const originalExitEditor = window.exitEditor;
+      const trackedExitEditor = function () {
+        const before = activeAppScreen();
+        nativeNavigationSuppressed = true;
+        try { return originalExitEditor.apply(this, arguments); }
+        finally {
+          nativeNavigationSuppressed = false;
+          const after = activeAppScreen();
+          if (before !== after && nativeScreenStack[nativeScreenStack.length - 1] === after) nativeScreenStack.pop();
+        }
+      };
+      trackedExitEditor.__ethvelleNativeBackHistory = true;
+      window.exitEditor = trackedExitEditor;
+    }
+
+    window.__ethvelleHandleBack = function () {
+      const diagnostics = $('ethvelle-diagnostics');
+      if (diagnostics) {
+        const close = $('evdiag-close');
+        if (close) close.click(); else diagnostics.remove();
+        return true;
+      }
+
+      // Let the website's own Escape / BrowserBack listeners close its topmost sheet,
+      // picker, popover or modal before changing screens.
+      const before = visibleBackSurfaceSignature();
+      const escapePrevented = dispatchBackKey('Escape');
+      const afterEscape = visibleBackSurfaceSignature();
+      if (escapePrevented || before !== afterEscape) return true;
+
+      const browserBackPrevented = dispatchBackKey('BrowserBack');
+      const afterBrowserBack = visibleBackSurfaceSignature();
+      if (browserBackPrevented || afterEscape !== afterBrowserBack) return true;
+
+      const activeBackdrops = Array.from(document.querySelectorAll('[id$="Backdrop"].active')).reverse();
+      for (const backdrop of activeBackdrops) {
+        const close = backdrop.querySelector('button[aria-label*="close" i],button[title*="close" i],.modal-close,[data-action="close"]');
+        if (close) close.click(); else backdrop.click();
+        if (!backdrop.classList.contains('active')) return true;
+        // Last-resort visual dismissal for backdrops without a working close action.
+        backdrop.classList.remove('active');
+        if (backdrop.getAttribute('aria-hidden') === 'false') backdrop.setAttribute('aria-hidden', 'true');
+        return true;
+      }
+      const storagePermission = $('ethvelleStoragePermission');
+      if (storagePermission && storagePermission.classList.contains('active')) {
+        storagePermission.classList.remove('active');
+        return true;
+      }
+
+      const editor = $('screen-editor');
+      if (editor && editor.classList.contains('active') && typeof window.exitEditor === 'function') {
+        window.exitEditor();
+        return true;
+      }
+
+      const current = activeAppScreen();
+      while (nativeScreenStack.length) {
+        const previous = nativeScreenStack.pop();
+        if (!previous || previous === current || previous === 'splash') continue;
+        if ($('screen-' + previous) && typeof window.goTo === 'function') {
+          nativeNavigationSuppressed = true;
+          try { window.goTo(previous); }
+          finally { nativeNavigationSuppressed = false; }
+          return true;
+        }
+      }
+
+      if (current && !['home', 'landing', 'splash'].includes(current) && typeof window.goTo === 'function') {
+        nativeNavigationSuppressed = true;
+        try { window.goTo('home'); }
+        finally { nativeNavigationSuppressed = false; }
+        return true;
+      }
+      return false;
+    };
+  }
+
   let wrappersInstalled = false;
   function installLateWrappers() {
     if (wrappersInstalled) return;
@@ -439,16 +579,7 @@ if (native) {
       google.__ethvelleNativeGoogle = true;
       window.performGoogleSignIn = google;
     }
-    window.__ethvelleHandleBack = function () {
-      const backdrops = ['settingsSheetBackdrop', 'projectMenuBackdrop', 'ethvelleStoragePermission'];
-      for (const id of backdrops) {
-        const el = $(id); if (el && el.classList.contains('active')) { el.classList.remove('active'); return true; }
-      }
-      const editor = $('screen-editor');
-      if (editor && editor.classList.contains('active') && typeof window.exitEditor === 'function') { window.exitEditor(); return true; }
-      if (typeof window.closePanel === 'function') { try { window.closePanel(); return true; } catch (_) {} }
-      return false;
-    };
+    installNativeBackHandler();
   }
 
   async function backupData() {

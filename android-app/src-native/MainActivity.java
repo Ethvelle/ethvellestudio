@@ -5,6 +5,7 @@ import android.net.Uri;
 import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.view.View;
+import android.view.WindowManager;
 import android.webkit.WebResourceRequest;
 import android.webkit.WebResourceResponse;
 import android.webkit.WebView;
@@ -40,6 +41,7 @@ public class MainActivity extends BridgeActivity {
         registerPlugin(EthvelleMediaPlugin.class);
         registerPlugin(EthvelleStoragePlugin.class);
         super.onCreate(savedInstanceState);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED, WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED);
         getWindow().setStatusBarColor(Color.rgb(8, 11, 18));
         getWindow().setNavigationBarColor(Color.rgb(8, 11, 18));
     }

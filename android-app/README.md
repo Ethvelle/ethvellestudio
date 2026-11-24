@@ -8,6 +8,16 @@ The older `source-v398/` snapshot is retained only as historical reference; the 
 
 GitHub Actions runs on every push to `android-apk` and on manual dispatch. It installs Capacitor 8, reconstructs and integrity-checks the v404 HTML source, generates the Android project, synchronizes plugins, and produces a debug-signed installable APK. The repository connector does not expose the GitHub Actions secrets-write API, so this build uses Android's debug key until a release key is added by the owner.
 
+## Android host setup
+
+The Capacitor identity is `Ethvelle` / `com.ethvelle.app`, with Android minSdk 24, compileSdk 36 and targetSdk 35. The generated manifest explicitly keeps hardware acceleration enabled for the application/activity; the WebView keeps its hardware layer and has `MediaPlaybackRequiresUserGesture=false`. The app loads its local web assets at the HTTPS `localhost` origin.
+
+The launcher icon generator reads the canonical `splashLogoImg` source from the assembled v404 HTML (the same image the page applies to `.home-brand-logo-only`) and generates legacy plus adaptive Android icons. If the remote image cannot be downloaded, it generates a clean blue E lettermark fallback.
+
+Android Back sends Escape/BrowserBack into the website first, closes recognized overlays, exits the editor through the existing `exitEditor()` action, and then returns through the in-app screen navigation stack. Pressing Back on the Home screen exits the app. Hardware acceleration and WebView media playback are configured in the Android-only native wrapper; the browser HTML is not modified for these settings.
+
+Only INTERNET permission is added. File access uses the Android system document picker; no broad storage/media permission is requested.
+
 ## First-time Google sign-in setup
 
 1. In Firebase Console → Project settings → Your apps, register an Android app with package name `com.ethvelle.app`.
