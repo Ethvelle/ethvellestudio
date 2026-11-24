@@ -53,13 +53,13 @@ let vars = await fs.readFile(varsPath, 'utf8');
 function setVar(name, value) {
   const re = new RegExp('(' + name + '\\s*=\\s*)[^\\n]+');
   if (re.test(vars)) vars = vars.replace(re, '$1' + value);
-  else vars = vars.replace(/ext\\s*\\{/, match => match + '\\n    ' + name + ' = ' + value);
+  else vars = vars.replace(/ext\s*\{//, match => match + '\n    ' + name + ' = ' + value);
 }
 setVar('minSdkVersion', '24');
 setVar('compileSdkVersion', '36');
 setVar('targetSdkVersion', '35');
-if (!/rgcfaIncludeGoogle/.test(vars)) vars = vars.replace(/ext\\s*\\{/, m => m + "\\n    rgcfaIncludeGoogle = true");
-if (!/androidxCredentialsVersion/.test(vars)) vars = vars.replace(/ext\\s*\\{/, m => m + "\\n    androidxCredentialsVersion = '1.3.0'");
+if (!/rgcfaIncludeGoogle/.test(vars)) vars = vars.replace(/ext\s*\{//, m => m + "\n    rgcfaIncludeGoogle = true");
+if (!/androidxCredentialsVersion/.test(vars)) vars = vars.replace(/ext\s*\{//, m => m + "\n    androidxCredentialsVersion = '1.3.0'");
 await fs.writeFile(varsPath, vars, 'utf8');
 
 const appGradle = path.join(android, 'app/build.gradle');
@@ -79,8 +79,8 @@ await fs.writeFile(appGradle, gradle, 'utf8');
 const rootGradle = path.join(android, 'build.gradle');
 let rootBuild = await fs.readFile(rootGradle, 'utf8');
 if (!rootBuild.includes('com.google.gms:google-services')) {
-  if (/buildscript\\s*\\{/.test(rootBuild)) {
-    rootBuild = rootBuild.replace(/dependencies\\s*\\{/, match => match + "\\n        classpath 'com.google.gms:google-services:4.4.4'");
+  if (/buildscript\s*\{/.test(rootBuild)) {
+    rootBuild = rootBuild.replace(/dependencies\s*\{/, match => match + "\n        classpath 'com.google.gms:google-services:4.4.4'");
   } else {
     rootBuild = "buildscript { repositories { google(); mavenCentral() } dependencies { classpath 'com.google.gms:google-services:4.4.4' } }\\n" + rootBuild;
   }
