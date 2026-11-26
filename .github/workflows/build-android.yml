@@ -64,7 +64,7 @@ jobs:
               closing = html.rfind("</body>")
               if closing < 0:
                   raise SystemExit("HTML closing body tag not found")
-              html = html[:closing] + marker + "\\n" + bridge + "\\n</script>\\n" + html[closing:]
+              html = html[:closing] + marker + chr(10) + bridge + chr(10) + "</script>" + chr(10) + html[closing:]
               html_path.write_text(html, encoding="utf-8")
           check = html_path.read_text(encoding="utf-8")
           for required in ("ethvelle-android-direct-device-media", "__ethvelleNativeLinkBridgeV1", "direct-link-no-copy", "</html>"):
@@ -115,7 +115,7 @@ jobs:
           values = root / "values"
           values.mkdir(parents=True, exist_ok=True)
           (values / "launcher_colors.xml").write_text(
-              '<?xml version="1.0" encoding="utf-8"?>\\n<resources><color name="ethvelle_launcher_background">#0F0F12</color></resources>\\n',
+              '<?xml version="1.0" encoding="utf-8"?>' + chr(10) + '<resources><color name="ethvelle_launcher_background">#0F0F12</color></resources>' + chr(10),
               encoding="utf-8")
           adaptive = """<?xml version="1.0" encoding="utf-8"?>
           <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
