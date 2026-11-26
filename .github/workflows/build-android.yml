@@ -70,6 +70,62 @@ jobs:
           for required in ("ethvelle-android-direct-device-media", "__ethvelleNativeLinkBridgeV1", "direct-link-no-copy", "</html>"):
               if required not in check:
                   raise SystemExit("Missing native media integration marker: " + required)
+          # Device-linked URLs are streamed on demand. Do not generate filmstrips,
+          # decode whole audio files into WebAudio buffers, warm future clips, or gate
+          # project opening on a preloaded copy of those original device files.
+          replacements = [
+              (
+                  "const src=sourceOf(ov);if(!src||src.indexOf('ethvelle-device-media://')===0)return;",
+                  "const src=sourceOf(ov);if(!src||src.indexOf('ethvelle-device-media://')===0||src.indexOf('/native-media/')!==-1)return;"
+              ),
+              (
+                  "sourceOf(x).indexOf('ethvelle-device-media://')!==0);",
+                  "sourceOf(x).indexOf('ethvelle-device-media://')!==0&&sourceOf(x).indexOf('/native-media/')===-1);"
+              ),
+              (
+                  "const audibles=overlays.filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback);",
+                  "const audibles=overlays.filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback&&String(ov.src).indexOf('/native-media/')===-1);"
+              ),
+              (
+                  "const isMedia=ov=>!!ov&&(ov.type==='video'||ov.type==='audio')&&!!ov.src&&!ov.reversePlayback&&num(ov.trimEnd)>num(ov.trimStart);",
+                  "const isMedia=ov=>!!ov&&(ov.type==='video'||ov.type==='audio')&&!!ov.src&&!ov.reversePlayback&&String(ov.src).indexOf('/native-media/')===-1&&num(ov.trimEnd)>num(ov.trimStart);"
+              ),
+              (
+                  "const projectMedia=Array.isArray(overlays)?overlays.filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback):[];",
+                  "const projectMedia=Array.isArray(overlays)?overlays.filter(ov=>ov&&ov.src&&['video','audio'].includes(ov.type)&&!ov.reversePlayback&&String(ov.src).indexOf('/native-media/')===-1):[];"
+              ),
+              (
+                  "const upcoming=!active&&start>=time&&start-time<=preloadAhead;",
+                  "const directDeviceLink=String(ov.src||'').indexOf('/native-media/')!==-1;const upcoming=!directDeviceLink&&!active&&start>=time&&start-time<=preloadAhead;"
+              ),
+              (
+                  "Number(ov.trimStart)-Number(tSec)<=EV_WARM_AHEAD_SEC&&",
+                  "Number(ov.trimStart)-Number(tSec)<=EV_WARM_AHEAD_SEC&&String(ov.src||'').indexOf('/native-media/')===-1&&"
+              ),
+              (
+                  "el.muted=true;el.defaultMuted=true;el.setAttribute('muted','');el.playsInline=true;el.loop=false;el.preload='auto';",
+                  "el.muted=true;el.defaultMuted=true;el.setAttribute('muted','');el.playsInline=true;el.loop=false;el.preload=String(ov.src||'').indexOf('/native-media/')!==-1?'metadata':'auto';"
+              ),
+              (
+                  "el.preload='auto';\\n    el.autoplay=false;",
+                  "el.preload=String(ov.src||'').indexOf('/native-media/')!==-1?'metadata':'auto';\\n    el.autoplay=false;"
+              ),
+              (
+                  "num(ov.trimStart)<=t&&num(ov.trimEnd)>t).map(ov=>String(ov.src))));",
+                  "String(ov.src||'').indexOf('/native-media/')===-1&&num(ov.trimStart)<=t&&num(ov.trimEnd)>t).map(ov=>String(ov.src))));"
+              )
+          ]
+          for old, new in replacements:
+              count = html.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected one no-preload patch target, found {count}: {old[:90]}")
+              html = html.replace(old, new, 1)
+          html_path.write_text(html, encoding="utf-8")
+          check = html_path.read_text(encoding="utf-8")
+          if "directDeviceLink=String(ov.src||'').indexOf('/native-media/')!==-1" not in check:
+              raise SystemExit("Direct device media preload exclusion failed")
+          if "direct-link-no-copy" not in check:
+              raise SystemExit("Direct media bridge missing after preload patch")
           print(f"Bundled v439 HTML with native media linker: {html_path.stat().st_size:,} bytes")
           PY
           test -s "$output"
