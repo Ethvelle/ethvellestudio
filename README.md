@@ -1,35 +1,33 @@
-# Ethvelle Android APK
+# Ethvelle Android WebView APK
 
-This repository builds an Android APK from the current uploaded `Ethvelle_v365_Character_Voices.html` editor.
+This repository builds an installable Android WebView wrapper around the uploaded Ethvelle v439 editor HTML.
 
-## Android-native media linking
+## What is included
 
-The APK includes an Android Storage Access Framework (SAF) picker. The editor's supported media import action opens the device picker for an image, video, or audio file. The app requests persistable read permission and saves the selected file's `content://` URI in app preferences.
+- The v439 HTML editor is bundled inside the APK and loaded on a local HTTPS origin with AndroidX WebViewAssetLoader.
+- The app uses the existing Android WebView file chooser for the editor's standard image, video, audio, and other file-upload inputs.
+- The app keeps the existing application ID: `com.ethvelle.editor`.
+- Android version code is `439` and version name is `4.39.0`.
 
-The editor stores only a small metadata/reference record in IndexedDB for this native import path. The media bytes are not copied into IndexedDB. A local HTTPS WebViewAssetLoader URL streams the original selected file and supports HTTP byte-range requests for playback and seeking when the chosen document provider supports random access.
+## Build with GitHub Actions
 
-The browser website remains unchanged and continues to use its existing browser media storage behaviour.
-
-## Source layout
-
-- `android/` contains the Android Studio / Gradle project.
-- `android-source-v365/part-*.txt` stores the current v365 HTML in ordered source chunks. The workflow joins the chunks in the correct order before building the APK.
-- `.github/workflows/build-android.yml` builds the debug APK automatically on pushes to `main` or `master`, and can also be started manually.
-
-## Download the APK
+The workflow `.github/workflows/build-android.yml` builds the debug APK on pushes to `main` or `master`, and it also supports manual runs.
 
 1. Open the repository's **Actions** tab.
-2. Open the latest **Build Ethvelle Android APK** run.
-3. When the run succeeds, open **Artifacts** and download **Ethvelle-Android-APK**.
-4. Extract the artifact ZIP and install `app-debug.apk` on Android. Android may ask you to allow installation from the browser or file manager used to download it.
+2. Open **Build Ethvelle Android APK**.
+3. Select the successful v439 run.
+4. Under **Artifacts**, download `Ethvelle-Android-APK-v439`.
+5. Extract the ZIP and install `app-debug.apk` on Android.
+
+The artifact is retained for 14 days.
 
 ## Build locally
 
 Open the `android/` folder in Android Studio. The project uses Java 17, Gradle 8.13, Android Gradle Plugin 8.13.2, compile SDK 36 and AndroidX WebKit 1.18.0.
 
-## Important limits
+## Important notes
 
-- This workflow creates a debug APK for testing, not a Play Store-signed release.
-- A linked media file remains tied to the Android app installation and its original document provider. If the source file is deleted, moved, or access is revoked, it must be selected again.
-- Some document providers do not support persistent URI permission or efficient random access. Large-file playback and seeking should be tested on the target Android phone.
-- Firebase/cloud-backed parts of the editor still need an internet connection; only the editor HTML shell is bundled into the APK.
+- This workflow produces a debug APK for testing, not a Play Store-signed release.
+- The editor HTML is bundled in the APK. Updating the website source later does not automatically update an already installed APK; build and install a newer APK for those changes.
+- Firebase, Cloudinary, fonts, and other remote services still require an internet connection.
+- Uploaded media is handled by the WebView's Android file chooser and by the v439 editor's own media flow. Device-specific file permissions and large-media behaviour should be tested on the target phone.
