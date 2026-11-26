@@ -1,0 +1,185 @@
+(function(){
+  'use strict';
+  /* Admin "Animations & access" / "Effects" pages can edit, delete (hide) and restore the built-in animations and
+     effects. The overrides ride inside siteContent.animationAccess as "meta:anim:<key>" / "meta:fx:<key>"
+     entries: { name?, category?, deleted? }. Projects that already use a hidden item keep working. */
+  function meta(kind,key){
+    try{const m=siteContent&&siteContent.animationAccess&&siteContent.animationAccess['meta:'+kind+':'+key];return m&&typeof m==='object'&&!Array.isArray(m)?m:{};}catch(_e){return {};}
+  }
+  window.ethvelleBuiltinMeta=meta;
+  window.ethvelleBuiltinHidden=function(kind,key){return !!meta(kind,key).deleted;};
+  window.ethvelleBuiltinName=function(kind,key,fallback){const n=meta(kind,key).name;return n?String(n):fallback;};
+  function wrapGroups(){
+    const prev=window.__evFxGroups;
+    if(typeof prev!=='function'||prev.__evBuiltinManage)return;
+    const w=function(){
+      const out=prev.apply(this,arguments);
+      if(!Array.isArray(out))return out;
+      return out.map(function(g){
+        const list=(g[1]||[]).filter(function(x){return x[0]==='none'||!window.ethvelleBuiltinHidden('fx',x[0]);})
+          .map(function(x){const n=meta('fx',x[0]).name;return n?[x[0],String(n)]:x;});
+        return [g[0],list];
+      }).filter(function(g){return g[1].length;});
+    };
+    w.__evBuiltinManage=true;window.__evFxGroups=w;
+  }
+  wrapGroups();setTimeout(wrapGroups,0);setTimeout(wrapGroups,1500);window.addEventListener('load',wrapGroups);
+})();
+</script>
+<style id="ethvelle-v432-effect-device-css">
+  /* Effect download popup */
+  #evEffectDl{position:fixed;inset:0;z-index:100000;display:flex;align-items:center;justify-content:center;background:rgba(5,6,10,.5);opacity:0;pointer-events:none;transition:opacity .2s ease;-webkit-backdrop-filter:blur(2px);backdrop-filter:blur(2px);}
+  #evEffectDl.show{opacity:1;pointer-events:auto;}
+  #evEffectDl .evad-card{width:min(264px,calc(100vw - 48px));padding:22px 20px 18px;border-radius:20px;background:#17181F;border:1px solid rgba(255,255,255,.1);box-shadow:0 18px 50px rgba(0,0,0,.55);text-align:center;transform:translateY(14px) scale(.96);transition:transform .22s cubic-bezier(.2,.9,.3,1.2);}
+  #evEffectDl.show .evad-card{transform:none;}
+  #evEffectDl .evad-ring{position:relative;width:76px;height:76px;margin:0 auto 14px;border-radius:50%;background:radial-gradient(circle at 50% 40%,rgba(47,92,232,.35),rgba(47,92,232,.08));border:2px solid rgba(111,155,255,.55);display:flex;align-items:center;justify-content:center;overflow:hidden;transition:border-color .25s,background .25s;}
+  #evEffectDl .evad-arrow{position:absolute;width:30px;height:30px;fill:none;stroke:#8FB0FF;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round;animation:evadDrop 1.1s ease-in infinite;}
+  #evEffectDl .evad-check{position:absolute;width:34px;height:34px;fill:none;stroke:#3DDC97;stroke-width:3;stroke-linecap:round;stroke-linejoin:round;stroke-dasharray:30;stroke-dashoffset:30;opacity:0;}
+  #evEffectDl .evad-tray{position:absolute;left:50%;bottom:14px;width:30px;height:4px;margin-left:-15px;border-radius:3px;background:#8FB0FF;opacity:.85;}
+  @keyframes evadDrop{0%{transform:translateY(-34px);opacity:0}25%{opacity:1}75%{transform:translateY(6px);opacity:1}100%{transform:translateY(12px);opacity:0}}
+  #evEffectDl .evad-title{font-size:14px;font-weight:800;color:#fff;margin-bottom:4px;}
+  #evEffectDl .evad-name{font-size:11.5px;color:#9AA1B2;margin-bottom:14px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  #evEffectDl .evad-bar{height:6px;border-radius:99px;background:rgba(255,255,255,.1);overflow:hidden;position:relative;}
+  #evEffectDl .evad-bar b{display:block;height:100%;width:0;border-radius:99px;background:linear-gradient(90deg,#2F5CE8,#6F9BFF);transition:width .15s linear;}
+  #evEffectDl.indet .evad-bar b{width:38%!important;animation:evadSlide 1s ease-in-out infinite alternate;}
+  @keyframes evadSlide{from{transform:translateX(-10%)}to{transform:translateX(160%)}}
+  #evEffectDl .evad-pct{margin-top:8px;font-size:11px;font-weight:700;color:#C9D4F5;min-height:14px;font-variant-numeric:tabular-nums;}
+  #evEffectDl.done .evad-ring{border-color:#3DDC97;background:rgba(61,220,151,.12);}
+  #evEffectDl.done .evad-arrow,#evEffectDl.done .evad-tray{display:none;}
+  #evEffectDl.done .evad-check{opacity:1;animation:evadCheck .45s ease forwards;}
+  #evEffectDl.done .evad-bar b{background:#3DDC97;}
+  @keyframes evadCheck{to{stroke-dashoffset:0}}
+  @media (prefers-reduced-motion:reduce){#evEffectDl .evad-arrow{animation:none;transform:translateY(0);opacity:1}}
+
+  /* effect loading circle uses one single blue (no second light-blue tone). */
+  #evEffectDl .evad-ring{background:transparent!important;border-color:#2F5CE8!important;}
+  #evEffectDl .evad-arrow{stroke:#2F5CE8!important;}
+  #evEffectDl .evad-tray{background:#2F5CE8!important;opacity:1!important;}
+  #evEffectDl .evad-bar b{background:#2F5CE8!important;}
+  #evEffectDl .evad-pct{color:#2F5CE8!important;}
+  #evEffectDl.done .evad-ring{border-color:#3DDC97!important;background:rgba(61,220,151,.12)!important;}
+  #evEffectDl.done .evad-bar b{background:#3DDC97!important;}
+  #toolPanel .editor-asset-card.on-device .editor-asset-thumb{position:relative;}
+  #toolPanel .editor-asset-card.on-device .editor-asset-thumb::after{content:"";position:absolute;right:6px;bottom:6px;width:18px;height:18px;border-radius:50%;background:#3DDC97 url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23062114' stroke-width='3.4' stroke-linecap='round' stroke-linejoin='round'><path d='M5 12.5l4.5 4.5L19 7.5'/></svg>") center/11px no-repeat;box-shadow:0 1px 4px rgba(0,0,0,.5);pointer-events:none;}
+</style>
+<script id="ethvelle-v432-effect-device">
+(function(){
+  'use strict';
+  /* Effects are fetched from the admin-published link ONCE. The file is then stored in the browser's device media
+     store (the same store imported videos use) and every later use of that effect plays from the device. */
+  const MAP_KEY='ethvelle.effectDeviceKeys.v1',SRC_DB='ethvelle-source-media-v1';
+  const pending=new Map();
+  const readMap=()=>{try{return JSON.parse(localStorage.getItem(MAP_KEY)||'{}')||{};}catch(_e){return {};}};
+  const writeMap=m=>{try{localStorage.setItem(MAP_KEY,JSON.stringify(m));}catch(_e){}};
+  window.ethvelleFxOnDevice=function(fx){const s=String(fx&&fx.src||'');return !!(s&&readMap()[s]);};
+  function getRecord(key){
+    return new Promise(function(resolve){
+      try{
+        const r=indexedDB.open(SRC_DB,1);
+        r.onupgradeneeded=function(){if(!r.result.objectStoreNames.contains('assets'))r.result.createObjectStore('assets');};
+        r.onsuccess=function(){try{const q=r.result.transaction('assets','readonly').objectStore('assets').get(key);q.onsuccess=function(){resolve(q.result||null);};q.onerror=function(){resolve(null);};}catch(_e){resolve(null);}};
+        r.onerror=function(){resolve(null);};
+      }catch(_e){resolve(null);}
+    });
+  }
+  const typeByExt={webm:'video/webm',png:'image/png',gif:'image/gif'};
+  function extOf(src,type){
+    const t=String(type||'').toLowerCase();
+    if(t.indexOf('webm')>-1)return 'webm';if(t.indexOf('png')>-1)return 'png';if(t.indexOf('gif')>-1)return 'gif';
+    const m=String(src).split(/[?#]/)[0].match(/\.([a-z0-9]{2,5})$/i);return m?m[1].toLowerCase():'png';
+  }
+  async function fetchBlob(src,onProgress){
+    const res=await fetch(src,{mode:'cors',credentials:'omit'});
+    if(!res.ok)throw new Error('HTTP '+res.status);
+    const total=Number(res.headers.get('content-length'))||0;
+    let type=String(res.headers.get('content-type')||'').split(';')[0].trim().toLowerCase();
+    const ext0=extOf(src,type);if(!/^(video|image)\//.test(type))type=typeByExt[ext0]||'application/octet-stream';
+    if(!res.body||!res.body.getReader){const b=await res.blob();onProgress(1);return new Blob([b],{type:type});}
+    const reader=res.body.getReader(),chunks=[];let got=0;
+    for(;;){const r=await reader.read();if(r.done)break;chunks.push(r.value);got+=r.value.length;onProgress(total?Math.min(.98,got/total):-1);}
+    onProgress(1);return new Blob(chunks,{type:type});
+  }
+  /* Download popup (same look as the audio one) */
+  let popEl=null,popHide=0;
+  function ensurePop(){
+    if(popEl&&popEl.isConnected)return popEl;
+    popEl=document.createElement('div');popEl.id='evEffectDl';popEl.setAttribute('role','status');popEl.setAttribute('aria-live','polite');
+    popEl.innerHTML='<div class="evad-card"><div class="evad-ring"><svg class="evad-arrow" viewBox="0 0 24 24" aria-hidden="true"><path d="M12 4v11M7.5 10.5 12 15l4.5-4.5"/></svg><svg class="evad-check" viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg><i class="evad-tray"></i></div><div class="evad-title">Downloading effect\u2026</div><div class="evad-name"></div><div class="evad-bar"><b></b></div><div class="evad-pct">0%</div></div>';
+    document.body.appendChild(popEl);return popEl;
+  }
+  function openPop(name){
+    clearTimeout(popHide);const el=ensurePop();
+    el.classList.remove('done','indet');el.querySelector('.evad-title').textContent='Downloading effect\u2026';
+    el.querySelector('.evad-name').textContent=String(name||'');el.querySelector('.evad-bar b').style.width='0%';el.querySelector('.evad-pct').textContent='0%';
+    void el.offsetWidth;el.classList.add('show');
+  }
+  function setPop(frac){
+    const el=popEl;if(!el)return;
+    if(frac<0){el.classList.add('indet');el.querySelector('.evad-pct').textContent='';return;}
+    el.classList.remove('indet');const pct=Math.max(0,Math.min(100,Math.round(frac*100)));
+    el.querySelector('.evad-bar b').style.width=pct+'%';el.querySelector('.evad-pct').textContent=pct+'%';
+  }
+  function donePop(){
+    const el=popEl;if(!el)return Promise.resolve();
+    el.classList.remove('indet');el.classList.add('done');el.querySelector('.evad-title').textContent='Saved to your device';
+    el.querySelector('.evad-bar b').style.width='100%';el.querySelector('.evad-pct').textContent='100%';
+    return new Promise(function(resolve){popHide=setTimeout(function(){el.classList.remove('show');resolve();},850);});
+  }
+  function closePop(){clearTimeout(popHide);if(popEl)popEl.classList.remove('show');}
+  /* Resolves { blob, key }. key is the device-media key; null when the browser could not store the file. */
+  window.ethvelleFxEnsureLocal=function(fx){
+    const src=String(fx&&fx.src||'');
+    if(!src)return Promise.reject(new Error('No file'));
+    if(pending.has(src))return pending.get(src);
+    const p=(async function(){
+      const map=readMap(),have=map[src];
+      if(have){
+        const rec=await getRecord(have);
+        if(rec&&rec.blob)return {blob:rec.blob,key:have};
+        delete map[src];writeMap(map);
+      }
+      openPop(fx.name||'Effect');
+      let blob;
+      try{blob=await fetchBlob(src,setPop);}catch(err){closePop();throw err;}
+      const file=new File([blob],(String(fx.name||'effect').replace(/[\\/:*?"<>|\u0000-\u001f]+/g,'').trim().replace(/\s+/g,'-')||'effect')+'.'+extOf(src,blob.type),{type:blob.type,lastModified:Date.now()});
+      let key=null;
+      if(typeof window.__ethvelleStoreMediaFile==='function'){try{key=await window.__ethvelleStoreMediaFile(file);}catch(err){console.warn('Ethvelle effect device save failed:',err);}}
+      if(key){
+        const m=readMap();m[src]=key;writeMap(m);
+        try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();}catch(_e){}
+        await donePop();
+      }else{closePop();}
+      return {blob:file,key:key};
+    })().finally(function(){pending.delete(src);});
+    pending.set(src,p);return p;
+  };
+})();
+</script>
+<style id="ethvelle-v437-media-own-ratio">
+/* Library thumbnails show each file in its own ratio (no cropping) */
+#screen-editor .editor-assets-grid{align-items:start;}
+#screen-editor .editor-asset-thumb img,
+#screen-editor .editor-asset-thumb video{object-fit:contain!important;background:transparent;}
+/* First-frame canvas thumbnails + lock badge on plan-locked assets / effects (same lock as models) */
+.editor-asset-thumb canvas.ev-ff-thumb{width:100%;height:100%;object-fit:contain;display:block;background:transparent;}
+.editor-asset-card{position:relative;}
+.editor-asset-card .ev-model-lock{top:12px;right:12px;}
+.editor-asset-card.ev-asset-locked .editor-asset-thumb{opacity:.55;}
+</style>
+<script id="ethvelle-v437-media-own-ratio-js">
+(function(){
+  'use strict';
+  /* Home example animations: size each card from its real GIF/video dimensions. */
+  var w=document.getElementById('homeVideoScroll');if(!w)return;
+  function fit(e){
+    var m=e.target;if(!m||!m.closest)return;
+    var c=m.closest('.home-video-card');if(!c)return;
+    var a=m.naturalWidth||m.videoWidth,b=m.naturalHeight||m.videoHeight;
+    if(a>0&&b>0)c.style.aspectRatio=a+' / '+b;
+  }
+  w.addEventListener('load',fit,true);
+  w.addEventListener('loadedmetadata',fit,true);
+})();
+</script>
+</body>
+</html>
