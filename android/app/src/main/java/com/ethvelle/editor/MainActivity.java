@@ -35,6 +35,9 @@ import java.util.Map;
 import java.util.UUID;
 
 import android.content.res.AssetFileDescriptor;
+import android.graphics.BitmapFactory;
+import android.media.MediaMetadataRetriever;
+import org.json.JSONArray;
 
 public class MainActivity extends Activity {
     private static final String TAG = "Ethvelle";
@@ -45,6 +48,7 @@ public class MainActivity extends Activity {
 
     private WebView webView;
     private ValueCallback<Uri[]> webFileCallback;
+    private String pendingMediaTarget = "overlay";
     private final WebViewAssetLoader assetLoader = new WebViewAssetLoader.Builder()
             .addPathHandler("/assets/", new WebViewAssetLoader.AssetsPathHandler(this))
             .build();
@@ -114,23 +118,53 @@ public class MainActivity extends Activity {
 
     private class AndroidBridge {
         @JavascriptInterface
+        public void pickMedia(String target) {
+            runOnUiThread(() -> launchNativeMediaPicker(target));
+        }
+
+        @JavascriptInterface
         public void pickMedia() {
-            runOnUiThread(() -> {
-                try {
-                    Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
-                    intent.addCategory(Intent.CATEGORY_OPENABLE);
-                    intent.setType("*/*");
-                    intent.putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"video/*", "audio/*", "image/*"});
-                    intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, false);
-                    intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
-                    startActivityForResult(intent, REQ_NATIVE_MEDIA);
-                } catch (ActivityNotFoundException ex) {
-                    sendNativeResult(errorJson("No Android file picker is available."));
-                } catch (Exception ex) {
-                    Log.e(TAG, "Could not launch Android file picker", ex);
-                    sendNativeResult(errorJson("Could not open the device file picker."));
-                }
-            });
+            pickMedia("overlay");
+        }
+    }
+
+    private void launchNativeMediaPicker(String target) {
+        pendingMediaTarget = target == null ? "overlay" : target;
+        try {
+            Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            intent.addCategory(Intent.CATEGORY_OPENABLE);
+            intent.setType("*/*");
+
+            String[] mimeTypes;
+            switch (pendingMediaTarget) {
+                case "audio":
+                    mimeTypes = new String[]{"audio/*"};
+                    break;
+                case "background":
+                case "replace-background":
+                    mimeTypes = new String[]{"image/*"};
+                    break;
+                case "overlay":
+                case "media":
+                    mimeTypes = new String[]{"image/*", "video/*"};
+                    break;
+                case "replace-overlay":
+                    mimeTypes = new String[]{"image/*", "video/*", "audio/*"};
+                    break;
+                default:
+                    mimeTypes = new String[]{"image/*", "video/*", "audio/*"};
+                    break;
+            }
+            intent.putExtra(Intent.EXTRA_MIME_TYPES, mimeTypes);
+            boolean allowMultiple = !pendingMediaTarget.startsWith("replace-");
+            intent.putExtra(Intent.EXTRA_ALLOW_MULTIPLE, allowMultiple);
+            intent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+            startActivityForResult(intent, REQ_NATIVE_MEDIA);
+        } catch (ActivityNotFoundException ex) {
+            sendNativeResult(errorJson("No Android file picker is available."));
+        } catch (Exception ex) {
+            Log.e(TAG, "Could not launch Android file picker", ex);
+            sendNativeResult(errorJson("Could not open the device file picker."));
         }
     }
 
@@ -138,43 +172,31 @@ public class MainActivity extends Activity {
     protected void onActivityResult(int requestCode, int resultCode, @Nullable Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_NATIVE_MEDIA) {
-            if (resultCode != RESULT_OK || data == null || data.getData() == null) {
-                sendNativeResult("{\"cancelled\":true}");
+            if (resultCode != RESULT_OK || data == null) {
+                sendNativeResult("{\\"cancelled\\":true}");
                 return;
             }
-            Uri uri = data.getData();
-            int grantedFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
-            try {
-                getContentResolver().takePersistableUriPermission(uri, grantedFlags);
-            } catch (Exception ex) {
-                Log.w(TAG, "Persistable URI permission unavailable; access may be temporary", ex);
-            }
-            try {
-                String key = "native-" + UUID.randomUUID().toString().replace("-", "");
-                String name = queryDisplayName(uri);
-                long size = querySize(uri);
-                String mime = getContentResolver().getType(uri);
-                if (mime == null || mime.trim().isEmpty()) mime = guessMime(name);
 
-                SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
-                prefs.edit().putString("uri_" + key, uri.toString())
-                        .putString("name_" + key, name)
-                        .putString("mime_" + key, mime)
-                        .putLong("size_" + key, size)
-                        .apply();
+            try {
+                JSONArray items = new JSONArray();
+                int grantedFlags = data.getFlags() & Intent.FLAG_GRANT_READ_URI_PERMISSION;
+                if (data.getClipData() != null) {
+                    int count = data.getClipData().getItemCount();
+                    for (int i = 0; i < count; i++) {
+                        Uri uri = data.getClipData().getItemAt(i).getUri();
+                        if (uri != null) items.put(registerNativeMedia(uri, grantedFlags));
+                    }
+                } else if (data.getData() != null) {
+                    items.put(registerNativeMedia(data.getData(), grantedFlags));
+                }
 
-                JSONObject item = new JSONObject();
-                item.put("key", key);
-                item.put("uri", uri.toString());
-                item.put("url", "https://" + APP_HOST + "/native-media/" + key);
-                item.put("name", name);
-                item.put("type", mime);
-                item.put("size", size);
-                item.put("lastModified", 0);
-                sendNativeResult(item.toString());
+                JSONObject payload = new JSONObject();
+                payload.put("items", items);
+                payload.put("cancelled", items.length() == 0);
+                sendNativeResult(payload.toString());
             } catch (Exception ex) {
                 Log.e(TAG, "Could not register selected device media", ex);
-                sendNativeResult(errorJson("Could not link the selected file."));
+                sendNativeResult(errorJson("Could not link the selected device media."));
             }
         } else if (requestCode == REQ_WEB_FILE) {
             if (webFileCallback == null) return;
@@ -190,6 +212,73 @@ public class MainActivity extends Activity {
             }
             webFileCallback.onReceiveValue(results);
             webFileCallback = null;
+        }
+    }
+
+    private JSONObject registerNativeMedia(Uri uri, int grantedFlags) throws Exception {
+        try {
+            getContentResolver().takePersistableUriPermission(uri, grantedFlags);
+        } catch (Exception ex) {
+            Log.w(TAG, "Persistable URI permission unavailable; provider access may be temporary", ex);
+        }
+
+        String key = "native-" + UUID.randomUUID().toString().replace("-", "");
+        String name = queryDisplayName(uri);
+        long size = querySize(uri);
+        String mime = getContentResolver().getType(uri);
+        if (mime == null || mime.trim().isEmpty()) mime = guessMime(name);
+
+        SharedPreferences prefs = getSharedPreferences(PREFS, MODE_PRIVATE);
+        prefs.edit().putString("uri_" + key, uri.toString())
+                .putString("name_" + key, name)
+                .putString("mime_" + key, mime)
+                .putLong("size_" + key, size)
+                .apply();
+
+        JSONObject item = new JSONObject();
+        item.put("key", key);
+        item.put("uri", uri.toString());
+        item.put("url", "https://" + APP_HOST + "/native-media/" + key);
+        item.put("name", name);
+        item.put("type", mime);
+        item.put("size", size);
+        item.put("lastModified", 0);
+        attachQuickMediaMetadata(item, uri, mime);
+        return item;
+    }
+
+    /*
+     * Reads only container/header metadata. The media bytes are never copied into the app,
+     * IndexedDB, cache files, or Cloudinary. Playback is streamed from the selected content URI.
+     */
+    private void attachQuickMediaMetadata(JSONObject item, Uri uri, String mime) {
+        if (mime != null && (mime.startsWith("video/") || mime.startsWith("audio/"))) {
+            MediaMetadataRetriever retriever = new MediaMetadataRetriever();
+            try {
+                retriever.setDataSource(this, uri);
+                String duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION);
+                String width = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_WIDTH);
+                String height = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_VIDEO_HEIGHT);
+                if (duration != null) item.put("duration", Math.max(0, Long.parseLong(duration)) / 1000.0);
+                if (width != null) item.put("width", Math.max(0, Integer.parseInt(width)));
+                if (height != null) item.put("height", Math.max(0, Integer.parseInt(height)));
+            } catch (Exception ex) {
+                Log.w(TAG, "Could not read media header metadata", ex);
+            } finally {
+                try { retriever.release(); } catch (Exception ignored) {}
+            }
+        } else if (mime != null && mime.startsWith("image/")) {
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inJustDecodeBounds = true;
+            try (InputStream input = getContentResolver().openInputStream(uri)) {
+                if (input != null) {
+                    BitmapFactory.decodeStream(input, null, options);
+                    item.put("width", Math.max(0, options.outWidth));
+                    item.put("height", Math.max(0, options.outHeight));
+                }
+            } catch (Exception ex) {
+                Log.w(TAG, "Could not read image header metadata", ex);
+            }
         }
     }
 
