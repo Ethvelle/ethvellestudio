@@ -169,7 +169,7 @@ public class MainActivity extends Activity {
         super.onActivityResult(requestCode, resultCode, data);
         if (requestCode == REQ_NATIVE_MEDIA) {
             if (resultCode != RESULT_OK || data == null) {
-                sendNativeResult("{\\"cancelled\\":true}");
+                sendNativeResult("{\"cancelled\":true}");
                 return;
             }
 
