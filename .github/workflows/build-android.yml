@@ -34,43 +34,32 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Rebuild v365 HTML and inject Android SAF bridge
+      - name: Assemble v439 HTML for the WebView
         shell: bash
         run: |
           mkdir -p android/app/src/main/assets
           shopt -s nullglob
-          source_parts=(android-source-v365/part-*.txt)
-          test "${#source_parts[@]}" -eq 102
+          source_parts=(android-source-v439/part-*.txt)
+          test "${#source_parts[@]}" -eq 16
           output="android/app/src/main/assets/index.html"
           : > "$output"
           for part in "${source_parts[@]}"; do
-            case "$part" in
-              *part-063001-*.txt) cat "$part" >> "$output" ;;
-              *part-070001.txt) cat "$part" >> "$output" ;;
-              *) cat "$part" >> "$output"; printf '\n' >> "$output" ;;
-            esac
+            cat "$part" >> "$output"
+            printf '\n' >> "$output"
           done
           python3 - <<'PY'
           from pathlib import Path
           html_path = Path("android/app/src/main/assets/index.html")
-          bridge_path = Path("android-native-media-bridge.js")
           html = html_path.read_text(encoding="utf-8")
-          bridge = bridge_path.read_text(encoding="utf-8")
-          marker = '<script id="ethvelle-android-native-media-bridge">'
-          if marker not in html:
-              closing = html.rfind("</body>")
-              if closing < 0:
-                  raise SystemExit("HTML closing body tag not found")
-              injection = marker + "\n" + bridge + "\n</script>\n"
-              html = html[:closing] + injection + html[closing:]
-              html_path.write_text(html, encoding="utf-8")
-          if marker not in html_path.read_text(encoding="utf-8"):
-              raise SystemExit("Android SAF bridge injection failed")
+          if not html.lstrip().startswith("<!DOCTYPE html>"):
+              raise SystemExit("The bundled editor HTML has an invalid beginning.")
+          if not html.rstrip().lower().endswith("</html>"):
+              raise SystemExit("The bundled editor HTML is incomplete.")
+          if 'id="ethvelle-v439-cloud-media"' not in html:
+              raise SystemExit("The expected v439 Cloud Media source was not found.")
+          print(f"Bundled v439 HTML: {html_path.stat().st_size:,} bytes")
           PY
           test -s "$output"
-          echo "Bundled HTML bytes: $(wc -c < "$output")"
-          grep -q 'ethvelle-android-native-media-bridge' "$output"
-          grep -q '</html>' "$output"
 
       - name: Build debug APK
         run: gradle --no-daemon -p android assembleDebug
@@ -78,7 +67,7 @@ jobs:
       - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Ethvelle-Android-APK
+          name: Ethvelle-Android-APK-v439
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
