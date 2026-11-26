@@ -107,8 +107,8 @@ jobs:
                   "el.muted=true;el.defaultMuted=true;el.setAttribute('muted','');el.playsInline=true;el.loop=false;el.preload=String(ov.src||'').indexOf('/native-media/')!==-1?'metadata':'auto';"
               ),
               (
-                  "el.preload='auto';\\n    el.autoplay=false;",
-                  "el.preload=String(ov.src||'').indexOf('/native-media/')!==-1?'metadata':'auto';\\n    el.autoplay=false;"
+                  "el.preload='auto';\n    el.autoplay=false;",
+                  "el.preload=String(ov.src||'').indexOf('/native-media/')!==-1?'metadata':'auto';\n    el.autoplay=false;"
               ),
               (
                   "num(ov.trimStart)<=t&&num(ov.trimEnd)>t).map(ov=>String(ov.src))));",
