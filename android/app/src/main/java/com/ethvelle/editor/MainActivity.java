@@ -122,10 +122,6 @@ public class MainActivity extends Activity {
             runOnUiThread(() -> launchNativeMediaPicker(target));
         }
 
-        @JavascriptInterface
-        public void pickMedia() {
-            pickMedia("overlay");
-        }
     }
 
     private void launchNativeMediaPicker(String target) {
