@@ -154,6 +154,7 @@
       if(String(target).indexOf('replace-')===0)items=items.slice(0,1);
       var linked=0,errors=[];
       for(var i=0;i<items.length;i++){
+        if(i>0)await new Promise(function(resolve){setTimeout(resolve,12);});
         try{
           await linkOne(items[i],target,appendGroup,replaceId);
           linked++;
@@ -171,7 +172,7 @@
       notify(err&&err.message?err.message:'Could not open device media.','info');
     }finally{
       try{if(typeof uploadAppendGroup!=='undefined')uploadAppendGroup=null;}catch(_e){}
-      try{if(typeof replaceTargetId!=='undefined'&&String(target)==='replace-overlay')replaceTargetId=null;}catch(_e){}
+      try{if(typeof replaceTargetId!=='undefined'&&String(target).indexOf('replace-')===0)replaceTargetId=null;}catch(_e){}
     }
   }
 
