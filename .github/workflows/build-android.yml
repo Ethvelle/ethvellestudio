@@ -34,7 +34,7 @@ jobs:
       - name: Install Android SDK packages
         run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
 
-      - name: Assemble v439 HTML for the WebView
+      - name: Assemble v439 HTML and inject direct device media linker
         shell: bash
         run: |
           mkdir -p android/app/src/main/assets
@@ -50,16 +50,83 @@ jobs:
           python3 - <<'PY'
           from pathlib import Path
           html_path = Path("android/app/src/main/assets/index.html")
+          bridge_path = Path("android-device-media-linker.js")
           html = html_path.read_text(encoding="utf-8")
+          bridge = bridge_path.read_text(encoding="utf-8")
           if not html.lstrip().startswith("<!DOCTYPE html>"):
               raise SystemExit("The bundled editor HTML has an invalid beginning.")
           if not html.rstrip().lower().endswith("</html>"):
               raise SystemExit("The bundled editor HTML is incomplete.")
           if 'id="ethvelle-v439-cloud-media"' not in html:
-              raise SystemExit("The expected v439 Cloud Media source was not found.")
-          print(f"Bundled v439 HTML: {html_path.stat().st_size:,} bytes")
+              raise SystemExit("The expected v439 media source was not found.")
+          marker = '<script id="ethvelle-android-direct-device-media">'
+          if marker not in html:
+              closing = html.rfind("</body>")
+              if closing < 0:
+                  raise SystemExit("HTML closing body tag not found")
+              html = html[:closing] + marker + "\\n" + bridge + "\\n</script>\\n" + html[closing:]
+              html_path.write_text(html, encoding="utf-8")
+          check = html_path.read_text(encoding="utf-8")
+          for required in ("ethvelle-android-direct-device-media", "__ethvelleNativeLinkBridgeV1", "direct-link-no-copy", "</html>"):
+              if required not in check:
+                  raise SystemExit("Missing native media integration marker: " + required)
+          print(f"Bundled v439 HTML with native media linker: {html_path.stat().st_size:,} bytes")
           PY
           test -s "$output"
+
+      - name: Download website favicon and create Android launcher icons
+        shell: bash
+        run: |
+          set -euo pipefail
+          ICON_URL="https://i.ibb.co.com/4RKB6tzY/Picsart-26-11-18-20-36-10-772.png"
+          curl -fL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 90 "$ICON_URL" -o /tmp/ethvelle-favicon.png
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageOps
+          import xml.etree.ElementTree as ET
+
+          source = Image.open("/tmp/ethvelle-favicon.png").convert("RGBA")
+          if source.width < 64 or source.height < 64:
+              raise SystemExit(f"Favicon image is unexpectedly small: {source.size}")
+          root = Path("android/app/src/main/res")
+          bg = (15, 15, 18, 255)
+          sizes = {"mipmap-mdpi":48, "mipmap-hdpi":72, "mipmap-xhdpi":96,
+                   "mipmap-xxhdpi":144, "mipmap-xxxhdpi":192}
+          for folder, size in sizes.items():
+              out = root / folder
+              out.mkdir(parents=True, exist_ok=True)
+              fitted = ImageOps.contain(source, (size, size), Image.Resampling.LANCZOS)
+              canvas = Image.new("RGBA", (size, size), bg)
+              canvas.alpha_composite(fitted, ((size-fitted.width)//2, (size-fitted.height)//2))
+              canvas.save(out / "ic_launcher.png", optimize=True)
+              canvas.save(out / "ic_launcher_round.png", optimize=True)
+
+          # Adaptive icon foreground: keep the favicon inside Android's safe circular mask.
+          foreground = Image.new("RGBA", (432, 432), (0, 0, 0, 0))
+          fitted = ImageOps.contain(source, (288, 288), Image.Resampling.LANCZOS)
+          foreground.alpha_composite(fitted, ((432-fitted.width)//2, (432-fitted.height)//2))
+          nodpi = root / "drawable-nodpi"
+          nodpi.mkdir(parents=True, exist_ok=True)
+          foreground.save(nodpi / "ic_launcher_foreground.png", optimize=True)
+
+          anydpi = root / "mipmap-anydpi-v26"
+          anydpi.mkdir(parents=True, exist_ok=True)
+          values = root / "values"
+          values.mkdir(parents=True, exist_ok=True)
+          (values / "launcher_colors.xml").write_text(
+              '<?xml version="1.0" encoding="utf-8"?>\\n<resources><color name="ethvelle_launcher_background">#0F0F12</color></resources>\\n',
+              encoding="utf-8")
+          adaptive = """<?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ethvelle_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          """
+          (anydpi / "ic_launcher.xml").write_text(adaptive, encoding="utf-8")
+          (anydpi / "ic_launcher_round.xml").write_text(adaptive, encoding="utf-8")
+          print(f"Android launcher icon generated from website favicon ({source.width}x{source.height})")
+          PY
 
       - name: Build debug APK
         run: gradle --no-daemon -p android assembleDebug
@@ -67,7 +134,7 @@ jobs:
       - name: Upload installable APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Ethvelle-Android-APK-v439
+          name: Ethvelle-Android-APK-v440-Device-Link
           path: android/app/build/outputs/apk/debug/app-debug.apk
           if-no-files-found: error
           retention-days: 14
