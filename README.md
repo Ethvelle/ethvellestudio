@@ -1,38 +1,23 @@
-# Ethvelle Android WebView APK
+# Ethvelle studio
 
-This repository builds the Ethvelle v439 editor as an installable Android WebView app.
+The repository hosts the Ethvelle editor website and builds its Android app.
 
-## Direct device media linking
+## Website
 
-On Android, the editor's Clips, Audio, Background, and Replace media actions open the native Android document picker. Multiple compatible files can be selected in one operation where the Android file provider supports it.
+GitHub Pages: https://uttamdas5830-creator.github.io/ethvelle-editor/
 
-The selected media remains in its original location on the phone. The app stores only a small URI reference and metadata in Android preferences, then exposes the original file through a local HTTPS WebView endpoint with byte-range streaming. It does not copy selected media into IndexedDB, localStorage, app media folders, or Cloudinary. It also skips import-time filmstrip and waveform generation. The editor requests media only when a preview or playback actually needs it.
+The Pages workflow assembles the editor source with the Step 4 browser bridge scripts. Native-only functions use browser fallbacks outside the Android app.
 
-No broad gallery permission is requested: Android grants access to the files the user explicitly selects. If a linked file is moved, deleted, or access is revoked, that clip will need to be relinked.
+## Android APK
 
-## App icon
+The **Build Ethvelle studio Android APK (Step 4)** workflow runs when the editor or Step 4 sources change, and can also be started manually from the Actions tab.
 
-The Android launcher icon is generated during the GitHub Actions build from the same PNG URL used by the website favicon in the v439 HTML.
+The workflow builds the Capacitor Android app as **Ethvelle studio**, sets the supplied transparent PNG as its launcher icon, includes device-media linking and on-device project-file storage, and publishes the debug APK as a workflow artifact and GitHub Release.
 
-## Build with GitHub Actions
+Latest APK: https://github.com/uttamdas5830-creator/ethvelle-editor/releases/download/ethvelle-studio-latest/Ethvelle-studio.apk
 
-The workflow `.github/workflows/build-android.yml` builds a debug APK on pushes to `main` or `master`, and it also supports manual runs.
+The APK is for direct Android installation/testing and is not signed as a Play Store release. Workflow artifacts are retained for 14 days.
 
-1. Open the repository's **Actions** tab.
-2. Open the latest **Build Ethvelle Android APK** run.
-3. When the run succeeds, open **Artifacts**.
-4. Download **Ethvelle-Android-APK-v440-Device-Link**.
-5. Extract the ZIP and install `app-debug.apk` on Android.
+## Native storage behaviour
 
-The artifact is retained for 14 days.
-
-## Build locally
-
-Open the `android/` folder in Android Studio. The project uses Java 17, Gradle 8.13, Android Gradle Plugin 8.13.2, compile SDK 36 and AndroidX WebKit 1.18.0.
-
-## Important notes
-
-- This workflow creates a debug APK for testing, not a Play Store-signed release.
-- Linked media must remain accessible through the original Android document provider. The app does not create a second copy.
-- Firebase, Cloudinary-hosted site content, fonts and other remote services still need an internet connection.
-- The device-link bridge is injected into the Android APK only; the browser website continues to use its normal browser file picker and storage behaviour.
+Selected phone media stays in its original device location and is linked through Android document-provider access. Project JSON data is stored in the app's private files directory. Uninstalling the app removes its private project data.

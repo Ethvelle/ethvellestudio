@@ -1,15 +1,23 @@
-name: Deploy Ethvelle to GitHub Pages
+name: Deploy Ethvelle studio to GitHub Pages
+
 on:
   push:
     branches: [main]
+    paths:
+      - "android-source-v439/**"
+      - "step4-source-parts/**"
+      - ".github/workflows/deploy-pages.yml"
   workflow_dispatch:
+
 permissions:
   contents: read
   pages: write
   id-token: write
+
 concurrency:
   group: github-pages
   cancel-in-progress: true
+
 jobs:
   deploy:
     environment:
@@ -17,15 +25,66 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - name: Assemble original HTML
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Restore Step 4 browser bridge files
+        shell: bash
         run: |
-          cat site-source/part-{01..13}.txt > index.html
-          test -s index.html
-          test "$(tail -c 8 index.html)" = '</html>' || true
-      - uses: actions/configure-pages@v5
-      - uses: actions/upload-pages-artifact@v3
+          set -euo pipefail
+          source_parts=(step4-source-parts/part-*.b64)
+          if [ "${#source_parts[@]}" -ne 6 ]; then
+            echo "Expected 6 Step 4 source archive parts."
+            exit 1
+          fi
+          cat "${source_parts[@]}" | base64 --decode > /tmp/step4-source.tar.xz
+          tar -xJf /tmp/step4-source.tar.xz -C .
+
+      - name: Assemble hosted editor site
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p site-dist
+          shopt -s nullglob
+          parts=(android-source-v439/part-*.txt)
+          if [ "${#parts[@]}" -ne 16 ]; then
+            echo "Expected all 16 editor source parts."
+            exit 1
+          fi
+          cat "${parts[@]}" > /tmp/ethvelle-index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("/tmp/ethvelle-index.html")
+          html = p.read_text(encoding="utf-8")
+          marker = '<!-- Ethvelle native bridge (Step 2: link media from device) -->'
+          anchor = '<!-- ================= FIREBASE (user login + read-only site content) ================='
+          scripts = ('<script src="native/device-media.js"></script>\n'
+                     '<script src="native/device-link.js"></script>\n'
+                     '<script src="native/project-store.js"></script>\n')
+          if marker not in html:
+              at = html.find(anchor)
+              if at < 0:
+                  raise SystemExit("Could not locate the expected Firebase insertion point.")
+              html = html[:at] + marker + '\n' + scripts + html[at:]
+          for required in ("native/device-media.js", "native/device-link.js",
+                           "native/project-store.js", "ethvelle-v439-cloud-media",
+                           "</body>", "</html>"):
+              if required not in html:
+                  raise SystemExit("Missing required website marker: " + required)
+          p.write_text(html, encoding="utf-8")
+          PY
+          cp /tmp/ethvelle-index.html site-dist/index.html
+          cp -R mobile-app/www/native site-dist/native
+          test -s site-dist/index.html
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
         with:
-          path: .
-      - id: deployment
+          path: site-dist
+
+      - name: Publish site
+        id: deployment
         uses: actions/deploy-pages@v4

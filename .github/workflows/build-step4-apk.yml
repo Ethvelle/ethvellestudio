@@ -1,0 +1,189 @@
+name: Build Ethvelle studio Android APK (Step 4)
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "android-source-v439/**"
+      - "step4-source-parts/**"
+      - ".github/workflows/build-step4-apk.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install Android SDK 36
+        run: |
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Restore Step 4 Capacitor and native source files
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/step4-src
+          source_parts=(step4-source-parts/part-*.b64)
+          if [ "${#source_parts[@]}" -ne 6 ]; then
+            echo "Expected 6 Step 4 source archive parts."
+            exit 1
+          fi
+          cat "${source_parts[@]}" | base64 --decode > /tmp/step4-source.tar.xz
+          tar -xJf /tmp/step4-source.tar.xz -C .
+          test -s mobile-app/capacitor.config.json
+          test -s mobile-app/native-src/com/ethvelle/editor/MainActivity.java
+          test -s mobile-app/www/native/device-media.js
+
+      - name: Assemble website bundle from current editor source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p mobile-app/www
+          shopt -s nullglob
+          parts=(android-source-v439/part-*.txt)
+          if [ "${#parts[@]}" -ne 16 ]; then
+            echo "Expected all 16 editor source parts."
+            exit 1
+          fi
+          cat "${parts[@]}" > mobile-app/www/index.html
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("mobile-app/www/index.html")
+          html = p.read_text(encoding="utf-8")
+          marker = '<!-- Ethvelle native bridge (Step 2: link media from device) -->'
+          anchor = '<!-- ================= FIREBASE (user login + read-only site content) ================='
+          scripts = ('<script src="native/device-media.js"></script>\n'
+                     '<script src="native/device-link.js"></script>\n'
+                     '<script src="native/project-store.js"></script>\n')
+          if marker not in html:
+              at = html.find(anchor)
+              if at < 0:
+                  raise SystemExit("Could not locate the expected Firebase insertion point.")
+              html = html[:at] + marker + '\n' + scripts + html[at:]
+          for required in ("native/device-media.js", "native/device-link.js",
+                           "native/project-store.js", "ethvelle-v439-cloud-media",
+                           "</body>", "</html>"):
+              if required not in html:
+                  raise SystemExit("Missing required website marker: " + required)
+          p.write_text(html, encoding="utf-8")
+          print("Prepared editor HTML:", p.stat().st_size, "bytes")
+          PY
+
+      - name: Generate Capacitor Android project and install native plugins
+        working-directory: mobile-app
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm install --no-audit --no-fund
+          npx cap add android
+          mkdir -p android/app/src/main/java/com/ethvelle/editor
+          cp native-src/com/ethvelle/editor/*.java android/app/src/main/java/com/ethvelle/editor/
+          npx cap sync android
+
+      - name: Create launcher artwork from supplied transparent PNG
+        shell: bash
+        run: |
+          set -euo pipefail
+          ICON_URL="https://i.ibb.co.com/1Y308tCj/Picsart-26-11-18-20-36-10-772.png"
+          curl -fL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 90 "$ICON_URL" -o /tmp/ethvelle-studio-icon.png
+          python3 -m pip install --quiet pillow
+          python3 - <<'PY'
+          from pathlib import Path
+          from PIL import Image, ImageOps
+          import re
+          root = Path("mobile-app/android/app/src/main/res")
+          source = Image.open("/tmp/ethvelle-studio-icon.png").convert("RGBA")
+          if source.width < 64 or source.height < 64:
+              raise SystemExit("The supplied icon image is unexpectedly small.")
+          for folder, size in {"mipmap-mdpi":48,"mipmap-hdpi":72,"mipmap-xhdpi":96,
+                               "mipmap-xxhdpi":144,"mipmap-xxxhdpi":192}.items():
+              dest = root / folder
+              dest.mkdir(parents=True, exist_ok=True)
+              fitted = ImageOps.contain(source, (size,size), Image.Resampling.LANCZOS)
+              canvas = Image.new("RGBA", (size,size), (15,15,18,255))
+              canvas.alpha_composite(fitted, ((size-fitted.width)//2,(size-fitted.height)//2))
+              canvas.save(dest/"ic_launcher.png", optimize=True)
+              canvas.save(dest/"ic_launcher_round.png", optimize=True)
+          foreground = Image.new("RGBA",(432,432),(0,0,0,0))
+          fitted = ImageOps.contain(source,(288,288),Image.Resampling.LANCZOS)
+          foreground.alpha_composite(fitted,((432-fitted.width)//2,(432-fitted.height)//2))
+          d = root/"drawable-nodpi"; d.mkdir(parents=True,exist_ok=True)
+          foreground.save(d/"ic_launcher_foreground.png", optimize=True)
+          anydpi = root/"mipmap-anydpi-v26"; anydpi.mkdir(parents=True,exist_ok=True)
+          values = root/"values"; values.mkdir(parents=True,exist_ok=True)
+          (values/"launcher_colors.xml").write_text(
+              '<?xml version="1.0" encoding="utf-8"?>\n<resources><color name="ethvelle_launcher_background">#0F0F12</color></resources>\n',
+              encoding="utf-8")
+          adaptive = '''<?xml version="1.0" encoding="utf-8"?>
+          <adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+              <background android:drawable="@color/ethvelle_launcher_background" />
+              <foreground android:drawable="@drawable/ic_launcher_foreground" />
+          </adaptive-icon>
+          '''
+          (anydpi/"ic_launcher.xml").write_text(adaptive,encoding="utf-8")
+          (anydpi/"ic_launcher_round.xml").write_text(adaptive,encoding="utf-8")
+          strings = values/"strings.xml"
+          xml = strings.read_text(encoding="utf-8")
+          xml, count = re.subn(r'<string name="app_name">.*?</string>',
+                               '<string name="app_name">Ethvelle studio</string>',
+                               xml, count=1, flags=re.S)
+          if count != 1:
+              raise SystemExit("Could not set app label.")
+          strings.write_text(xml,encoding="utf-8")
+          print(f"Launcher icon generated from transparent PNG ({source.width}x{source.height}).")
+          PY
+
+      - name: Build installable Android APK
+        working-directory: mobile-app/android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: Prepare APK
+        run: |
+          mkdir -p mobile-app/dist
+          cp mobile-app/android/app/build/outputs/apk/debug/app-debug.apk mobile-app/dist/Ethvelle-studio.apk
+
+      - name: Upload APK workflow artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: Ethvelle-studio-APK
+          path: mobile-app/dist/Ethvelle-studio.apk
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish latest APK release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ethvelle-studio-latest
+          name: Ethvelle studio — Latest APK
+          body: |
+            Installable Android debug APK for Ethvelle studio.
+            App name: Ethvelle studio
+            Package: com.ethvelle.editor
+            This is a debug APK for direct Android installation, not a Play Store-signed release.
+          files: mobile-app/dist/Ethvelle-studio.apk
+          overwrite_files: true
+          make_latest: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
