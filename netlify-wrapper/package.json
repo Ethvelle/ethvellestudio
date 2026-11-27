@@ -1,0 +1,12 @@
+{
+  "name": "ethvelle-android",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Ethvelle studio Android wrapper for the live Netlify website",
+  "scripts": { "sync": "cap sync android" },
+  "dependencies": {
+    "@capacitor/android": "8.6.3",
+    "@capacitor/core": "8.6.3"
+  },
+  "devDependencies": { "@capacitor/cli": "8.6.3" }
+}

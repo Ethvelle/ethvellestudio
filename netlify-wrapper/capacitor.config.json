@@ -1,0 +1,21 @@
+{
+  "appId": "app.ethvelle.editor",
+  "appName": "Ethvelle studio",
+  "webDir": "www",
+  "server": {
+    "url": "https://ethvelle.netlify.app",
+    "cleartext": false,
+    "androidScheme": "https",
+    "allowNavigation": [
+      "ethvelle.netlify.app",
+      "*.firebaseapp.com",
+      "*.googleapis.com",
+      "*.gstatic.com",
+      "accounts.google.com"
+    ]
+  },
+  "android": {
+    "allowMixedContent": false,
+    "webContentsDebuggingEnabled": true
+  }
+}
