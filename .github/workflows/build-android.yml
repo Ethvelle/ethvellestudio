@@ -134,7 +134,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          ICON_URL="https://i.ibb.co.com/4RKB6tzY/Picsart-26-11-18-20-36-10-772.png"
+          ICON_URL="https://i.ibb.co.com/1Y308tCj/Picsart-26-11-18-20-36-10-772.png"
           curl -fL --retry 3 --retry-all-errors --connect-timeout 20 --max-time 90 "$ICON_URL" -o /tmp/ethvelle-favicon.png
           python3 -m pip install --quiet pillow
           python3 - <<'PY'
