@@ -1,4 +1,5 @@
 name: Build Ethvelle studio Android APK (Step 4)
+# Rebuild requested: publish the current Ethvelle studio Android APK.
 
 on:
   push:
